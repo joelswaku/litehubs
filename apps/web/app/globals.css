@@ -1,0 +1,315 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/**
+ * LiteHubs design tokens.
+ *
+ * Tailwind 4 is configured in CSS, not a tailwind.config.ts — that is why there
+ * is no config file. `@theme` below declares the tokens; Tailwind generates the
+ * utilities from them (`--color-surface-1` becomes `bg-surface-1`).
+ *
+ * Dark mode is *selected*, not an automatic inversion. Every dark value here is
+ * its own chosen step, and the chart palette's dark column was validated
+ * against the dark surface as a set rather than flipped from the light one.
+ *
+ * The chart series colors come from a palette validated with the dataviz
+ * validator against these exact surfaces. Both modes pass the lightness band,
+ * chroma floor, adjacent-pair colour-vision separation and normal-vision floor.
+ * Three light-mode slots (aqua, yellow, magenta) sit under 3:1 against the light
+ * surface, so anything using them ships visible direct labels or a table view.
+ *
+ * Do not reorder --chart-1..8. The order *is* the colour-vision safety
+ * mechanism: adjacent slots were chosen so neighbouring series stay separable
+ * for protanopia and tritanopia. Reordering silently breaks that.
+ */
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  color-scheme: light;
+
+  /* ------------------------------------------------------------ surfaces -- */
+  --page: #f9f9f7;
+  --surface-1: #fcfcfb;
+  --surface-2: #f4f4f1;
+  --surface-3: #ecebe7;
+
+  /* ----------------------------------------------------------------- ink -- */
+  --ink-primary: #0b0b0b;
+  --ink-secondary: #52514e;
+  --ink-muted: #898781;
+  --ink-inverse: #fcfcfb;
+
+  /* ----------------------------------------------------------- structure -- */
+  --border: rgba(11, 11, 11, 0.1);
+  --border-strong: #c3c2b7;
+  --grid: #e1e0d9;
+  --ring: #2a78d6;
+
+  /* --------------------------------------------------------------- brand -- */
+  /* Blue rather than an agricultural green, deliberately: green would sit next
+     to the "good" status colour on every screen, and hue would stop being a
+     reliable signal. Blue is also the sequential ramp's hue, so a magnitude
+     chart and the brand read as one system. */
+  --brand: #2a78d6;
+  --brand-hover: #256abf;
+  --brand-active: #184f95;
+  --brand-subtle: #cde2fb;
+  --brand-ink: #fcfcfb;
+
+  /* -------------------------------------------------------------- status -- */
+  /* Reserved. Never reused as a series colour, and always shipped with an icon
+     and a label — on the light surface `warning` and `serious` are below 3:1 by
+     design, so colour alone would not carry the meaning. */
+  --good: #0ca30c;
+  --warning: #fab219;
+  --serious: #ec835a;
+  --critical: #d03b3b;
+  --good-ink: #006300;
+
+  /* ------------------------------------------------------ chart: series -- */
+  --chart-1: #2a78d6; /* blue    */
+  --chart-2: #eb6834; /* orange  */
+  --chart-3: #1baf7a; /* aqua    */
+  --chart-4: #eda100; /* yellow  */
+  --chart-5: #e87ba4; /* magenta */
+  --chart-6: #008300; /* green   */
+  --chart-7: #4a3aa7; /* violet  */
+  --chart-8: #e34948; /* red     */
+
+  /* ---------------------------------------------------- chart: sequential -- */
+  /* One hue, light to dark. Never a rainbow. Steps 100–700; for an ordinal
+     ramp start no lighter than --seq-250, which is the lightest step that still
+     clears 2:1 on the light surface. */
+  --seq-100: #cde2fb;
+  --seq-150: #b7d3f6;
+  --seq-200: #9ec5f4;
+  --seq-250: #86b6ef;
+  --seq-300: #6da7ec;
+  --seq-350: #5598e7;
+  --seq-400: #3987e5;
+  --seq-450: #2a78d6;
+  --seq-500: #256abf;
+  --seq-550: #1c5cab;
+  --seq-600: #184f95;
+  --seq-650: #104281;
+  --seq-700: #0d366b;
+
+  /* ----------------------------------------------------- chart: diverging -- */
+  /* Two hues with a neutral grey midpoint, so the middle reads as "nothing".
+     Never a hue at the midpoint. */
+  --div-negative: #d03b3b;
+  --div-midpoint: #f0efec;
+  --div-positive: #2a78d6;
+
+  /* --------------------------------------------------------------- radii -- */
+  --radius-sm: 0.375rem;
+  --radius: 0.625rem;
+  --radius-lg: 0.875rem;
+  --radius-xl: 1.25rem;
+}
+
+.dark {
+  color-scheme: dark;
+
+  --page: #0d0d0d;
+  --surface-1: #1a1a19;
+  --surface-2: #222221;
+  --surface-3: #2c2c2a;
+
+  --ink-primary: #ffffff;
+  --ink-secondary: #c3c2b7;
+  --ink-muted: #898781;
+  --ink-inverse: #0b0b0b;
+
+  --border: rgba(255, 255, 255, 0.1);
+  --border-strong: #383835;
+  --grid: #2c2c2a;
+  --ring: #3987e5;
+
+  --brand: #3987e5;
+  --brand-hover: #5598e7;
+  --brand-active: #6da7ec;
+  --brand-subtle: #184f95;
+  --brand-ink: #0d0d0d;
+
+  /* Same four status steps: all clear 3:1 on the dark surface. */
+  --good: #0ca30c;
+  --warning: #fab219;
+  --serious: #ec835a;
+  --critical: #d03b3b;
+  --good-ink: #0ca30c;
+
+  /* The same eight hues, re-stepped for the dark surface and validated as a
+     set. Not an inversion of the light column. */
+  --chart-1: #3987e5;
+  --chart-2: #d95926;
+  --chart-3: #199e70;
+  --chart-4: #c98500;
+  --chart-5: #d55181;
+  --chart-6: #008300;
+  --chart-7: #9085e9;
+  --chart-8: #e66767;
+
+  /* Sequential runs the other way against a dark surface. For an ordinal ramp
+     go no darker than --seq-600, the darkest step still clearing 2:1 here. */
+  --seq-100: #0d366b;
+  --seq-150: #104281;
+  --seq-200: #184f95;
+  --seq-250: #1c5cab;
+  --seq-300: #256abf;
+  --seq-350: #2a78d6;
+  --seq-400: #3987e5;
+  --seq-450: #5598e7;
+  --seq-500: #6da7ec;
+  --seq-550: #86b6ef;
+  --seq-600: #9ec5f4;
+  --seq-650: #b7d3f6;
+  --seq-700: #cde2fb;
+
+  --div-negative: #e66767;
+  --div-midpoint: #383835;
+  --div-positive: #3987e5;
+}
+
+@theme inline {
+  --color-page: var(--page);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+
+  --color-ink: var(--ink-primary);
+  --color-ink-secondary: var(--ink-secondary);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-inverse: var(--ink-inverse);
+
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-grid: var(--grid);
+  --color-ring: var(--ring);
+
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-active: var(--brand-active);
+  --color-brand-subtle: var(--brand-subtle);
+  --color-brand-ink: var(--brand-ink);
+
+  --color-good: var(--good);
+  --color-good-ink: var(--good-ink);
+  --color-warning: var(--warning);
+  --color-serious: var(--serious);
+  --color-critical: var(--critical);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-chart-6: var(--chart-6);
+  --color-chart-7: var(--chart-7);
+  --color-chart-8: var(--chart-8);
+
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+
+  /* One UI sans throughout, including large figures. No display or serif face. */
+  --font-sans:
+    system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    /* The theme is applied by a class on <html> before paint, so there is no
+       flash of the wrong theme on load. */
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--page);
+    color: var(--ink-primary);
+    font-family: var(--font-sans);
+    /* Antialiasing makes the thin chart marks and hairline borders read as
+       intended rather than as gritty. */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* A visible focus ring is the difference between a keyboard-usable dashboard
+     and one that is not. Never remove it; restyle it if it looks wrong. */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  /* Columns of figures have to line up to be scannable. Standalone hero numbers
+     deliberately keep proportional figures, which read better large. */
+  th,
+  td,
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Native select menus are rendered by the browser. Give options explicit
+     theme tokens so white browser menus never receive white dark-mode text. */
+  select option,
+  select optgroup {
+    background-color: var(--surface-1);
+    color: var(--ink-primary);
+  }
+
+  ::selection {
+    background-color: var(--brand-subtle);
+    color: var(--ink-primary);
+  }
+
+  /* Respect a stated preference for less motion. Applies to the whole app, so
+     no individual animation has to remember to check. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer utilities {
+  /* Recessive chart chrome, so the data is what carries visual weight. */
+  .chart-grid line {
+    stroke: var(--grid);
+    stroke-width: 1;
+  }
+
+  .chart-axis line,
+  .chart-axis path {
+    stroke: var(--border-strong);
+    stroke-width: 1;
+  }
+
+  .chart-axis text {
+    fill: var(--ink-muted);
+    font-size: 0.6875rem;
+  }
+
+  /* A 2px surface-coloured ring separates overlapping marks and adjacent fills
+     without introducing another colour. */
+  .mark-separated {
+    stroke: var(--surface-1);
+    stroke-width: 2;
+  }
+
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+}

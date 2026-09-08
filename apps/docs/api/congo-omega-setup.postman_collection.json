@@ -1,0 +1,633 @@
+{
+  "info": {
+    "name": "LiteHubs - Congo Omega Setup Test",
+    "description": "Set ownerPassword, then run this collection from top to bottom. It creates unique test data and checks a province-limited Poultry Supervisor.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5000/api/v1" },
+    { "key": "organizationSlug", "value": "congo-omega" },
+    { "key": "ownerEmail", "value": "joel@gmail.com" },
+    { "key": "ownerPassword", "value": "CHANGE_THIS_TO_YOUR_OWNER_PASSWORD" },
+    { "key": "ownerToken", "value": "" },
+    { "key": "provinceId", "value": "" },
+    { "key": "siteId", "value": "" },
+    { "key": "departmentId", "value": "" },
+    { "key": "customRoleId", "value": "" },
+    { "key": "workerEmail", "value": "" },
+    { "key": "inviteToken", "value": "" },
+    { "key": "workerToken", "value": "" },
+    { "key": "workerMemberId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "1. Login as Owner",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{baseUrl}}/auth/login",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{ownerEmail}}\",\n  \"password\": \"{{ownerPassword}}\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Login succeeded', function () {",
+              "  pm.response.to.have.status(200);",
+              "  pm.collectionVariables.set('ownerToken', pm.response.json().accessToken);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Check Congo Omega roles",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/roles"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Congo Omega roles exist', function () {",
+              "  pm.response.to.have.status(200);",
+              "  const codes = pm.response.json().roles.map((role) => role.code);",
+              "  pm.expect(codes).to.include('poultry_supervisor');",
+              "  pm.expect(codes).to.include('pig_supervisor');",
+              "  pm.expect(codes).to.include('agriculture_supervisor');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Check permission catalogue",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/permissions"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Permissions returned', function () { pm.response.to.have.status(200); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Create Kinshasa test province",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/provinces",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"code\": \"{{provinceCode}}\",\n  \"name\": \"{{provinceName}}\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const stamp = Date.now();",
+              "pm.collectionVariables.set('provinceCode', 'kinshasa_test_' + stamp);",
+              "pm.collectionVariables.set('provinceName', 'Kinshasa Postman ' + stamp);"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Province created', function () {",
+              "  pm.response.to.have.status(201);",
+              "  pm.collectionVariables.set('provinceId', pm.response.json().province.id);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Create second province",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/provinces",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"code\": \"{{secondProvinceCode}}\",\n  \"name\": \"Kongo Central Postman Test\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.collectionVariables.set('secondProvinceCode', 'kongo_central_test_' + Date.now());"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Second province created', function () { pm.response.to.have.status(201); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Update Kinshasa province",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/provinces/{{provinceId}}",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"{{provinceName}} Updated\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Province updated', function () { pm.response.to.have.status(200); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. Create farm in Kinshasa",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/sites",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"provinceId\": \"{{provinceId}}\",\n  \"code\": \"{{siteCode}}\",\n  \"name\": \"Kinshasa Postman Farm\",\n  \"siteType\": \"farm\",\n  \"city\": \"Kinshasa\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.collectionVariables.set('siteCode', 'kinshasa_farm_test_' + Date.now());"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Farm created', function () {",
+              "  pm.response.to.have.status(201);",
+              "  pm.collectionVariables.set('siteId', pm.response.json().site.id);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "8. Update farm",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/sites/{{siteId}}",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"city\": \"Kinshasa Updated\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Farm updated', function () { pm.response.to.have.status(200); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "9. Create Poultry department",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/departments",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"siteId\": \"{{siteId}}\",\n  \"code\": \"{{departmentCode}}\",\n  \"name\": \"Poultry Postman Test\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.collectionVariables.set('departmentCode', 'poultry_test_' + Date.now());"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Department created', function () {",
+              "  pm.response.to.have.status(201);",
+              "  pm.collectionVariables.set('departmentId', pm.response.json().department.id);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "10. Update department",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/departments/{{departmentId}}",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"description\": \"Updated by the Postman test collection\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Department updated', function () { pm.response.to.have.status(200); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "11. Create temporary custom role",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/roles",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"code\": \"{{customRoleCode}}\",\n  \"name\": \"Postman Site Viewer\",\n  \"dataScope\": \"province\",\n  \"permissionCodes\": [\n    \"sites.read\"\n  ]\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.collectionVariables.set('customRoleCode', 'postman_site_viewer_' + Date.now());"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Custom role created', function () {",
+              "  pm.response.to.have.status(201);",
+              "  pm.collectionVariables.set('customRoleId', pm.response.json().role.id);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "12. Update temporary custom role",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/roles/{{customRoleId}}",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Postman Site Viewer Updated\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Custom role updated', function () { pm.response.to.have.status(200); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "13. Invite Poultry Supervisor",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/invitations",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{workerEmail}}\",\n  \"roleCodes\": [\n    \"poultry_supervisor\"\n  ],\n  \"provinceIds\": [\n    \"{{provinceId}}\"\n  ],\n  \"jobTitle\": \"Poultry Supervisor\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.collectionVariables.set('workerEmail', 'poultry.postman.' + Date.now() + '@example.test');"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Invitation created', function () {",
+              "  pm.response.to.have.status(201);",
+              "  const match = pm.response.json().acceptUrl.match(/[?&]token=([^&]+)/);",
+              "  pm.expect(match).to.not.be.null;",
+              "  pm.collectionVariables.set('inviteToken', decodeURIComponent(match[1]));",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "14. Accept invitation and create worker",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{baseUrl}}/auth/accept-invitation",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"token\": \"{{inviteToken}}\",\n  \"fullName\": \"Postman Poultry Supervisor\",\n  \"email\": \"{{workerEmail}}\",\n  \"password\": \"SecurePass123\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Worker account created', function () {",
+              "  pm.response.to.have.status(201);",
+              "  pm.collectionVariables.set('workerToken', pm.response.json().accessToken);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "15. Owner confirms worker role",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/members"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Worker role is correct', function () {",
+              "  pm.response.to.have.status(200);",
+              "  const member = pm.response.json().members.find((item) => item.email === pm.collectionVariables.get('workerEmail'));",
+              "  pm.expect(member).to.exist;",
+              "  pm.expect(member.roleCodes).to.include('poultry_supervisor');",
+              "  pm.collectionVariables.set('workerMemberId', member.id);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "16. Owner re-saves worker role",
+      "request": {
+        "method": "PUT",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/members/{{workerMemberId}}/roles",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"roleCodes\": [\n    \"poultry_supervisor\"\n  ]\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Worker role saved', function () { pm.response.to.have.status(200); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "17. Owner re-saves worker province",
+      "request": {
+        "method": "PUT",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/members/{{workerMemberId}}/provinces",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"provinceIds\": [\n    \"{{provinceId}}\"\n  ]\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Worker province saved', function () { pm.response.to.have.status(200); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "18. Worker sees only assigned province",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{workerToken}}" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/provinces"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Province restriction works', function () {",
+              "  pm.response.to.have.status(200);",
+              "  const provinces = pm.response.json().provinces;",
+              "  pm.expect(provinces).to.have.length(1);",
+              "  pm.expect(provinces[0].id).to.eql(pm.collectionVariables.get('provinceId'));",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "19. Worker sees only assigned farm",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{workerToken}}" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/sites"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Site restriction works', function () {",
+              "  pm.response.to.have.status(200);",
+              "  const provinceId = pm.collectionVariables.get('provinceId');",
+              "  pm.response.json().sites.forEach((site) => pm.expect(site.province.id).to.eql(provinceId));",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "20. Worker sees Poultry department",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{workerToken}}" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/departments"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Department access works', function () {",
+              "  pm.response.to.have.status(200);",
+              "  const departmentId = pm.collectionVariables.get('departmentId');",
+              "  pm.expect(pm.response.json().departments.some((department) => department.id === departmentId)).to.eql(true);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "21. Delete temporary custom role",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/roles/{{customRoleId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Temporary role deleted', function () { pm.response.to.have.status(204); });"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

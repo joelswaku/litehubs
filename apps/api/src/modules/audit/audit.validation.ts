@@ -1,0 +1,6 @@
+import { z } from "zod";
+import { organizationSlugSchema } from "../organization/organization.validation";
+const date = z.string().date("Use YYYY-MM-DD");
+export const organizationParams = z.object({ orgSlug: organizationSlugSchema });
+export const auditQuery = z.object({ action: z.enum(["create","read","update","delete","login","login_failed","logout","approve","reject","export","import","invite","permission_change","role_change","password_change","switch_organization","post","reverse","cancel"]).optional(), severity: z.enum(["info","notice","warning","critical"]).optional(), entityTable: z.string().trim().regex(/^[a-z][a-z0-9_]{0,62}$/).optional(), from: date.optional(), to: date.optional(), search: z.string().trim().min(1).max(120).optional(), limit: z.coerce.number().int().min(1).max(500).optional() }).superRefine((value,ctx)=>{if(value.from&&value.to&&value.to<value.from)ctx.addIssue({code:"custom",path:["to"],message:"End date cannot be before start date"});});
+export type AuditQuery = z.infer<typeof auditQuery>;

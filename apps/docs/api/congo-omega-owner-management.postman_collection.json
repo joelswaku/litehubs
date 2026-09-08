@@ -1,0 +1,862 @@
+{
+  "info": {
+    "name": "LiteHubs — Congo Omega Owner Management",
+    "description": "Projects, phases, budgets, purchasing, receiving, project materials, assets, vehicles, maintenance, expenses, approvals, documents and owner dashboard. Set token, orgSlug, provinceId and siteId first. IDs returned from the core workflow are saved automatically.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5000/api/v1"
+    },
+    {
+      "key": "token",
+      "value": "PASTE_OWNER_OR_MANAGER_ACCESS_TOKEN"
+    },
+    {
+      "key": "orgSlug",
+      "value": "congo-omega"
+    },
+    {
+      "key": "provinceId",
+      "value": "PASTE_PROVINCE_ID"
+    },
+    {
+      "key": "siteId",
+      "value": "PASTE_SITE_ID"
+    },
+    {
+      "key": "projectId",
+      "value": ""
+    },
+    {
+      "key": "phaseId",
+      "value": ""
+    },
+    {
+      "key": "taskId",
+      "value": ""
+    },
+    {
+      "key": "supplierId",
+      "value": ""
+    },
+    {
+      "key": "itemId",
+      "value": ""
+    },
+    {
+      "key": "warehouseId",
+      "value": ""
+    },
+    {
+      "key": "materialId",
+      "value": ""
+    },
+    {
+      "key": "requestId",
+      "value": ""
+    },
+    {
+      "key": "requestLineId",
+      "value": ""
+    },
+    {
+      "key": "orderId",
+      "value": ""
+    },
+    {
+      "key": "orderLineId",
+      "value": ""
+    },
+    {
+      "key": "receiptId",
+      "value": ""
+    },
+    {
+      "key": "assetId",
+      "value": ""
+    },
+    {
+      "key": "planId",
+      "value": ""
+    },
+    {
+      "key": "workOrderId",
+      "value": ""
+    },
+    {
+      "value": "",
+      "key": "imageId"
+    },
+    {
+      "key": "operationalRecordId",
+      "value": "PASTE_FLOCK_ANIMAL_OR_FARM_ID"
+    }
+  ],
+  "item": [
+    {
+      "name": "Owner dashboard",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": "{{baseUrl}}/organizations/{{orgSlug}}/owner-management/dashboard"
+      }
+    },
+    {
+      "name": "1. Project blueprint and budget",
+      "item": [
+        {
+          "name": "Create project",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.collectionVariables.set('projectId', pm.response.json().record.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/organizations/{{orgSlug}}/owner-management/projects",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"poultry_expansion_2026\",\n  \"name\": \"Kinshasa Poultry Expansion\",\n  \"description\": \"Build capacity for 10,000 additional broilers.\",\n  \"projectType\": \"expansion\",\n  \"provinceId\": \"{{provinceId}}\",\n  \"siteId\": \"{{siteId}}\",\n  \"startDate\": \"2026-09-01\",\n  \"targetCompletionDate\": \"2026-12-31\",\n  \"status\": \"planning\",\n  \"priority\": \"high\",\n  \"estimatedTotalBudget\": 50000,\n  \"currencyCode\": \"USD\",\n  \"blueprint\": \"Land preparation; construction; water and electricity; equipment; livestock; staffing; operations start.\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Create phase",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.collectionVariables.set('phaseId', pm.response.json().record.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/organizations/{{orgSlug}}/owner-management/phases",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"projectId\": \"{{projectId}}\",\n  \"code\": \"construction\",\n  \"name\": \"Construction\",\n  \"phaseOrder\": 1,\n  \"plannedBudget\": 12000,\n  \"status\": \"not_started\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Create next task",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.collectionVariables.set('taskId', pm.response.json().record.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/organizations/{{orgSlug}}/owner-management/tasks",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"projectId\": \"{{projectId}}\",\n  \"phaseId\": \"{{phaseId}}\",\n  \"title\": \"Buy 40 feeders\",\n  \"dueDate\": \"2026-09-12\",\n  \"priority\": \"high\",\n  \"status\": \"not_started\",\n  \"estimatedCost\": 800\n}"
+            }
+          }
+        },
+        {
+          "name": "Add planned budget line",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/organizations/{{orgSlug}}/owner-management/budget-lines",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"projectId\": \"{{projectId}}\",\n  \"phaseId\": \"{{phaseId}}\",\n  \"category\": \"Construction\",\n  \"description\": \"Poultry house work\",\n  \"plannedAmount\": 12000,\n  \"currencyCode\": \"USD\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Project financial/material summary",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/organizations/{{orgSlug}}/owner-management/projects/{{projectId}}/summary"
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Materials, purchasing and receiving",
+      "item": [
+        {
+          "name": "Create supplier",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.collectionVariables.set('supplierId', pm.response.json().record.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/organizations/{{orgSlug}}/owner-management/suppliers",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"code\":\"build_supply\",\"name\":\"Build Supply Congo\",\"supplierType\":\"materials\"}"
+            }
+          }
+        },
+        {
+          "name": "Create stock item",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.collectionVariables.set('itemId', pm.response.json().record.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/organizations/{{orgSlug}}/owner-management/inventory-items",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"code\":\"cement_bag\",\"name\":\"Cement bag\",\"unit\":\"bag\",\"reorderLevel\":50,\"standardUnitCost\":10}"
+            }
+          }
+        },
+        {
+          "name": "Create warehouse",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.collectionVariables.set('warehouseId', pm.response.json().record.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/organizations/{{orgSlug}}/owner-management/warehouses",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"siteId\":\"{{siteId}}\",\"code\":\"main_store\",\"name\":\"Main Store\"}"
+            }
+          }
+        },
+        {
+          "name": "Plan project material",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.collectionVariables.set('materialId', pm.response.json().record.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/organizations/{{orgSlug}}/owner-management/materials",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"projectId\":\"{{projectId}}\",\"phaseId\":\"{{phaseId}}\",\"inventoryItemId\":\"{{itemId}}\",\"defaultWarehouseId\":\"{{warehouseId}}\",\"preferredSupplierId\":\"{{supplierId}}\",\"code\":\"cement\",\"name\":\"Cement\",\"unit\":\"bag\",\"plannedQuantity\":500,\"estimatedUnitCost\":10}"
+            }
+          }
+        },
+        {
+          "name": "Create purchase request",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.collectionVariables.set('requestId', pm.response.json().record.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/organizations/{{orgSlug}}/owner-management/purchase-requests",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"requestNumber\":\"PR-00001\",\"projectId\":\"{{projectId}}\",\"supplierId\":\"{{supplierId}}\",\"reason\":\"Cement needed for construction\",\"status\":\"submitted\",\"approvalStatus\":\"pending\",\"currencyCode\":\"USD\"}"
+            }
+          }
+        },
+        {
+          "name": "Add purchase request item",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.collectionVariables.set('requestLineId', pm.response.json().record.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/organizations/{{orgSlug}}/owner-management/purchase-request-lines",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"purchaseRequestId\":\"{{requestId}}\",\"projectMaterialId\":\"{{materialId}}\",\"inventoryItemId\":\"{{itemId}}\",\"description\":\"Cement\",\"itemKind\":\"material\",\"unit\":\"bag\",\"requestedQuantity\":500,\"approvedQuantity\":500,\"estimatedUnitCost\":10}"
+            }
+          }
+        },
+        {
+          "name": "Create purchase order",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.collectionVariables.set('orderId', pm.response.json().record.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/organizations/{{orgSlug}}/owner-management/purchase-orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"orderNumber\":\"PO-00001\",\"projectId\":\"{{projectId}}\",\"purchaseRequestId\":\"{{requestId}}\",\"supplierId\":\"{{supplierId}}\",\"warehouseId\":\"{{warehouseId}}\",\"orderDate\":\"2026-09-01\",\"status\":\"sent\",\"currencyCode\":\"USD\"}"
+            }
+          }
+        },
+        {
+          "name": "Add purchase order item",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.collectionVariables.set('orderLineId', pm.response.json().record.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/organizations/{{orgSlug}}/owner-management/purchase-order-lines",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"purchaseOrderId\":\"{{orderId}}\",\"purchaseRequestLineId\":\"{{requestLineId}}\",\"projectMaterialId\":\"{{materialId}}\",\"inventoryItemId\":\"{{itemId}}\",\"description\":\"Cement\",\"itemKind\":\"material\",\"unit\":\"bag\",\"orderedQuantity\":500,\"unitCost\":10}"
+            }
+          }
+        },
+        {
+          "name": "Receive delivery — accepted stock is added automatically",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.collectionVariables.set('receiptId', pm.response.json().record.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/organizations/{{orgSlug}}/owner-management/receipts",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"receiptNumber\":\"GRN-00001\",\"purchaseOrderId\":\"{{orderId}}\",\"projectId\":\"{{projectId}}\",\"warehouseId\":\"{{warehouseId}}\",\"receivedDate\":\"2026-09-03\",\"status\":\"received\"}"
+            }
+          }
+        },
+        {
+          "name": "Record delivered / damaged / rejected quantities",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/organizations/{{orgSlug}}/owner-management/receipt-lines",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"receiptId\":\"{{receiptId}}\",\"purchaseOrderLineId\":\"{{orderLineId}}\",\"projectMaterialId\":\"{{materialId}}\",\"inventoryItemId\":\"{{itemId}}\",\"receivedQuantity\":350,\"damagedQuantity\":0,\"rejectedQuantity\":0,\"actualUnitCost\":10}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Assets, maintenance and finance",
+      "item": [
+        {
+          "name": "Register durable asset",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.collectionVariables.set('assetId', pm.response.json().record.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/organizations/{{orgSlug}}/owner-management/assets",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"projectId\":\"{{projectId}}\",\"provinceId\":\"{{provinceId}}\",\"siteId\":\"{{siteId}}\",\"name\":\"Tractor 01\",\"category\":\"Tractor\",\"purchasePrice\":25000,\"purchaseDate\":\"2026-09-03\",\"currencyCode\":\"USD\",\"meterType\":\"engine_hours\",\"currentMeterReading\":1200}"
+            }
+          }
+        },
+        {
+          "name": "Record machine usage",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/organizations/{{orgSlug}}/owner-management/asset-usage",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"assetId\":\"{{assetId}}\",\"projectId\":\"{{projectId}}\",\"siteId\":\"{{siteId}}\",\"usageDate\":\"2026-09-03\",\"meterStart\":1200,\"meterEnd\":1210,\"fuelConsumed\":14,\"workPerformed\":\"Prepared poultry expansion site\",\"areaCovered\":1.5}"
+            }
+          }
+        },
+        {
+          "name": "Create maintenance plan",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.collectionVariables.set('planId', pm.response.json().record.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/organizations/{{orgSlug}}/owner-management/maintenance-plans",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"assetId\":\"{{assetId}}\",\"name\":\"Tractor 100-hour service\",\"maintenanceType\":\"preventive\",\"intervalMeter\":100,\"nextDueMeter\":1300,\"estimatedCost\":180}"
+            }
+          }
+        },
+        {
+          "name": "Create maintenance work order",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.collectionVariables.set('workOrderId', pm.response.json().record.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/organizations/{{orgSlug}}/owner-management/maintenance-work-orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"workOrderNumber\":\"WO-00001\",\"planId\":\"{{planId}}\",\"assetId\":\"{{assetId}}\",\"projectId\":\"{{projectId}}\",\"maintenanceType\":\"preventive\",\"status\":\"in_progress\",\"title\":\"Tractor routine service\",\"meterReading\":1210,\"laborCost\":40}"
+            }
+          }
+        },
+        {
+          "name": "Complete maintenance",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/organizations/{{orgSlug}}/owner-management/maintenance-work-orders/{{workOrderId}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"status\":\"completed\",\"meterReading\":1210,\"workPerformed\":\"Oil and filter service completed\"}"
+            }
+          }
+        },
+        {
+          "name": "Record paid project expense",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/organizations/{{orgSlug}}/owner-management/expenses",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"expenseNumber\":\"EXP-00001\",\"projectId\":\"{{projectId}}\",\"provinceId\":\"{{provinceId}}\",\"siteId\":\"{{siteId}}\",\"supplierId\":\"{{supplierId}}\",\"category\":\"Construction materials\",\"description\":\"Cement delivery accepted\",\"amount\":3500,\"currencyCode\":\"USD\",\"expenseDate\":\"2026-09-03\",\"status\":\"paid\"}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Approval decision example",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/organizations/{{orgSlug}}/owner-management/approvals/PASTE_APPROVAL_ID/decide",
+        "body": {
+          "mode": "raw",
+          "raw": "{\"decision\":\"approved\",\"decisionNotes\":\"Approved for project work.\"}"
+        }
+      }
+    },
+    {
+      "name": "7. Project images",
+      "item": [
+        {
+          "name": "Upload project image",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.collectionVariables.set('imageId', pm.response.json().image.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/organizations/{{orgSlug}}/images/owner-management/projects/{{projectId}}",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": ""
+                },
+                {
+                  "key": "title",
+                  "value": "Construction progress photo",
+                  "type": "text"
+                },
+                {
+                  "key": "imageType",
+                  "value": "construction_progress",
+                  "type": "text"
+                },
+                {
+                  "key": "altText",
+                  "value": "Poultry house construction progress",
+                  "type": "text"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "List project images",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/organizations/{{orgSlug}}/images/owner-management/projects/{{projectId}}"
+          }
+        },
+        {
+          "name": "Delete project image",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/organizations/{{orgSlug}}/images/{{imageId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "8. Activity, operations and Excel export",
+      "item": [
+        {
+          "name": "Link an existing operational record",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/organizations/{{orgSlug}}/owner-management/operational-links",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"projectId\": \"{{projectId}}\",\n  \"moduleCode\": \"poultry\",\n  \"resourceCode\": \"flocks\",\n  \"recordId\": \"{{operationalRecordId}}\",\n  \"linkType\": \"acquired_for_project\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Project activity timeline",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/organizations/{{orgSlug}}/owner-management/projects/{{projectId}}/activity"
+          }
+        },
+        {
+          "name": "Export project Excel workbook",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/organizations/{{orgSlug}}/owner-management/projects/{{projectId}}/export.xlsx"
+          }
+        }
+      ]
+    }
+  ]
+}

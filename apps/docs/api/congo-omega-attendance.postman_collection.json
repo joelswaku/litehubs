@@ -1,0 +1,374 @@
+{
+  "info": {
+    "name": "LiteHubs - Congo Omega Attendance Test",
+    "description": "Set ownerEmail and ownerPassword, then run this collection from top to bottom. It creates a new test province, farm, department, employee, shift, assignment and attendance record in the selected company.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5000/api/v1" },
+    { "key": "organizationSlug", "value": "congo-omega" },
+    { "key": "ownerEmail", "value": "joel@gmail.com" },
+    { "key": "ownerPassword", "value": "CHANGE_THIS_TO_YOUR_OWNER_PASSWORD" },
+    { "key": "ownerToken", "value": "" },
+    { "key": "testStamp", "value": "" },
+    { "key": "workDate", "value": "" },
+    { "key": "provinceId", "value": "" },
+    { "key": "siteId", "value": "" },
+    { "key": "departmentId", "value": "" },
+    { "key": "employeeId", "value": "" },
+    { "key": "employeeNumber", "value": "" },
+    { "key": "shiftId", "value": "" },
+    { "key": "attendanceId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "1. Login as Congo Omega Owner",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{baseUrl}}/auth/login",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{ownerEmail}}\",\n  \"password\": \"{{ownerPassword}}\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Owner login succeeded', function () {",
+              "  pm.response.to.have.status(200);",
+              "  pm.collectionVariables.set('ownerToken', pm.response.json().accessToken);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Create test province",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.collectionVariables.set('testStamp', String(Date.now()));",
+              "pm.collectionVariables.set('workDate', new Date().toISOString().slice(0, 10));"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Test province created', function () {",
+              "  pm.response.to.have.status(201);",
+              "  pm.collectionVariables.set('provinceId', pm.response.json().province.id);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/provinces",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"code\": \"attendance_test_{{testStamp}}\",\n  \"name\": \"Attendance Test {{testStamp}}\"\n}"
+        }
+      }
+    },
+    {
+      "name": "3. Create test farm",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Test farm created', function () {",
+              "  pm.response.to.have.status(201);",
+              "  pm.collectionVariables.set('siteId', pm.response.json().site.id);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/sites",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"provinceId\": \"{{provinceId}}\",\n  \"code\": \"attendance_farm_{{testStamp}}\",\n  \"name\": \"Attendance Test Farm {{testStamp}}\",\n  \"siteType\": \"farm\"\n}"
+        }
+      }
+    },
+    {
+      "name": "4. Create Poultry test department",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Test department created', function () {",
+              "  pm.response.to.have.status(201);",
+              "  pm.collectionVariables.set('departmentId', pm.response.json().department.id);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/departments",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"siteId\": \"{{siteId}}\",\n  \"code\": \"attendance_poultry_{{testStamp}}\",\n  \"name\": \"Attendance Poultry {{testStamp}}\"\n}"
+        }
+      }
+    },
+    {
+      "name": "5. Create test employee",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Test employee created with five-digit number', function () {",
+              "  pm.response.to.have.status(201);",
+              "  const employee = pm.response.json().employee;",
+              "  pm.expect(employee.employeeNumber).to.match(/^\\d{5}$/);",
+              "  pm.collectionVariables.set('employeeId', employee.id);",
+              "  pm.collectionVariables.set('employeeNumber', employee.employeeNumber);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/employees",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"fullName\": \"Attendance Test Worker {{testStamp}}\",\n  \"jobTitle\": \"Poultry Farm Worker\",\n  \"positionCategory\": \"employee\",\n  \"departmentId\": \"{{departmentId}}\",\n  \"employmentStatus\": \"active\",\n  \"employmentType\": \"temporary\"\n}"
+        }
+      }
+    },
+    {
+      "name": "6. Create all-day test shift",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Shift created', function () {",
+              "  pm.response.to.have.status(201);",
+              "  pm.collectionVariables.set('shiftId', pm.response.json().shift.id);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/shifts",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"code\": \"attendance_day_{{testStamp}}\",\n  \"name\": \"Attendance Test Shift {{testStamp}}\",\n  \"siteId\": \"{{siteId}}\",\n  \"departmentId\": \"{{departmentId}}\",\n  \"startsAt\": \"00:00\",\n  \"endsAt\": \"23:59\"\n}"
+        }
+      }
+    },
+    {
+      "name": "7. Assign test employee to shift",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Employee assignment created', function () {",
+              "  pm.response.to.have.status(201);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/shifts/{{shiftId}}/assignments",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"employeeId\": \"{{employeeId}}\",\n  \"effectiveFrom\": \"{{workDate}}\"\n}"
+        }
+      }
+    },
+    {
+      "name": "8. Clock in with five-digit employee number",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Clock-in created attendance', function () {",
+              "  pm.response.to.have.status(201);",
+              "  const attendance = pm.response.json().attendance;",
+              "  pm.expect(attendance.employee.employeeNumber).to.eql(pm.collectionVariables.get('employeeNumber'));",
+              "  pm.collectionVariables.set('attendanceId', attendance.id);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/attendance/clock-in",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"employeeNumber\": \"{{employeeNumber}}\",\n  \"workDate\": \"{{workDate}}\",\n  \"notes\": \"Postman clock-in test\"\n}"
+        }
+      }
+    },
+    {
+      "name": "9. Clock out with the same employee number",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Clock-out updated the attendance record', function () {",
+              "  pm.response.to.have.status(200);",
+              "  pm.expect(pm.response.json().attendance.clockOutAt).to.exist;",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/attendance/clock-out",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"employeeNumber\": \"{{employeeNumber}}\",\n  \"workDate\": \"{{workDate}}\",\n  \"notes\": \"Postman clock-out test\"\n}"
+        }
+      }
+    },
+    {
+      "name": "10. List attendance for test employee",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Attendance record is listed', function () {",
+              "  pm.response.to.have.status(200);",
+              "  pm.expect(pm.response.json().attendance).to.have.length(1);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/attendance?workDate={{workDate}}&employeeId={{employeeId}}"
+      }
+    },
+    {
+      "name": "11. Correct attendance",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Attendance corrected', function () {",
+              "  pm.response.to.have.status(200);",
+              "  pm.expect(pm.response.json().attendance.correctionNote).to.exist;",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/attendance/{{attendanceId}}",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"status\": \"present\",\n  \"correctionNote\": \"Corrected by Postman attendance test\"\n}"
+        }
+      }
+    },
+    {
+      "name": "12. Approve attendance",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Attendance approved', function () {",
+              "  pm.response.to.have.status(200);",
+              "  pm.expect(pm.response.json().attendance.approval.approvedAt).to.exist;",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/attendance/{{attendanceId}}/approve"
+      }
+    }
+  ]
+}

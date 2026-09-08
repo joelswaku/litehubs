@@ -1,0 +1,1442 @@
+{
+  "info": {
+    "_postman_id": "b7e1c3a4-5d62-4f80-9a11-6c2d8e4f0a37",
+    "name": "Congo Omega API",
+    "description": "Every endpoint the API currently exposes: health, and the eight auth routes.\n\n## Setup\n\n1. Start the API: `npm run dev:api` from `apps/`.\n2. Check the collection variables (Collection > Variables): `baseUrl`, `email`, `password`.\n3. Run the whole collection top to bottom (Collection > Run). Folders are ordered so tokens captured by one request feed the next.\n\n## Notes\n\n- **Cookies.** Login sets httpOnly `access_token` and `refresh_token` cookies, and Postman stores them. The \"401 without any token\" test therefore clears the cookie jar first. Postman may ask you to allow programmatic cookie access for `localhost` — approve it, or that one test will report 200 instead of 401.\n- **Folder 4 changes the real password** and then changes it back, so a full clean run leaves it as it started. If the run fails midway the password may be left as `newPassword` — check the variable and change it back.\n- **Reset password** needs a token that arrives by email. SMTP is not authenticating yet, so in development the link is printed in the API log. Copy the `token` query value into the `resetToken` variable.\n\nCurrent surface: `GET /health`, `GET /api/v1/health`, and `/api/v1/auth/{login,refresh,logout,logout-all,me,forgot-password,reset-password,change-password}`. There is no signup endpoint — accounts are created with `npm run create:owner`.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5000",
+      "type": "string"
+    },
+    {
+      "key": "apiUrl",
+      "value": "{{baseUrl}}/api/v1",
+      "type": "string"
+    },
+    {
+      "key": "email",
+      "value": "joelswaku@gmail.com",
+      "type": "string"
+    },
+    {
+      "key": "password",
+      "value": "OwnerPass123",
+      "type": "string"
+    },
+    {
+      "key": "newPassword",
+      "value": "RotatedPass456",
+      "type": "string"
+    },
+    {
+      "key": "accessToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "refreshToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "previousRefreshToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "resetToken",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Health",
+      "item": [
+        {
+          "name": "Liveness",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health",
+            "description": "Process is up. Never touches the database, so it stays 200 even if Postgres is down."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('status ok', () => pm.expect(body.status).to.eql('ok'));",
+                  "pm.test('names the service', () => pm.expect(body.service).to.eql('congo-omega-api'));",
+                  "pm.test('reports uptime', () => pm.expect(body.uptime).to.be.a('number'));",
+                  "pm.test('does not expose x-powered-by', () => pm.expect(pm.response.headers.get('x-powered-by')).to.be.undefined);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Readiness",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{apiUrl}}/health",
+            "description": "Pings the database. Returns 503 with status 'degraded' when Postgres is unreachable."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('database is up', () => pm.expect(body.checks.database).to.eql('up'));",
+                  "pm.test('helmet headers set', () => {",
+                  "  pm.expect(pm.response.headers.get('x-content-type-options')).to.eql('nosniff');",
+                  "  pm.expect(pm.response.headers.get('strict-transport-security')).to.be.a('string');",
+                  "});",
+                  "pm.test('rate limit headers present', () => {",
+                  "  pm.expect(pm.response.headers.get('ratelimit-policy')).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Auth - session lifecycle",
+      "description": "Run in order. Login captures the tokens the later requests use.",
+      "item": [
+        {
+          "name": "Login",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{apiUrl}}/auth/login"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('returns the user', () => pm.expect(body.user.email).to.eql(pm.collectionVariables.get('email')));",
+                  "pm.test('has the owner role', () => pm.expect(body.user.roles).to.include('owner'));",
+                  "pm.test('carries permissions', () => {",
+                  "  pm.expect(body.user.permissions).to.be.an('array');",
+                  "  pm.expect(body.user.permissions).to.include('users.create');",
+                  "});",
+                  "pm.test('issues an access token', () => pm.expect(body.accessToken).to.be.a('string'));",
+                  "pm.test('issues a refresh token', () => pm.expect(body.refreshToken).to.be.a('string'));",
+                  "pm.test('never returns a password hash', () => pm.expect(pm.response.text()).to.not.include('$2b$'));",
+                  "",
+                  "const cookies = (pm.response.headers.all() || [])",
+                  "  .filter((h) => h.key.toLowerCase() === 'set-cookie')",
+                  "  .map((h) => h.value)",
+                  "  .join(' | ');",
+                  "pm.test('access_token cookie is httpOnly', () => pm.expect(cookies.toLowerCase()).to.include('access_token').and.to.include('httponly'));",
+                  "pm.test('refresh_token cookie is scoped to the auth routes', () => pm.expect(cookies).to.match(/refresh_token=[^;]+;[^|]*Path=\\/api\\/v1\\/auth/i));",
+                  "",
+                  "pm.collectionVariables.set('accessToken', body.accessToken);",
+                  "pm.collectionVariables.set('refreshToken', body.refreshToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get current user",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiUrl}}/auth/me",
+            "description": "Uses the collection-level bearer auth ({{accessToken}}). Loads roles and permissions fresh from the database on every call."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('correct identity', () => pm.expect(body.user.email).to.eql(pm.collectionVariables.get('email')));",
+                  "pm.test('reports mustChangePassword', () => pm.expect(body.user.mustChangePassword).to.be.a('boolean'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Refresh tokens (rotate)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{apiUrl}}/auth/refresh",
+            "description": "Refresh tokens are single-use. The old one is spent atomically and a new pair issued."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Keep the token we are about to spend, so the replay test can reuse it.",
+                  "pm.collectionVariables.set('previousRefreshToken', pm.collectionVariables.get('refreshToken'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('rotates the refresh token', () => pm.expect(body.refreshToken).to.not.eql(pm.collectionVariables.get('previousRefreshToken')));",
+                  "pm.test('issues a new access token', () => pm.expect(body.accessToken).to.be.a('string'));",
+                  "",
+                  "pm.collectionVariables.set('accessToken', body.accessToken);",
+                  "pm.collectionVariables.set('refreshToken', body.refreshToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Replay the spent refresh token",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{previousRefreshToken}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{apiUrl}}/auth/refresh",
+            "description": "Presenting an already-spent token means it leaked. The API rejects it AND revokes every session for that user, so the currently-valid token is killed too. Cookies are disabled so the body token is what counts."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Unauthorized', () => pm.response.to.have.status(401));",
+                  "const body = pm.response.json();",
+                  "pm.test('flagged as token reuse', () => pm.expect(body.error.details.reason).to.eql('token_reuse'));",
+                  "pm.test('no stack trace on a 4xx', () => pm.expect(body.error.stack).to.be.undefined);"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Confirm all sessions were dropped",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{apiUrl}}/auth/refresh",
+            "description": "The token that was valid before the replay must now also be dead."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 - replay revoked the good token too', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Login again (re-establish session)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{apiUrl}}/auth/login"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.collectionVariables.set('accessToken', body.accessToken);",
+                  "pm.collectionVariables.set('refreshToken', body.refreshToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{apiUrl}}/auth/logout",
+            "description": "Revokes the presented refresh token and clears both cookies."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204 No Content', () => pm.response.to.have.status(204));",
+                  "pm.test('empty body', () => pm.expect(pm.response.text()).to.eql(''));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Refresh after logout",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{apiUrl}}/auth/refresh"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 - token is dead after logout', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Logout everywhere",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{apiUrl}}/auth/logout-all",
+            "description": "Requires authentication. Revokes every live refresh token for the caller and reports how many. Needs a fresh login first if the previous requests logged you out."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// The lifecycle folder ends logged out, so sign in again for this one.",
+                  "const base = pm.collectionVariables.get('apiUrl').replace('{{baseUrl}}', pm.collectionVariables.get('baseUrl'));",
+                  "pm.sendRequest({",
+                  "  url: base + '/auth/login',",
+                  "  method: 'POST',",
+                  "  header: { 'Content-Type': 'application/json' },",
+                  "  body: {",
+                  "    mode: 'raw',",
+                  "    raw: JSON.stringify({",
+                  "      email: pm.collectionVariables.get('email'),",
+                  "      password: pm.collectionVariables.get('password')",
+                  "    })",
+                  "  }",
+                  "}, (err, res) => {",
+                  "  if (!err && res.code === 200) {",
+                  "    pm.collectionVariables.set('accessToken', res.json().accessToken);",
+                  "    pm.collectionVariables.set('refreshToken', res.json().refreshToken);",
+                  "  }",
+                  "});"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('reports revoked session count', () => pm.expect(pm.response.json().revokedSessions).to.be.a('number'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Auth - password reset",
+      "item": [
+        {
+          "name": "Forgot password (registered email)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{apiUrl}}/auth/forgot-password",
+            "description": "Always 202 with the same body, whether or not the address is registered. SMTP is not authenticating yet, so in development the reset link is written to the API log instead."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('202 Accepted', () => pm.response.to.have.status(202));",
+                  "pm.collectionVariables.set('forgotBodyKnown', pm.response.text());",
+                  "pm.test('generic message', () => pm.expect(pm.response.json().message).to.include('If that email is registered'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Forgot password (unknown email)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"nobody@nowhere.example\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{apiUrl}}/auth/forgot-password",
+            "description": "Must be indistinguishable from the registered case, otherwise the endpoint enumerates accounts."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('202 Accepted', () => pm.response.to.have.status(202));",
+                  "pm.test('identical body to the registered email', () => {",
+                  "  pm.expect(pm.response.text()).to.eql(pm.collectionVariables.get('forgotBodyKnown'));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reset password (paste token first)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{resetToken}}\",\n  \"password\": \"{{newPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{apiUrl}}/auth/reset-password",
+            "description": "Set the `resetToken` variable to the token from the reset link, then send. Skipped while the variable is empty. Succeeding here changes the password to {{newPassword}} and revokes every session."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const token = pm.collectionVariables.get('resetToken');",
+                  "",
+                  "if (!token) {",
+                  "  pm.test('SKIPPED - set the resetToken variable from the API log to run this', () => {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([401, 422]);",
+                  "  });",
+                  "} else {",
+                  "  pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "  pm.test('tells the user to sign in again', () => pm.expect(pm.response.json().message).to.include('sign in again'));",
+                  "  // The password is now the rotated one; keep the variables honest.",
+                  "  pm.collectionVariables.set('password', pm.collectionVariables.get('newPassword'));",
+                  "  pm.collectionVariables.set('resetToken', '');",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. Auth - change password (self-restoring)",
+      "description": "Changes the real password and then changes it back, so a clean run ends where it started. If a request here fails, check whether the password is still `password` or now `newPassword`.",
+      "item": [
+        {
+          "name": "Login (current password)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{apiUrl}}/auth/login"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('accessToken', pm.response.json().accessToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Change password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"{{password}}\",\n  \"newPassword\": \"{{newPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{apiUrl}}/auth/change-password",
+            "description": "Revokes every session on success, so the next request has to sign in again."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('asks for a fresh sign in', () => pm.expect(pm.response.json().message).to.include('sign in again'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login with the new password",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{newPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{apiUrl}}/auth/login"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK - new password works', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('accessToken', pm.response.json().accessToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Change password back",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"{{newPassword}}\",\n  \"newPassword\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{apiUrl}}/auth/change-password"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK - restored', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login (confirm restored)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{apiUrl}}/auth/login"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK - original password back in place', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('accessToken', pm.response.json().accessToken);",
+                  "pm.collectionVariables.set('refreshToken', pm.response.json().refreshToken);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "5. Rejected auth attempts",
+      "item": [
+        {
+          "name": "Login: wrong password",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"definitely-not-the-password\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{apiUrl}}/auth/login",
+            "description": "Five of these in a row locks the account for 15 minutes (423 ACCOUNT_LOCKED), which blocks even the correct password."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Unauthorized', () => pm.response.to.have.status(401));",
+                  "const body = pm.response.json();",
+                  "pm.test('does not say which field was wrong', () => pm.expect(body.error.message).to.eql('Invalid email or password'));",
+                  "pm.collectionVariables.set('wrongPasswordMessage', body.error.message);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login: unknown email",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"nobody@nowhere.example\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{apiUrl}}/auth/login",
+            "description": "Must be identical to the wrong-password response. The API also runs a dummy bcrypt comparison here so the timing matches."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Unauthorized', () => pm.response.to.have.status(401));",
+                  "pm.test('same message as a wrong password', () => {",
+                  "  pm.expect(pm.response.json().error.message).to.eql(pm.collectionVariables.get('wrongPasswordMessage'));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login: malformed email",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"not-an-email\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{apiUrl}}/auth/login",
+            "description": "Zod rejects it before any database work happens."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('422 Unprocessable Entity', () => pm.response.to.have.status(422));",
+                  "const body = pm.response.json();",
+                  "pm.test('code is VALIDATION_ERROR', () => pm.expect(body.error.code).to.eql('VALIDATION_ERROR'));",
+                  "pm.test('names the offending field', () => {",
+                  "  const fields = body.error.details.map((d) => d.field);",
+                  "  pm.expect(fields).to.include('email');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login: missing password",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{apiUrl}}/auth/login"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('422 Unprocessable Entity', () => pm.response.to.have.status(422));",
+                  "pm.test('flags the password field', () => {",
+                  "  const fields = pm.response.json().error.details.map((d) => d.field);",
+                  "  pm.expect(fields).to.include('password');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Me: no token at all",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{apiUrl}}/auth/me",
+            "description": "Cookies are disabled for this request, so the httpOnly access_token cookie from an earlier login cannot authenticate it."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Unauthorized', () => pm.response.to.have.status(401));",
+                  "pm.test('code is UNAUTHORIZED', () => pm.expect(pm.response.json().error.code).to.eql('UNAUTHORIZED'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Me: garbage bearer token",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer not.a.real.jwt"
+              }
+            ],
+            "url": "{{apiUrl}}/auth/me",
+            "description": "A Bearer header takes precedence over the cookie, so this is 401 regardless of the cookie jar."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Unauthorized', () => pm.response.to.have.status(401));",
+                  "pm.test('reports an invalid token', () => pm.expect(pm.response.json().error.message).to.include('Invalid access token'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Refresh: no token supplied",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{apiUrl}}/auth/refresh",
+            "description": "Cookies are disabled, so neither a cookie nor a body token is present."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Unauthorized', () => pm.response.to.have.status(401));",
+                  "pm.test('says none was provided', () => pm.expect(pm.response.json().error.message).to.include('No refresh token'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Reset password: weak password",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"irrelevant-because-validation-runs-first\",\n  \"password\": \"short\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{apiUrl}}/auth/reset-password",
+            "description": "Policy: 10+ characters with a lowercase, an uppercase and a digit."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('422 Unprocessable Entity', () => pm.response.to.have.status(422));",
+                  "pm.test('flags the password field', () => {",
+                  "  const fields = pm.response.json().error.details.map((d) => d.field);",
+                  "  pm.expect(fields).to.include('password');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Change password: wrong current",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"not-the-current-password\",\n  \"newPassword\": \"SomeOtherPass789\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{apiUrl}}/auth/change-password",
+            "description": "Needs a valid access token. Signs in first so it works regardless of what ran before."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const base = pm.collectionVariables.get('baseUrl') + '/api/v1';",
+                  "pm.sendRequest({",
+                  "  url: base + '/auth/login',",
+                  "  method: 'POST',",
+                  "  header: { 'Content-Type': 'application/json' },",
+                  "  body: {",
+                  "    mode: 'raw',",
+                  "    raw: JSON.stringify({",
+                  "      email: pm.collectionVariables.get('email'),",
+                  "      password: pm.collectionVariables.get('password')",
+                  "    })",
+                  "  }",
+                  "}, (err, res) => {",
+                  "  if (!err && res.code === 200) {",
+                  "    pm.collectionVariables.set('accessToken', res.json().accessToken);",
+                  "  }",
+                  "});"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Unauthorized', () => pm.response.to.have.status(401));",
+                  "pm.test('says the current password is wrong', () => {",
+                  "  pm.expect(pm.response.json().error.message).to.eql('Current password is incorrect');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Change password: same as current",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"{{password}}\",\n  \"newPassword\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{apiUrl}}/auth/change-password",
+            "description": "Rejected by validation before anything is written."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('422 Unprocessable Entity', () => pm.response.to.have.status(422));",
+                  "pm.test('explains it must differ', () => {",
+                  "  const messages = pm.response.json().error.details.map((d) => d.message).join(' ');",
+                  "  pm.expect(messages).to.include('different');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "6. Transport and error handling",
+      "item": [
+        {
+          "name": "Unknown route",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{apiUrl}}/does-not-exist"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 Not Found', () => pm.response.to.have.status(404));",
+                  "const body = pm.response.json();",
+                  "pm.test('code is NOT_FOUND', () => pm.expect(body.error.code).to.eql('NOT_FOUND'));",
+                  "pm.test('no stack trace on a 4xx', () => pm.expect(body.error.stack).to.be.undefined);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Malformed JSON body",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{not valid json",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{apiUrl}}/auth/login",
+            "description": "Body-parser failures must surface as 400, not 500."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test('code is ENTITY_PARSE_FAILED', () => pm.expect(body.error.code).to.eql('ENTITY_PARSE_FAILED'));",
+                  "pm.test('readable message', () => pm.expect(body.error.message).to.eql('Request body is not valid JSON'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Oversized body",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"blob\":\"{{oversizedBlob}}\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{apiUrl}}/auth/login",
+            "description": "The JSON body limit is 2mb. The pre-request script builds a 2.5mb payload."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('oversizedBlob', 'x'.repeat(2500000));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('413 Payload Too Large', () => pm.response.to.have.status(413));",
+                  "const body = pm.response.json();",
+                  "pm.test('code is ENTITY_TOO_LARGE', () => pm.expect(body.error.code).to.eql('ENTITY_TOO_LARGE'));",
+                  "// Do not keep 2.5mb in the collection.",
+                  "pm.collectionVariables.set('oversizedBlob', '');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Disallowed CORS origin",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Origin",
+                "value": "http://evil.example.com"
+              }
+            ],
+            "url": "{{baseUrl}}/health",
+            "description": "Only FRONTEND_URL is allowed. Any other Origin is refused."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403 Forbidden', () => pm.response.to.have.status(403));",
+                  "pm.test('code is CORS_FORBIDDEN', () => pm.expect(pm.response.json().error.code).to.eql('CORS_FORBIDDEN'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Allowed CORS origin",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Origin",
+                "value": "http://localhost:3000"
+              }
+            ],
+            "url": "{{baseUrl}}/health"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('echoes the allowed origin', () => {",
+                  "  pm.expect(pm.response.headers.get('access-control-allow-origin')).to.eql('http://localhost:3000');",
+                  "});",
+                  "pm.test('allows credentials', () => {",
+                  "  pm.expect(pm.response.headers.get('access-control-allow-credentials')).to.eql('true');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

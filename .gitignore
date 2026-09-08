@@ -1,0 +1,26 @@
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+!**/.env.example
+
+# Dependencies
+node_modules/
+
+# Build output and caches
+.next/
+dist/
+build/
+.turbo/
+*.tsbuildinfo
+
+# Logs and temporary files
+*.log
+apps/tmp/
+
+# Private uploaded documents and generated PDFs
+apps/api/storage/
+apps/output/
+
+# Local AI/editor settings
+.claude/

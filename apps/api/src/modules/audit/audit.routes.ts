@@ -1,0 +1,12 @@
+import { Router } from "express";
+import { authenticate } from "../../middleware/auth.middleware";
+import { requireOrganization } from "../../middleware/organization.middleware";
+import { requirePermission } from "../../middleware/permissions.middleware";
+import { validate } from "../../middleware/validation.middleware";
+import * as controller from "./audit.controller";
+import { auditQuery, organizationParams } from "./audit.validation";
+export const auditRoutes = Router();
+const inside=[authenticate,validate({params:organizationParams}),requireOrganization] as const;
+auditRoutes.get("/organizations/:orgSlug/audit-log",...inside,requirePermission("audit.read"),validate({query:auditQuery}),controller.list);
+auditRoutes.get("/organizations/:orgSlug/audit-log.pdf",...inside,requirePermission("audit.read"),validate({query:auditQuery}),controller.downloadPdf);
+auditRoutes.get("/organizations/:orgSlug/audit-summary",...inside,requirePermission("audit.read"),controller.summary);

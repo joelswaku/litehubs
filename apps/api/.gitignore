@@ -1,0 +1,11 @@
+.env
+.env.*
+node_modules/
+.next/
+dist/
+
+
+ .claude/
+        .gitignore
+        apps/
+        structure.md

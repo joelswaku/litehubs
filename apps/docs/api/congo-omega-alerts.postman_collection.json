@@ -1,0 +1,366 @@
+{
+  "info": {
+    "name": "LiteHubs - Congo Omega Alerts Test",
+    "description": "Run in order as an owner or a role with Alerts permissions. It evaluates current operational data, then exercises every Alert API route: create, list, read, acknowledge, generic update, resolve, dismiss and delete.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5000/api/v1"
+    },
+    {
+      "key": "organizationSlug",
+      "value": "congo-omega"
+    },
+    {
+      "key": "ownerEmail",
+      "value": "joel@gmail.com"
+    },
+    {
+      "key": "ownerPassword",
+      "value": "CHANGE_THIS_TO_YOUR_OWNER_PASSWORD"
+    },
+    {
+      "key": "ownerToken",
+      "value": ""
+    },
+    {
+      "key": "testStamp",
+      "value": ""
+    },
+    {
+      "key": "alertId",
+      "value": ""
+    },
+    {
+      "key": "secondAlertId",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Login as owner",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/auth/login",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{ownerEmail}}\",\n  \"password\": \"{{ownerPassword}}\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Owner login succeeded', () => pm.response.to.have.status(200));",
+              "pm.collectionVariables.set('ownerToken', pm.response.json().accessToken);",
+              "pm.collectionVariables.set('testStamp', String(Date.now()));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Run automatic checks on existing data",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{ownerToken}}"
+          }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/alerts/evaluate"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Automatic checks completed', () => pm.response.to.have.status(200));",
+              "pm.expect(pm.response.json().evaluation.activeSignals).to.be.a('number');"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Create manual alert",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{ownerToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/alerts",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"reference\": \"POSTMAN-{{testStamp}}\",\n  \"title\": \"Postman feed delivery check\",\n  \"detail\": \"Confirm feed delivery quantity before it is used.\",\n  \"domain\": \"poultry\",\n  \"severity\": \"high\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Manual alert created', () => pm.response.to.have.status(201));",
+              "const alert = pm.response.json().alert;",
+              "pm.expect(alert.source).to.eql('manual');",
+              "pm.collectionVariables.set('alertId', alert.id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. List alerts",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{ownerToken}}"
+          }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/alerts?severity=high"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Alerts are listed', () => pm.response.to.have.status(200));",
+              "pm.expect(pm.response.json().alerts).to.be.an('array');"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Read one alert",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{ownerToken}}"
+          }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/alerts/{{alertId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Alert detail returned', () => pm.response.to.have.status(200));",
+              "pm.expect(pm.response.json().alert.id).to.eql(pm.collectionVariables.get('alertId'));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Acknowledge alert",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{ownerToken}}"
+          }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/alerts/{{alertId}}/acknowledge"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Alert acknowledged', () => pm.response.to.have.status(200));",
+              "pm.expect(pm.response.json().alert.status).to.eql('acknowledged');"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. Update alert to in progress",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{ownerToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/alerts/{{alertId}}",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"status\": \"in_progress\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Alert moved to in progress', () => pm.response.to.have.status(200));",
+              "pm.expect(pm.response.json().alert.status).to.eql('in_progress');"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "8. Resolve alert",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{ownerToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/alerts/{{alertId}}/resolve",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"resolutionNote\": \"Quantity verified and delivery record attached.\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Alert resolved with a note', () => pm.response.to.have.status(200));",
+              "const alert = pm.response.json().alert;",
+              "pm.expect(alert.status).to.eql('resolved');",
+              "pm.expect(alert.resolvedAt).to.exist;"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "9. Create second alert for dismiss/delete",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{ownerToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/alerts",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"reference\": \"POSTMAN-DISMISS-{{testStamp}}\",\n  \"title\": \"Postman false alarm\",\n  \"domain\": \"general\",\n  \"severity\": \"low\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Second alert created', () => pm.response.to.have.status(201));",
+              "pm.collectionVariables.set('secondAlertId', pm.response.json().alert.id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "10. Dismiss second alert",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{ownerToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/alerts/{{secondAlertId}}/dismiss",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"resolutionNote\": \"Checked by Postman: no action needed.\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Second alert dismissed', () => pm.response.to.have.status(200));",
+              "pm.expect(pm.response.json().alert.status).to.eql('dismissed');"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "11. Delete manual test alert",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{ownerToken}}"
+          }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/alerts/{{secondAlertId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Manual alert deleted', () => pm.response.to.have.status(204));"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

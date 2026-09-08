@@ -1,0 +1,24 @@
+# Never send local secrets, customer documents, caches, or build output to a
+# deployment builder. Railway injects production variables directly.
+.env
+.env.*
+!.env.example
+
+node_modules
+**/node_modules
+.turbo
+**/.turbo
+**/.next
+**/dist
+**/*.tsbuildinfo
+
+output
+tmp
+storage/company-documents
+*.log
+
+.git
+.github
+docs
+README.md
+docker-compose.yml

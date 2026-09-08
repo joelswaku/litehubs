@@ -1,0 +1,312 @@
+{
+  "info": {
+    "name": "LiteHubs - Congo Omega Daily Work Test",
+    "description": "Run in order as an owner. Before step 2, set siteId to an active Congo Omega site. This collection creates a reusable daily checklist template, runs it, records a failed critical-style check, completes and verifies it, then files/reviews a daily report and creates/acknowledges a handover. Step 9b requires the signed-in account to be linked to an active employee record.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5000/api/v1" },
+    { "key": "organizationSlug", "value": "congo-omega" },
+    { "key": "ownerEmail", "value": "joel@gmail.com" },
+    { "key": "ownerPassword", "value": "CHANGE_THIS_TO_YOUR_OWNER_PASSWORD" },
+    { "key": "ownerToken", "value": "" },
+    { "key": "siteId", "value": "PASTE_AN_ACTIVE_SITE_UUID" },
+    { "key": "stamp", "value": "" },
+    { "key": "templateId", "value": "" },
+    { "key": "runId", "value": "" },
+    { "key": "itemId", "value": "" },
+    { "key": "reportId", "value": "" },
+    { "key": "handoverId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "1. Login as owner",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{baseUrl}}/auth/login",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{ownerEmail}}\",\n  \"password\": \"{{ownerPassword}}\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Login succeeded', () => pm.response.to.have.status(200));",
+              "pm.collectionVariables.set('ownerToken', pm.response.json().accessToken);",
+              "pm.collectionVariables.set('stamp', String(Date.now()));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Create daily checklist template",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/daily-work/templates",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"code\": \"postman_daily_{{stamp}}\",\n  \"name\": \"Postman daily production check\",\n  \"domain\": \"poultry\",\n  \"frequency\": \"daily\",\n  \"siteId\": \"{{siteId}}\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Template created', () => pm.response.to.have.status(201));",
+              "pm.collectionVariables.set('templateId', pm.response.json().template.id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Add a water-control item",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/daily-work/templates/{{templateId}}/items",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"position\": 1,\n  \"prompt\": \"Water system is working\",\n  \"responseType\": \"boolean\",\n  \"isRequired\": true\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Checklist item created', () => pm.response.to.have.status(201));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Start today’s checklist",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/daily-work/runs",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"templateId\": \"{{templateId}}\",\n  \"siteId\": \"{{siteId}}\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Checklist run created', () => pm.response.to.have.status(201));",
+              "const run = pm.response.json().run;",
+              "pm.collectionVariables.set('runId', run.id);",
+              "pm.collectionVariables.set('itemId', run.items[0].id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Answer the checklist item",
+      "request": {
+        "method": "PUT",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/daily-work/runs/{{runId}}/items/{{itemId}}/response",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"booleanValue\": true,\n  \"passed\": true,\n  \"comment\": \"Water lines checked by Postman test.\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Response saved', () => pm.response.to.have.status(200));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Complete and verify checklist",
+      "item": [
+        {
+          "name": "6a. Complete",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" }
+            ],
+            "url": "{{baseUrl}}/organizations/{{organizationSlug}}/daily-work/runs/{{runId}}/complete"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Checklist completed', () => pm.response.to.have.status(200));",
+                  "pm.expect(pm.response.json().run.status).to.eql('completed');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6b. Verify",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" }
+            ],
+            "url": "{{baseUrl}}/organizations/{{organizationSlug}}/daily-work/runs/{{runId}}/verify"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Checklist verified', () => pm.response.to.have.status(200));",
+                  "pm.expect(pm.response.json().run.status).to.eql('verified');"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "7. File a daily report",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/daily-work/reports",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"reportLevel\": \"supervisor\",\n  \"siteId\": \"{{siteId}}\",\n  \"summary\": \"Postman daily production report\",\n  \"workDone\": \"Water and biosecurity checks completed.\",\n  \"metrics\": { \"birdsChecked\": 100 }\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Daily report filed', () => pm.response.to.have.status(201));",
+              "pm.collectionVariables.set('reportId', pm.response.json().report.id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "8. Review daily report",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/daily-work/reports/{{reportId}}/review",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"status\": \"reviewed\",\n  \"reviewNote\": \"Postman review complete.\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Report reviewed', () => pm.response.to.have.status(200));",
+              "pm.expect(pm.response.json().report.status).to.eql('reviewed');"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "9. Create and acknowledge handover",
+      "item": [
+        {
+          "name": "9a. Create handover",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/organizations/{{organizationSlug}}/daily-work/handovers",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"siteId\": \"{{siteId}}\",\n  \"summary\": \"Postman handover: water system normal.\",\n  \"urgentItems\": \"None\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Handover created', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('handoverId', pm.response.json().handover.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "9b. Acknowledge handover",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" }
+            ],
+            "url": "{{baseUrl}}/organizations/{{organizationSlug}}/daily-work/handovers/{{handoverId}}/acknowledge"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Handover acknowledged', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,447 @@
+{
+  "info": {
+    "name": "LiteHubs - Congo Omega Poultry and Mortality Test",
+    "description": "Set ownerEmail and ownerPassword, then run the collection from top to bottom. It creates a separate test province, farm, house and flock, then records the full Poultry workflow. Mortality is entered once as the source of truth; the daily record then displays that death total automatically.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5000/api/v1" },
+    { "key": "organizationSlug", "value": "congo-omega" },
+    { "key": "ownerEmail", "value": "joel@gmail.com" },
+    { "key": "ownerPassword", "value": "CHANGE_THIS_TO_YOUR_OWNER_PASSWORD" },
+    { "key": "ownerToken", "value": "" },
+    { "key": "testStamp", "value": "" },
+    { "key": "workDate", "value": "" },
+    { "key": "futureDate", "value": "" },
+    { "key": "provinceId", "value": "" },
+    { "key": "siteId", "value": "" },
+    { "key": "houseId", "value": "" },
+    { "key": "flockId", "value": "" },
+    { "key": "mortalityId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "1. Login as Congo Omega Owner",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{baseUrl}}/auth/login",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{ownerEmail}}\",\n  \"password\": \"{{ownerPassword}}\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Owner login succeeded', function () { pm.response.to.have.status(200); });",
+              "pm.collectionVariables.set('ownerToken', pm.response.json().accessToken);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Create isolated test province",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.collectionVariables.set('testStamp', String(Date.now()));",
+              "pm.collectionVariables.set('workDate', new Date().toISOString().slice(0, 10));",
+              "var futureDate = new Date();",
+              "futureDate.setDate(futureDate.getDate() + 7);",
+              "pm.collectionVariables.set('futureDate', futureDate.toISOString().slice(0, 10));"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Province created', function () { pm.response.to.have.status(201); });",
+              "pm.collectionVariables.set('provinceId', pm.response.json().province.id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/provinces",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"code\": \"poultry_test_{{testStamp}}\",\n  \"name\": \"Poultry Test {{testStamp}}\"\n}"
+        }
+      }
+    },
+    {
+      "name": "3. Create test poultry farm",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Farm created', function () { pm.response.to.have.status(201); });",
+              "pm.collectionVariables.set('siteId', pm.response.json().site.id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/sites",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"provinceId\": \"{{provinceId}}\",\n  \"code\": \"poultry_farm_{{testStamp}}\",\n  \"name\": \"Poultry Test Farm {{testStamp}}\",\n  \"siteType\": \"farm\"\n}"
+        }
+      }
+    },
+    {
+      "name": "4. Create poultry house",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('House created', function () { pm.response.to.have.status(201); });",
+              "pm.collectionVariables.set('houseId', pm.response.json().record.id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/poultry/houses",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"siteId\": \"{{siteId}}\",\n  \"code\": \"house_{{testStamp}}\",\n  \"name\": \"Mortality Review House\",\n  \"houseType\": \"broiler\",\n  \"capacity\": 500\n}"
+        }
+      }
+    },
+    {
+      "name": "5. Create flock with a mortality review threshold",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Flock created', function () { pm.response.to.have.status(201); });",
+              "pm.collectionVariables.set('flockId', pm.response.json().record.id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/poultry/flocks",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"houseId\": \"{{houseId}}\",\n  \"code\": \"broiler_{{testStamp}}\",\n  \"name\": \"Broiler Mortality Test\",\n  \"birdType\": \"broiler\",\n  \"arrivalDate\": \"{{workDate}}\",\n  \"initialBirdCount\": 100,\n  \"mortalityReviewThreshold\": 2\n}"
+        }
+      }
+    },
+    {
+      "name": "6. Record detailed mortality — source of truth",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Mortality was recorded', function () { pm.response.to.have.status(201); });",
+              "pm.test('Mortality reached review threshold', function () { pm.expect(pm.response.json().record.requiresDailyReview).to.eql(true); });",
+              "pm.collectionVariables.set('mortalityId', pm.response.json().record.id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/poultry/mortality",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"flockId\": \"{{flockId}}\",\n  \"mortalityDate\": \"{{workDate}}\",\n  \"deathCount\": 3,\n  \"causeCategory\": \"disease\",\n  \"suspectedCause\": \"Respiratory disease\",\n  \"clinicalSigns\": \"Coughing and reduced feed intake\",\n  \"postmortemStatus\": \"pending\",\n  \"disposalMethod\": \"incineration\",\n  \"veterinarianName\": \"Dr. Example\",\n  \"requiresFollowUp\": true,\n  \"followUpStatus\": \"pending\",\n  \"followUpNotes\": \"Veterinary inspection before next shift\"\n}"
+        }
+      }
+    },
+    {
+      "name": "7. Add daily flock record — mortality total is automatic",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Daily record created', function () { pm.response.to.have.status(201); });",
+              "pm.test('Daily record shows the entered deaths', function () { pm.expect(pm.response.json().record.mortalityCount).to.eql(3); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/poultry/daily-records",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"flockId\": \"{{flockId}}\",\n  \"recordDate\": \"{{workDate}}\",\n  \"liveBirdCount\": 97\n}"
+        }
+      }
+    },
+    {
+      "name": "8. Record feed",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/poultry/feed",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"flockId\": \"{{flockId}}\",\n  \"feedDate\": \"{{workDate}}\",\n  \"feedName\": \"Starter Feed\",\n  \"feedStage\": \"starter\",\n  \"quantityKg\": 25\n}"
+        }
+      }
+    },
+    {
+      "name": "9. Record water",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/poultry/water",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"flockId\": \"{{flockId}}\",\n  \"waterDate\": \"{{workDate}}\",\n  \"volumeLiters\": 120\n}"
+        }
+      }
+    },
+    {
+      "name": "10. Record weights",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/poultry/weights",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"flockId\": \"{{flockId}}\",\n  \"recordDate\": \"{{workDate}}\",\n  \"sampleSize\": 20,\n  \"averageWeightG\": 850,\n  \"minimumWeightG\": 700,\n  \"maximumWeightG\": 1000,\n  \"uniformityPercent\": 92\n}"
+        }
+      }
+    },
+    {
+      "name": "11. Record eggs",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/poultry/eggs",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"flockId\": \"{{flockId}}\",\n  \"recordDate\": \"{{workDate}}\",\n  \"totalEggs\": 0\n}"
+        }
+      }
+    },
+    {
+      "name": "12. Record health observation",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/poultry/health",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"flockId\": \"{{flockId}}\",\n  \"recordDate\": \"{{workDate}}\",\n  \"eventType\": \"suspected_disease\",\n  \"severity\": \"high\",\n  \"birdsAffected\": 3,\n  \"symptoms\": \"Coughing\",\n  \"status\": \"monitoring\"\n}"
+        }
+      }
+    },
+    {
+      "name": "13. Record vaccination",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/poultry/vaccinations",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"flockId\": \"{{flockId}}\",\n  \"vaccinationDate\": \"{{workDate}}\",\n  \"vaccineName\": \"Newcastle Vaccine\",\n  \"dose\": \"As prescribed\",\n  \"nextDueDate\": \"{{futureDate}}\"\n}"
+        }
+      }
+    },
+    {
+      "name": "14. Record treatment",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/poultry/treatments",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"flockId\": \"{{flockId}}\",\n  \"treatmentDate\": \"{{workDate}}\",\n  \"productName\": \"Support Treatment\",\n  \"reason\": \"Veterinary instruction\",\n  \"dosage\": \"As prescribed\",\n  \"withdrawalEndDate\": \"{{futureDate}}\"\n}"
+        }
+      }
+    },
+    {
+      "name": "15. Record sanitation",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/poultry/sanitation",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"houseId\": \"{{houseId}}\",\n  \"sanitationDate\": \"{{workDate}}\",\n  \"activityType\": \"disinfection\",\n  \"status\": \"completed\"\n}"
+        }
+      }
+    },
+    {
+      "name": "16. Record biosecurity check",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/poultry/biosecurity",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"houseId\": \"{{houseId}}\",\n  \"recordDate\": \"{{workDate}}\",\n  \"checkType\": \"footbath\",\n  \"complianceStatus\": \"compliant\",\n  \"riskLevel\": \"low\"\n}"
+        }
+      }
+    },
+    {
+      "name": "17. Set mortality target",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/poultry/production-targets",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"flockId\": \"{{flockId}}\",\n  \"metric\": \"mortality_percent\",\n  \"targetValue\": 1,\n  \"effectiveFrom\": \"{{workDate}}\"\n}"
+        }
+      }
+    },
+    {
+      "name": "18. Record a non-mortality loss",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/poultry/losses",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"flockId\": \"{{flockId}}\",\n  \"lossDate\": \"{{workDate}}\",\n  \"lossType\": \"egg_breakage\",\n  \"quantity\": 2,\n  \"unit\": \"eggs\",\n  \"description\": \"Two cracked eggs during collection\"\n}"
+        }
+      }
+    },
+    {
+      "name": "19. Review mortality dashboard",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Overview is available', function () { pm.response.to.have.status(200); });",
+              "pm.test('Mortality was counted', function () { pm.expect(pm.response.json().overview.totals.mortalityCount).to.eql(3); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/poultry/overview?from={{workDate}}&to={{workDate}}"
+      }
+    },
+    {
+      "name": "20. Resolve mortality follow-up",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Follow-up resolved', function () { pm.response.to.have.status(200); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/poultry/mortality/{{mortalityId}}",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"confirmedDiagnosis\": \"Confirmed by veterinary review\",\n  \"followUpStatus\": \"resolved\"\n}"
+        }
+      }
+    },
+    {
+      "name": "21. List this flock's mortality records",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/poultry/mortality?flockId={{flockId}}&date={{workDate}}"
+      }
+    }
+  ]
+}

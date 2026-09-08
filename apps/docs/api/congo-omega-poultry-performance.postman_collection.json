@@ -1,0 +1,392 @@
+{
+  "info": {
+    "name": "LiteHubs - Congo Omega Poultry Performance Model Test",
+    "description": "Set ownerEmail and ownerPassword, then run from top to bottom. This creates a separate test farm, a custom climate profile and Broiler model, weekly targets, vaccine schedule, flock data, automatic performance result and daily work items.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5000/api/v1" },
+    { "key": "organizationSlug", "value": "congo-omega" },
+    { "key": "ownerEmail", "value": "joel@gmail.com" },
+    { "key": "ownerPassword", "value": "CHANGE_THIS_TO_YOUR_OWNER_PASSWORD" },
+    { "key": "ownerToken", "value": "" },
+    { "key": "testStamp", "value": "" },
+    { "key": "workDate", "value": "" },
+    { "key": "provinceId", "value": "" },
+    { "key": "siteId", "value": "" },
+    { "key": "climateProfileId", "value": "" },
+    { "key": "modelId", "value": "" },
+    { "key": "houseId", "value": "" },
+    { "key": "flockId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "1. Login as Owner",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{baseUrl}}/auth/login",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{ownerEmail}}\",\n  \"password\": \"{{ownerPassword}}\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Login succeeded', function () { pm.response.to.have.status(200); });",
+              "pm.collectionVariables.set('ownerToken', pm.response.json().accessToken);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Create isolated province",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.collectionVariables.set('testStamp', String(Date.now()));",
+              "pm.collectionVariables.set('workDate', new Date().toISOString().slice(0, 10));"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Province created', function () { pm.response.to.have.status(201); });",
+              "pm.collectionVariables.set('provinceId', pm.response.json().province.id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/provinces",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"code\": \"performance_{{testStamp}}\",\n  \"name\": \"Performance Test {{testStamp}}\"\n}"
+        }
+      }
+    },
+    {
+      "name": "3. Create poultry farm",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Farm created', function () { pm.response.to.have.status(201); });",
+              "pm.collectionVariables.set('siteId', pm.response.json().site.id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/sites",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"provinceId\": \"{{provinceId}}\",\n  \"code\": \"performance_farm_{{testStamp}}\",\n  \"name\": \"Performance Test Farm\",\n  \"siteType\": \"farm\"\n}"
+        }
+      }
+    },
+    {
+      "name": "4. Create editable climate profile",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Climate profile created', function () { pm.response.to.have.status(201); });",
+              "pm.collectionVariables.set('climateProfileId', pm.response.json().climateProfile.id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/poultry/climate-profiles",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"code\": \"hot_humid_{{testStamp}}\",\n  \"name\": \"Hot/Humid Test Climate\",\n  \"provinceId\": \"{{provinceId}}\",\n  \"climateClass\": \"hot_humid\",\n  \"temperatureC\": 31,\n  \"humidityPercent\": 78,\n  \"waterAdjustmentPercent\": 10,\n  \"feedAdjustmentPercent\": 0,\n  \"operationalNote\": \"Keep cool water available and inspect ventilation.\"\n}"
+        }
+      }
+    },
+    {
+      "name": "5. Create custom Broiler model",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Model created', function () { pm.response.to.have.status(201); });",
+              "pm.collectionVariables.set('modelId', pm.response.json().performanceModel.id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/poultry/performance-models",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"code\": \"congo_broiler_{{testStamp}}\",\n  \"name\": \"Congo Omega Broiler Test\",\n  \"productionType\": \"broiler\",\n  \"strain\": \"Congo Omega Custom\",\n  \"climateProfileId\": \"{{climateProfileId}}\"\n}"
+        }
+      }
+    },
+    {
+      "name": "6. Add week 1 target",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/poultry/performance-models/{{modelId}}/weekly-targets",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"weekNumber\": 1,\n  \"targetWeightG\": 500,\n  \"feedGPerBirdPerDay\": 100,\n  \"waterLitersPerBirdPerDay\": 0.3,\n  \"expectedCumulativeMortalityPercent\": 1,\n  \"maxRejectedEggPercent\": 1,\n  \"tolerancePercent\": 5\n}"
+        }
+      }
+    },
+    {
+      "name": "7. Schedule a vaccine by bird age",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/poultry/performance-models/{{modelId}}/vaccine-schedules",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"dayAge\": 0,\n  \"vaccineName\": \"Newcastle Day Zero\",\n  \"dose\": \"As prescribed\",\n  \"administrationRoute\": \"eye drop\"\n}"
+        }
+      }
+    },
+    {
+      "name": "8. Create poultry house",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('House created', function () { pm.response.to.have.status(201); });",
+              "pm.collectionVariables.set('houseId', pm.response.json().record.id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/poultry/houses",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"siteId\": \"{{siteId}}\",\n  \"code\": \"performance_house_{{testStamp}}\",\n  \"name\": \"Performance House\",\n  \"houseType\": \"broiler\",\n  \"capacity\": 200\n}"
+        }
+      }
+    },
+    {
+      "name": "9. Create flock and select its model",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Model-connected flock created', function () { pm.response.to.have.status(201); });",
+              "pm.collectionVariables.set('flockId', pm.response.json().record.id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/poultry/flocks",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"houseId\": \"{{houseId}}\",\n  \"code\": \"performance_flock_{{testStamp}}\",\n  \"name\": \"Performance Broiler Flock\",\n  \"birdType\": \"broiler\",\n  \"productionType\": \"broiler\",\n  \"performanceModelId\": \"{{modelId}}\",\n  \"arrivalDate\": \"{{workDate}}\",\n  \"initialBirdCount\": 100\n}"
+        }
+      }
+    },
+    {
+      "name": "10. Record mortality",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/poultry/mortality",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"flockId\": \"{{flockId}}\",\n  \"mortalityDate\": \"{{workDate}}\",\n  \"deathCount\": 2,\n  \"causeCategory\": \"heat_stress\",\n  \"requiresFollowUp\": true,\n  \"followUpStatus\": \"pending\"\n}"
+        }
+      }
+    },
+    {
+      "name": "11. Record daily flock count",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/poultry/daily-records",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"flockId\": \"{{flockId}}\",\n  \"recordDate\": \"{{workDate}}\",\n  \"liveBirdCount\": 98\n}"
+        }
+      }
+    },
+    {
+      "name": "12. Record feed, water, weight and egg quality",
+      "item": [
+        {
+          "name": "Feed",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/organizations/{{organizationSlug}}/poultry/feed",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"flockId\": \"{{flockId}}\",\n  \"feedDate\": \"{{workDate}}\",\n  \"feedName\": \"Starter Feed\",\n  \"quantityKg\": 8\n}"
+            }
+          }
+        },
+        {
+          "name": "Water",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/organizations/{{organizationSlug}}/poultry/water",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"flockId\": \"{{flockId}}\",\n  \"waterDate\": \"{{workDate}}\",\n  \"volumeLiters\": 32.34\n}"
+            }
+          }
+        },
+        {
+          "name": "Weight",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/organizations/{{organizationSlug}}/poultry/weights",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"flockId\": \"{{flockId}}\",\n  \"recordDate\": \"{{workDate}}\",\n  \"sampleSize\": 20,\n  \"averageWeightG\": 450\n}"
+            }
+          }
+        },
+        {
+          "name": "Egg quality",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/organizations/{{organizationSlug}}/poultry/eggs",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"flockId\": \"{{flockId}}\",\n  \"recordDate\": \"{{workDate}}\",\n  \"totalEggs\": 12,\n  \"crackedEggs\": 1,\n  \"dirtyEggs\": 1,\n  \"rejectedEggs\": 1\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "13. Read automatic performance result",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Performance is calculated', function () { pm.response.to.have.status(200); });",
+              "pm.test('Model is applied', function () { pm.expect(pm.response.json().performance.model.id).to.eql(pm.collectionVariables.get('modelId')); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/poultry/flocks/{{flockId}}/performance?date={{workDate}}"
+      }
+    },
+    {
+      "name": "14. Generate daily work from the model",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/poultry/flocks/{{flockId}}/daily-work/generate",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"workDate\": \"{{workDate}}\"\n}"
+        }
+      }
+    },
+    {
+      "name": "15. List assigned daily work",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/poultry/flocks/{{flockId}}/daily-work?date={{workDate}}"
+      }
+    }
+  ]
+}

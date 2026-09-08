@@ -1,0 +1,458 @@
+{
+  "info": {
+    "name": "LiteHubs - Congo Omega Agriculture Test",
+    "description": "Set ownerEmail and ownerPassword, then run this collection from top to bottom. It creates an isolated farm, field, crop cycle and all core Agriculture records.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5000/api/v1" },
+    { "key": "organizationSlug", "value": "congo-omega" },
+    { "key": "ownerEmail", "value": "joel@gmail.com" },
+    { "key": "ownerPassword", "value": "CHANGE_THIS_TO_YOUR_OWNER_PASSWORD" },
+    { "key": "ownerToken", "value": "" },
+    { "key": "testStamp", "value": "" },
+    { "key": "workDate", "value": "" },
+    { "key": "harvestDate", "value": "" },
+    { "key": "lossDate", "value": "" },
+    { "key": "provinceId", "value": "" },
+    { "key": "siteId", "value": "" },
+    { "key": "farmId", "value": "" },
+    { "key": "fieldId", "value": "" },
+    { "key": "plotId", "value": "" },
+    { "key": "cropId", "value": "" },
+    { "key": "seasonId", "value": "" },
+    { "key": "plantingId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "1. Login as Congo Omega Owner",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{baseUrl}}/auth/login",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{ownerEmail}}\",\n  \"password\": \"{{ownerPassword}}\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Owner login succeeded', function () { pm.response.to.have.status(200); });",
+              "pm.collectionVariables.set('ownerToken', pm.response.json().accessToken);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Create isolated test province",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "var now = new Date();",
+              "pm.collectionVariables.set('testStamp', String(Date.now()));",
+              "pm.collectionVariables.set('workDate', now.toISOString().slice(0, 10));",
+              "var harvest = new Date(now); harvest.setDate(harvest.getDate() + 115); pm.collectionVariables.set('harvestDate', harvest.toISOString().slice(0, 10));",
+              "var loss = new Date(now); loss.setDate(loss.getDate() + 116); pm.collectionVariables.set('lossDate', loss.toISOString().slice(0, 10));"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Province created', function () { pm.response.to.have.status(201); });",
+              "pm.collectionVariables.set('provinceId', pm.response.json().province.id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/provinces",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"code\": \"ag_test_{{testStamp}}\",\n  \"name\": \"Agriculture Test {{testStamp}}\"\n}"
+        }
+      }
+    },
+    {
+      "name": "3. Create crop farm site",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/sites",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"provinceId\": \"{{provinceId}}\",\n  \"code\": \"crop_farm_{{testStamp}}\",\n  \"name\": \"Crop Farm {{testStamp}}\",\n  \"siteType\": \"farm\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Site created', function () { pm.response.to.have.status(201); });",
+              "pm.collectionVariables.set('siteId', pm.response.json().site.id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Create agriculture farm",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/agriculture/farms",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"siteId\": \"{{siteId}}\",\n  \"code\": \"ag_farm_{{testStamp}}\",\n  \"name\": \"Agriculture Farm\",\n  \"farmType\": \"crop\",\n  \"totalAreaHa\": 12\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Farm created', function () { pm.response.to.have.status(201); });",
+              "pm.collectionVariables.set('farmId', pm.response.json().record.id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Create field and plot",
+      "item": [
+        {
+          "name": "Create field",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/organizations/{{organizationSlug}}/agriculture/fields",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"farmId\": \"{{farmId}}\",\n  \"code\": \"north_field_{{testStamp}}\",\n  \"name\": \"North Field\",\n  \"areaHa\": 6,\n  \"soilType\": \"loam\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Field created', function () { pm.response.to.have.status(201); });",
+                  "pm.collectionVariables.set('fieldId', pm.response.json().record.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create plot",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/organizations/{{organizationSlug}}/agriculture/plots",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fieldId\": \"{{fieldId}}\",\n  \"code\": \"north_plot_{{testStamp}}\",\n  \"name\": \"North Plot\",\n  \"areaHa\": 2.5\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Plot created', function () { pm.response.to.have.status(201); });",
+                  "pm.collectionVariables.set('plotId', pm.response.json().record.id);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "6. Create crop and farm season",
+      "item": [
+        {
+          "name": "Create crop",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/organizations/{{organizationSlug}}/agriculture/crops",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"maize_{{testStamp}}\",\n  \"name\": \"Hybrid Maize\",\n  \"cropType\": \"cereal\",\n  \"defaultGrowingDays\": 115,\n  \"defaultYieldUnit\": \"kg\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Crop created', function () { pm.response.to.have.status(201); });",
+                  "pm.collectionVariables.set('cropId', pm.response.json().record.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create season",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/organizations/{{organizationSlug}}/agriculture/seasons",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"farmId\": \"{{farmId}}\",\n  \"code\": \"rainy_{{testStamp}}\",\n  \"name\": \"Rainy Season\",\n  \"seasonType\": \"rainy\",\n  \"startDate\": \"{{workDate}}\",\n  \"endDate\": \"{{harvestDate}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Season created', function () { pm.response.to.have.status(201); });",
+                  "pm.collectionVariables.set('seasonId', pm.response.json().record.id);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "7. Plant crop",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/agriculture/plantings",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"plotId\": \"{{plotId}}\",\n  \"cropId\": \"{{cropId}}\",\n  \"seasonId\": \"{{seasonId}}\",\n  \"code\": \"maize_cycle_{{testStamp}}\",\n  \"name\": \"Maize Crop Cycle\",\n  \"plantingDate\": \"{{workDate}}\",\n  \"expectedHarvestDate\": \"{{harvestDate}}\",\n  \"plantedAreaHa\": 2.5,\n  \"seedQuantity\": 62.5,\n  \"seedUnit\": \"kg\",\n  \"status\": \"planted\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Planting created', function () { pm.response.to.have.status(201); });",
+              "pm.collectionVariables.set('plantingId', pm.response.json().record.id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "8. Crop work and inputs",
+      "item": [
+        {
+          "name": "Daily operation",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/organizations/{{organizationSlug}}/agriculture/operations",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fieldId\": \"{{fieldId}}\",\n  \"plotId\": \"{{plotId}}\",\n  \"plantingId\": \"{{plantingId}}\",\n  \"operationDate\": \"{{workDate}}\",\n  \"operationType\": \"weeding\",\n  \"labourHours\": 14\n}"
+            }
+          }
+        },
+        {
+          "name": "Irrigation",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/organizations/{{organizationSlug}}/agriculture/irrigation",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fieldId\": \"{{fieldId}}\",\n  \"plotId\": \"{{plotId}}\",\n  \"plantingId\": \"{{plantingId}}\",\n  \"irrigationDate\": \"{{workDate}}\",\n  \"method\": \"drip\",\n  \"volumeLiters\": 1200\n}"
+            }
+          }
+        },
+        {
+          "name": "Fertilizer",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/organizations/{{organizationSlug}}/agriculture/fertilizer",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fieldId\": \"{{fieldId}}\",\n  \"plotId\": \"{{plotId}}\",\n  \"plantingId\": \"{{plantingId}}\",\n  \"applicationDate\": \"{{workDate}}\",\n  \"productName\": \"NPK 17-17-17\",\n  \"quantityKg\": 100\n}"
+            }
+          }
+        },
+        {
+          "name": "Pesticide",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/organizations/{{organizationSlug}}/agriculture/pesticides",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fieldId\": \"{{fieldId}}\",\n  \"plotId\": \"{{plotId}}\",\n  \"plantingId\": \"{{plantingId}}\",\n  \"applicationDate\": \"{{workDate}}\",\n  \"productName\": \"Armyworm Control\",\n  \"targetPest\": \"Fall armyworm\",\n  \"preHarvestIntervalDays\": 14\n}"
+            }
+          }
+        },
+        {
+          "name": "Field scouting",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/organizations/{{organizationSlug}}/agriculture/scouting",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fieldId\": \"{{fieldId}}\",\n  \"plotId\": \"{{plotId}}\",\n  \"plantingId\": \"{{plantingId}}\",\n  \"scoutingDate\": \"{{workDate}}\",\n  \"observationType\": \"growth\",\n  \"severity\": \"low\",\n  \"observedIssue\": \"Uniform early growth\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Farm weather",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/organizations/{{organizationSlug}}/agriculture/weather",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"farmId\": \"{{farmId}}\",\n  \"observationDate\": \"{{workDate}}\",\n  \"rainfallMm\": 8.5,\n  \"minTemperatureC\": 21,\n  \"maxTemperatureC\": 30,\n  \"humidityPercent\": 74\n}"
+            }
+          }
+        },
+        {
+          "name": "Production target",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/organizations/{{organizationSlug}}/agriculture/production-targets",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plantingId\": \"{{plantingId}}\",\n  \"targetYield\": 14000,\n  \"unit\": \"kg\",\n  \"targetHarvestDate\": \"{{harvestDate}}\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "9. Harvest and record loss",
+      "item": [
+        {
+          "name": "Harvest",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/organizations/{{organizationSlug}}/agriculture/harvest",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plantingId\": \"{{plantingId}}\",\n  \"harvestDate\": \"{{harvestDate}}\",\n  \"quantity\": 13250,\n  \"unit\": \"kg\",\n  \"qualityGrade\": \"Grade A\",\n  \"rejectedQuantity\": 150\n}"
+            }
+          }
+        },
+        {
+          "name": "Crop loss",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/organizations/{{organizationSlug}}/agriculture/losses",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fieldId\": \"{{fieldId}}\",\n  \"plotId\": \"{{plotId}}\",\n  \"plantingId\": \"{{plantingId}}\",\n  \"lossDate\": \"{{lossDate}}\",\n  \"lossType\": \"pest\",\n  \"quantity\": 75,\n  \"unit\": \"kg\",\n  \"causeDescription\": \"Localized pest damage\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "10. Agriculture dashboard",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/agriculture/overview"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Agriculture overview returned', function () { pm.response.to.have.status(200); });",
+              "pm.test('At least one farm is counted', function () { pm.expect(pm.response.json().overview.farms).to.be.at.least(1); });"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

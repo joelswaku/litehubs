@@ -1,0 +1,200 @@
+{
+  "info": {
+    "name": "LiteHubs - Congo Omega Approvals Test",
+    "description": "Run as the Congo Omega owner or a role with approvals.read, approvals.approve and approvals.reject. It creates two isolated Postman approval records, proves automatic APP numbering, makes a partial approval, verifies that requested and approved values remain distinct, and rejects the second request. Approval records are intentionally immutable and are not deleted after this test.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5000/api/v1" },
+    { "key": "organizationSlug", "value": "congo-omega" },
+    { "key": "ownerEmail", "value": "joel@gmail.com" },
+    { "key": "ownerPassword", "value": "CHANGE_THIS_TO_YOUR_OWNER_PASSWORD" },
+    { "key": "ownerToken", "value": "" },
+    { "key": "approvalId", "value": "" },
+    { "key": "rejectionId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "1. Login as owner",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{baseUrl}}/auth/login",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{ownerEmail}}\",\n  \"password\": \"{{ownerPassword}}\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Owner login succeeded', () => pm.response.to.have.status(200));",
+              "pm.collectionVariables.set('ownerToken', pm.response.json().accessToken);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Create a test approval — number is automatic",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/owner-management/approvals",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"entityType\": \"postman_test\",\n  \"entityId\": \"{{$guid}}\",\n  \"requestType\": \"other\",\n  \"requestedAmount\": 125000,\n  \"currencyCode\": \"CDF\",\n  \"requestNotes\": \"Postman test: approve 100,000 CDF only.\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Approval was created', () => pm.response.to.have.status(201));",
+              "const approval = pm.response.json().record;",
+              "pm.expect(approval.approvalNumber).to.match(/^APP-\\d{5}$/);",
+              "pm.expect(approval.status).to.eql('pending');",
+              "pm.collectionVariables.set('approvalId', approval.id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. List pending approvals",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/owner-management/approvals?status=pending"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Pending approvals are listed', () => pm.response.to.have.status(200));",
+              "pm.expect(pm.response.json().records).to.be.an('array');"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Read the approval detail",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/owner-management/approvals/{{approvalId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Approval detail returned', () => pm.response.to.have.status(200));",
+              "pm.expect(pm.response.json().record.id).to.eql(pm.collectionVariables.get('approvalId'));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Partially approve 100,000 CDF",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/owner-management/approvals/{{approvalId}}/decide",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"decision\": \"partially_approved\",\n  \"approvedAmount\": 100000,\n  \"decisionNotes\": \"Approved up to the available budget.\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Partial approval succeeded', () => pm.response.to.have.status(200));",
+              "const approval = pm.response.json().approval;",
+              "pm.expect(approval.status).to.eql('partially_approved');",
+              "pm.expect(Number(approval.requestedAmount)).to.eql(125000);",
+              "pm.expect(Number(approval.approvedAmount)).to.eql(100000);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Create a second approval for rejection",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/owner-management/approvals",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"entityType\": \"postman_test\",\n  \"entityId\": \"{{$guid}}\",\n  \"requestType\": \"other\",\n  \"requestedAmount\": 50000,\n  \"currencyCode\": \"CDF\",\n  \"requestNotes\": \"Postman test: reject this request.\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Second approval was created', () => pm.response.to.have.status(201));",
+              "pm.collectionVariables.set('rejectionId', pm.response.json().record.id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. Reject with a required reason",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/owner-management/approvals/{{rejectionId}}/decide",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"decision\": \"rejected\",\n  \"decisionNotes\": \"Not included in the approved project budget.\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Rejection succeeded', () => pm.response.to.have.status(200));",
+              "pm.expect(pm.response.json().approval.status).to.eql('rejected');"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

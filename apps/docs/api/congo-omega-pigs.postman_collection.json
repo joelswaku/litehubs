@@ -1,0 +1,630 @@
+{
+  "info": {
+    "name": "LiteHubs - Congo Omega Pig Farm Test",
+    "description": "Set ownerEmail and ownerPassword, then run this collection from top to bottom. It creates an isolated farm and verifies pen, animal, production, breeding and health records.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5000/api/v1" },
+    { "key": "organizationSlug", "value": "congo-omega" },
+    { "key": "ownerEmail", "value": "joel@gmail.com" },
+    { "key": "ownerPassword", "value": "CHANGE_THIS_TO_YOUR_OWNER_PASSWORD" },
+    { "key": "ownerToken", "value": "" },
+    { "key": "testStamp", "value": "" },
+    { "key": "workDate", "value": "" },
+    { "key": "moveDate", "value": "" },
+    { "key": "farrowingDate", "value": "" },
+    { "key": "afterFarrowingDate", "value": "" },
+    { "key": "provinceId", "value": "" },
+    { "key": "siteId", "value": "" },
+    { "key": "gestationPenId", "value": "" },
+    { "key": "farrowingPenId", "value": "" },
+    { "key": "groupId", "value": "" },
+    { "key": "sowId", "value": "" },
+    { "key": "boarId", "value": "" },
+    { "key": "breedingId", "value": "" },
+    { "key": "pregnancyId", "value": "" },
+    { "key": "farrowingId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "1. Login as Congo Omega Owner",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{baseUrl}}/auth/login",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{ownerEmail}}\",\n  \"password\": \"{{ownerPassword}}\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Owner login succeeded', function () { pm.response.to.have.status(200); });",
+              "pm.collectionVariables.set('ownerToken', pm.response.json().accessToken);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Create isolated test province",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "var now = new Date();",
+              "pm.collectionVariables.set('testStamp', String(Date.now()));",
+              "pm.collectionVariables.set('workDate', now.toISOString().slice(0, 10));",
+              "var move = new Date(now); move.setDate(move.getDate() + 113); pm.collectionVariables.set('moveDate', move.toISOString().slice(0, 10));",
+              "var farrowing = new Date(now); farrowing.setDate(farrowing.getDate() + 114); pm.collectionVariables.set('farrowingDate', farrowing.toISOString().slice(0, 10));",
+              "var after = new Date(now); after.setDate(after.getDate() + 115); pm.collectionVariables.set('afterFarrowingDate', after.toISOString().slice(0, 10));"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Province created', function () { pm.response.to.have.status(201); });",
+              "pm.collectionVariables.set('provinceId', pm.response.json().province.id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/provinces",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"code\": \"pig_test_{{testStamp}}\",\n  \"name\": \"Pig Test {{testStamp}}\"\n}"
+        }
+      }
+    },
+    {
+      "name": "3. Create pig farm",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/sites",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"provinceId\": \"{{provinceId}}\",\n  \"code\": \"pig_farm_{{testStamp}}\",\n  \"name\": \"Pig Farm {{testStamp}}\",\n  \"siteType\": \"farm\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Farm created', function () { pm.response.to.have.status(201); });",
+              "pm.collectionVariables.set('siteId', pm.response.json().site.id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Create gestation pen",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/pigs/pens",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"siteId\": \"{{siteId}}\",\n  \"code\": \"gestation_{{testStamp}}\",\n  \"name\": \"Gestation Pen\",\n  \"penType\": \"gestation\",\n  \"capacity\": 30\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Gestation pen created', function () { pm.response.to.have.status(201); });",
+              "pm.collectionVariables.set('gestationPenId', pm.response.json().record.id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Create farrowing pen",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/pigs/pens",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"siteId\": \"{{siteId}}\",\n  \"code\": \"farrowing_{{testStamp}}\",\n  \"name\": \"Farrowing Pen\",\n  \"penType\": \"farrowing\",\n  \"capacity\": 12\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Farrowing pen created', function () { pm.response.to.have.status(201); });",
+              "pm.collectionVariables.set('farrowingPenId', pm.response.json().record.id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Create breeding group",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/pigs/groups",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"penId\": \"{{gestationPenId}}\",\n  \"code\": \"gilts_{{testStamp}}\",\n  \"name\": \"Breeding Gilts\",\n  \"productionStage\": \"breeding\",\n  \"sex\": \"female\",\n  \"initialCount\": 5\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Group created', function () { pm.response.to.have.status(201); });",
+              "pm.collectionVariables.set('groupId', pm.response.json().record.id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. Register sow",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/pigs/animals",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"penId\": \"{{gestationPenId}}\",\n  \"groupId\": \"{{groupId}}\",\n  \"animalNumber\": \"SOW-{{testStamp}}\",\n  \"earTag\": \"EA-{{testStamp}}\",\n  \"sex\": \"female\",\n  \"animalType\": \"sow\",\n  \"birthDate\": \"2025-01-10\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Sow registered', function () { pm.response.to.have.status(201); });",
+              "pm.collectionVariables.set('sowId', pm.response.json().record.id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "8. Register boar",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/pigs/animals",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"penId\": \"{{gestationPenId}}\",\n  \"animalNumber\": \"BOAR-{{testStamp}}\",\n  \"earTag\": \"EB-{{testStamp}}\",\n  \"sex\": \"male\",\n  \"animalType\": \"boar\",\n  \"birthDate\": \"2024-10-10\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Boar registered', function () { pm.response.to.have.status(201); });",
+              "pm.collectionVariables.set('boarId', pm.response.json().record.id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "9. Daily operations: daily balance, feed, water and weight",
+      "item": [
+        {
+          "name": "Daily balance",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/organizations/{{organizationSlug}}/pigs/daily-records",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"penId\": \"{{gestationPenId}}\",\n  \"groupId\": \"{{groupId}}\",\n  \"recordDate\": \"{{workDate}}\",\n  \"openingCount\": 5,\n  \"closingCount\": 5\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Daily balance recorded', function () { pm.response.to.have.status(201); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Feed",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/organizations/{{organizationSlug}}/pigs/feed",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"penId\": \"{{gestationPenId}}\",\n  \"groupId\": \"{{groupId}}\",\n  \"feedDate\": \"{{workDate}}\",\n  \"feedName\": \"Gestation Feed\",\n  \"feedStage\": \"gestation\",\n  \"quantityKg\": 25\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Feed recorded', function () { pm.response.to.have.status(201); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Water",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/organizations/{{organizationSlug}}/pigs/water",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"penId\": \"{{gestationPenId}}\",\n  \"groupId\": \"{{groupId}}\",\n  \"waterDate\": \"{{workDate}}\",\n  \"volumeLiters\": 90\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Water recorded', function () { pm.response.to.have.status(201); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Weight",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/organizations/{{organizationSlug}}/pigs/weights",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"penId\": \"{{gestationPenId}}\",\n  \"animalId\": \"{{sowId}}\",\n  \"recordDate\": \"{{workDate}}\",\n  \"sampleSize\": 1,\n  \"averageWeightKg\": 182.5,\n  \"bodyConditionScore\": 3.5\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Weight recorded', function () { pm.response.to.have.status(201); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "10. Health: observation, vaccination, treatment, veterinary and loss",
+      "item": [
+        {
+          "name": "Health observation",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/organizations/{{organizationSlug}}/pigs/health",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"penId\": \"{{gestationPenId}}\",\n  \"animalId\": \"{{sowId}}\",\n  \"recordDate\": \"{{workDate}}\",\n  \"eventType\": \"observation\",\n  \"animalsAffected\": 1,\n  \"status\": \"monitoring\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Vaccination",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/organizations/{{organizationSlug}}/pigs/vaccinations",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"penId\": \"{{gestationPenId}}\",\n  \"groupId\": \"{{groupId}}\",\n  \"vaccinationDate\": \"{{workDate}}\",\n  \"vaccineName\": \"Parvovirus Vaccine\",\n  \"nextDueDate\": \"{{farrowingDate}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Treatment",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/organizations/{{organizationSlug}}/pigs/treatments",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"penId\": \"{{gestationPenId}}\",\n  \"animalId\": \"{{sowId}}\",\n  \"treatmentDate\": \"{{workDate}}\",\n  \"productName\": \"Iron Support\",\n  \"reason\": \"Preventive care\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Veterinary visit",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/organizations/{{organizationSlug}}/pigs/veterinary",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"penId\": \"{{gestationPenId}}\",\n  \"animalId\": \"{{sowId}}\",\n  \"visitDate\": \"{{workDate}}\",\n  \"visitType\": \"routine\",\n  \"veterinarianName\": \"Dr. Kabasele\",\n  \"status\": \"open\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Operational loss",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/organizations/{{organizationSlug}}/pigs/losses",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"penId\": \"{{gestationPenId}}\",\n  \"lossDate\": \"{{workDate}}\",\n  \"lossType\": \"feed_spoilage\",\n  \"quantity\": 2,\n  \"unit\": \"kg\",\n  \"description\": \"Damaged feed bag\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "11. Breeding, pregnancy, movement, farrowing and piglets",
+      "item": [
+        {
+          "name": "Breeding",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/organizations/{{organizationSlug}}/pigs/breeding",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"penId\": \"{{gestationPenId}}\",\n  \"femaleAnimalId\": \"{{sowId}}\",\n  \"maleAnimalId\": \"{{boarId}}\",\n  \"breedingDate\": \"{{workDate}}\",\n  \"breedingMethod\": \"natural\",\n  \"expectedFarrowingDate\": \"{{farrowingDate}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Breeding recorded', function () { pm.response.to.have.status(201); });",
+                  "pm.collectionVariables.set('breedingId', pm.response.json().record.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Confirm pregnancy",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/organizations/{{organizationSlug}}/pigs/pregnancies",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"penId\": \"{{gestationPenId}}\",\n  \"sowAnimalId\": \"{{sowId}}\",\n  \"breedingId\": \"{{breedingId}}\",\n  \"confirmedDate\": \"{{workDate}}\",\n  \"confirmationMethod\": \"ultrasound\",\n  \"expectedFarrowingDate\": \"{{farrowingDate}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Pregnancy recorded', function () { pm.response.to.have.status(201); });",
+                  "pm.collectionVariables.set('pregnancyId', pm.response.json().record.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Move sow to farrowing pen",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/organizations/{{organizationSlug}}/pigs/movements",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"movementDate\": \"{{moveDate}}\",\n  \"animalId\": \"{{sowId}}\",\n  \"fromPenId\": \"{{gestationPenId}}\",\n  \"toPenId\": \"{{farrowingPenId}}\",\n  \"movementType\": \"internal\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Record farrowing",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/organizations/{{organizationSlug}}/pigs/farrowing",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"penId\": \"{{farrowingPenId}}\",\n  \"sowAnimalId\": \"{{sowId}}\",\n  \"pregnancyId\": \"{{pregnancyId}}\",\n  \"farrowingDate\": \"{{farrowingDate}}\",\n  \"totalBornCount\": 12,\n  \"liveBornCount\": 10,\n  \"stillbornCount\": 1,\n  \"mummifiedCount\": 1\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Farrowing recorded', function () { pm.response.to.have.status(201); });",
+                  "pm.collectionVariables.set('farrowingId', pm.response.json().record.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Record piglet group",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/organizations/{{organizationSlug}}/pigs/piglets",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"penId\": \"{{farrowingPenId}}\",\n  \"farrowingId\": \"{{farrowingId}}\",\n  \"recordDate\": \"{{farrowingDate}}\",\n  \"pigletCount\": 10,\n  \"femaleCount\": 5,\n  \"maleCount\": 5,\n  \"unknownSexCount\": 0,\n  \"averageBirthWeightKg\": 1.4\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "12. Quarantine and mortality",
+      "item": [
+        {
+          "name": "Quarantine sow",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/organizations/{{organizationSlug}}/pigs/quarantine",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"penId\": \"{{farrowingPenId}}\",\n  \"animalId\": \"{{sowId}}\",\n  \"startDate\": \"{{afterFarrowingDate}}\",\n  \"reason\": \"Post-farrowing observation\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Mortality",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/organizations/{{organizationSlug}}/pigs/mortality",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"penId\": \"{{farrowingPenId}}\",\n  \"mortalityDate\": \"{{afterFarrowingDate}}\",\n  \"deathCount\": 1,\n  \"causeCategory\": \"crushing\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "13. Read Pig dashboard",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/pigs/overview"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Pig overview returned', function () { pm.response.to.have.status(200); });",
+              "pm.test('At least two pens are counted', function () { pm.expect(pm.response.json().overview.pens).to.be.at.least(2); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "14. List registered animals",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ownerToken}}" }
+        ],
+        "url": "{{baseUrl}}/organizations/{{organizationSlug}}/pigs/animals?penId={{farrowingPenId}}"
+      }
+    }
+  ]
+}
