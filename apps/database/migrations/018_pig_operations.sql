@@ -540,8 +540,18 @@ SELECT rp.code, p.code FROM role_presets rp CROSS JOIN permissions p
 ON CONFLICT DO NOTHING;
 
 INSERT INTO role_preset_permissions (role_preset_code, permission_code)
-SELECT 'veterinarian', p.code FROM permissions p
- WHERE p.resource IN ('pigs.health', 'pigs.vaccinations', 'pigs.treatments', 'pigs.quarantine', 'pigs.veterinary', 'pigs.mortality')
+SELECT rp.code, p.code
+FROM role_presets rp
+CROSS JOIN permissions p
+WHERE rp.code = 'veterinarian'
+  AND p.resource IN (
+    'pigs.health',
+    'pigs.vaccinations',
+    'pigs.treatments',
+    'pigs.quarantine',
+    'pigs.veterinary',
+    'pigs.mortality'
+  )
 ON CONFLICT DO NOTHING;
 
 INSERT INTO role_permissions (organization_id, role_id, permission_id)
