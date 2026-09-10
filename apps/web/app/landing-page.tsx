@@ -263,7 +263,7 @@ export function LandingPage() {
               {text.contact}
             </Link>
             <Link
-              href="/login"
+              href="/staff"
               className="inline-flex h-10 items-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-brand-ink shadow-sm transition-colors hover:bg-brand-hover sm:px-5"
             >
               {text.signIn}
@@ -286,7 +286,7 @@ export function LandingPage() {
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <Link
-                href="/login"
+                href="/staff"
                 className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-brand px-6 text-sm font-semibold text-brand-ink shadow-sm transition-colors hover:bg-brand-hover"
               >
                 {text.primary}
@@ -459,7 +459,7 @@ function EmployeeLoginCard({ text }: { text: LandingCopy }) {
           </div>
         </div>
         <Link
-          href="/login"
+          href="/staff"
           className="mt-6 inline-flex h-12 w-full items-center justify-center gap-2 rounded-md bg-brand px-6 text-sm font-semibold text-brand-ink shadow-sm transition-colors hover:bg-brand-hover"
         >
           {text.signIn}
