@@ -116,7 +116,7 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
         const currentPath = window.location.pathname;
         const platformRoute =
           currentPath === "/platform" || currentPath.startsWith("/platform/");
-        const signInPath = platformRoute ? "/staff/login" : "/login";
+        const signInPath = platformRoute ? "/staff" : "/login";
 
         // Do not redirect an authentication form back onto itself.
         if (currentPath === signInPath) return;

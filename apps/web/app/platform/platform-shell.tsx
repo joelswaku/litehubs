@@ -27,7 +27,7 @@ export function PlatformShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (isError) {
-      router.replace("/staff/login");
+      router.replace("/staff");
       return;
     }
     if (user && !user.isPlatformStaff) router.replace(landingPathFor(user));

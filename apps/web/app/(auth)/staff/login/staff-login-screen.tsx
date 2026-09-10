@@ -42,7 +42,7 @@ export function StaffLoginScreen() {
               {t("staff.companySetupDescription")}
             </p>
             <Link
-              href="/staff/login/register"
+              href="/staff/register"
               className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-brand underline-offset-4 hover:underline"
             >
               {t("staff.companySetupAction")}

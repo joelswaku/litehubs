@@ -1,11 +1,6 @@
-import type { Metadata } from "next";
-import { RegisterScreen } from "../../../register/register-screen";
+import { redirect } from "next/navigation";
 
-export const metadata: Metadata = {
-  title: "Créer votre entreprise",
-  robots: { index: false, follow: false },
-};
-
-export default function StaffCompanyRegistrationPage() {
-  return <RegisterScreen />;
+/** Legacy company-creation link kept for existing invitations and bookmarks. */
+export default function LegacyStaffCompanyRegistrationPage() {
+  redirect("/staff/register");
 }

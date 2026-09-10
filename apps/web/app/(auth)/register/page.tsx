@@ -4,5 +4,5 @@ import { redirect } from "next/navigation";
 export const metadata: Metadata = { robots: { index: false, follow: false } };
 
 export default function RegisterPage() {
-  redirect("/staff/login/register");
+  redirect("/staff/register");
 }

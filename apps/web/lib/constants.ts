@@ -38,6 +38,8 @@ export const PUBLIC_PATHS = [
   "/",
   "/contact",
   "/login",
+  "/staff",
+  "/staff/register",
   "/staff/login",
   "/staff/loging",
   "/forgot-password",
