@@ -44,6 +44,8 @@ const fr = {
   "staff.companySetupDescription":
     "Créez votre espace LiteHubs et centralisez les opérations qui comptent.",
   "staff.companySetupAction": "Créer mon entreprise",
+  "staff.passwordChanged":
+    "Votre mot de passe a été modifié. Connectez-vous de nouveau.",
 
   "login.kicker": "Bon retour",
   "login.title": "Connectez-vous à votre espace",
@@ -236,6 +238,21 @@ const fr = {
   "platform.accessDescription":
     "Cette zone est réservée au personnel de la plateforme LiteHubs.",
   "platform.kicker": "Propriétaire LiteHubs",
+  "platform.accountTitle": "Mon compte LiteHubs",
+  "platform.accountDescription":
+    "Gérez votre mot de passe pour l’accès interne à la plateforme LiteHubs.",
+  "platform.accountBack": "Retour au tableau de bord",
+  "platform.accountCurrentPassword": "Mot de passe actuel",
+  "platform.accountNewPassword": "Nouveau mot de passe",
+  "platform.accountConfirmPassword": "Confirmer le nouveau mot de passe",
+  "platform.accountPasswordHint":
+    "Pour votre sécurité, tous vos accès LiteHubs seront déconnectés après cette modification.",
+  "platform.accountPasswordDifferent":
+    "Le nouveau mot de passe doit être différent de l’ancien.",
+  "platform.accountSavePassword": "Modifier le mot de passe",
+  "platform.accountSignOutNotice":
+    "Vous devrez vous reconnecter après l’enregistrement.",
+  "platform.accountPasswordFailed": "Impossible de modifier le mot de passe.",
   "platform.title": "Tableau de bord de la plateforme",
   "platform.description":
     "Gérez les personnes qui exploitent LiteHubs. Les informations des entreprises restent séparées.",
@@ -593,6 +610,7 @@ const en: Record<TranslationKey, string> = {
   "staff.companySetupDescription":
     "Create your LiteHubs workspace and centralize the operations that matter.",
   "staff.companySetupAction": "Create my company",
+  "staff.passwordChanged": "Your password was changed. Please sign in again.",
 
   "login.kicker": "Welcome back",
   "login.title": "Sign in to your workspace",
@@ -774,6 +792,21 @@ const en: Record<TranslationKey, string> = {
   "platform.accessDescription":
     "This area is only for LiteHubs platform staff.",
   "platform.kicker": "LiteHubs Owner",
+  "platform.accountTitle": "My LiteHubs account",
+  "platform.accountDescription":
+    "Manage your password for internal LiteHubs platform access.",
+  "platform.accountBack": "Back to dashboard",
+  "platform.accountCurrentPassword": "Current password",
+  "platform.accountNewPassword": "New password",
+  "platform.accountConfirmPassword": "Confirm new password",
+  "platform.accountPasswordHint":
+    "For your security, every LiteHubs session will be signed out after this change.",
+  "platform.accountPasswordDifferent":
+    "The new password must be different from the current password.",
+  "platform.accountSavePassword": "Change password",
+  "platform.accountSignOutNotice":
+    "You will need to sign in again after saving.",
+  "platform.accountPasswordFailed": "Could not change the password.",
   "platform.title": "Platform dashboard",
   "platform.description":
     "Manage the people who operate LiteHubs. Company information remains separate.",

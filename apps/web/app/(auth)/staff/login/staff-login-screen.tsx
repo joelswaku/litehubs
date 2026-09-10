@@ -1,10 +1,13 @@
 "use client";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { ArrowRight, Building2 } from "lucide-react";
 import { StaffLoginForm } from "./staff-login-form";
 import { useLanguage } from "@/providers/language-provider";
 export function StaffLoginScreen() {
   const { t } = useLanguage();
+  const searchParams = useSearchParams();
+  const passwordChanged = searchParams.get("passwordChanged") === "1";
   return (
     <div className="space-y-6">
       <div className="space-y-1">
@@ -16,6 +19,14 @@ export function StaffLoginScreen() {
         </h1>
         <p className="text-sm text-ink-secondary">{t("staff.description")}</p>
       </div>
+      {passwordChanged ? (
+        <p
+          className="rounded-md border border-good/30 bg-good/10 px-3 py-2 text-sm text-ink-secondary"
+          role="status"
+        >
+          {t("staff.passwordChanged")}
+        </p>
+      ) : null}
       <StaffLoginForm />
       <p className="text-center text-xs text-ink-secondary">
         {t("staff.question")}{" "}

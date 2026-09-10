@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import type { Metadata } from "next";
 import { StaffLoginScreen } from "./login/staff-login-screen";
 
@@ -8,5 +9,9 @@ export const metadata: Metadata = {
 
 /** The short, memorable sign-in address for LiteHubs staff. */
 export default function StaffLoginPage() {
-  return <StaffLoginScreen />;
+  return (
+    <Suspense fallback={null}>
+      <StaffLoginScreen />
+    </Suspense>
+  );
 }

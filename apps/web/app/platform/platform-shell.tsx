@@ -68,7 +68,11 @@ export function PlatformShell({ children }: { children: React.ReactNode }) {
         </Drawer.Portal>
       </Drawer.Root>
       <div className="flex min-w-0 flex-1 flex-col">
-        <Header showOrgSwitcher={false} title={t("platform.kicker")} />
+        <Header
+          showOrgSwitcher={false}
+          title={t("platform.kicker")}
+          accountHref="/platform/account"
+        />
         <main className="scrollbar-thin flex-1 overflow-y-auto">
           {children}
         </main>
