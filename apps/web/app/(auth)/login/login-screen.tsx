@@ -22,13 +22,13 @@ export function LoginScreen() {
         </div>
       </div>
       <LoginForm />
-      <p className="border-t border-border pt-6 text-center text-sm text-ink-secondary">
-        {t("login.new")}{" "}
+      <p className="text-center text-sm text-ink-secondary">
+        {t("login.needHelp")}{" "}
         <Link
-          href="/register"
+          href="/contact"
           className="font-semibold text-brand underline-offset-4 hover:underline"
         >
-          {t("login.createCompany")}
+          {t("login.contactAdmin")}
         </Link>
       </p>
     </div>

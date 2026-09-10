@@ -35,8 +35,11 @@ export const SELECT_ORGANIZATION_PATH = "/select-organization";
  * page here locks it down, which is the safe direction to fail.
  */
 export const PUBLIC_PATHS = [
+  "/",
+  "/contact",
   "/login",
   "/staff/login",
+  "/staff/loging",
   "/forgot-password",
   "/reset-password",
   "/accept-invitation",

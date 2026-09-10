@@ -436,6 +436,12 @@ export const PLATFORM_NAV: NavGroup[] = [
     label: "Administration",
     items: [
       {
+        label: "Contact requests",
+        path: "/platform/contact-requests",
+        icon: Contact,
+        permission: "platform.contact_requests.read",
+      },
+      {
         label: "Staff",
         path: "/platform/staff",
         icon: Users,

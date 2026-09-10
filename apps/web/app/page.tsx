@@ -1,14 +1,13 @@
-import { RootRedirect } from "./root-redirect";
+import type { Metadata } from "next";
+import { LandingPage } from "./landing-page";
 
-/**
- * `/` decides where a signed-in user belongs, which depends on their session:
- * their one workspace, a picker if several, or the staff console.
- *
- * That decision needs the session, and the session lives in httpOnly cookies
- * the API reads — so it happens on the client, after /auth/me answers. The edge
- * middleware has already established that *some* valid token exists; this only
- * routes.
- */
+export const metadata: Metadata = {
+  title: "Pilotez votre entreprise",
+  description:
+    "LiteHubs réunit les équipes, opérations, projets et décisions dans un espace sécurisé.",
+  robots: { index: true, follow: true },
+};
+
 export default function RootPage() {
-  return <RootRedirect />;
+  return <LandingPage />;
 }

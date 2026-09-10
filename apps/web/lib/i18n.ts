@@ -38,6 +38,12 @@ const fr = {
     "Seuls les comptes Super Admin, Admin, Support et Facturation LiteHubs peuvent se connecter ici.",
   "staff.email": "E-mail professionnel",
   "staff.submit": "Se connecter à LiteHubs Staff",
+  "staff.companySetupKicker": "Création autorisée",
+  "staff.companySetupTitle":
+    "Une entreprise plus claire commence par un meilleur espace de travail.",
+  "staff.companySetupDescription":
+    "Créez votre espace LiteHubs et centralisez les opérations qui comptent.",
+  "staff.companySetupAction": "Créer mon entreprise",
 
   "login.kicker": "Bon retour",
   "login.title": "Connectez-vous à votre espace",
@@ -52,6 +58,8 @@ const fr = {
   "login.submitting": "Connexion…",
   "login.protected":
     "L’espace de votre entreprise est protégé par des accès basés sur les rôles.",
+  "login.needHelp": "Besoin d’aide ?",
+  "login.contactAdmin": "Contacter l’administrateur",
   "login.invalidCredentials":
     "Cet e-mail et ce mot de passe ne correspondent pas.",
   "login.failed": "Impossible de vous connecter. Réessayez.",
@@ -365,6 +373,7 @@ const fr = {
   "nav.modules": "Modules",
   "nav.administration": "Administration",
   "nav.staff": "Personnel",
+  "nav.contact_requests": "Demandes de contact",
   "attendance.title": "Présence et horaires",
   "attendance.description":
     "Validez les heures travaillées et affectez les employés aux horaires.",
@@ -459,7 +468,8 @@ const fr = {
   "projects.deleteImage": "Supprimer l’image",
   "projects.confirmDeleteImage": "Supprimer cette image définitivement ?",
   "notifications.title": "Notifications",
-  "notifications.subtitle": "Suivez les activités qui nécessitent votre attention.",
+  "notifications.subtitle":
+    "Suivez les activités qui nécessitent votre attention.",
   "notifications.unreadCount": "{{count}} non lue(s)",
   "notifications.markAllRead": "Tout marquer comme lu",
   "notifications.archiveRead": "Archiver les éléments lus",
@@ -487,13 +497,16 @@ const fr = {
   "notifications.delete": "Supprimer",
   "notifications.loadMore": "Afficher plus",
   "notifications.empty": "Aucune notification",
-  "notifications.emptyDescription": "Vous êtes à jour. Les actions qui demandent votre attention apparaîtront ici.",
+  "notifications.emptyDescription":
+    "Vous êtes à jour. Les actions qui demandent votre attention apparaîtront ici.",
   "notifications.loadFailed": "Impossible de charger les notifications",
   "notifications.retry": "Réessayer",
   "notifications.updated": "Notifications mises à jour",
-  "notifications.confirmUrgent": "Vous avez des notifications urgentes non lues. Voulez-vous vraiment tout marquer comme lu ?",
+  "notifications.confirmUrgent":
+    "Vous avez des notifications urgentes non lues. Voulez-vous vraiment tout marquer comme lu ?",
   "notifications.settingsTitle": "Préférences de notification",
-  "notifications.settingsDescription": "Choisissez comment LiteHubs vous contacte. Les alertes urgentes de sécurité et de conformité restent visibles.",
+  "notifications.settingsDescription":
+    "Choisissez comment LiteHubs vous contacte. Les alertes urgentes de sécurité et de conformité restent visibles.",
   "notifications.inApp": "Notifications dans LiteHubs",
   "notifications.email": "Notifications par e-mail",
   "notifications.sms": "Notifications SMS",
@@ -574,6 +587,12 @@ const en: Record<TranslationKey, string> = {
     "Only LiteHubs Super Admin, Admin, Support, and Billing accounts can sign in here.",
   "staff.email": "Staff email",
   "staff.submit": "Sign in to LiteHubs Staff",
+  "staff.companySetupKicker": "Authorized setup",
+  "staff.companySetupTitle":
+    "A clearer company starts with a better workspace.",
+  "staff.companySetupDescription":
+    "Create your LiteHubs workspace and centralize the operations that matter.",
+  "staff.companySetupAction": "Create my company",
 
   "login.kicker": "Welcome back",
   "login.title": "Sign in to your workspace",
@@ -587,6 +606,8 @@ const en: Record<TranslationKey, string> = {
   "login.submitting": "Signing in…",
   "login.protected":
     "Your company workspace is protected with role-based access.",
+  "login.needHelp": "Need help?",
+  "login.contactAdmin": "Contact an administrator",
   "login.invalidCredentials": "That email and password do not match.",
   "login.failed": "Could not sign in. Please try again.",
 
@@ -889,6 +910,7 @@ const en: Record<TranslationKey, string> = {
   "nav.modules": "Modules",
   "nav.administration": "Administration",
   "nav.staff": "Staff",
+  "nav.contact_requests": "Contact requests",
   "attendance.title": "Attendance and shifts",
   "attendance.description":
     "Approve worked hours and assign employees to shifts.",
@@ -1009,13 +1031,16 @@ const en: Record<TranslationKey, string> = {
   "notifications.delete": "Delete",
   "notifications.loadMore": "Load more",
   "notifications.empty": "No notifications",
-  "notifications.emptyDescription": "You’re up to date. Actions requiring your attention will appear here.",
+  "notifications.emptyDescription":
+    "You’re up to date. Actions requiring your attention will appear here.",
   "notifications.loadFailed": "Could not load notifications",
   "notifications.retry": "Try again",
   "notifications.updated": "Notifications updated",
-  "notifications.confirmUrgent": "You have unread urgent notifications. Do you really want to mark everything as read?",
+  "notifications.confirmUrgent":
+    "You have unread urgent notifications. Do you really want to mark everything as read?",
   "notifications.settingsTitle": "Notification preferences",
-  "notifications.settingsDescription": "Choose how LiteHubs contacts you. Urgent security and compliance alerts remain visible.",
+  "notifications.settingsDescription":
+    "Choose how LiteHubs contacts you. Urgent security and compliance alerts remain visible.",
   "notifications.inApp": "LiteHubs notifications",
   "notifications.email": "Email notifications",
   "notifications.sms": "SMS notifications",

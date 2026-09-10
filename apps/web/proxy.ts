@@ -71,7 +71,8 @@ export async function proxy(request: NextRequest) {
     if (
       hasValidToken &&
       (pathname === "/login" ||
-        pathname === "/staff/login" ||
+        pathname.startsWith("/staff/login") ||
+        pathname.startsWith("/staff/loging") ||
         pathname === "/register")
     ) {
       return NextResponse.redirect(new URL("/", request.url));

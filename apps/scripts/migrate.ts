@@ -19,6 +19,35 @@ dotenv.config({ path: path.resolve(__dirname, "../.env"), quiet: true });
 const MIGRATIONS_DIR = path.resolve(__dirname, "../database/migrations");
 const statusOnly = process.argv.includes("--status");
 
+// 064 originally granted a function to litehubs_app unconditionally. That
+// prevented a first Railway migration before db:setup had created the
+// least-privilege role. Existing databases may have the old, semantically
+// compatible migration checksum, so accept only this exact audited transition.
+const approvedChecksumTransitions = new Map([
+  [
+    "018_pig_operations.sql",
+    {
+      // The original version inserted preset grants with literal role codes.
+      // It failed on installations that had not provisioned every role preset.
+      // The current idempotent SELECT-from-role_presets form was reviewed and
+      // applied only to the migration record, never re-run against production.
+      from: new Set([
+        "e646bc39e8bb775f7ba2be478a1154b2120279c3e3b13dd5031ad1345ed66b96",
+      ]),
+      to: "a91fb1f573a93dfdbf4b9f57161daf67cbb0f324536c00fed3854bfde43d48f9",
+    },
+  ],
+  [
+    "064_notification_centre.sql",
+    {
+      from: new Set([
+        "dd767ea771ac3b4806d0f70c2289c64cef680056b14d83533b13c48f5e0caa3c",
+      ]),
+      to: "f8e1804ebf0866531d077422892ac7e4377c8ee60f78aa8355ffd8630ca770d3",
+    },
+  ],
+]);
+
 interface AppliedRow {
   filename: string;
   checksum: string;
@@ -88,7 +117,16 @@ async function main(): Promise<void> {
       const previous = applied.get(file);
       if (previous === undefined) {
         pending.push(file);
-      } else if (previous !== checksum(contents)) {
+        continue;
+      }
+
+      const currentChecksum = checksum(contents);
+      const approvedTransition = approvedChecksumTransitions.get(file);
+      const isApprovedTransition =
+        approvedTransition?.to === currentChecksum &&
+        approvedTransition.from.has(previous);
+
+      if (previous !== currentChecksum && !isApprovedTransition) {
         drifted.push(file);
       }
     }

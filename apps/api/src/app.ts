@@ -17,6 +17,7 @@ import { dailyWorkRoutes } from "./modules/daily-work";
 import { disciplineRoutes } from "./modules/discipline";
 import { documentsRoutes } from "./modules/documents";
 import { contractsRoutes } from "./modules/contracts";
+import { contactRoutes } from "./modules/contact";
 import { auditRoutes } from "./modules/audit";
 import { employeeRoutes } from "./modules/employees";
 import { fileUploadRoutes } from "./modules/files";
@@ -81,6 +82,7 @@ export function createApp(): Application {
   app.use(API_PREFIX, disciplineRoutes);
   app.use(API_PREFIX, documentsRoutes);
   app.use(API_PREFIX, contractsRoutes);
+  app.use(API_PREFIX, contactRoutes);
   app.use(API_PREFIX, auditRoutes);
   app.use(API_PREFIX, employeeRoutes);
   app.use(API_PREFIX, fileUploadRoutes);

@@ -140,4 +140,15 @@ AS $$
   SELECT id FROM organizations
 $$;
 REVOKE ALL ON FUNCTION notification_scheduler_organization_ids() FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION notification_scheduler_organization_ids() TO litehubs_app;
+
+-- A fresh Railway database may run migrations before the least-privilege API
+-- role is provisioned by db:setup. Do not make schema setup depend on that
+-- later operational step; grant this controlled scheduler capability whenever
+-- the application role exists.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'litehubs_app') THEN
+    EXECUTE 'GRANT EXECUTE ON FUNCTION notification_scheduler_organization_ids() TO litehubs_app';
+  END IF;
+END;
+$$;
