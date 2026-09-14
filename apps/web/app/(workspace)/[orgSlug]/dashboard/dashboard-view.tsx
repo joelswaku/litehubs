@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import {
   AlertTriangle,
+  CalendarClock,
   ArrowUpRight,
   Bird,
   BriefcaseBusiness,
@@ -31,6 +32,7 @@ import { useLanguage } from "@/providers/language-provider";
 import { useSessionUser } from "@/stores/session-store";
 import {
   useAgricultureOverview,
+  useAppointmentSummary,
   useApprovalQueue,
   useAttendanceRecords,
   useEmployees,
@@ -57,6 +59,7 @@ export function DashboardView({ orgSlug }: { orgSlug: string }) {
   const owner = useOwnerDashboard(orgSlug);
   const tasks = useTaskQueue(orgSlug);
   const approvals = useApprovalQueue(orgSlug);
+  const appointmentQueue = useAppointmentSummary(orgSlug);
   const attendance = useAttendanceRecords(orgSlug);
   const expenses = useManagementRecords(
     orgSlug,
@@ -154,6 +157,7 @@ export function DashboardView({ orgSlug }: { orgSlug: string }) {
           onEdit={() => setServiceSetupOpen(true)}
         />
       ) : null}
+      {can(user, "appointments.read") ? <AppointmentQueuePanel orgSlug={orgSlug} fr={fr} summary={appointmentQueue.data} loading={appointmentQueue.isLoading} /> : null}
       {layout === "executive" || layout === "manager" ? (
         <ExecutiveLayout {...context} />
       ) : null}
@@ -164,6 +168,12 @@ export function DashboardView({ orgSlug }: { orgSlug: string }) {
   );
 }
 
+
+function AppointmentQueuePanel({ orgSlug, fr, summary, loading }: { orgSlug: string; fr: boolean; summary?: { waiting: number; called: number; serving: number; scheduled_today: number }; loading: boolean }) {
+  const urgent = (summary?.waiting ?? 0) + (summary?.called ?? 0);
+  return <Link href={`/${orgSlug}/appointments`} className="group block rounded-2xl border border-brand/25 bg-[linear-gradient(115deg,rgba(15,118,110,.12),rgba(255,255,255,.02))] p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-brand/50 hover:shadow-md"><div className="flex flex-wrap items-center gap-4"><span className="grid size-11 place-items-center rounded-xl bg-brand text-white"><CalendarClock className="size-5" /></span><div className="min-w-48 flex-1"><p className="font-semibold text-ink">{fr ? "Rendez-vous et file d’attente" : "Appointments and queue"}</p><p className="text-sm text-ink-secondary">{loading ? (fr ? "Actualisation…" : "Refreshing…") : urgent ? (fr ? `${urgent} visiteur(s) demandent une action` : `${urgent} visitor(s) need action`) : (fr ? "Aucun visiteur en attente" : "No visitors waiting")}</p></div><div className="flex gap-4 text-center"><QueueMetric value={summary?.waiting ?? 0} label={fr ? "Attente" : "Waiting"} /><QueueMetric value={summary?.serving ?? 0} label={fr ? "En service" : "Serving"} /><QueueMetric value={summary?.scheduled_today ?? 0} label={fr ? "Aujourd’hui" : "Today"} /></div><ChevronRight className="ml-auto size-5 text-ink-secondary transition group-hover:translate-x-1" /></div></Link>;
+}
+function QueueMetric({ value, label }: { value: number; label: string }) { return <div><p className="text-lg font-semibold text-ink">{value}</p><p className="text-[11px] text-ink-secondary">{label}</p></div>; }
 type DashboardContext = {
   t: (key: any, variables?: Record<string, string | number>) => string;
   fr: boolean;

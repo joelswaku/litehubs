@@ -38,6 +38,9 @@ type Tenant = {
   currency: string;
   status: string;
   createdAt: string;
+  deletionStatus: "none" | "scheduled" | "cancelled" | "purging" | "purged";
+  deletionRequestedAt: string | null;
+  purgeAfter: string | null;
   subscription: {
     planCode: string;
     status: string;
@@ -765,9 +768,14 @@ export function TenantRegistry({
                   {tenant.industryCode ?? "—"}
                 </p>
                 <div>
-                  <Badge variant={statusVariant(tenant.status)}>
-                    {t(statusKey(tenant.status))}
-                  </Badge>
+                  <div className="flex flex-wrap gap-1.5">
+                    <Badge variant={statusVariant(tenant.status)}>
+                      {t(statusKey(tenant.status))}
+                    </Badge>
+                    {tenant.deletionStatus === "scheduled" || tenant.deletionStatus === "purging" ? (
+                      <Badge variant="critical">{t("platform.deletionScheduled")}</Badge>
+                    ) : null}
+                  </div>
                   {subscriptionsOnly && tenant.subscription ? (
                     <p className="mt-1 text-xs text-ink-muted">
                       {tenant.subscription.planCode} ·{" "}
@@ -859,131 +867,217 @@ export function IndustryCatalogue() {
   );
 }
 
+type TenantDeletionDetail = {
+  tenant: Tenant;
+  owner: { fullName: string; email: string } | null;
+  counts: {
+    members: number;
+    employees: number;
+    projects: number;
+    documents: number;
+    projectDocuments: number;
+    operationalRecords: number;
+    poultryFlocks: number;
+    pigGroups: number;
+    agricultureFarms: number;
+    dailyReports: number;
+    stockMovements: number;
+    maintenanceWorkOrders: number;
+  };
+};
+
 export function TenantDetail({ slug }: { slug: string }) {
   const { locale, t } = useLanguage();
   const user = useSessionUser();
   const queryClient = useQueryClient();
   const allowed = canPlatform(user, "platform.organizations.read");
   const canUpdate = canPlatform(user, "platform.organizations.update");
+  const isSuperAdmin = user?.platformRoles.includes("platform_super_admin") ?? false;
   const tenant = useQuery({
     queryKey: ["platform-tenant", slug],
     queryFn: () => get<{ tenant: Tenant }>(`/platform/organizations/${slug}`),
     select: (data) => data.tenant,
     enabled: allowed,
   });
+  const deletionDetail = useQuery({
+    queryKey: ["platform-tenant-deletion-context", slug],
+    queryFn: () =>
+      get<{ detail: TenantDeletionDetail }>(
+        `/platform/organizations/${slug}/deletion-context`,
+      ),
+    select: (data) => data.detail,
+    enabled: isSuperAdmin,
+  });
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ["platform-tenant", slug] });
+    queryClient.invalidateQueries({ queryKey: ["platform-tenant-deletion-context", slug] });
+    queryClient.invalidateQueries({ queryKey: ["platform-tenants"] });
+    queryClient.invalidateQueries({ queryKey: ["platform-summary"] });
+  };
   const setStatus = useMutation({
     mutationFn: (status: "active" | "suspended") =>
-      patch<{ tenant: Tenant }>(`/platform/organizations/${slug}/status`, {
-        status,
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["platform-tenant", slug] });
-      queryClient.invalidateQueries({ queryKey: ["platform-tenants"] });
-      queryClient.invalidateQueries({ queryKey: ["platform-summary"] });
-    },
+      patch<{ tenant: Tenant }>(`/platform/organizations/${slug}/status`, { status }),
+    onSuccess: invalidate,
   });
   if (!allowed) return <NoPlatformAccess />;
   if (tenant.isPending)
     return (
-      <main className="mx-auto max-w-4xl p-4 sm:p-6">
+      <main className="mx-auto max-w-5xl p-4 sm:p-6">
         <SkeletonCard rows={6} />
       </main>
     );
   if (tenant.isError || !tenant.data)
     return (
-      <main className="mx-auto max-w-4xl p-4 sm:p-6">
-        <ErrorState
-          description={t("platform.noData")}
-          onRetry={() => tenant.refetch()}
-        />
+      <main className="mx-auto max-w-5xl p-4 sm:p-6">
+        <ErrorState description={t("platform.noData")} onRetry={() => tenant.refetch()} />
       </main>
     );
   const item = tenant.data;
+  const scheduled = item.deletionStatus === "scheduled" || item.deletionStatus === "purging";
   return (
-    <main className="mx-auto max-w-4xl space-y-6 p-4 sm:p-6">
-      <Link
-        href="/platform/organizations"
-        className="text-sm font-semibold text-brand hover:underline"
-      >
+    <main className="mx-auto max-w-5xl space-y-6 p-4 sm:p-6">
+      <Link href="/platform/organizations" className="text-sm font-semibold text-brand hover:underline">
         ← {t("platform.tenantRegistry")}
       </Link>
-      <header className="flex flex-wrap items-start justify-between gap-4">
+      <header className="flex flex-wrap items-start justify-between gap-4 rounded-xl border border-border bg-surface-1 p-5 shadow-sm">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-brand">
-            /{item.slug}
-          </p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight text-ink">
-            {item.displayName}
-          </h1>
+          <p className="text-xs font-semibold uppercase tracking-wide text-brand">/{item.slug}</p>
+          <h1 className="mt-1 text-2xl font-semibold tracking-tight text-ink">{item.displayName}</h1>
           <p className="mt-1 text-sm text-ink-secondary">{item.legalName}</p>
         </div>
-        <Badge variant={statusVariant(item.status)}>
-          {t(statusKey(item.status))}
-        </Badge>
+        <div className="flex flex-wrap gap-2">
+          <Badge variant={statusVariant(item.status)}>{t(statusKey(item.status))}</Badge>
+          {scheduled ? <Badge variant="critical">{t("platform.deletionScheduled")}</Badge> : null}
+        </div>
       </header>
-      <div className="rounded-lg border border-brand/25 bg-brand/5 p-4">
-        <div className="flex gap-3">
-          <ShieldCheck
-            className="mt-0.5 size-5 shrink-0 text-brand"
-            aria-hidden
-          />
-          <div>
-            <p className="text-sm font-semibold text-ink">
-              {t("platform.accountOnly")}
-            </p>
-            <p className="mt-1 text-sm leading-6 text-ink-secondary">
-              {t("platform.accountOnlyDescription")}
-            </p>
+
+      {!isSuperAdmin ? (
+        <div className="rounded-lg border border-brand/25 bg-brand/5 p-4">
+          <div className="flex gap-3">
+            <ShieldCheck className="mt-0.5 size-5 shrink-0 text-brand" aria-hidden />
+            <div>
+              <p className="text-sm font-semibold text-ink">{t("platform.accountOnly")}</p>
+              <p className="mt-1 text-sm leading-6 text-ink-secondary">{t("platform.accountOnlyDescription")}</p>
+            </div>
           </div>
         </div>
-      </div>
-      <section className="grid gap-3 sm:grid-cols-2">
+      ) : null}
+
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <Info label={t("platform.organizationId")} value={item.id} />
         <Info label={t("platform.status")} value={t(statusKey(item.status))} />
         <Info label={t("nav.industries")} value={item.industryCode ?? "—"} />
         <Info label={t("register.country")} value={item.country ?? "—"} />
-        <Info
-          label={t("platform.created")}
-          value={dateFor(item.createdAt, locale)}
-        />
-        {item.subscription ? (
-          <>
-            <Info
-              label={t("platform.plan")}
-              value={item.subscription.planCode}
-            />
-            <Info
-              label={t("platform.seats")}
-              value={String(item.subscription.seats)}
-            />
-          </>
-        ) : null}
+        <Info label={t("platform.created")} value={dateFor(item.createdAt, locale)} />
+        {item.subscription ? <>
+          <Info label={t("platform.plan")} value={item.subscription.planCode} />
+          <Info label={t("platform.seats")} value={String(item.subscription.seats)} />
+          <Info label={t("platform.subscriptionStatus")} value={item.subscription.status} />
+        </> : null}
       </section>
-      {canUpdate && item.status !== "archived" ? (
+
+      {isSuperAdmin ? (
+        <section className="rounded-xl border border-border bg-surface-1 p-5 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-brand">{t("platform.dataFootprint")}</p>
+              <h2 className="mt-1 text-lg font-semibold text-ink">{t("platform.deletionReview")}</h2>
+              <p className="mt-1 text-sm leading-6 text-ink-secondary">{t("platform.deletionReviewDescription")}</p>
+            </div>
+            {deletionDetail.data?.owner ? <div className="rounded-lg bg-surface-2 px-3 py-2 text-right text-xs text-ink-secondary"><p className="font-semibold text-ink">{t("platform.owner")}</p><p>{deletionDetail.data.owner.fullName}</p><p>{deletionDetail.data.owner.email}</p></div> : null}
+          </div>
+          {deletionDetail.isPending ? <div className="mt-4"><SkeletonCard rows={2} /></div> : null}
+          {deletionDetail.isError ? <p className="mt-4 text-sm text-critical">{t("platform.deletionDetailFailed")}</p> : null}
+          {deletionDetail.data ? <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            <Info label={t("platform.members")} value={String(deletionDetail.data.counts.members)} />
+            <Info label={t("platform.employees")} value={String(deletionDetail.data.counts.employees)} />
+            <Info label={t("platform.projects")} value={String(deletionDetail.data.counts.projects)} />
+            <Info label={t("platform.documents")} value={String(deletionDetail.data.counts.documents + deletionDetail.data.counts.projectDocuments)} />
+            <Info label={t("platform.operationalRecords")} value={String(deletionDetail.data.counts.operationalRecords)} />
+          </div> : null}
+        </section>
+      ) : null}
+
+      {canUpdate && item.status !== "archived" && !scheduled ? (
         <div className="flex justify-end">
           {item.status === "suspended" ? (
-            <Button
-              onClick={() => setStatus.mutate("active")}
-              loading={setStatus.isPending}
-            >
-              <PlayCircle className="size-4" aria-hidden />
-              {t("platform.reactivate")}
+            <Button onClick={() => setStatus.mutate("active")} loading={setStatus.isPending}>
+              <PlayCircle className="size-4" aria-hidden />{t("platform.reactivate")}
             </Button>
           ) : (
-            <Button
-              variant="destructive"
-              onClick={() => setStatus.mutate("suspended")}
-              loading={setStatus.isPending}
-            >
-              <PauseCircle className="size-4" aria-hidden />
-              {t("platform.suspend")}
+            <Button variant="destructive" onClick={() => setStatus.mutate("suspended")} loading={setStatus.isPending}>
+              <PauseCircle className="size-4" aria-hidden />{t("platform.suspend")}
             </Button>
           )}
         </div>
       ) : null}
+
+      {isSuperAdmin ? <TenantDeletionPanel slug={slug} tenant={item} onChanged={invalidate} /> : null}
     </main>
   );
 }
 
+function TenantDeletionPanel({ slug, tenant, onChanged }: { slug: string; tenant: Tenant; onChanged: () => void }) {
+  const { locale, t } = useLanguage();
+  const [open, setOpen] = useState(false);
+  const [purgeOpen, setPurgeOpen] = useState(false);
+  const [confirmationName, setConfirmationName] = useState("");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const schedule = useMutation({
+    mutationFn: () => post<{ tenant: Tenant }>(`/platform/organizations/${slug}/deletion`, { confirmationName, currentPassword }),
+    onSuccess: () => { setOpen(false); setCurrentPassword(""); setConfirmationName(""); onChanged(); },
+  });
+  const restore = useMutation({
+    mutationFn: () => post<{ tenant: Tenant }>(`/platform/organizations/${slug}/restore`),
+    onSuccess: onChanged,
+  });
+  const purge = useMutation({
+    mutationFn: () => post<void>(`/platform/organizations/${slug}/purge`, { confirmationName, currentPassword }),
+    onSuccess: () => { window.location.assign("/platform/organizations"); },
+  });
+  const scheduled = tenant.deletionStatus === "scheduled" || tenant.deletionStatus === "purging";
+  const canPurge = tenant.deletionStatus === "scheduled" && Boolean(tenant.purgeAfter && new Date(tenant.purgeAfter).getTime() <= Date.now());
+  const formError = (open ? schedule.error : purgeOpen ? purge.error : null);
+  const error = formError instanceof ApiError ? formError.message : formError ? t("platform.deletionFailed") : null;
+  const resetConfirmation = () => { setCurrentPassword(""); setConfirmationName(""); };
+  return (
+    <section className="rounded-xl border border-critical/45 bg-critical/5 p-5">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-critical">{t("platform.dangerZone")}</p>
+          <h2 className="mt-1 text-lg font-semibold text-ink">{scheduled ? t("platform.deletionScheduled") : t("platform.scheduleDeletion")}</h2>
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-ink-secondary">
+            {scheduled ? t("platform.deletionScheduledDescription", { date: dateFor(tenant.purgeAfter, locale) }) : t("platform.scheduleDeletionDescription")}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {scheduled ? <Button variant="secondary" onClick={() => restore.mutate()} loading={restore.isPending}>{t("platform.restoreWorkspace")}</Button> : <Button variant="destructive" onClick={() => { setOpen(true); setPurgeOpen(false); resetConfirmation(); }}>{t("platform.scheduleDeletion")}</Button>}
+          {canPurge ? <Button variant="destructive" onClick={() => { setPurgeOpen(true); setOpen(false); resetConfirmation(); }}>{t("platform.permanentlyDelete")}</Button> : null}
+        </div>
+      </div>
+      {restore.error ? <p className="mt-3 text-sm text-critical">{t("platform.deletionFailed")}</p> : null}
+      {open && !scheduled ? <form className="mt-5 grid gap-4 border-t border-critical/25 pt-5 sm:grid-cols-2" onSubmit={(event) => { event.preventDefault(); schedule.mutate(); }}>
+        <Field label={t("platform.confirmCompanyName")} hint={t("platform.confirmCompanyNameHint", { name: tenant.legalName })} required><Input value={confirmationName} onChange={(event) => setConfirmationName(event.target.value)} autoComplete="off" /></Field>
+        <Field label={t("platform.accountCurrentPassword")} required><Input type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} autoComplete="current-password" /></Field>
+        {error ? <p className="sm:col-span-2 text-sm text-critical" role="alert">{error}</p> : null}
+        <div className="flex flex-wrap gap-2 sm:col-span-2">
+          <Button type="submit" variant="destructive" loading={schedule.isPending}>{t("platform.confirmScheduleDeletion")}</Button>
+          <Button type="button" variant="ghost" onClick={() => { setOpen(false); resetConfirmation(); }}>{t("platform.cancel")}</Button>
+        </div>
+      </form> : null}
+      {purgeOpen && canPurge ? <form className="mt-5 grid gap-4 border-t border-critical/25 pt-5 sm:grid-cols-2" onSubmit={(event) => { event.preventDefault(); purge.mutate(); }}>
+        <div className="sm:col-span-2 rounded-lg border border-critical/25 bg-surface-1 p-3 text-sm leading-6 text-ink-secondary">{t("platform.permanentlyDeleteDescription")}</div>
+        <Field label={t("platform.confirmCompanyName")} hint={t("platform.confirmCompanyNameHint", { name: tenant.legalName })} required><Input value={confirmationName} onChange={(event) => setConfirmationName(event.target.value)} autoComplete="off" /></Field>
+        <Field label={t("platform.accountCurrentPassword")} required><Input type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} autoComplete="current-password" /></Field>
+        {error ? <p className="sm:col-span-2 text-sm text-critical" role="alert">{error}</p> : null}
+        <div className="flex flex-wrap gap-2 sm:col-span-2">
+          <Button type="submit" variant="destructive" loading={purge.isPending}>{t("platform.confirmPermanentDeletion")}</Button>
+          <Button type="button" variant="ghost" onClick={() => { setPurgeOpen(false); resetConfirmation(); }}>{t("platform.cancel")}</Button>
+        </div>
+      </form> : null}
+    </section>
+  );
+}
 export function PlatformStaffPage() {
   const { t } = useLanguage();
   const user = useSessionUser();

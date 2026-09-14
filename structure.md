@@ -987,3 +987,47 @@ proving nothing — which is the failure mode that matters here.
   production.
 - Migration `005_role_presets` and `006_organization_creation_policy` do not
   appear in the §3 tree; the numbering there was aspirational.
+
+
+
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-1SRBXY14XJ"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-1SRBXY14XJ');
+</script>
+
+
+G-1SRBXY14XJ
+
+
+
+
+Détails du flux
+Nom du flux
+Litehubs Web
+URL de flux
+https://litehubs.com
+ID de flux
+15757484559
+ID de mesure
+G-1SRBXY14XJ
+Événements
+Icône des mesures améliorées
+Mesures améliorées
+Mesurez automatiquement les interactions et le contenu sur vos sites en plus des pages vues.
+Le système pourra collecter des données à partir des éléments sur la page (tels que des liens et des vidéos intégrées) avec les événements concernés. Vous devez vous assurer qu'aucune information permettant d'identifier personnellement l'utilisateur ne sera envoyée à Google.En savoir plus
+Mesure :
+Modifier les événements
+Modifiez les paramètres et les événements entrants. En savoir plus
+Créer des événements personnalisés
+Créez des événements à partir d'événements existants. En savoir plus
+Codes secrets de l'API du protocole de mesure
+Créez un code secret de l'API afin que davantage d'événements soient envoyés à ce flux via le protocole de mesure. En savoir plus
+
+Masquer les données
+Empêchez l'envoi de données spécifiques à Google Analytics. En savoir plus
+Adresse e-mail activeClés des paramètres de requête d'URL inactives

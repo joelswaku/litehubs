@@ -606,16 +606,7 @@ export async function changePassword(
   currentPassword: string,
   newPassword: string,
 ): Promise<void> {
-  const credentials = await repository.findCredentials(userId);
-  if (!credentials) throw new UnauthorizedError("Account no longer exists");
-
-  const matches = await bcrypt.compare(
-    currentPassword,
-    credentials.passwordHash,
-  );
-  if (!matches) {
-    throw new UnauthorizedError("Current password is incorrect");
-  }
+  const credentials = await verifyCurrentPassword(userId, currentPassword);
 
   const passwordHash = await hashPassword(newPassword);
 
@@ -628,6 +619,28 @@ export async function changePassword(
 
   // Notify after the change is committed; a mail failure must not undo it.
   await sendPasswordChangedEmail(credentials.email);
+}
+
+/**
+ * Re-authenticates an already signed-in person without changing their
+ * password. High-impact platform actions (such as scheduling a company
+ * purge) call this instead of trusting an old browser session alone.
+ */
+export async function verifyCurrentPassword(
+  userId: string,
+  currentPassword: string,
+): Promise<{ email: string; passwordHash: string }> {
+  const credentials = await repository.findCredentials(userId);
+  if (!credentials) throw new UnauthorizedError("Account no longer exists");
+
+  const matches = await bcrypt.compare(
+    currentPassword,
+    credentials.passwordHash,
+  );
+  if (!matches) {
+    throw new UnauthorizedError("Current password is incorrect");
+  }
+  return credentials;
 }
 
 export const authTokenTtl = {

@@ -48,6 +48,10 @@ export function LoginForm() {
     if (error instanceof ApiError) {
       if (error.status === 423 || error.status === 0) return error.message;
       if (error.status === 401) return t("login.invalidCredentials");
+      // A reverse proxy may return an HTML 500 page. Never expose its raw
+      // transport message (for example, "Request failed with status code 500")
+      // as if it were useful guidance to an employee.
+      if (error.status >= 500) return t("login.failed");
       return error.message;
     }
     return t("login.failed");

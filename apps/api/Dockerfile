@@ -35,7 +35,15 @@ COPY --from=build /app/database ./database
 RUN mkdir -p /app/storage/company-documents \
   && chown -R node:node /app
 
-USER node
+COPY api/scripts/prepare-private-storage.sh /usr/local/bin/prepare-private-storage
+RUN chmod 755 /usr/local/bin/prepare-private-storage
+
+# Railway attaches the persistent volume only when the container starts. It
+# can therefore replace the image directory with a root-owned mount. Keep the
+# one-time ownership repair in the entrypoint, then drop to the non-root Node
+# account before the API begins accepting requests.
+USER root
 EXPOSE 5000
 
+ENTRYPOINT ["/usr/local/bin/prepare-private-storage"]
 CMD ["node", "api/dist/server.js"]

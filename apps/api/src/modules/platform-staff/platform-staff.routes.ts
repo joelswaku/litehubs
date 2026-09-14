@@ -15,6 +15,7 @@ import {
   updateStaffStatusBody,
 } from "./platform-staff.validation";
 import {
+  confirmTenantDeletionBody,
   listTenantsQuery,
   setTenantStatusBody,
   tenantSlugParams,
@@ -57,6 +58,49 @@ platformStaffRoutes.patch(
   requirePlatformPermission("platform.organizations.update"),
   validate({ params: tenantSlugParams, body: setTenantStatusBody }),
   tenants.setStatus,
+);
+
+// Company removal is intentionally not a general organizations.update action.
+// Only a Platform Super Admin can inspect deletion counts, schedule removal,
+// restore a workspace, or execute the post-retention purge.
+platformStaffRoutes.get(
+  "/platform/organizations/:slug/deletion-context",
+  authenticate,
+  requirePlatformRole("platform_super_admin"),
+  validate({ params: tenantSlugParams }),
+  tenants.getDeletionContext,
+);
+
+platformStaffRoutes.post(
+  "/platform/organizations/:slug/deletion",
+  authenticate,
+  requirePlatformRole("platform_super_admin"),
+  validate({ params: tenantSlugParams, body: confirmTenantDeletionBody }),
+  tenants.scheduleDeletion,
+);
+
+platformStaffRoutes.delete(
+  "/platform/organizations/:slug/deletion",
+  authenticate,
+  requirePlatformRole("platform_super_admin"),
+  validate({ params: tenantSlugParams }),
+  tenants.cancelDeletion,
+);
+
+platformStaffRoutes.post(
+  "/platform/organizations/:slug/restore",
+  authenticate,
+  requirePlatformRole("platform_super_admin"),
+  validate({ params: tenantSlugParams }),
+  tenants.restore,
+);
+
+platformStaffRoutes.post(
+  "/platform/organizations/:slug/purge",
+  authenticate,
+  requirePlatformRole("platform_super_admin"),
+  validate({ params: tenantSlugParams, body: confirmTenantDeletionBody }),
+  tenants.purge,
 );
 
 platformStaffRoutes.get(

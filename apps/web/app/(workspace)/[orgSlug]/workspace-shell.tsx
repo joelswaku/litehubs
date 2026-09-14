@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { Drawer } from "vaul";
 import { Header } from "@/components/layout/header";
+import { GlobalSearchPalette } from "@/components/layout/global-search-palette";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Button } from "@/components/ui/button";
 import { useSession } from "@/hooks/useAuth";
@@ -68,6 +69,7 @@ function WorkspaceChrome({ orgSlug, children }: { orgSlug: string; children: Rea
       <Drawer.Portal><Drawer.Overlay className="fixed inset-0 z-40 bg-black/40" /><Drawer.Content className="fixed inset-y-0 left-0 z-50 w-60 outline-none lg:hidden"><Drawer.Title className="sr-only">{t("header.mainNavigation")}</Drawer.Title><Sidebar groups={groups} basePath={basePath} counts={counts} /></Drawer.Content></Drawer.Portal>
     </Drawer.Root>
     <div className="flex min-w-0 flex-1 flex-col"><Header notificationHref={`${basePath}/notifications`} accountHref={`${basePath}/my-account`} /><main className="scrollbar-thin flex-1 overflow-y-auto">{children}</main></div>
+    <GlobalSearchPalette orgSlug={orgSlug} groups={groups} />
   </div>;
 }
 /** Operational setup is a navigation preference; API permissions still protect every direct route. */

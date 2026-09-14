@@ -131,6 +131,7 @@ export async function findMemberships(userId: string): Promise<Membership[]> {
         WHERE m.user_id = $1
           AND m.status = 'active'
           AND o.status <> 'archived'
+          AND COALESCE(o.deletion_status, 'none') NOT IN ('scheduled', 'purging')
         ORDER BY o.display_name`,
       [userId],
     );
@@ -176,6 +177,8 @@ export async function findActiveMembership(
         WHERE m.user_id = $1
           AND m.organization_id = $2
           AND m.status = 'active'
+          AND o.status <> 'archived'
+          AND COALESCE(o.deletion_status, 'none') NOT IN ('scheduled', 'purging')
         GROUP BY m.id, m.status, m.is_owner, o.id, o.slug, o.display_name`,
       [userId, organizationId],
     );

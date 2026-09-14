@@ -19,6 +19,19 @@ COPY . .
 # the API's private address, for example http://litehubs-api.railway.internal:5000.
 ARG API_ORIGIN
 ENV API_ORIGIN=${API_ORIGIN}
+
+# NEXT_PUBLIC_* is inlined into the client bundle during `next build`, so these
+# have to arrive as build args. A Docker build sees only variables declared as
+# ARG: setting them on the Railway service alone changes nothing here, the build
+# falls through to the hardcoded defaults in the source, and the mistake is
+# invisible because the site still works — just with the wrong values baked in.
+ARG NEXT_PUBLIC_SITE_URL
+ENV NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL}
+ARG NEXT_PUBLIC_GA_MEASUREMENT_ID
+ENV NEXT_PUBLIC_GA_MEASUREMENT_ID=${NEXT_PUBLIC_GA_MEASUREMENT_ID}
+ARG NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION
+ENV NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION=${NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION}
+
 RUN npm run build --workspace @litehubs/web
 
 FROM node:22-bookworm-slim AS runtime

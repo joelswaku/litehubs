@@ -12,6 +12,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { BrandMark } from "@/components/brand/brand-mark";
+import { PublicMarketingAnalytics, trackMarketingEvent } from "@/components/analytics/public-marketing-analytics";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/input";
 import { ApiError, post } from "@/lib/api";
@@ -51,6 +52,7 @@ const copy = {
     emailHint:
       "Utilisez l’adresse à laquelle vous souhaitez recevoir la réponse.",
     messageHint: "Au moins 20 caractères.",
+    messageRequired: "Veuillez écrire votre message (au moins 20 caractères).",
     categories: {
       general: "Question générale",
       access: "Accès ou connexion",
@@ -87,6 +89,7 @@ const copy = {
     secureText: "Never send your password, sign-in code, or a private key.",
     emailHint: "Use the address where you want to receive a reply.",
     messageHint: "At least 20 characters.",
+    messageRequired: "Please write your message (at least 20 characters).",
     categories: {
       general: "General question",
       access: "Access or sign in",
@@ -108,6 +111,12 @@ export function ContactPage() {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
+    const message = String(data.get("message") ?? "").trim();
+    if (message.length < 20) {
+      setFailure(text.messageRequired);
+      document.getElementById("contact-message")?.focus();
+      return;
+    }
     setSubmitting(true);
     setFailure(null);
     try {
@@ -122,6 +131,8 @@ export function ContactPage() {
         preferredLanguage: locale,
       });
       setSubmitted(true);
+      // Deliberately send only the non-identifying topic, never form contents.
+      trackMarketingEvent("generate_lead", { lead_type: "contact_request", topic: String(data.get("category") ?? "general") });
       event.currentTarget.reset();
     } catch (error) {
       setFailure(
@@ -138,6 +149,7 @@ export function ContactPage() {
 
   return (
     <main className="min-h-dvh bg-page text-ink">
+      <PublicMarketingAnalytics />
       <div className="mx-auto max-w-6xl px-5 py-5 sm:px-8 sm:py-7 lg:px-10">
         <nav
           className="flex items-center justify-between"

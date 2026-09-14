@@ -3,14 +3,28 @@ import { AppProviders } from "@/providers/app-providers";
 import { APP_NAME } from "@/lib/constants";
 import "./globals.css";
 
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://litehubs.com";
+
+/**
+ * Search Console's HTML-tag verification method. Optional: DNS verification
+ * needs nothing here, and an unset value simply omits the tag rather than
+ * emitting an empty one, which Search Console reads as a failed check.
+ */
+const googleVerification = process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION;
+
 export const metadata: Metadata = {
+  metadataBase: new URL(siteUrl),
   title: {
     default: APP_NAME,
+    // Applies to child segments only — never to `app/page.tsx`, which shares
+    // this segment and therefore sets its own absolute title.
     template: `%s | ${APP_NAME}`,
   },
   description:
     "Gestion des opérations pour les entreprises agricoles modernes.",
+  applicationName: APP_NAME,
   manifest: "/site.webmanifest",
+  ...(googleVerification ? { verification: { google: googleVerification } } : {}),
   icons: {
     icon: [
       { url: "/favicon.ico" },

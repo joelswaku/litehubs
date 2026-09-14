@@ -1,4 +1,8 @@
+import type { Metadata } from "next";
 import { WorkspaceShell } from "./workspace-shell";
+
+// A workspace may contain private customer, HR, finance, and operational data.
+export const metadata: Metadata = { robots: { index: false, follow: false } };
 
 /**
  * Every workspace page lives under `/{orgSlug}/…`, matching the API's own

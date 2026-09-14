@@ -15,6 +15,75 @@ export interface SendResult {
   reason?: string;
 }
 
+export interface SmsMessage {
+  to: string;
+  content: string;
+  sender?: string;
+}
+
+export interface SmsSendResult extends SendResult {
+  recipient?: string;
+}
+
+function normalizeSmsRecipient(value: string): string | null {
+  let raw = value.trim().replace(/[\s().-]/g, "");
+  if (raw.startsWith("00")) raw = `+${raw.slice(2)}`;
+  let digits = raw.startsWith("+") ? raw.slice(1) : raw;
+  if (!/^\d+$/.test(digits)) return null;
+  if (!raw.startsWith("+") && !digits.startsWith(env.sms.defaultCountryCallingCode)) {
+    digits = `${env.sms.defaultCountryCallingCode}${digits.replace(/^0/, "")}`;
+  }
+  return /^\d{8,15}$/.test(digits) ? digits : null;
+}
+
+/**
+ * Sends one transactional SMS using Brevo's server-to-server API.
+ * The key is read only from server environment variables and never reaches a browser.
+ */
+export async function sendSms(message: SmsMessage): Promise<SmsSendResult> {
+  if (env.isTest) return { sent: false, reason: "sms_skipped_in_test" };
+  if (!env.sms.enabled || !env.sms.apiKey) {
+    return { sent: false, reason: "sms_not_configured" };
+  }
+
+  const recipient = normalizeSmsRecipient(message.to);
+  if (!recipient) return { sent: false, reason: "invalid_phone" };
+  const content = message.content.trim().replace(/\s+/g, " ");
+  if (!content) return { sent: false, reason: "sms_content_empty", recipient };
+  // Avoid silently spending an unexpected number of SMS credits on a malformed notification.
+  if (content.length > 612) return { sent: false, reason: "sms_content_too_long", recipient };
+
+  try {
+    const response = await fetch("https://api.brevo.com/v3/transactionalSMS/send", {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+        "api-key": env.sms.apiKey,
+      },
+      body: JSON.stringify({
+        sender: message.sender ?? env.sms.sender,
+        recipient,
+        content,
+        type: "transactional",
+        unicodeEnabled: true,
+      }),
+      signal: AbortSignal.timeout(12_000),
+    });
+    const body = await response.json().catch(() => null) as { messageId?: string | number; code?: string; message?: string } | null;
+    if (!response.ok) {
+      logger.warn({ status: response.status, providerCode: body?.code, recipientSuffix: recipient.slice(-4) }, "Brevo SMS delivery rejected");
+      return { sent: false, reason: "sms_provider_rejected", recipient };
+    }
+    const messageId = body?.messageId === undefined ? undefined : String(body.messageId);
+    logger.info({ messageId, recipientSuffix: recipient.slice(-4) }, "Brevo transactional SMS accepted");
+    return { sent: true, messageId, recipient };
+  } catch (error) {
+    logger.error({ err: error, recipientSuffix: recipient.slice(-4) }, "Brevo SMS delivery failed");
+    return { sent: false, reason: "sms_delivery_failed", recipient };
+  }
+}
+
 const BRAND = "Congo Omega";
 
 function escapeHtml(value: string): string {

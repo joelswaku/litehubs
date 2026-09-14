@@ -23,10 +23,22 @@ interface NotificationCenterValue {
 const NotificationCenterContext = createContext<NotificationCenterValue | null>(null);
 const POLLING_INTERVAL_MS = 45_000;
 
+/**
+ * Notification producers normally store a workspace-relative URL such as
+ * `/appointments`. Older records may already include `/${orgSlug}`; accept
+ * both so opening one never creates `/org/org/...`.
+ */
+function workspaceActionPath(orgSlug: string, actionUrl: string | null): string | null {
+  if (!actionUrl) return null;
+  const path = actionUrl.trim();
+  if (!path.startsWith("/") || path.startsWith("//")) return null;
+  const prefix = `/${orgSlug}`;
+  return path === prefix || path.startsWith(`${prefix}/`) ? path : `${prefix}${path}`;
+}
+
 function isViewingAction(pathname: string, orgSlug: string, actionUrl: string | null) {
-  if (!actionUrl) return false;
-  const scoped = `/${orgSlug}${actionUrl.startsWith("/") ? actionUrl : `/${actionUrl}`}`;
-  return pathname === scoped || pathname.startsWith(`${scoped}/`);
+  const scoped = workspaceActionPath(orgSlug, actionUrl);
+  return Boolean(scoped && (pathname === scoped || pathname.startsWith(`${scoped}/`)));
 }
 
 export function NotificationProvider({
@@ -96,7 +108,7 @@ export function NotificationProvider({
         action: notification.actionUrl
           ? {
               label: t("notifications.open"),
-              onClick: () => router.push(`/${orgSlug}${notification.actionUrl}`),
+              onClick: () => { const path = workspaceActionPath(orgSlug, notification.actionUrl); if (path) router.push(path); },
             }
           : undefined,
         id: `notification:${notification.id}`,
@@ -132,5 +144,6 @@ export function useOptionalNotificationCenter() {
 }
 
 export function notificationActionPath(orgSlug: string, item: NotificationItem): string | null {
-  return item.actionUrl ? `/${orgSlug}${item.actionUrl}` : null;
+  return workspaceActionPath(orgSlug, item.actionUrl);
 }
+

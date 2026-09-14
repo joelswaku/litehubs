@@ -299,3 +299,24 @@ export function useWorkspaceProfile(orgSlug: string) {
     select: (data) => data.organization,
   });
 }
+
+export interface AppointmentQueueSummary {
+  waiting: number;
+  called: number;
+  serving: number;
+  scheduled_today: number;
+  completed_today: number;
+}
+
+/** A single, permission-gated queue signal for authorised workspace dashboards. */
+export function useAppointmentSummary(orgSlug: string) {
+  const user = useSessionUser();
+  return useQuery({
+    queryKey: ["appointment-summary", orgSlug],
+    queryFn: () => get<{ summary: AppointmentQueueSummary }>(orgUrl(orgSlug, "appointments/summary")),
+    enabled: can(user, "appointments.read"),
+    staleTime: STALE_TIME.live,
+    refetchInterval: 15_000,
+    select: (data) => data.summary,
+  });
+}

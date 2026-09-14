@@ -33,6 +33,8 @@ import { pigRoutes } from "./modules/pigs";
 import { notificationRoutes } from "./modules/notifications";
 import { reportsRoutes } from "./modules/reports/reports.routes";
 import { salesRoutes } from "./modules/sales";
+import { appointmentRoutes } from "./modules/appointments";
+import { careersRoutes } from "./modules/careers";
 
 export const API_PREFIX = "/api/v1";
 
@@ -97,6 +99,8 @@ export function createApp(): Application {
   app.use(API_PREFIX, notificationRoutes);
   app.use(API_PREFIX, reportsRoutes);
   app.use(API_PREFIX, salesRoutes);
+  app.use(API_PREFIX, appointmentRoutes);
+  app.use(API_PREFIX, careersRoutes);
 
   // Tenant module routers mount here as they are built. Each one goes under
   // /organizations/:orgSlug and behind requireOrganization, so no handler can

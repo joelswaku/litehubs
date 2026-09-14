@@ -9,7 +9,7 @@ export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> 
 }
 
 export const Input = React.forwardRef<HTMLInputElement, InputProps>(
-  function Input({ className, invalid, type = "text", ...props }, ref) {
+  function Input({ className, invalid, type = "text", value, ...props }, ref) {
     return (
       <input
         ref={ref}
@@ -23,6 +23,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
           className,
         )}
         aria-invalid={invalid || undefined}
+        value={value === null ? "" : value}
         {...props}
       />
     );
@@ -32,7 +33,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
 export const Textarea = React.forwardRef<
   HTMLTextAreaElement,
   React.TextareaHTMLAttributes<HTMLTextAreaElement> & { invalid?: boolean }
->(function Textarea({ className, invalid, rows = 3, ...props }, ref) {
+>(function Textarea({ className, invalid, rows = 3, value, ...props }, ref) {
   return (
     <textarea
       ref={ref}
@@ -46,6 +47,7 @@ export const Textarea = React.forwardRef<
         className,
       )}
       aria-invalid={invalid || undefined}
+      value={value === null ? "" : value}
       {...props}
     />
   );

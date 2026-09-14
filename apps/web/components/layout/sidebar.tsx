@@ -94,7 +94,7 @@ export function Sidebar({
         )}
       >
         <Link
-          href={basePath || "/platform"}
+          href={plane === "workspace" ? `${basePath}/dashboard` : "/platform"}
           title={collapsed ? (plane === "workspace" ? workspaceName : APP_NAME) : undefined}
           className="flex min-w-0 items-center gap-2.5 rounded outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
         >

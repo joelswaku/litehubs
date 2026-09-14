@@ -35,6 +35,8 @@ import { AuditArea } from "./audit-area";
 import { NotificationsArea } from "./notifications-area";
 import { ReportsArea } from "./reports-area";
 import { SalesFinanceArea } from "./sales-finance-area";
+import { AppointmentsArea } from "./appointments-area";
+import { CareersArea } from "./careers-area";
 
 export function WorkspaceAreaView({
   orgSlug,
@@ -45,8 +47,13 @@ export function WorkspaceAreaView({
 }) {
   const { t } = useLanguage();
   const user = useSessionUser();
+  // Preserve the historic French singular URL while the canonical route remains
+  // /appointments. Old bookmarks must not fall through to the generic screen.
+  const canonicalPath = ["/appointment", "/appointement", "/rendez-vous"].includes(path)
+    ? "/appointments"
+    : path;
   const item = WORKSPACE_NAV.flatMap((group) => group.items).find(
-    (entry) => entry.path === path,
+    (entry) => entry.path === canonicalPath,
   );
   const allowed =
     (!item?.ownerOnly || isOwner(user)) &&
@@ -60,7 +67,7 @@ export function WorkspaceAreaView({
       ));
   const title = item
     ? t(navTranslationKey(item.label))
-    : path.split("/").filter(Boolean).join(" · ");
+    : canonicalPath.split("/").filter(Boolean).join(" · ");
 
   if (!allowed)
     return (
@@ -87,6 +94,8 @@ export function WorkspaceAreaView({
     return <SalesFinanceArea orgSlug={orgSlug} area={path === "/finance/cash" ? "finance" : path.slice(1) as "sales" | "customers" | "invoices" | "finance"} />;
   if (path === "/alerts") return <AlertsArea orgSlug={orgSlug} />;
   if (path === "/notifications") return <NotificationsArea orgSlug={orgSlug} />;
+  if (canonicalPath === "/appointments") return <AppointmentsArea orgSlug={orgSlug} />;
+  if (path === "/careers") return <CareersArea orgSlug={orgSlug} />;
   if (path === "/incidents") return <IncidentsArea orgSlug={orgSlug} />;
   if (path === "/security") return <SecurityArea orgSlug={orgSlug} />;
   if (path === "/documents") return <DocumentsArea orgSlug={orgSlug} />;

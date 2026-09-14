@@ -1,23 +1,26 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
 import {
-  BarChart3,
+  Bird,
+  CalendarCheck2,
   CheckCircle2,
-  ClipboardCheck,
+  PiggyBank,
   KeyRound,
   LogIn,
   ShieldCheck,
-  UsersRound,
-  WalletCards,
+  Sprout,
 } from "lucide-react";
 import { BrandMark } from "@/components/brand/brand-mark";
+import { PublicMarketingAnalytics, trackMarketingEvent } from "@/components/analytics/public-marketing-analytics";
 import { useLanguage } from "@/providers/language-provider";
 
 type LandingCopy = {
   nav: readonly string[];
   signIn: string;
   contact: string;
+  appointment: string;
   eyebrow: string;
   title: string;
   description: string;
@@ -51,6 +54,7 @@ const french: LandingCopy = {
   nav: ["Fonctionnalités", "Pour les équipes", "Sécurité"],
   signIn: "Se connecter",
   contact: "Contact",
+  appointment: "Prendre rendez-vous",
   eyebrow: "LE PILOTAGE, EN UNE VUE",
   title: "Faites avancer votre entreprise avec une vision nette.",
   description:
@@ -67,25 +71,25 @@ const french: LandingCopy = {
     { label: "Équipe présente", value: "36" },
     { label: "Budget suivi", value: "84%" },
   ],
-  featureEyebrow: "UNE PLATEFORME, PAS DES SILOS",
-  featureTitle: "Le contrôle de l’entreprise, au bon endroit.",
+  featureEyebrow: "LOGICIELS POUR EXPLOITATIONS AGRICOLES",
+  featureTitle: "Pilotez l’aviculture, les porcs et l’agriculture depuis un seul logiciel.",
   featureDescription:
-    "Conçue pour les opérations qui ne peuvent pas attendre : agriculture, élevage, projets, personnel et finances.",
+    "Suivez les lots, animaux, récoltes, alimentation, santé, équipes et décisions sans perdre la réalité du terrain.",
   features: [
     {
-      title: "Opérations sur le terrain",
+      title: "Gestion avicole",
       description:
-        "Planifiez, enregistrez et suivez ce qui se passe réellement sur chaque site.",
+        "Pilotez les lots, bâtiments, alimentation, mortalité, santé, œufs, performances et tâches quotidiennes.",
     },
     {
-      title: "Équipes et conformité",
+      title: "Gestion d’élevage porcin",
       description:
-        "Gérez les personnes, horaires, formations, contrats et accès sans perdre le contexte.",
+        "Suivez les enclos, groupes, reproduction, traitements, mouvements, poids et opérations porcines.",
     },
     {
-      title: "Projets et décisions",
+      title: "Gestion agricole",
       description:
-        "Reliez budgets, achats, tâches, ressources et documents dans un même contrôle.",
+        "Organisez fermes, champs, cultures, intrants, travaux, observations, récoltes et ventes.",
     },
   ],
   processEyebrow: "UN RYTHME SIMPLE",
@@ -124,6 +128,7 @@ const english: LandingCopy = {
   nav: ["Features", "For teams", "Security"],
   signIn: "Sign in",
   contact: "Contact",
+  appointment: "Book an appointment",
   eyebrow: "OPERATIONS, IN ONE VIEW",
   title: "Move your business forward with a clear view.",
   description:
@@ -140,25 +145,25 @@ const english: LandingCopy = {
     { label: "Team present", value: "36" },
     { label: "Budget tracked", value: "84%" },
   ],
-  featureEyebrow: "ONE PLATFORM, NOT SILOS",
-  featureTitle: "Business control, in the right place.",
+  featureEyebrow: "SOFTWARE FOR FARM OPERATIONS",
+  featureTitle: "Run poultry, pig and agriculture operations from one platform.",
   featureDescription:
-    "Built for operations that cannot wait: agriculture, livestock, projects, people and finance.",
+    "Follow flocks, animals, crops, feed, health, teams and decisions without losing what is happening in the field.",
   features: [
     {
-      title: "Field operations",
+      title: "Poultry farm management",
       description:
-        "Plan, record and follow what is actually happening at every site.",
+        "Run flocks, houses, feed, mortality, health, eggs, performance and daily work.",
     },
     {
-      title: "People & compliance",
+      title: "Pig farm management",
       description:
-        "Manage people, schedules, training, contracts and access without losing context.",
+        "Follow pens, groups, breeding, treatments, movements, weights and pig operations.",
     },
     {
-      title: "Projects & decisions",
+      title: "Agriculture management",
       description:
-        "Connect budgets, procurement, tasks, resources and documents in one control centre.",
+        "Organize farms, fields, crops, inputs, work, observations, harvests and sales.",
     },
   ],
   processEyebrow: "A SIMPLE RHYTHM",
@@ -191,14 +196,22 @@ const english: LandingCopy = {
   loginHelp: "Your access is secure and tailored to your role.",
 };
 
-const featureIcons = [ClipboardCheck, UsersRound, WalletCards] as const;
+const featureIcons = [Bird, PiggyBank, Sprout] as const;
 
 export function LandingPage() {
   const { locale, setLocale } = useLanguage();
   const text = locale === "fr" ? french : english;
 
+  useEffect(() => {
+    trackMarketingEvent("view_item_list", {
+      item_list_id: "farm_management_software",
+      item_list_name: "poultry_pig_agriculture",
+    });
+  }, []);
+
   return (
     <main className="min-h-dvh overflow-x-hidden bg-page text-ink">
+      <PublicMarketingAnalytics />
       <section className="relative isolate overflow-hidden border-b border-border">
         <div
           className="pointer-events-none absolute inset-0 -z-10 overflow-hidden"
@@ -258,17 +271,24 @@ export function LandingPage() {
             </div>
             <Link
               href="/contact"
+              onClick={() => trackMarketingEvent("select_content", { content_type: "cta", item_id: "contact" })}
               className="hidden h-10 items-center rounded-md px-3 text-sm font-semibold text-ink-secondary transition hover:bg-surface-2 hover:text-ink sm:inline-flex"
             >
               {text.contact}
             </Link>
             <Link
+              href="/rendezvous"
+              onClick={() => trackMarketingEvent("select_content", { content_type: "cta", item_id: "public_appointment" })}
+              className="hidden h-10 items-center rounded-md border border-border-strong px-3 text-sm font-semibold text-ink-secondary transition hover:bg-surface-2 hover:text-ink md:inline-flex"
+            >
+              {text.appointment}
+            </Link>            <a
               href="/login"
               className="inline-flex h-10 items-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-brand-ink shadow-sm transition-colors hover:bg-brand-hover sm:px-5"
             >
               {text.signIn}
               <LogIn className="size-4" aria-hidden />
-            </Link>
+            </a>
           </div>
         </nav>
 
@@ -285,15 +305,24 @@ export function LandingPage() {
               {text.description}
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <Link
+              <a
                 href="/login"
+                onClick={() => trackMarketingEvent("select_content", { content_type: "cta", item_id: "hero_sign_in" })}
                 className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-brand px-6 text-sm font-semibold text-brand-ink shadow-sm transition-colors hover:bg-brand-hover"
               >
                 {text.primary}
                 <LogIn className="size-4" aria-hidden />
-              </Link>
-              <a
+              </a>
+              <Link
+                href="/rendezvous"
+                onClick={() => trackMarketingEvent("select_content", { content_type: "cta", item_id: "hero_public_appointment" })}
+                className="inline-flex h-12 items-center justify-center gap-2 rounded-md border border-brand/35 bg-brand/5 px-6 text-sm font-semibold text-brand transition-colors hover:bg-brand/10"
+              >
+                {text.appointment}
+                <CalendarCheck2 className="size-4" aria-hidden />
+              </Link>              <a
                 href="#features"
+                onClick={() => trackMarketingEvent("select_content", { content_type: "cta", item_id: "explore_features" })}
                 className="inline-flex h-12 items-center justify-center rounded-md border border-border-strong bg-surface-1 px-6 text-sm font-semibold text-ink transition-colors hover:bg-surface-2"
               >
                 {text.secondary}
@@ -335,7 +364,7 @@ export function LandingPage() {
         </div>
         <div className="mt-10 grid gap-4 lg:grid-cols-3">
           {text.features.map((feature, index) => {
-            const Icon = featureIcons[index] ?? BarChart3;
+            const Icon = featureIcons[index] ?? Sprout;
             return (
               <article
                 key={feature.title}
@@ -458,13 +487,14 @@ function EmployeeLoginCard({ text }: { text: LandingCopy }) {
             <div className="h-11 rounded-md border border-border bg-surface-2" />
           </div>
         </div>
-        <Link
+        <a
           href="/login"
+          onClick={() => trackMarketingEvent("select_content", { content_type: "cta", item_id: "team_sign_in" })}
           className="mt-6 inline-flex h-12 w-full items-center justify-center gap-2 rounded-md bg-brand px-6 text-sm font-semibold text-brand-ink shadow-sm transition-colors hover:bg-brand-hover"
         >
           {text.signIn}
           <LogIn className="size-4" aria-hidden />
-        </Link>
+        </a>
         <p className="mt-4 text-center text-xs leading-5 text-ink-muted">
           {text.loginHelp}
         </p>

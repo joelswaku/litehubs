@@ -15,7 +15,8 @@ INSERT INTO role_presets (code, name, description, level, is_owner_role, sort_or
   ('hr_officer',       'HR Officer',       'Employees, attendance, leave and discipline',       40, false, 80),
   ('storekeeper',      'Storekeeper',      'Inventory, warehouses and stock movements',         50, false, 90),
   ('security_officer', 'Security Officer', 'Gate register, visitors and asset movements',       50, false, 100),
-  ('employee',         'Employee',         'Records own daily work and views own data',         90, false, 110)
+  ('employee',                  'Employee',               'Records own daily work and views own data',                         90, false, 110),
+  ('appointment_receptionist',  'Reception & Appointments','Receives visitors and manages site appointments and live queues',    55, false, 105)
 ON CONFLICT (code) DO UPDATE
   SET name          = EXCLUDED.name,
       description   = EXCLUDED.description,
@@ -27,6 +28,13 @@ ON CONFLICT (code) DO UPDATE
 -- Owner: everything in the catalogue.
 INSERT INTO role_preset_permissions (role_preset_code, permission_code)
 SELECT 'owner', p.code FROM permissions p
+ON CONFLICT DO NOTHING;
+
+-- Reception: manages only appointments and queues in assigned provinces.
+INSERT INTO role_preset_permissions (role_preset_code, permission_code)
+SELECT 'appointment_receptionist', p.code FROM permissions p
+ WHERE p.resource = 'appointments'
+   AND p.action IN ('read', 'create', 'update')
 ON CONFLICT DO NOTHING;
 
 -- General manager: everything except managing roles and members.
@@ -145,7 +153,7 @@ UPDATE role_presets
    SET data_scope = CASE
      WHEN code = 'employee' THEN 'self'
      WHEN code IN ('farm_manager', 'supervisor', 'veterinarian', 'agronomist',
-                   'storekeeper', 'security_officer') THEN 'province'
+                   'storekeeper', 'security_officer', 'appointment_receptionist') THEN 'province'
      ELSE 'organization'
    END;
 

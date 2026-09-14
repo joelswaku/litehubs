@@ -2,6 +2,7 @@ import {
   Activity,
   AlertTriangle,
   Banknote,
+  BriefcaseBusiness,
   BookOpenCheck,
   BarChart3,
   Bell,
@@ -125,6 +126,12 @@ export const WORKSPACE_NAV: NavGroup[] = [
         employeeProfileOnly: true,
       },
       {
+        label: "Careers",
+        path: "/careers",
+        icon: BriefcaseBusiness,
+        permission: "careers.read",
+      },
+      {
         label: "Employees",
         path: "/employees",
         icon: Users,
@@ -243,6 +250,12 @@ export const WORKSPACE_NAV: NavGroup[] = [
         path: "/tasks",
         icon: ClipboardList,
         permission: "tasks.read",
+      },
+      {
+        label: "Appointments",
+        path: "/appointments",
+        icon: CalendarClock,
+        permission: "appointments.read",
       },
       {
         label: "Inventory",

@@ -62,6 +62,14 @@ export function Header({
             ⌘K
           </kbd>
         </button>
+        <button
+          type="button"
+          onClick={toggleCommand}
+          className="grid size-9 place-items-center rounded-md text-ink-secondary hover:bg-surface-2 hover:text-ink sm:hidden"
+          aria-label={t("header.search")}
+        >
+          <Search className="size-4" aria-hidden />
+        </button>
         <LanguageSwitcher className="mr-1" />
         {notificationHref ? (
           <Link href={notificationHref} className="relative grid size-9 place-items-center rounded-md text-ink-secondary hover:bg-surface-2 hover:text-ink" aria-label={t("header.unread", { count: notificationCenter?.unreadCount ?? 0 })}>
@@ -180,3 +188,4 @@ export function Header({
   );
 }
 export { User as UserIcon };
+

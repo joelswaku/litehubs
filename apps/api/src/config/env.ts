@@ -50,6 +50,12 @@ const schema = z
     // Brevo's SMTP key, not a REST API key.
     BREVO_SMTP_LOGIN: z.string().min(1).optional(),
     BREVO_API_KEY: z.string().min(1).optional(),
+    // Brevo transactional SMS uses a REST API key, separate from SMTP.
+    // SMS_CONGO_O remains accepted as a private Railway-variable alias during rollout.
+    BREVO_SMS_API_KEY: z.string().trim().min(1).optional(),
+    SMS_CONGO_O: z.string().trim().min(1).optional(),
+    BREVO_SMS_SENDER: z.string().trim().min(1).max(20).default("CongoOmega"),
+    SMS_DEFAULT_COUNTRY_CODE: z.string().trim().regex(/^\d{1,3}$/, "Use an international calling code without +").default("243"),
     // Image storage. Keep the API secret in .env only; it is never exposed to browsers.
     CLOUDINARY_CLOUD_NAME: z.string().trim().min(1).optional(),
     CLOUDINARY_API_KEY: z.string().trim().min(1).optional(),
@@ -208,6 +214,13 @@ export const env = {
     password: mailPassword,
     fromName: config.MAIL_FROM_NAME,
     fromEmail: config.MAIL_FROM_EMAIL,
+  },
+
+  sms: {
+    enabled: Boolean(config.BREVO_SMS_API_KEY ?? config.SMS_CONGO_O),
+    apiKey: config.BREVO_SMS_API_KEY ?? config.SMS_CONGO_O,
+    sender: config.BREVO_SMS_SENDER,
+    defaultCountryCallingCode: config.SMS_DEFAULT_COUNTRY_CODE,
   },
 
   cloudinary: {

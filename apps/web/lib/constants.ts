@@ -36,7 +36,16 @@ export const SELECT_ORGANIZATION_PATH = "/select-organization";
  */
 export const PUBLIC_PATHS = [
   "/",
+  "/robots.txt",
+  "/sitemap.xml",
+  "/opengraph-image",
   "/contact",
+  "/rendezvous",
+  "/rendez-vous",
+  "/book",
+  "/check-in",
+  "/queue",
+  "/careers",
   "/login",
   "/staff",
   "/staff/register",
