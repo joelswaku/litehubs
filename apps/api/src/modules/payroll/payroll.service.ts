@@ -1,3 +1,4 @@
+import PDFDocument from "pdfkit";
 import type { PoolClient } from "pg";
 import {
   BadRequestError,
@@ -10,6 +11,7 @@ import type {
   CreateCompensationInput,
   CreateComponentInput,
   CreateEmployeeComponentInput,
+  CreateRunExclusionInput,
   CreateRunInput,
   MarkPaidInput,
   RunQuery,
@@ -76,6 +78,7 @@ interface CompensationRow {
   basic_salary: string;
   pay_frequency: string;
   contract_hours_per_week: string | null;
+  overtime_multiplier: string | null;
   payment_method: string;
   bank_name: string | null;
   bank_account: string | null;
@@ -147,6 +150,7 @@ interface RunRow {
 }
 interface PayslipRow {
   id: string;
+  reference: string;
   run_id: string;
   employee_id: string;
   employee_number: string;
@@ -174,6 +178,16 @@ interface PayslipRow {
   created_at: Date;
   updated_at: Date;
 }
+interface RunExclusionRow {
+  id: string;
+  run_id: string;
+  employee_id: string;
+  employee_number: string;
+  employee_name: string;
+  employee_job_title: string | null;
+  reason: string | null;
+  created_at: Date;
+}
 interface PayslipLineRow {
   id: string;
   payslip_id: string;
@@ -187,15 +201,28 @@ interface PayslipLineRow {
 }
 
 const employeeFields = `e.id,e.member_id,e.employee_number,e.full_name,e.job_title,e.province_id,p.name AS province_name,e.site_id,s.name AS site_name,e.department_id,d.name AS department_name,e.employment_status`;
-const compensationFields = `c.id,c.employee_id,c.effective_from::text,c.effective_to::text,c.currency,c.basic_salary::text,c.pay_frequency,c.contract_hours_per_week::text,c.payment_method,c.bank_name,c.bank_account,c.mobile_money_number,c.notes,c.created_at,c.updated_at,e.employee_number,e.full_name AS employee_name,e.job_title AS employee_job_title,e.member_id AS employee_member_id,e.province_id,p.name AS province_name,e.site_id,s.name AS site_name`;
+const compensationFields = `c.id,c.employee_id,c.effective_from::text,c.effective_to::text,c.currency,c.basic_salary::text,c.pay_frequency,c.contract_hours_per_week::text,c.overtime_multiplier::text,c.payment_method,c.bank_name,c.bank_account,c.mobile_money_number,c.notes,c.created_at,c.updated_at,e.employee_number,e.full_name AS employee_name,e.job_title AS employee_job_title,e.member_id AS employee_member_id,e.province_id,p.name AS province_name,e.site_id,s.name AS site_name`;
 const componentFields = `id,code,name,component_type,calculation,percentage::text,default_amount::text,is_taxable,affects_gross,ledger_account_id,sort_order,is_active,notes,created_at,updated_at`;
 const employeeComponentFields = `ec.id,ec.employee_id,ec.component_id,ec.amount::text,ec.percentage::text,ec.effective_from::text,ec.effective_to::text,ec.total_to_recover::text,ec.recovered_to_date::text,ec.is_active,ec.notes,ec.created_at,ec.updated_at,e.employee_number,e.full_name AS employee_name,e.job_title AS employee_job_title,e.member_id AS employee_member_id,e.province_id,p.name AS province_name,pc.code AS component_code,pc.name AS component_name,pc.component_type,pc.calculation,pc.default_amount::text AS default_amount,pc.percentage::text AS default_percentage,pc.sort_order`;
 const runFields = `r.id,r.reference,r.period_start::text,r.period_end::text,r.pay_date::text,r.currency,r.status,r.province_id,p.name AS province_name,r.employee_count,r.gross_total::text,r.deduction_total::text,r.net_total::text,r.employer_cost_total::text,r.notes,r.created_by,creator.full_name AS created_by_name,r.approved_by,approver.full_name AS approved_by_name,r.approved_at,r.paid_at,r.created_at,r.updated_at`;
-const payslipFields = `p.id,p.run_id,p.employee_id,p.employee_number,p.employee_name,p.job_title,p.province_id,pr.name AS province_name,p.site_id,s.name AS site_name,p.department_id,d.name AS department_name,p.currency,p.basic_salary::text,p.days_worked::text,p.days_absent::text,p.overtime_hours::text,p.leave_days_unpaid::text,p.gross_pay::text,p.total_deductions::text,p.net_pay::text,p.employer_cost::text,p.payment_method,p.payment_reference,p.notes,p.created_at,p.updated_at`;
+const payslipFields = `p.id,p.reference,p.run_id,p.employee_id,p.employee_number,p.employee_name,p.job_title,p.province_id,pr.name AS province_name,p.site_id,s.name AS site_name,p.department_id,d.name AS department_name,p.currency,p.basic_salary::text,p.days_worked::text,p.days_absent::text,p.overtime_hours::text,p.leave_days_unpaid::text,p.gross_pay::text,p.total_deductions::text,p.net_pay::text,p.employer_cost::text,p.payment_method,p.payment_reference,p.notes,p.created_at,p.updated_at`;
 const n = (value: string | null | undefined) =>
   value == null ? null : Number(value);
 const optionalDate = (v: string | null | undefined) => v ?? null;
 
+function mapRunExclusion(row: RunExclusionRow) {
+  return {
+    id: row.id,
+    employee: {
+      id: row.employee_id,
+      employeeNumber: row.employee_number,
+      fullName: row.employee_name,
+      jobTitle: row.employee_job_title ?? "",
+    },
+    reason: row.reason,
+    createdAt: row.created_at,
+  };
+}
 function mapEmployee(row: EmployeeRow) {
   return {
     id: row.id,
@@ -245,6 +272,7 @@ function mapCompensation(row: CompensationRow) {
     basicSalary: Number(row.basic_salary),
     payFrequency: row.pay_frequency,
     contractHoursPerWeek: n(row.contract_hours_per_week),
+    overtimeMultiplier: n(row.overtime_multiplier),
     paymentMethod: row.payment_method,
     bankName: row.bank_name,
     bankAccount: row.bank_account,
@@ -325,6 +353,7 @@ function mapRun(row: RunRow) {
 function mapPayslip(row: PayslipRow, lines: PayslipLineRow[]) {
   return {
     id: row.id,
+    reference: row.reference,
     runId: row.run_id,
     employee: {
       id: row.employee_id,
@@ -605,8 +634,8 @@ export async function createCompensation(
       input.effectiveFrom,
       input.effectiveTo ?? null,
     );
-    const r = await c.query<CompensationRow>(
-      `WITH made AS (INSERT INTO employee_compensation (organization_id,employee_id,effective_from,effective_to,currency,basic_salary,pay_frequency,contract_hours_per_week,payment_method,bank_name,bank_account,mobile_money_number,notes,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id) SELECT ${compensationFields} FROM made JOIN employee_compensation c ON c.id=made.id JOIN employees e ON e.organization_id=c.organization_id AND e.id=c.employee_id LEFT JOIN provinces p ON p.organization_id=e.organization_id AND p.id=e.province_id LEFT JOIN sites s ON s.organization_id=e.organization_id AND s.id=e.site_id`,
+    const r = await c.query<{ id: string }>(
+      `INSERT INTO employee_compensation (organization_id,employee_id,effective_from,effective_to,currency,basic_salary,pay_frequency,contract_hours_per_week,overtime_multiplier,payment_method,bank_name,bank_account,mobile_money_number,notes,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,
       [
         context.organizationId,
         input.employeeId,
@@ -616,6 +645,7 @@ export async function createCompensation(
         input.basicSalary,
         input.payFrequency,
         input.contractHoursPerWeek ?? null,
+        input.overtimeMultiplier ?? null,
         input.paymentMethod,
         input.bankName ?? null,
         input.bankAccount ?? null,
@@ -624,7 +654,7 @@ export async function createCompensation(
         context.userId,
       ],
     );
-    return mapCompensation(r.rows[0]!);
+    return mapCompensation(await compensationFor(c, context, r.rows[0]!.id));
   });
 }
 export async function updateCompensation(
@@ -649,8 +679,8 @@ export async function updateCompensation(
       effectiveTo,
       id,
     );
-    const r = await c.query<CompensationRow>(
-      `WITH made AS (UPDATE employee_compensation SET effective_from=$3,effective_to=$4,currency=$5,basic_salary=$6,pay_frequency=$7,contract_hours_per_week=$8,payment_method=$9,bank_name=$10,bank_account=$11,mobile_money_number=$12,notes=$13 WHERE organization_id=$1 AND id=$2 RETURNING id) SELECT ${compensationFields} FROM made JOIN employee_compensation c ON c.id=made.id JOIN employees e ON e.organization_id=c.organization_id AND e.id=c.employee_id LEFT JOIN provinces p ON p.organization_id=e.organization_id AND p.id=e.province_id LEFT JOIN sites s ON s.organization_id=e.organization_id AND s.id=e.site_id`,
+    const r = await c.query<{ id: string }>(
+      `UPDATE employee_compensation SET effective_from=$3,effective_to=$4,currency=$5,basic_salary=$6,pay_frequency=$7,contract_hours_per_week=$8,overtime_multiplier=$9,payment_method=$10,bank_name=$11,bank_account=$12,mobile_money_number=$13,notes=$14 WHERE organization_id=$1 AND id=$2 RETURNING id`,
       [
         context.organizationId,
         id,
@@ -662,6 +692,9 @@ export async function updateCompensation(
         input.contractHoursPerWeek === undefined
           ? n(old.contract_hours_per_week)
           : input.contractHoursPerWeek,
+        input.overtimeMultiplier === undefined
+          ? n(old.overtime_multiplier)
+          : input.overtimeMultiplier,
         input.paymentMethod ?? old.payment_method,
         input.bankName === undefined ? old.bank_name : input.bankName,
         input.bankAccount === undefined ? old.bank_account : input.bankAccount,
@@ -671,7 +704,7 @@ export async function updateCompensation(
         input.notes === undefined ? old.notes : input.notes,
       ],
     );
-    return mapCompensation(r.rows[0]!);
+    return mapCompensation(await compensationFor(c, context, r.rows[0]!.id));
   });
 }
 
@@ -702,7 +735,7 @@ export async function createEmployeeComponent(
     await employeeFor(c, context, input.employeeId);
     await componentFor(c, context.organizationId, input.componentId);
     const r = await c.query<EmployeeComponentRow>(
-      `WITH made AS (INSERT INTO employee_payroll_components (organization_id,employee_id,component_id,amount,percentage,effective_from,effective_to,total_to_recover,recovered_to_date,is_active,notes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id) SELECT ${employeeComponentFields} FROM made JOIN employee_payroll_components ec ON ec.id=made.id JOIN employees e ON e.organization_id=ec.organization_id AND e.id=ec.employee_id JOIN payroll_components pc ON pc.organization_id=ec.organization_id AND pc.id=ec.component_id LEFT JOIN provinces p ON p.organization_id=e.organization_id AND p.id=e.province_id`,
+      `WITH made AS (INSERT INTO employee_payroll_components (organization_id,employee_id,component_id,amount,percentage,effective_from,effective_to,total_to_recover,recovered_to_date,is_active,notes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *) SELECT ${employeeComponentFields} FROM made ec JOIN employees e ON e.organization_id=ec.organization_id AND e.id=ec.employee_id JOIN payroll_components pc ON pc.organization_id=ec.organization_id AND pc.id=ec.component_id LEFT JOIN provinces p ON p.organization_id=e.organization_id AND p.id=e.province_id`,
       [
         context.organizationId,
         input.employeeId,
@@ -735,7 +768,7 @@ export async function updateEmployeeComponent(
         field: "effectiveTo",
       });
     const r = await c.query<EmployeeComponentRow>(
-      `WITH made AS (UPDATE employee_payroll_components SET amount=$3,percentage=$4,effective_from=$5,effective_to=$6,total_to_recover=$7,recovered_to_date=$8,is_active=$9,notes=$10 WHERE organization_id=$1 AND id=$2 RETURNING id) SELECT ${employeeComponentFields} FROM made JOIN employee_payroll_components ec ON ec.id=made.id JOIN employees e ON e.organization_id=ec.organization_id AND e.id=ec.employee_id JOIN payroll_components pc ON pc.organization_id=ec.organization_id AND pc.id=ec.component_id LEFT JOIN provinces p ON p.organization_id=e.organization_id AND p.id=e.province_id`,
+      `WITH made AS (UPDATE employee_payroll_components SET amount=$3,percentage=$4,effective_from=$5,effective_to=$6,total_to_recover=$7,recovered_to_date=$8,is_active=$9,notes=$10 WHERE organization_id=$1 AND id=$2 RETURNING *) SELECT ${employeeComponentFields} FROM made ec JOIN employees e ON e.organization_id=ec.organization_id AND e.id=ec.employee_id JOIN payroll_components pc ON pc.organization_id=ec.organization_id AND pc.id=ec.component_id LEFT JOIN provinces p ON p.organization_id=e.organization_id AND p.id=e.province_id`,
       [
         context.organizationId,
         id,
@@ -779,6 +812,34 @@ export async function listRuns(context: PayrollContext, query: RunQuery) {
     return r.rows.map(mapRun);
   });
 }
+
+async function nextPayrollRunReference(
+  c: PoolClient,
+  organizationId: string,
+  periodStart: string,
+) {
+  const month = periodStart.slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(month))
+    throw new BadRequestError("A valid payroll period start date is required", {
+      field: "periodStart",
+    });
+
+  const prefix = `PAIE${month.replace("-", "")}`;
+  // Serialize reference generation within one organization and month. This
+  // prevents two concurrent requests from receiving the same next number.
+  await c.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+    `payroll-run-reference:${organizationId}:${month}`,
+  ]);
+  const sequence = await c.query<{ next_number: string }>(
+    `SELECT (COALESCE(MAX(NULLIF(SUBSTRING(reference FROM '([0-9]{3})$'), '')::integer), 0) + 1)::text AS next_number
+       FROM payroll_runs
+      WHERE organization_id=$1 AND reference LIKE $2`,
+    [organizationId, `${prefix}%`],
+  );
+  const next = Number(sequence.rows[0]?.next_number ?? 1);
+  return `${prefix}${String(next).padStart(3, "0")}`;
+}
+
 export async function createRun(
   context: PayrollContext,
   input: CreateRunInput,
@@ -790,11 +851,18 @@ export async function createRun(
       input.provinceId ?? null,
       "Province not available",
     );
-    const r = await c.query<RunRow>(
-      `WITH made AS (INSERT INTO payroll_runs (organization_id,reference,period_start,period_end,pay_date,currency,province_id,notes,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id) SELECT ${runFields} FROM made JOIN payroll_runs r ON r.id=made.id LEFT JOIN provinces p ON p.organization_id=r.organization_id AND p.id=r.province_id LEFT JOIN users creator ON creator.id=r.created_by LEFT JOIN users approver ON approver.id=r.approved_by`,
+    const reference = await nextPayrollRunReference(
+      c,
+      context.organizationId,
+      input.periodStart,
+    );
+    const r = await c.query<{ id: string }>(
+      `INSERT INTO payroll_runs (organization_id,reference,period_start,period_end,pay_date,currency,province_id,notes,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
       [
         context.organizationId,
-        input.reference,
+
+        reference,
+
         input.periodStart,
         input.periodEnd,
         input.payDate,
@@ -804,7 +872,7 @@ export async function createRun(
         context.userId,
       ],
     );
-    return mapRun(r.rows[0]!);
+    return mapRun(await runFor(c, context, r.rows[0]!.id));
   });
 }
 export async function updateRun(
@@ -825,19 +893,144 @@ export async function updateRun(
         input.provinceId,
         "Province not available",
       );
+    const periodStart = input.periodStart ?? old.period_start;
+    const periodEnd = input.periodEnd ?? old.period_end;
+    const payDate = input.payDate ?? old.pay_date;
+    if (periodEnd < periodStart)
+      throw new BadRequestError("Period end must be on or after period start", {
+        field: "periodEnd",
+      });
+    if (payDate < periodStart)
+      throw new BadRequestError("Pay date must be on or after period start", {
+        field: "payDate",
+      });
+    const provinceId =
+      input.provinceId === undefined ? old.province_id : input.provinceId;
+    const currency = input.currency ?? old.currency;
+    const calculationChanged =
+      periodStart !== old.period_start ||
+      periodEnd !== old.period_end ||
+      currency !== old.currency ||
+      provinceId !== old.province_id;
+    if (calculationChanged && old.status === "calculated")
+      await c.query(
+        `DELETE FROM payslips WHERE organization_id=$1 AND run_id=$2`,
+        [context.organizationId, id],
+      );
+    const nextStatus =
+      input.status ?? (calculationChanged ? "draft" : old.status);
     const r = await c.query<{ id: string }>(
-      `UPDATE payroll_runs SET pay_date=$3,province_id=$4,notes=$5,status=$6 WHERE organization_id=$1 AND id=$2 RETURNING id`,
+      `UPDATE payroll_runs
+          SET reference=$3,
+              period_start=$4,
+              period_end=$5,
+              pay_date=$6,
+              currency=$7,
+              province_id=$8,
+              notes=$9,
+              status=$10,
+              employee_count=CASE WHEN $11 THEN 0 ELSE employee_count END,
+              gross_total=CASE WHEN $11 THEN 0 ELSE gross_total END,
+              deduction_total=CASE WHEN $11 THEN 0 ELSE deduction_total END,
+              net_total=CASE WHEN $11 THEN 0 ELSE net_total END,
+              employer_cost_total=CASE WHEN $11 THEN 0 ELSE employer_cost_total END
+        WHERE organization_id=$1 AND id=$2
+        RETURNING id`,
       [
         context.organizationId,
         id,
-        input.payDate ?? old.pay_date,
-        input.provinceId === undefined ? old.province_id : input.provinceId,
+        input.reference ?? old.reference,
+        periodStart,
+        periodEnd,
+        payDate,
+        currency,
+        provinceId,
         input.notes === undefined ? old.notes : input.notes,
-        input.status ?? old.status,
+        nextStatus,
+        calculationChanged,
       ],
     );
     return mapRun(await runFor(c, context, r.rows[0]!.id));
   });
+}
+function assertRunCanBeChanged(run: RunRow) {
+  if (!["draft", "calculated"].includes(run.status))
+    throw new ConflictError(
+      "Approved, paid or cancelled payroll cannot be changed",
+    );
+}
+
+export async function listRunExclusions(
+  context: PayrollContext,
+  runId: string,
+) {
+  return withTenantContext(context, async (c) => {
+    await runFor(c, context, runId);
+    const rows = await c.query<RunExclusionRow>(
+      `SELECT x.id,x.run_id,x.employee_id,x.reason,x.created_at,
+              e.employee_number,e.full_name AS employee_name,e.job_title AS employee_job_title
+         FROM payroll_run_exclusions x
+         JOIN employees e
+           ON e.organization_id=x.organization_id AND e.id=x.employee_id
+        WHERE x.organization_id=$1 AND x.run_id=$2
+        ORDER BY e.full_name`,
+      [context.organizationId, runId],
+    );
+    return rows.rows.map(mapRunExclusion);
+  });
+}
+
+export async function excludeEmployeeFromRun(
+  context: PayrollContext,
+  runId: string,
+  input: CreateRunExclusionInput,
+) {
+  return withTenantContext(context, async (c) => {
+    const run = await runFor(c, context, runId);
+    assertRunCanBeChanged(run);
+    const employee = await employeeFor(c, context, input.employeeId);
+    if (run.province_id && employee.province_id !== run.province_id)
+      throw new BadRequestError(
+        "Employee is outside this payroll run province",
+        {
+          field: "employeeId",
+        },
+      );
+    await c.query(
+      `INSERT INTO payroll_run_exclusions (organization_id,run_id,employee_id,reason,created_by)
+       VALUES ($1,$2,$3,$4,$5)
+       ON CONFLICT (organization_id,run_id,employee_id)
+       DO UPDATE SET reason=EXCLUDED.reason,created_by=EXCLUDED.created_by,created_at=now()`,
+      [
+        context.organizationId,
+        runId,
+        input.employeeId,
+        input.reason ?? null,
+        context.userId,
+      ],
+    );
+    return mapRun(await runFor(c, context, runId));
+  });
+}
+
+export async function includeEmployeeInRun(
+  context: PayrollContext,
+  runId: string,
+  employeeId: string,
+) {
+  return withTenantContext(context, async (c) => {
+    const run = await runFor(c, context, runId);
+    assertRunCanBeChanged(run);
+    await c.query(
+      `DELETE FROM payroll_run_exclusions
+        WHERE organization_id=$1 AND run_id=$2 AND employee_id=$3`,
+      [context.organizationId, runId, employeeId],
+    );
+    return mapRun(await runFor(c, context, runId));
+  });
+}
+function isIncomeTaxComponent(code: string) {
+  return /(income_?tax|taxe?|impot|withholding)/i.test(code);
 }
 
 function componentAmount(
@@ -853,7 +1046,14 @@ function componentAmount(
       : component.calculation === "percentage_of_gross"
         ? (gross * pct) / 100
         : fixed;
-  if (component.total_to_recover != null)
+  // A recovery ceiling belongs only to a deduction such as an employee
+  // advance. Older clients could send `0` for an omitted recovery total on
+  // an earning. Applying that ceiling to an allowance silently reduced it to
+  // zero, even though the configured amount was valid.
+  if (
+    component.component_type === "deduction" &&
+    component.total_to_recover != null
+  )
     amount = Math.min(
       amount,
       Math.max(
@@ -879,8 +1079,9 @@ export async function calculateRun(context: PayrollContext, id: string) {
       context.organizationId,
       run.period_end,
       run.period_start,
+      id,
     ];
-    let where = `e.organization_id=$1 AND e.employment_status IN ('active','probation','on_leave') AND c.effective_from <= $2::date AND (c.effective_to IS NULL OR c.effective_to >= $3::date)`;
+    let where = `e.organization_id=$1 AND e.employment_status IN ('active','probation','on_leave') AND c.effective_from <= $2::date AND (c.effective_to IS NULL OR c.effective_to >= $3::date) AND NOT EXISTS (SELECT 1 FROM payroll_run_exclusions excluded WHERE excluded.organization_id=$1 AND excluded.run_id=$4 AND excluded.employee_id=e.id)`;
     if (run.province_id) {
       params.push(run.province_id);
       where += ` AND e.province_id=$${params.length}`;
@@ -904,12 +1105,40 @@ export async function calculateRun(context: PayrollContext, id: string) {
           run.period_start,
         ],
       );
+      const attendance = await c.query<{
+        days_worked: string;
+        days_absent: string;
+        overtime_minutes: string;
+      }>(
+        `SELECT
+           COUNT(*) FILTER (WHERE status IN ('present', 'late') AND clock_out_at IS NOT NULL)::text AS days_worked,
+           COUNT(*) FILTER (WHERE status = 'absent')::text AS days_absent,
+           COALESCE(SUM(overtime_minutes) FILTER (WHERE status IN ('present', 'late') AND clock_out_at IS NOT NULL), 0)::text AS overtime_minutes
+         FROM attendance_records
+         WHERE organization_id = $1
+           AND employee_id = $2
+           AND work_date BETWEEN $3::date AND $4::date`,
+        [
+          context.organizationId,
+          worker.employee.id,
+          run.period_start,
+          run.period_end,
+        ],
+      );
+      const attendanceSnapshot = attendance.rows[0] ?? {
+        days_worked: "0",
+        days_absent: "0",
+        overtime_minutes: "0",
+      };
+      const daysWorked = Number(attendanceSnapshot.days_worked);
+      const daysAbsent = Number(attendanceSnapshot.days_absent);
+      const overtimeHours = Number(attendanceSnapshot.overtime_minutes) / 60;
       const basic = worker.basicSalary;
       let gross = basic,
         deductions = 0,
         employer = 0;
       const result = await c.query<{ id: string }>(
-        `INSERT INTO payslips (organization_id,run_id,employee_id,employee_number,employee_name,job_title,province_id,site_id,department_id,currency,basic_salary,gross_pay,total_deductions,net_pay,employer_cost,payment_method,notes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,(SELECT department_id FROM employees WHERE organization_id=$1 AND id=$3),$9,$10,0,0,0,0,$11,$12) RETURNING id`,
+        `INSERT INTO payslips (organization_id,run_id,employee_id,employee_number,employee_name,job_title,province_id,site_id,department_id,currency,basic_salary,days_worked,days_absent,overtime_hours,gross_pay,total_deductions,net_pay,employer_cost,payment_method,notes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,(SELECT department_id FROM employees WHERE organization_id=$1 AND id=$3),$9,$10,$11,$12,$13,0,0,0,0,$14,$15) RETURNING id`,
         [
           context.organizationId,
           id,
@@ -921,6 +1150,9 @@ export async function calculateRun(context: PayrollContext, id: string) {
           worker.site?.id ?? null,
           run.currency,
           basic,
+          daysWorked,
+          daysAbsent,
+          overtimeHours,
           worker.paymentMethod,
           worker.notes ?? null,
         ],
@@ -930,13 +1162,58 @@ export async function calculateRun(context: PayrollContext, id: string) {
         `INSERT INTO payslip_lines (organization_id,payslip_id,component_code,component_name,component_type,amount,basis,sort_order) VALUES ($1,$2,'basic_salary','Basic salary','earning',$3,'Compensation in force for the payroll period',0)`,
         [context.organizationId, payslipId, basic],
       );
-      for (const itemRaw of components.rows) {
+      const monthlyReferenceHours =
+        worker.payFrequency === "monthly" && worker.contractHoursPerWeek
+          ? (worker.contractHoursPerWeek * 52) / 12
+          : null;
+      const overtimePay =
+        overtimeHours > 0 &&
+        worker.overtimeMultiplier !== null &&
+        monthlyReferenceHours &&
+        monthlyReferenceHours > 0
+          ? Math.round(
+              ((basic / monthlyReferenceHours) *
+                overtimeHours *
+                worker.overtimeMultiplier +
+                Number.EPSILON) *
+                100,
+            ) / 100
+          : 0;
+      if (overtimePay > 0) {
+        gross += overtimePay;
+        await c.query(
+          `INSERT INTO payslip_lines (organization_id,payslip_id,component_code,component_name,component_type,amount,basis,sort_order) VALUES ($1,$2,'verified_overtime','Verified overtime','earning',$3,$4,5)`,
+          [
+            context.organizationId,
+            payslipId,
+            overtimePay,
+            `${overtimeHours.toFixed(2)} verified hours × ${worker.overtimeMultiplier} × monthly hourly reference`,
+          ],
+        );
+      }
+      const orderedComponents = [
+        ...components.rows.filter(
+          (item) =>
+            !(
+              item.component_type === "deduction" &&
+              isIncomeTaxComponent(item.component_code)
+            ),
+        ),
+        ...components.rows.filter(
+          (item) =>
+            item.component_type === "deduction" &&
+            isIncomeTaxComponent(item.component_code),
+        ),
+      ];
+      let hasIncomeTax = false;
+      for (const itemRaw of orderedComponents) {
         const item = mapEmployeeComponent(itemRaw);
         const amount = componentAmount(itemRaw, basic, gross);
         if (item.component.componentType === "earning") gross += amount;
-        else if (item.component.componentType === "deduction")
+        else if (item.component.componentType === "deduction") {
           deductions += amount;
-        else employer += amount;
+          if (isIncomeTaxComponent(item.component.code)) hasIncomeTax = true;
+        } else employer += amount;
         await c.query(
           `INSERT INTO payslip_lines (organization_id,payslip_id,component_id,component_code,component_name,component_type,amount,basis,sort_order) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
           [
@@ -954,6 +1231,12 @@ export async function calculateRun(context: PayrollContext, id: string) {
                 : "Configured amount",
             item.component.sortOrder,
           ],
+        );
+      }
+      if (!hasIncomeTax) {
+        await c.query(
+          `INSERT INTO payslip_lines (organization_id,payslip_id,component_code,component_name,component_type,amount,basis,sort_order) VALUES ($1,$2,'income_tax','Income tax','deduction',0,'No tax withholding configured',900)`,
+          [context.organizationId, payslipId],
         );
       }
       const net = Math.max(0, gross - deductions);
@@ -1054,6 +1337,608 @@ export async function listPayslips(context: PayrollContext, runId: string) {
         lines.filter((line) => line.payslip_id === item.id),
       ),
     );
+  });
+}
+type PayslipPdfOrganization = {
+  name: string;
+  address: string;
+  logoUrl?: string | null;
+};
+type PayslipPdfRun = {
+  reference: string;
+  payrollReference: string;
+  periodStart: string;
+  periodEnd: string;
+  payDate: string;
+  status: RunStatus;
+};
+const payrollPdfMoney = (value: number, currency: string, french: boolean) =>
+  new Intl.NumberFormat(french ? "fr-FR" : "en-US", {
+    style: "currency",
+    currency: /^[A-Z]{3}$/.test(currency) ? currency : "USD",
+    maximumFractionDigits: 0,
+  }).format(value || 0);
+const payrollPdfDate = (value: string, french: boolean) =>
+  new Intl.DateTimeFormat(french ? "fr-FR" : "en-US", {
+    dateStyle: "medium",
+  }).format(new Date(value.slice(0, 10) + "T12:00:00"));
+const payrollPdfLabel = (french: boolean, en: string, fr: string) =>
+  french ? fr : en;
+const payrollPdfIncomeTax = (line: { code: string; type: string }) =>
+  line.type === "deduction" &&
+  /(income_?tax|taxe?|impot|withholding)/i.test(line.code);
+
+async function payrollPdfLogo(
+  url: string | null | undefined,
+): Promise<Buffer | null> {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    if (
+      parsed.protocol !== "https:" ||
+      !/(^|\.)res\.cloudinary\.com$/i.test(parsed.hostname)
+    )
+      return null;
+    const response = await fetch(parsed, {
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!response.ok) return null;
+    const contentType =
+      response.headers.get("content-type")?.toLowerCase() ?? "";
+    if (
+      !contentType.includes("image/png") &&
+      !contentType.includes("image/jpeg")
+    )
+      return null;
+    const declaredSize = Number(response.headers.get("content-length") ?? "0");
+    if (Number.isFinite(declaredSize) && declaredSize > 2_000_000) return null;
+    const bytes = Buffer.from(await response.arrayBuffer());
+    return bytes.length && bytes.length <= 2_000_000 ? bytes : null;
+  } catch {
+    // Branding must never block a payroll document from being generated.
+    return null;
+  }
+}
+
+/** A controlled, read-only statement generated from an approved payroll record. */
+export async function createPayslipPdf(
+  organization: PayslipPdfOrganization,
+  run: PayslipPdfRun,
+  payslip: ReturnType<typeof mapPayslip>,
+  french: boolean,
+): Promise<Buffer> {
+  const label = (en: string, fr: string) => payrollPdfLabel(french, en, fr);
+  const navy = "#121c70";
+  const navySoft = "#182d72";
+  const blue = "#3868ff";
+  const ink = "#1e293b";
+  const muted = "#64748b";
+  const border = "#d9e2ec";
+  const pale = "#eff6ff";
+  const pageMargin = 48;
+  const logo = await payrollPdfLogo(organization.logoUrl);
+  const earnings = payslip.lines.filter((item) => item.type === "earning");
+  const deductions = payslip.lines.filter((item) => item.type === "deduction");
+  const taxLines = deductions.filter(payrollPdfIncomeTax);
+  const incomeTax = taxLines.reduce((sum, item) => sum + item.amount, 0);
+  const taxLine =
+    taxLines[0] ??
+    ({
+      id: "income-tax-zero",
+      code: "income_tax",
+      name: label("Income tax", "Impôt sur le revenu"),
+      type: "deduction" as ComponentType,
+      amount: 0,
+      basis: label(
+        "No tax withholding configured",
+        "Aucune retenue fiscale configurée",
+      ),
+    } as const);
+  const otherDeductions = deductions.filter(
+    (item) => !payrollPdfIncomeTax(item),
+  );
+  const initials =
+    organization.name
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part.slice(0, 1).toUpperCase())
+      .join("") || "CO";
+
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({
+      size: "A4",
+      margin: pageMargin,
+      info: {
+        Title:
+          label("Payslip", "Bulletin de paie") +
+          " - " +
+          payslip.employee.fullName,
+        Author: organization.name,
+      },
+    });
+    const chunks: Buffer[] = [];
+    doc.on("data", (chunk: Buffer) => chunks.push(chunk));
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", reject);
+
+    const pageWidth = doc.page.width;
+    const pageHeight = doc.page.height;
+    const contentWidth = pageWidth - pageMargin * 2;
+    const drawHeader = () => {
+      doc.rect(0, 0, pageWidth, 108).fill(navy);
+      doc
+        .save()
+        .fillOpacity(0.8)
+        .ellipse(-42, 94, 252, 66)
+        .fill(blue)
+        .restore();
+      doc
+        .save()
+        .fillOpacity(0.22)
+        .ellipse(pageWidth - 20, 90, 250, 60)
+        .fill("#5b7cff")
+        .restore();
+
+      doc.roundedRect(pageMargin, 28, 46, 46, 8).fill("#ffffff");
+      if (logo) {
+        try {
+          doc.image(logo, pageMargin + 6, 34, { fit: [34, 34] });
+        } catch {
+          doc
+            .fillColor(navySoft)
+            .font("Helvetica-Bold")
+            .fontSize(15)
+            .text(initials, pageMargin, 43, { width: 46, align: "center" });
+        }
+      } else {
+        doc
+          .fillColor(navySoft)
+          .font("Helvetica-Bold")
+          .fontSize(15)
+          .text(initials, pageMargin, 43, { width: 46, align: "center" });
+      }
+
+      doc
+        .fillColor("#dbeafe")
+        .font("Helvetica-Bold")
+        .fontSize(7.5)
+        .text(organization.name.toUpperCase(), pageMargin + 58, 34, {
+          width: 230,
+        });
+      doc
+        .fillColor("#ffffff")
+        .font("Helvetica-Bold")
+        .fontSize(17)
+        .text(label("PAYSLIP", "BULLETIN DE PAIE"), pageMargin + 58, 48, {
+          width: 250,
+        });
+      doc
+        .fillColor("#dbeafe")
+        .font("Helvetica")
+        .fontSize(7.5)
+        .text(
+          organization.address ||
+            label("Approved payroll statement", "Document de paie approuvé"),
+          pageMargin + 58,
+          72,
+          { width: 270, ellipsis: true },
+        );
+      const status =
+        run.status === "paid"
+          ? label("Paid", "Payé")
+          : label("Approved", "Approuvé");
+      doc
+        .roundedRect(pageWidth - pageMargin - 98, 31, 98, 22, 11)
+        .fill("#ffffff");
+      doc
+        .fillColor(navySoft)
+        .font("Helvetica-Bold")
+        .fontSize(7.5)
+        .text(status, pageWidth - pageMargin - 94, 38, {
+          width: 90,
+          align: "center",
+        });
+      doc
+        .fillColor("#dbeafe")
+        .font("Helvetica")
+        .fontSize(7.5)
+        .text(run.reference, pageWidth - pageMargin - 190, 72, {
+          width: 190,
+          align: "right",
+        });
+    };
+
+    const field = (
+      x: number,
+      y: number,
+      width: number,
+      name: string,
+      value: string,
+      rightBorder = false,
+      bottomBorder = false,
+    ) => {
+      doc.rect(x, y, width, 46).lineWidth(0.55).strokeColor(border).stroke();
+      if (rightBorder || bottomBorder) {
+        // The rectangle already provides a controlled grid edge.
+      }
+      doc
+        .fillColor(muted)
+        .font("Helvetica-Bold")
+        .fontSize(6.5)
+        .text(name.toUpperCase(), x + 10, y + 9, { width: width - 20 });
+      doc
+        .fillColor(ink)
+        .font("Helvetica-Bold")
+        .fontSize(8.8)
+        .text(value || "—", x + 10, y + 22, {
+          width: width - 20,
+          ellipsis: true,
+        });
+    };
+
+    const sectionLabel = (
+      name: string,
+      x: number,
+      y: number,
+      width: number,
+    ) => {
+      doc.rect(x, y, width, 20).fill(navySoft);
+      doc
+        .fillColor("#ffffff")
+        .font("Helvetica-Bold")
+        .fontSize(7.2)
+        .text(name.toUpperCase(), x + 9, y + 7, { width: width - 18 });
+    };
+
+    const rowHeight = (item: { basis?: string | null }) =>
+      item.basis ? 38 : 30;
+    const detailHeight = (items: Array<{ basis?: string | null }>) =>
+      Math.max(54, items.reduce((sum, item) => sum + rowHeight(item), 0) + 20);
+    const drawDetail = (
+      x: number,
+      y: number,
+      width: number,
+      title: string,
+      items: Array<{
+        id: string;
+        name: string;
+        basis?: string | null;
+        amount: number;
+      }>,
+      deduction = false,
+    ) => {
+      sectionLabel(title, x, y, width);
+      const height = detailHeight(items);
+      doc
+        .rect(x, y + 20, width, height)
+        .lineWidth(0.55)
+        .strokeColor(border)
+        .stroke();
+      if (!items.length) {
+        doc
+          .fillColor(muted)
+          .font("Helvetica")
+          .fontSize(8)
+          .text(
+            label("No entries recorded.", "Aucun élément enregistré."),
+            x + 10,
+            y + 34,
+            { width: width - 20 },
+          );
+        return height + 20;
+      }
+      let itemY = y + 29;
+      for (const item of items) {
+        const heightForRow = rowHeight(item);
+        doc
+          .fillColor(ink)
+          .font("Helvetica-Bold")
+          .fontSize(8)
+          .text(item.name, x + 10, itemY, {
+            width: width - 87,
+            ellipsis: true,
+          });
+        doc
+          .fillColor(deduction ? "#b91c1c" : ink)
+          .font("Helvetica-Bold")
+          .fontSize(8)
+          .text(
+            (deduction ? "-" : "") +
+              payrollPdfMoney(item.amount, payslip.currency, french),
+            x + width - 82,
+            itemY,
+            { width: 72, align: "right" },
+          );
+        if (item.basis) {
+          doc
+            .fillColor(muted)
+            .font("Helvetica")
+            .fontSize(6.5)
+            .text(item.basis, x + 10, itemY + 12, {
+              width: width - 20,
+              ellipsis: true,
+            });
+        }
+        doc
+          .moveTo(x + 10, itemY + heightForRow - 6)
+          .lineTo(x + width - 10, itemY + heightForRow - 6)
+          .lineWidth(0.45)
+          .strokeColor(border)
+          .stroke();
+        itemY += heightForRow;
+      }
+      return height + 20;
+    };
+
+    const summary = (y: number) => {
+      const cells = [
+        [label("Gross pay", "Brut"), payslip.grossPay],
+        [label("Income tax", "Impôt"), incomeTax],
+        [label("Deductions", "Retenues"), payslip.totalDeductions],
+        [label("Net to pay", "Net à payer"), payslip.netPay],
+      ] as const;
+      const width = contentWidth / cells.length;
+      cells.forEach(([name, value], index) => {
+        const x = pageMargin + width * index;
+        doc
+          .rect(x, y, width - 1, 60)
+          .fill(index === cells.length - 1 ? navySoft : pale);
+        doc
+          .fillColor(index === cells.length - 1 ? "#dbeafe" : muted)
+          .font("Helvetica-Bold")
+          .fontSize(6.5)
+          .text(name.toUpperCase(), x + 9, y + 11, { width: width - 18 });
+        doc
+          .fillColor(index === cells.length - 1 ? "#ffffff" : ink)
+          .font("Helvetica-Bold")
+          .fontSize(10)
+          .text(
+            payrollPdfMoney(value, payslip.currency, french),
+            x + 9,
+            y + 30,
+            {
+              width: width - 18,
+              align: "left",
+            },
+          );
+      });
+    };
+
+    drawHeader();
+    let y = 130;
+    doc
+      .fillColor(navySoft)
+      .font("Helvetica-Bold")
+      .fontSize(7)
+      .text(
+        label("Payslip reference", "Référence du bulletin").toUpperCase(),
+        pageMargin,
+        y,
+      );
+    doc
+      .fillColor(ink)
+      .font("Helvetica-Bold")
+      .fontSize(10)
+      .text(run.reference, pageMargin, y + 12);
+    doc
+      .fillColor(muted)
+      .font("Helvetica-Bold")
+      .fontSize(7)
+      .text(
+        label("Payment date", "Date de paiement").toUpperCase(),
+        pageWidth - pageMargin - 150,
+        y,
+        { width: 150, align: "right" },
+      );
+    doc
+      .fillColor(ink)
+      .font("Helvetica-Bold")
+      .fontSize(9)
+      .text(
+        payrollPdfDate(run.payDate, french),
+        pageWidth - pageMargin - 150,
+        y + 12,
+        {
+          width: 150,
+          align: "right",
+        },
+      );
+    y += 43;
+
+    sectionLabel(
+      label("Employee information", "Informations employé"),
+      pageMargin,
+      y,
+      230,
+    );
+    y += 20;
+    const half = contentWidth / 2;
+    field(
+      pageMargin,
+      y,
+      half,
+      label("Full name", "Nom complet"),
+      payslip.employee.fullName,
+    );
+    field(
+      pageMargin + half,
+      y,
+      half,
+      label("Employee number", "Matricule"),
+      "#" + payslip.employee.employeeNumber,
+    );
+    y += 46;
+    field(
+      pageMargin,
+      y,
+      half,
+      label("Position", "Poste"),
+      payslip.employee.jobTitle || "—",
+    );
+    field(
+      pageMargin + half,
+      y,
+      half,
+      label("Pay period", "Période de paie"),
+      payrollPdfDate(run.periodStart, french) +
+        " - " +
+        payrollPdfDate(run.periodEnd, french),
+    );
+    y += 65;
+
+    const taxAndDeductions = [taxLine, ...otherDeductions];
+    const detailRequired =
+      Math.max(detailHeight(earnings), detailHeight(taxAndDeductions)) + 104;
+    if (y + detailRequired > pageHeight - 54) {
+      doc.addPage();
+      drawHeader();
+      y = 130;
+    }
+    const gap = 12;
+    const columnWidth = (contentWidth - gap) / 2;
+    const leftHeight = drawDetail(
+      pageMargin,
+      y,
+      columnWidth,
+      label("Earnings", "Gains"),
+      earnings,
+    );
+    const rightHeight = drawDetail(
+      pageMargin + columnWidth + gap,
+      y,
+      columnWidth,
+      label("Tax and deductions", "Impôt et retenues"),
+      taxAndDeductions,
+      true,
+    );
+    y += Math.max(leftHeight, rightHeight) + 16;
+    summary(y);
+    y += 78;
+    doc
+      .moveTo(pageMargin, y)
+      .lineTo(pageWidth - pageMargin, y)
+      .lineWidth(0.55)
+      .strokeColor(border)
+      .stroke();
+    doc
+      .fillColor(muted)
+      .font("Helvetica")
+      .fontSize(7)
+      .text(
+        label(
+          "This personal document was issued by " +
+            organization.name +
+            " from its approved payroll cycle.",
+          "Ce document personnel est émis par " +
+            organization.name +
+            " dans le cadre de son cycle de paie approuvé.",
+        ),
+        pageMargin,
+        y + 10,
+        { width: contentWidth, align: "center" },
+      );
+    doc
+      .fillColor(muted)
+      .font("Helvetica-Bold")
+      .fontSize(6.5)
+      .text(
+        label("Payroll reference", "Référence de paie") +
+          ": " +
+          run.payrollReference,
+        pageMargin,
+        y + 23,
+        { width: contentWidth, align: "center" },
+      );
+    doc.end();
+  });
+}
+export async function exportPayslipPdf(
+  context: PayrollContext,
+  payslipId: string,
+  french: boolean,
+) {
+  return withTenantContext(context, async (c) => {
+    const record = await c.query<
+      PayslipRow & {
+        period_start: string;
+        period_end: string;
+        pay_date: string;
+        payroll_reference: string;
+        run_status: RunStatus;
+      }
+    >(
+      `SELECT ${payslipFields}, r.reference AS payroll_reference, r.period_start::text, r.period_end::text,
+              r.pay_date::text, r.status AS run_status
+         FROM payslips p
+         JOIN payroll_runs r ON r.organization_id=p.organization_id AND r.id=p.run_id
+         LEFT JOIN provinces pr ON pr.organization_id=p.organization_id AND pr.id=p.province_id
+         LEFT JOIN sites s ON s.organization_id=p.organization_id AND s.id=p.site_id
+         LEFT JOIN departments d ON d.organization_id=p.organization_id AND d.id=p.department_id
+        WHERE p.organization_id=$1 AND p.id=$2`,
+      [context.organizationId, payslipId],
+    );
+    const row = record.rows[0];
+    if (!row) throw new NotFoundError("Payslip not found");
+    if (!["approved", "paid"].includes(row.run_status))
+      throw new ConflictError(
+        "A payslip can be downloaded only after payroll approval",
+      );
+    const lines = await c.query<PayslipLineRow>(
+      `SELECT id,payslip_id,component_id,component_code,component_name,component_type,
+              amount::text,basis,sort_order
+         FROM payslip_lines
+        WHERE organization_id=$1 AND payslip_id=$2
+        ORDER BY sort_order,component_name`,
+      [context.organizationId, payslipId],
+    );
+    const company = await c.query<{
+      name: string;
+      address_line1: string | null;
+      address_line2: string | null;
+      city: string | null;
+      region: string | null;
+      postal_code: string | null;
+      logo_url: string | null;
+    }>(
+      `SELECT COALESCE(display_name,legal_name,slug) AS name,address_line1,address_line2,
+              city,region,postal_code,settings.logo_url
+         FROM organizations LEFT JOIN organization_settings settings ON settings.organization_id=organizations.id WHERE organizations.id=$1`,
+      [context.organizationId],
+    );
+    const organization = company.rows[0];
+    const name = organization?.name?.trim() || "Entreprise";
+    const address = [
+      organization?.address_line1,
+      organization?.address_line2,
+      organization?.city,
+      organization?.region,
+      organization?.postal_code,
+    ]
+      .filter((part): part is string => Boolean(part?.trim()))
+      .join(", ");
+    const payslip = mapPayslip(row, lines.rows);
+    const buffer = await createPayslipPdf(
+      { name, address, logoUrl: organization?.logo_url ?? null },
+      {
+        reference: payslip.reference,
+        payrollReference: row.payroll_reference,
+        periodStart: row.period_start,
+        periodEnd: row.period_end,
+        payDate: row.pay_date,
+        status: row.run_status,
+      },
+      payslip,
+      french,
+    );
+    return {
+      buffer,
+      fileName: `${row.reference}-${row.employee_number}-payslip.pdf`.replace(
+        /[^A-Za-z0-9_.-]/g,
+        "_",
+      ),
+    };
   });
 }
 export async function summary(context: PayrollContext) {

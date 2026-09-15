@@ -82,3 +82,7 @@ export const updatePolicy: RequestHandler = async (req, res) =>
   res.json({ policy: await service.updatePolicy(context(req), req.body as PerformancePolicyInput) });
 export const analytics: RequestHandler = async (req, res) =>
   res.json(await service.analytics(context(req), req.query as AnalyticsQuery));
+export const myPerformance: RequestHandler = async (req, res) =>
+  res.json(
+    await service.myPerformance(context(req), req.query as AnalyticsQuery),
+  );

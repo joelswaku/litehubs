@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useQuery } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import {
   AlertTriangle,
@@ -26,7 +27,11 @@ import {
 import { motion } from "motion/react";
 import { CategoryChart } from "@/components/charts/category-chart";
 import { Badge } from "@/components/ui/badge";
-import { ActiveServicesBar, OperationalServiceSetup } from "@/components/dashboard/operational-service-setup";
+import {
+  ActiveServicesBar,
+  OperationalServiceSetup,
+} from "@/components/dashboard/operational-service-setup";
+import { get, orgUrl } from "@/lib/api";
 import { can, canSeeModule, dashboardLayoutFor } from "@/lib/permissions";
 import { useLanguage } from "@/providers/language-provider";
 import { useSessionUser } from "@/stores/session-store";
@@ -140,6 +145,7 @@ export function DashboardView({ orgSlug }: { orgSlug: string }) {
         orgSlug={orgSlug}
         fr={fr}
         showProjectLink={Boolean(owner.data)}
+        showTaskLink={layout !== "employee" && can(user, "tasks.read")}
       />
       {user?.activeOrganization?.isOwner &&
       (profile.data?.operationalServices === null || serviceSetupOpen) ? (
@@ -149,7 +155,8 @@ export function DashboardView({ orgSlug }: { orgSlug: string }) {
           initialServices={profile.data?.operationalServices ?? null}
           onSaved={() => setServiceSetupOpen(false)}
         />
-      ) : user?.activeOrganization?.isOwner && profile.data?.operationalServices?.length ? (
+      ) : user?.activeOrganization?.isOwner &&
+        profile.data?.operationalServices?.length ? (
         <ActiveServicesBar
           orgSlug={orgSlug}
           services={profile.data.operationalServices}
@@ -157,7 +164,14 @@ export function DashboardView({ orgSlug }: { orgSlug: string }) {
           onEdit={() => setServiceSetupOpen(true)}
         />
       ) : null}
-      {can(user, "appointments.read") ? <AppointmentQueuePanel orgSlug={orgSlug} fr={fr} summary={appointmentQueue.data} loading={appointmentQueue.isLoading} /> : null}
+      {can(user, "appointments.read") ? (
+        <AppointmentQueuePanel
+          orgSlug={orgSlug}
+          fr={fr}
+          summary={appointmentQueue.data}
+          loading={appointmentQueue.isLoading}
+        />
+      ) : null}
       {layout === "executive" || layout === "manager" ? (
         <ExecutiveLayout {...context} />
       ) : null}
@@ -168,12 +182,77 @@ export function DashboardView({ orgSlug }: { orgSlug: string }) {
   );
 }
 
-
-function AppointmentQueuePanel({ orgSlug, fr, summary, loading }: { orgSlug: string; fr: boolean; summary?: { waiting: number; called: number; serving: number; scheduled_today: number }; loading: boolean }) {
+function AppointmentQueuePanel({
+  orgSlug,
+  fr,
+  summary,
+  loading,
+}: {
+  orgSlug: string;
+  fr: boolean;
+  summary?: {
+    waiting: number;
+    called: number;
+    serving: number;
+    scheduled_today: number;
+  };
+  loading: boolean;
+}) {
   const urgent = (summary?.waiting ?? 0) + (summary?.called ?? 0);
-  return <Link href={`/${orgSlug}/appointments`} className="group block rounded-2xl border border-brand/25 bg-[linear-gradient(115deg,rgba(15,118,110,.12),rgba(255,255,255,.02))] p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-brand/50 hover:shadow-md"><div className="flex flex-wrap items-center gap-4"><span className="grid size-11 place-items-center rounded-xl bg-brand text-white"><CalendarClock className="size-5" /></span><div className="min-w-48 flex-1"><p className="font-semibold text-ink">{fr ? "Rendez-vous et file d’attente" : "Appointments and queue"}</p><p className="text-sm text-ink-secondary">{loading ? (fr ? "Actualisation…" : "Refreshing…") : urgent ? (fr ? `${urgent} visiteur(s) demandent une action` : `${urgent} visitor(s) need action`) : (fr ? "Aucun visiteur en attente" : "No visitors waiting")}</p></div><div className="flex gap-4 text-center"><QueueMetric value={summary?.waiting ?? 0} label={fr ? "Attente" : "Waiting"} /><QueueMetric value={summary?.serving ?? 0} label={fr ? "En service" : "Serving"} /><QueueMetric value={summary?.scheduled_today ?? 0} label={fr ? "Aujourd’hui" : "Today"} /></div><ChevronRight className="ml-auto size-5 text-ink-secondary transition group-hover:translate-x-1" /></div></Link>;
+  return (
+    <Link
+      href={`/${orgSlug}/appointments`}
+      className="group block rounded-2xl border border-brand/25 bg-[linear-gradient(115deg,rgba(15,118,110,.12),rgba(255,255,255,.02))] p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-brand/50 hover:shadow-md"
+    >
+      <div className="flex flex-wrap items-center gap-4">
+        <span className="grid size-11 place-items-center rounded-xl bg-brand text-white">
+          <CalendarClock className="size-5" />
+        </span>
+        <div className="min-w-48 flex-1">
+          <p className="font-semibold text-ink">
+            {fr ? "Rendez-vous et file d’attente" : "Appointments and queue"}
+          </p>
+          <p className="text-sm text-ink-secondary">
+            {loading
+              ? fr
+                ? "Actualisation…"
+                : "Refreshing…"
+              : urgent
+                ? fr
+                  ? `${urgent} visiteur(s) demandent une action`
+                  : `${urgent} visitor(s) need action`
+                : fr
+                  ? "Aucun visiteur en attente"
+                  : "No visitors waiting"}
+          </p>
+        </div>
+        <div className="flex gap-4 text-center">
+          <QueueMetric
+            value={summary?.waiting ?? 0}
+            label={fr ? "Attente" : "Waiting"}
+          />
+          <QueueMetric
+            value={summary?.serving ?? 0}
+            label={fr ? "En service" : "Serving"}
+          />
+          <QueueMetric
+            value={summary?.scheduled_today ?? 0}
+            label={fr ? "Aujourd’hui" : "Today"}
+          />
+        </div>
+        <ChevronRight className="ml-auto size-5 text-ink-secondary transition group-hover:translate-x-1" />
+      </div>
+    </Link>
+  );
 }
-function QueueMetric({ value, label }: { value: number; label: string }) { return <div><p className="text-lg font-semibold text-ink">{value}</p><p className="text-[11px] text-ink-secondary">{label}</p></div>; }
+function QueueMetric({ value, label }: { value: number; label: string }) {
+  return (
+    <div>
+      <p className="text-lg font-semibold text-ink">{value}</p>
+      <p className="text-[11px] text-ink-secondary">{label}</p>
+    </div>
+  );
+}
 type DashboardContext = {
   t: (key: any, variables?: Record<string, string | number>) => string;
   fr: boolean;
@@ -864,20 +943,82 @@ function BackOfficeLayout(data: DashboardContext) {
   );
 }
 
+type EmployeeDashboardPayslip = {
+  id: string;
+  reference: string;
+  payDate: string;
+  currency: string;
+  status: string;
+  netPay: number;
+};
+
+type EmployeeDashboardPaymentState = "scheduled" | "pending_payment" | "paid";
+
+function employeeDashboardPaymentState(
+  payslip: EmployeeDashboardPayslip,
+): EmployeeDashboardPaymentState {
+  if (payslip.status === "paid") return "paid";
+  const paymentDate = new Date(`${payslip.payDate}T12:00:00`);
+  const pendingFrom = new Date(paymentDate);
+  pendingFrom.setDate(pendingFrom.getDate() - 3);
+  return new Date() >= pendingFrom ? "pending_payment" : "scheduled";
+}
+
+function employeeDashboardPaymentLabel(
+  state: EmployeeDashboardPaymentState,
+  fr: boolean,
+) {
+  if (state === "paid") return copy(fr, "Paid", "Payée");
+  if (state === "pending_payment") {
+    return copy(fr, "Pending payment", "En attente de paiement");
+  }
+  return copy(fr, "Scheduled", "Paiement prévu");
+}
+
 function EmployeeLayout(data: DashboardContext) {
-  const { fr, locale, orgSlug, number, tasks, attendance, user } = data;
-  const openTasks = tasks.filter(
-    (task) => !["completed", "cancelled"].includes(String(task.status)),
-  ).length;
+  const { fr, locale, orgSlug, number, attendance, user } = data;
+  const canReadDailyWork = can(user, "daily_operations.read");
+  const employeePayslips = useQuery({
+    queryKey: ["my-account", orgSlug],
+    queryFn: () =>
+      get<{ account: { payslips: EmployeeDashboardPayslip[] } }>(
+        orgUrl(orgSlug, "my-account"),
+      ),
+    select: (response) => response.account.payslips,
+  });
+  const currentPayslip = employeePayslips.data?.[0] ?? null;
+  const currentPaymentState = currentPayslip
+    ? employeeDashboardPaymentState(currentPayslip)
+    : null;
+  const currentPay = currentPayslip
+    ? new Intl.NumberFormat(locale, {
+        style: "currency",
+        currency: currentPayslip.currency,
+        maximumFractionDigits: 0,
+      }).format(currentPayslip.netPay)
+    : "—";
+
   return (
     <>
-      <section className="grid gap-3 sm:grid-cols-3">
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <DashboardMetric
-          label={copy(fr, "My open tasks", "Mes tâches ouvertes")}
-          value={number.format(openTasks)}
-          icon={ClipboardList}
-          hint={copy(fr, "Your current work queue", "Votre travail en cours")}
-          tone="ocean"
+          label={copy(fr, "Daily work", "Travail quotidien")}
+          value={canReadDailyWork ? "✓" : "—"}
+          icon={CheckCircle2}
+          hint={
+            canReadDailyWork
+              ? copy(
+                  fr,
+                  "Checks, reports and handovers assigned to you",
+                  "Contrôles, rapports et passations qui vous sont affectés",
+                )
+              : copy(
+                  fr,
+                  "Ask your manager to assign your daily work",
+                  "Demandez à votre responsable de vous affecter le travail quotidien",
+                )
+          }
+          tone="emerald"
         />
         <DashboardMetric
           label={copy(fr, "Attendance records", "Présences enregistrées")}
@@ -887,50 +1028,110 @@ function EmployeeLayout(data: DashboardContext) {
           tone="violet"
         />
         <DashboardMetric
-          label={copy(fr, "Daily work", "Travail quotidien")}
-          value={can(user, "attendance.clock_self") ? "✓" : "—"}
-          icon={CheckCircle2}
+          label={copy(fr, "Current pay", "Paie actuelle")}
+          value={currentPay}
+          icon={WalletCards}
           hint={
-            can(user, "attendance.clock_self")
-              ? copy(fr, "Ready to record", "Prêt à enregistrer")
-              : copy(
+            employeePayslips.isPending
+              ? copy(
                   fr,
-                  "Ask your manager for access",
-                  "Demandez l’accès à votre responsable",
+                  "Loading your latest pay…",
+                  "Chargement de votre dernière paie…",
                 )
+              : currentPayslip && currentPaymentState
+                ? `${currentPayslip.reference} · ${employeeDashboardPaymentLabel(currentPaymentState, fr)}`
+                : copy(
+                    fr,
+                    "No current payslip available",
+                    "Aucune paie actuelle disponible",
+                  )
           }
-          tone="emerald"
+          href={`/${orgSlug}/my-payslips`}
+          linkLabel={copy(fr, "My payslips", "Mes fiches de paie")}
+          tone="ocean"
         />
       </section>
       <section className="grid gap-5 xl:grid-cols-12">
         <Panel
           className="xl:col-span-7"
-          eyebrow={copy(fr, "My priority", "Ma priorité")}
-          title={copy(fr, "Work assigned to me", "Travail qui m’est affecté")}
+          eyebrow={copy(fr, "Daily execution", "Exécution quotidienne")}
+          title={copy(fr, "My daily work", "Mon travail quotidien")}
           description={copy(
             fr,
-            "Update your progress and add evidence as you complete work.",
-            "Mettez à jour votre avancement et ajoutez les preuves au fur et à mesure.",
+            "Complete the operational checks, production reports and handovers assigned to your site and work area.",
+            "Exécutez les contrôles, rapports de production et passations affectés à votre site et à votre activité.",
           )}
-          icon={ClipboardList}
+          icon={CheckCircle2}
           action={
-            <DashboardLink
-              href={`/${orgSlug}/tasks`}
-              label={copy(fr, "Open tasks", "Voir mes tâches")}
-            />
+            canReadDailyWork ? (
+              <DashboardLink
+                href={"/" + orgSlug + "/daily-work"}
+                label={copy(
+                  fr,
+                  "Open daily work",
+                  "Ouvrir le travail quotidien",
+                )}
+              />
+            ) : undefined
           }
         >
-          <TaskList
-            tasks={tasks}
-            empty={copy(
-              fr,
-              "No task assigned right now.",
-              "Aucune tâche ne vous est affectée pour le moment.",
-            )}
-            locale={locale}
-            fr={fr}
-            orgSlug={orgSlug}
-          />
+          {canReadDailyWork ? (
+            <div className="grid gap-3 p-4 sm:grid-cols-3 sm:p-5">
+              {[
+                {
+                  icon: CheckCircle2,
+                  label: copy(fr, "Checks", "Contrôles"),
+                  detail: copy(
+                    fr,
+                    "Record the required field controls.",
+                    "Enregistrez les contrôles terrain demandés.",
+                  ),
+                },
+                {
+                  icon: ClipboardList,
+                  label: copy(fr, "Reports", "Rapports"),
+                  detail: copy(
+                    fr,
+                    "Report production, work done and issues.",
+                    "Signalez la production, le travail fait et les difficultés.",
+                  ),
+                },
+                {
+                  icon: Clock3,
+                  label: copy(fr, "Handovers", "Passations"),
+                  detail: copy(
+                    fr,
+                    "Keep the next shift informed.",
+                    "Informez clairement l’équipe suivante.",
+                  ),
+                },
+              ].map((item) => {
+                const Icon = item.icon;
+                return (
+                  <div
+                    key={item.label}
+                    className="rounded-xl border border-border bg-surface-2/55 p-3.5"
+                  >
+                    <Icon className="size-4 text-brand" aria-hidden />
+                    <p className="mt-3 text-sm font-semibold text-ink">
+                      {item.label}
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-ink-secondary">
+                      {item.detail}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <Empty
+              text={copy(
+                fr,
+                "Your manager must assign your site and daily operational work before it appears here.",
+                "Votre responsable doit vous affecter un site et le travail opérationnel quotidien avant qu’il apparaisse ici.",
+              )}
+            />
+          )}
         </Panel>
         <Panel
           className="xl:col-span-5"
@@ -965,6 +1166,7 @@ function WorkspaceHero({
   orgSlug,
   fr,
   showProjectLink,
+  showTaskLink,
 }: {
   name: string;
   subtitle: string;
@@ -973,6 +1175,7 @@ function WorkspaceHero({
   orgSlug: string;
   fr: boolean;
   showProjectLink: boolean;
+  showTaskLink: boolean;
 }) {
   const today = new Intl.DateTimeFormat(fr ? "fr-FR" : "en-GB", {
     weekday: "long",
@@ -980,7 +1183,7 @@ function WorkspaceHero({
     month: "long",
   }).format(new Date());
   return (
-    <section className="relative isolate overflow-hidden rounded-[1.7rem] bg-[#092b55] px-5 py-6 text-white shadow-[0_26px_65px_-32px_rgba(7,36,76,.85)] sm:px-7 sm:py-8 lg:px-9">
+    <section className="relative isolate overflow-hidden rounded-2xl bg-[#092b55] px-4 py-5 text-white shadow-[0_26px_65px_-32px_rgba(7,36,76,.85)] sm:rounded-[1.7rem] sm:px-7 sm:py-8 lg:px-9">
       <div
         className="absolute inset-0 bg-[radial-gradient(circle_at_12%_-15%,rgba(86,183,235,.42),transparent_34%),radial-gradient(circle_at_87%_10%,rgba(44,190,157,.24),transparent_28%),linear-gradient(125deg,#092b55_0%,#104a84_52%,#0d3766_100%)]"
         aria-hidden
@@ -993,7 +1196,7 @@ function WorkspaceHero({
         className="absolute -bottom-32 right-[22%] size-72 rounded-full border border-white/10 bg-white/[0.035]"
         aria-hidden
       />
-      <div className="relative flex flex-col justify-between gap-7 lg:flex-row lg:items-end">
+      <div className="relative flex flex-col justify-between gap-5 sm:gap-7 lg:flex-row lg:items-end">
         <div className="max-w-3xl">
           <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-blue-100/90">
             <span className="rounded-full border border-white/15 bg-white/10 px-2.5 py-1">
@@ -1001,7 +1204,7 @@ function WorkspaceHero({
             </span>
             <span className="capitalize text-blue-100/75">{today}</span>
           </div>
-          <h1 className="mt-4 text-3xl font-semibold tracking-[-0.04em] sm:text-4xl">
+          <h1 className="mt-3 text-2xl font-semibold tracking-[-0.04em] sm:mt-4 sm:text-4xl">
             {name}
           </h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-blue-50/85 sm:text-[15px]">
@@ -1009,13 +1212,15 @@ function WorkspaceHero({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Link
-            href={`/${orgSlug}/tasks`}
-            className="inline-flex h-10 items-center gap-2 rounded-xl border border-white/15 bg-white/10 px-4 text-sm font-medium text-white transition hover:bg-white/15 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-          >
-            <ClipboardList className="size-4" aria-hidden />
-            {copy(fr, "Tasks", "Tâches")}
-          </Link>
+          {showTaskLink ? (
+            <Link
+              href={"/" + orgSlug + "/tasks"}
+              className="inline-flex h-10 items-center gap-2 rounded-xl border border-white/15 bg-white/10 px-4 text-sm font-medium text-white transition hover:bg-white/15 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+            >
+              <ClipboardList className="size-4" aria-hidden />
+              {copy(fr, "Tasks", "Tâches")}
+            </Link>
+          ) : null}
           {showProjectLink ? (
             <Link
               href={`/${orgSlug}/projects`}
@@ -1043,12 +1248,16 @@ function DashboardMetric({
   value,
   hint,
   icon: Icon,
+  href,
+  linkLabel,
   tone = "slate",
 }: {
   label: string;
   value: string | number;
   hint: string;
   icon: LucideIcon;
+  href?: string;
+  linkLabel?: string;
   tone?: "ocean" | "emerald" | "violet" | "amber" | "slate";
 }) {
   const tones = {
@@ -1074,21 +1283,35 @@ function DashboardMetric({
     <motion.article
       whileHover={{ y: -2 }}
       transition={{ duration: 0.18 }}
-      className={`relative overflow-hidden rounded-2xl border p-4 ring-1 ring-black/[.018] shadow-[0_16px_36px_-28px_rgba(9,35,67,.55)] transition-shadow duration-200 hover:shadow-[0_22px_42px_-30px_rgba(9,35,67,.52)] ${tones[tone]}`}
+      className={`relative overflow-hidden rounded-xl border p-3.5 ring-1 ring-black/[.018] shadow-[0_16px_36px_-28px_rgba(9,35,67,.55)] transition-shadow duration-200 hover:shadow-[0_22px_42px_-30px_rgba(9,35,67,.52)] sm:rounded-2xl sm:p-4 ${tones[tone]}`}
     >
-      <span className={`absolute inset-x-0 top-0 h-0.5 ${accents[tone]}`} aria-hidden />
+      <span
+        className={`absolute inset-x-0 top-0 h-0.5 ${accents[tone]}`}
+        aria-hidden
+      />
       <div className="flex items-start justify-between gap-3">
-        <p className="text-xs font-semibold uppercase tracking-[0.11em] text-ink-secondary">
+        <p className="text-[11px] font-semibold leading-4 text-ink-secondary sm:uppercase sm:tracking-[0.11em]">
           {label}
         </p>
         <span className="grid size-9 place-items-center rounded-xl border border-white/60 bg-surface-1/85 shadow-sm dark:border-white/10 dark:bg-black/10">
           <Icon className="size-4" aria-hidden />
         </span>
       </div>
-      <p className="mt-5 text-3xl font-semibold tracking-[-0.04em] text-ink tabular-nums">
+      <p className="mt-4 text-[1.75rem] font-semibold tracking-[-0.04em] text-ink tabular-nums sm:mt-5 sm:text-3xl">
         {value}
       </p>
-      <p className="mt-1.5 truncate text-xs text-ink-secondary">{hint}</p>
+      <p className="mt-1.5 min-h-8 text-xs leading-4 text-ink-secondary">
+        {hint}
+      </p>
+      {href && linkLabel ? (
+        <Link
+          href={href}
+          className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-brand transition hover:text-brand/75"
+        >
+          {linkLabel}
+          <ChevronRight className="size-3.5" aria-hidden />
+        </Link>
+      ) : null}
     </motion.article>
   );
 }
@@ -1114,7 +1337,7 @@ function Panel({
     <section
       className={`overflow-hidden rounded-2xl border border-border-strong/80 bg-surface-1 ring-1 ring-black/[.015] shadow-[0_18px_40px_-31px_rgba(9,35,67,.5)] ${className}`}
     >
-      <header className="flex flex-wrap items-start justify-between gap-4 border-b border-border-strong/75 bg-[linear-gradient(100deg,color-mix(in_srgb,var(--brand)_5%,var(--surface-1)),var(--surface-1)_56%)] px-4 py-4 sm:px-5">
+      <header className="flex flex-wrap items-start justify-between gap-3 border-b border-border-strong/75 bg-[linear-gradient(100deg,color-mix(in_srgb,var(--brand)_5%,var(--surface-1)),var(--surface-1)_56%)] px-4 py-4 sm:px-5">
         <div className="flex min-w-0 gap-3">
           <span className="grid size-10 shrink-0 place-items-center rounded-xl border border-brand/15 bg-brand-subtle text-brand shadow-sm">
             <Icon className="size-4" aria-hidden />
@@ -1144,7 +1367,7 @@ function DashboardLink({ href, label }: { href: string; label: string }) {
   return (
     <Link
       href={href}
-      className="inline-flex h-8 items-center gap-1 rounded-lg border border-border-strong/80 bg-surface-1 px-2.5 text-xs font-semibold text-ink shadow-sm transition hover:border-brand/40 hover:bg-brand-subtle hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+      className="inline-flex h-9 w-full items-center justify-center gap-1 rounded-lg border border-border-strong/80 bg-surface-1 px-2.5 text-xs font-semibold text-ink shadow-sm transition hover:border-brand/40 hover:bg-brand-subtle hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring sm:h-8 sm:w-auto"
     >
       {label}
       <ChevronRight className="size-3.5" aria-hidden />
@@ -1357,7 +1580,7 @@ function ProjectPortfolio({
           <div key={project.id} className="px-4 py-4 sm:px-5">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-ink">
+                <p className="line-clamp-2 text-sm font-semibold leading-5 text-ink sm:truncate">
                   {project.name ?? project.id}
                 </p>
                 <p className="mt-1 text-xs text-ink-secondary">
@@ -1416,7 +1639,7 @@ function TaskList({
             </span>
             <div className="min-w-0 flex-1">
               <div className="flex min-w-0 items-center gap-2">
-                <p className="truncate text-sm font-semibold text-ink">
+                <p className="line-clamp-2 text-sm font-semibold leading-5 text-ink sm:truncate">
                   {task.title ?? task.id}
                 </p>
                 {task.projectName ? (
@@ -1425,7 +1648,7 @@ function TaskList({
                   </span>
                 ) : null}
               </div>
-              <p className="mt-1 truncate text-xs text-ink-secondary">
+              <p className="mt-1 line-clamp-2 text-xs leading-4 text-ink-secondary sm:truncate">
                 {task.blockedReason
                   ? task.blockedReason
                   : task.dueDate
@@ -1480,7 +1703,7 @@ function RecordList({
             <CheckCircle2 className="size-4" aria-hidden />
           </span>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-semibold text-ink">
+            <p className="line-clamp-2 text-sm font-semibold leading-5 text-ink sm:truncate">
               {String(
                 record.name ??
                   record.title ??
@@ -1489,7 +1712,7 @@ function RecordList({
                   record.id,
               )}
             </p>
-            <p className="mt-1 truncate text-xs text-ink-secondary">
+            <p className="mt-1 line-clamp-2 text-xs leading-4 text-ink-secondary sm:truncate">
               {String(record.status ?? record.code ?? record.workDate ?? "—")}
             </p>
           </div>
@@ -1503,7 +1726,7 @@ function RecordList({
 
 function Empty({ text }: { text: string }) {
   return (
-    <div className="m-3 rounded-xl border border-dashed border-border-strong/80 bg-surface-2/45 p-8 text-center">
+    <div className="m-3 rounded-xl border border-dashed border-border-strong/80 bg-surface-2/45 p-5 text-center sm:p-8">
       <span className="mx-auto grid size-10 place-items-center rounded-xl bg-surface-2 text-ink-muted">
         <AlertTriangle className="size-4" aria-hidden />
       </span>

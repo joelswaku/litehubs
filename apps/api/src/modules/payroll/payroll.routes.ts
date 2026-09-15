@@ -11,11 +11,14 @@ import {
   createComponentSchema,
   createEmployeeComponentSchema,
   createRunSchema,
+  createRunExclusionSchema,
   employeeComponentParams,
   markPaidSchema,
+  payslipParams,
   organizationParams,
   rejectRunSchema,
   runParams,
+  runExclusionParams,
   runQuery,
   updateCompensationSchema,
   updateComponentSchema,
@@ -117,6 +120,31 @@ payrollRoutes.patch(
   validate({ body: updateRunSchema }),
   controller.updateRun,
 );
+payrollRoutes.get(
+  "/organizations/:orgSlug/payroll-runs/:runId/exclusions",
+  authenticate,
+  validate({ params: runParams }),
+  requireOrganization,
+  requirePermission("payroll.read"),
+  controller.listRunExclusions,
+);
+payrollRoutes.post(
+  "/organizations/:orgSlug/payroll-runs/:runId/exclusions",
+  authenticate,
+  validate({ params: runParams }),
+  requireOrganization,
+  requirePermission("payroll.update"),
+  validate({ body: createRunExclusionSchema }),
+  controller.excludeEmployeeFromRun,
+);
+payrollRoutes.delete(
+  "/organizations/:orgSlug/payroll-runs/:runId/exclusions/:employeeId",
+  authenticate,
+  validate({ params: runExclusionParams }),
+  requireOrganization,
+  requirePermission("payroll.update"),
+  controller.includeEmployeeInRun,
+);
 payrollRoutes.post(
   "/organizations/:orgSlug/payroll-runs/:runId/calculate",
   authenticate,
@@ -158,6 +186,14 @@ payrollRoutes.get(
   requireOrganization,
   requirePermission("payroll.read"),
   controller.listPayslips,
+);
+payrollRoutes.get(
+  "/organizations/:orgSlug/payslips/:payslipId/pdf",
+  authenticate,
+  validate({ params: payslipParams }),
+  requireOrganization,
+  requirePermission("payroll.read"),
+  controller.downloadPayslipPdf,
 );
 payrollRoutes.get(
   "/organizations/:orgSlug/payroll-summary",

@@ -32,7 +32,16 @@ function section(doc: PDFKit.PDFDocument, name: string) { addPage(doc); doc.move
 function line(doc: PDFKit.PDFDocument, key: string, value: unknown) { addPage(doc); const y=doc.y; doc.fillColor("#64748b").font("Helvetica-Bold").fontSize(8).text(key,48,y,{width:150}); doc.fillColor("#1e293b").font("Helvetica").fontSize(9).text(text(value),202,y,{width:345}); doc.y=Math.max(doc.y,y+14)+4; }
 function rows(doc: PDFKit.PDFDocument, heading: string, values: string[]) { section(doc,heading); if (!values.length) { doc.fillColor("#64748b").font("Helvetica-Oblique").fontSize(9).text("—"); return; } values.slice(0,100).forEach(v=>{ addPage(doc); doc.fillColor("#1e293b").font("Helvetica").fontSize(8.5).text("• "+v,54,doc.y,{width:500}); doc.moveDown(.35); }); }
 
-async function org(c: HrReportContext) { return withTenantContext(c,async client=>(await client.query<{name:string}>("SELECT name FROM organizations WHERE id=$1",[c.organizationId])).rows[0]?.name ?? "LiteHubs"); }
+async function org(c: HrReportContext) {
+  return withTenantContext(c, async (client) =>
+    (
+      await client.query<{ name: string }>(
+        "SELECT COALESCE(display_name, legal_name, slug) AS name FROM organizations WHERE id=$1",
+        [c.organizationId],
+      )
+    ).rows[0]?.name ?? "LiteHubs",
+  );
+}
 function create(organization: string, report: string, draw: (doc: PDFKit.PDFDocument)=>Promise<void>) {
   return new Promise<Buffer>((resolve,reject)=>{ const doc=new PDFDocument({size:"A4",margin:48,info:{Title:report,Author:organization}}); const chunks:Buffer[]=[]; doc.on("data",(c:Buffer)=>chunks.push(c)); doc.on("end",()=>resolve(Buffer.concat(chunks))); doc.on("error",reject); title(doc,organization,report); void draw(doc).then(()=>{ doc.fillColor("#64748b").fontSize(7).text(organization+" · LiteHubs · Confidentiel",48,doc.page.height-34,{width:doc.page.width-96,align:"center"}); doc.end(); },reject); }); }
 async function contractRows(c: HrReportContext, employeeId:string) { return withTenantContext(c,async client=>(await client.query<{reference:string;title:string;status:string;starts_on:string;ends_on:string|null}>("SELECT reference,title,status,starts_on::text,ends_on::text FROM contracts WHERE organization_id=$1 AND employee_id=$2 ORDER BY starts_on DESC",[c.organizationId,employeeId])).rows); }

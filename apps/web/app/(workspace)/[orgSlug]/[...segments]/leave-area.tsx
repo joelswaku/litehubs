@@ -106,16 +106,22 @@ const apiError = (error: unknown) =>
       : null;
 const today = () => new Date().toISOString().slice(0, 10);
 
-export function LeaveArea({ orgSlug }: { orgSlug: string }) {
+export function LeaveArea({
+  orgSlug,
+  personal = false,
+}: {
+  orgSlug: string;
+  personal?: boolean;
+}) {
   const { locale } = useLanguage();
   const fr = locale === "fr";
   const user = useSessionUser();
   const client = useQueryClient();
   const canRead = can(user, "leave.read"),
     canRequest = can(user, "leave.create"),
-    canManage = can(user, "leave.update"),
-    canApprove = can(user, "leave.approve"),
-    canEmployees = can(user, "employees.read");
+    canManage = !personal && can(user, "leave.update"),
+    canApprove = !personal && can(user, "leave.approve"),
+    canEmployees = !personal && can(user, "employees.read");
   const [requestOpen, setRequestOpen] = useState(false);
   const [typeOpen, setTypeOpen] = useState(false);
   const [selected, setSelected] = useState<LeaveRequest | null>(null);
@@ -229,17 +235,13 @@ export function LeaveArea({ orgSlug }: { orgSlug: string }) {
       <header className="relative overflow-hidden rounded-2xl border border-emerald-300/25 bg-[radial-gradient(circle_at_88%_15%,rgba(91,229,178,.2),transparent_26%),linear-gradient(127deg,#073b45,#08745c)] px-5 py-6 text-white shadow-[0_20px_42px_-30px_rgba(4,61,58,.9)] sm:px-7">
         <div className="max-w-3xl">
           <p className="text-xs font-semibold uppercase tracking-[.16em] text-emerald-100">
-            {t(fr, "People care", "Bien-être des équipes")}
+            {personal ? t(fr, "My time off", "Mes absences") : t(fr, "People care", "Bien-être des équipes")}
           </p>
           <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
-            {t(fr, "Leave & availability", "Congés et disponibilités")}
+            {personal ? t(fr, "My leave", "Mes congés") : t(fr, "Leave & availability", "Congés et disponibilités")}
           </h1>
           <p className="mt-2 text-sm leading-6 text-emerald-50/90">
-            {t(
-              fr,
-              "A clear, auditable view of time away — from request to approval and balance.",
-              "Une vue claire et traçable des absences : demande, décision et solde.",
-            )}
+            {personal ? t(fr, "Request time off, follow its decision, and check your available balance.", "Demandez un congé, suivez la décision et consultez votre solde.") : t(fr, "A clear, auditable view of time away — from request to approval and balance.", "Une vue claire et traçable des absences : demande, décision et solde.")}
           </p>
         </div>
         <div className="relative mt-5 flex flex-wrap gap-2">
@@ -264,10 +266,12 @@ export function LeaveArea({ orgSlug }: { orgSlug: string }) {
           ) : null}
         </div>
       </header>
-      <div className="flex justify-end">
-        <HrPdfButton orgSlug={orgSlug} report="leave" fr={fr} className="border-brand/30 bg-brand/10 text-brand hover:bg-brand/15" />
-      </div>
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      {!personal ? (
+        <div className="flex justify-end">
+          <HrPdfButton orgSlug={orgSlug} report="leave" fr={fr} className="border-brand/30 bg-brand/10 text-brand hover:bg-brand/15" />
+        </div>
+      ) : null}
+      <section className={`grid gap-3 sm:grid-cols-2 ${personal ? "xl:grid-cols-4" : "xl:grid-cols-5"}`}>
         <Metric
           icon={Clock3}
           title={t(fr, "Waiting decision", "En attente")}
@@ -289,12 +293,14 @@ export function LeaveArea({ orgSlug }: { orgSlug: string }) {
           text={t(fr, "Approved this year", "Approuvés cette année")}
           tone="brand"
         />
-        <Metric
-          icon={Users}
-          title={t(fr, "People away", "Personnes concernées")}
-          value={metrics.people}
-          text={t(fr, "This calendar year", "Cette année")}
-        />
+        {!personal ? (
+          <Metric
+            icon={Users}
+            title={t(fr, "People away", "Personnes concernées")}
+            value={metrics.people}
+            text={t(fr, "This calendar year", "Cette année")}
+          />
+        ) : null}
         <Metric
           icon={HeartPulse}
           title={t(fr, "Taken", "Pris")}
@@ -394,7 +400,7 @@ export function LeaveArea({ orgSlug }: { orgSlug: string }) {
           onCancel={() => selected && cancel.mutate(selected.id)}
         />
       </section>
-      <section className="grid gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(19rem,.75fr)]">
+      <section className={personal ? "grid gap-5" : "grid gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(19rem,.75fr)]"}>
         <section className="overflow-hidden rounded-2xl border border-border bg-surface-1 shadow-sm">
           <div className="border-b border-border p-4 sm:p-5">
             <h2 className="text-base font-semibold text-ink">
@@ -459,12 +465,14 @@ export function LeaveArea({ orgSlug }: { orgSlug: string }) {
             />
           )}
         </section>
-        <LeaveTypes
-          types={types.data ?? []}
-          fr={fr}
-          canManage={canManage}
-          onAdd={() => setTypeOpen(true)}
-        />
+        {!personal ? (
+          <LeaveTypes
+            types={types.data ?? []}
+            fr={fr}
+            canManage={canManage}
+            onAdd={() => setTypeOpen(true)}
+          />
+        ) : null}
       </section>
       {requestOpen ? (
         <RequestDialog

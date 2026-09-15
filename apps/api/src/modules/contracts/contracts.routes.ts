@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { authenticate } from "../../middleware/auth.middleware";
 import { requireOrganization } from "../../middleware/organization.middleware";
-import { requirePermission } from "../../middleware/permissions.middleware";
+import { requireActiveEmployeeProfile, requirePermission } from "../../middleware/permissions.middleware";
 import { validate } from "../../middleware/validation.middleware";
 import * as controller from "./contracts.controller";
 import { contractParams, contractQuery, createContractSchema, organizationParams, signEmploymentContractSchema, updateContractSchema, contractTemplateParams, contractTemplateSchema, generateContractVersionSchema, sendForSignatureSchema, signatureFieldParams, signContractFieldSchema } from "./contracts.validation";
@@ -20,11 +20,11 @@ contractsRoutes.post("/organizations/:orgSlug/contracts/:contractId/workspace/se
 contractsRoutes.post("/organizations/:orgSlug/contracts/:contractId/workspace/remind-signature", authenticate, validate({ params: contractParams }), requireOrganization, requirePermission("contracts.update"), controller.remindSignature);
 contractsRoutes.patch("/organizations/:orgSlug/contracts/:contractId/workspace/signatures/:fieldId", authenticate, validate({ params: signatureFieldParams, body: signContractFieldSchema }), requireOrganization, requirePermission("contracts.update"), controller.signEmployerField);
 // A personal, self-scoped view. Employees never obtain the company contract register.
-contractsRoutes.get("/organizations/:orgSlug/my-contracts", ...inside, requirePermission("attendance.clock_self"), controller.listMyContracts);
-contractsRoutes.get("/organizations/:orgSlug/my-contracts/:contractId/preview", authenticate, validate({ params: contractParams }), requireOrganization, requirePermission("attendance.clock_self"), controller.previewMyContractDocument);
-contractsRoutes.get("/organizations/:orgSlug/my-contracts/:contractId/document", authenticate, validate({ params: contractParams }), requireOrganization, requirePermission("attendance.clock_self"), controller.downloadMyContractDocument);
-contractsRoutes.patch("/organizations/:orgSlug/my-contracts/:contractId/sign", authenticate, validate({ params: contractParams, body: signEmploymentContractSchema }), requireOrganization, requirePermission("attendance.clock_self"), controller.signMyEmploymentContract);contractsRoutes.get("/organizations/:orgSlug/my-contracts/:contractId/workspace", authenticate, validate({ params: contractParams }), requireOrganization, requirePermission("attendance.clock_self"), controller.myWorkspace);
-contractsRoutes.patch("/organizations/:orgSlug/my-contracts/:contractId/workspace/signatures/:fieldId", authenticate, validate({ params: signatureFieldParams, body: signContractFieldSchema }), requireOrganization, requirePermission("attendance.clock_self"), controller.signEmployeeField);
+contractsRoutes.get("/organizations/:orgSlug/my-contracts", ...inside, requireActiveEmployeeProfile, controller.listMyContracts);
+contractsRoutes.get("/organizations/:orgSlug/my-contracts/:contractId/preview", authenticate, validate({ params: contractParams }), requireOrganization, requireActiveEmployeeProfile, controller.previewMyContractDocument);
+contractsRoutes.get("/organizations/:orgSlug/my-contracts/:contractId/document", authenticate, validate({ params: contractParams }), requireOrganization, requireActiveEmployeeProfile, controller.downloadMyContractDocument);
+contractsRoutes.patch("/organizations/:orgSlug/my-contracts/:contractId/sign", authenticate, validate({ params: contractParams, body: signEmploymentContractSchema }), requireOrganization, requireActiveEmployeeProfile, controller.signMyEmploymentContract);contractsRoutes.get("/organizations/:orgSlug/my-contracts/:contractId/workspace", authenticate, validate({ params: contractParams }), requireOrganization, requireActiveEmployeeProfile, controller.myWorkspace);
+contractsRoutes.patch("/organizations/:orgSlug/my-contracts/:contractId/workspace/signatures/:fieldId", authenticate, validate({ params: signatureFieldParams, body: signContractFieldSchema }), requireOrganization, requireActiveEmployeeProfile, controller.signEmployeeField);
 contractsRoutes.post("/organizations/:orgSlug/contracts", ...inside, requirePermission("contracts.create"), validate({ body: createContractSchema }), controller.createContract);
 contractsRoutes.patch("/organizations/:orgSlug/contracts/:contractId", authenticate, validate({ params: contractParams }), requireOrganization, requirePermission("contracts.update"), validate({ body: updateContractSchema }), controller.updateContract);
 contractsRoutes.delete("/organizations/:orgSlug/contracts/:contractId", authenticate, validate({ params: contractParams }), requireOrganization, requirePermission("contracts.delete"), controller.deleteContract);

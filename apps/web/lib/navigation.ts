@@ -56,6 +56,8 @@ import type { PermissionCode } from "./permissions";
 
 export interface NavItem {
   label: string;
+  /** Optional parent item in the same sidebar group. */
+  parentPath?: string;
   /** Appended to `/{orgSlug}`. */
   path: string;
   icon: LucideIcon;
@@ -71,6 +73,10 @@ export interface NavItem {
   peopleDirectoryOnly?: boolean;
   /** Only shown once the signed-in member has an active employee profile. */
   employeeProfileOnly?: boolean;
+  /** Hidden for employee profiles when the same destination is offered as a personal shortcut. */
+  hideForEmployeeProfile?: boolean;
+  /** Personal shortcut shown in the mobile drawer, while desktop stays uncluttered. */
+  mobileOnly?: boolean;
 }
 
 export interface NavGroup {
@@ -104,6 +110,7 @@ export const WORKSPACE_NAV: NavGroup[] = [
         path: "/daily-work",
         icon: Activity,
         permission: "daily_operations.read",
+        hideForEmployeeProfile: true,
       },
     ],
   },
@@ -116,13 +123,50 @@ export const WORKSPACE_NAV: NavGroup[] = [
         label: "My account",
         path: "/my-account",
         icon: CircleUserRound,
-        permission: "attendance.clock_self",
+        employeeProfileOnly: true,
+      },
+      {
+        label: "Daily work",
+        path: "/daily-work",
+        icon: Activity,
+        permission: "daily_operations.read",
+        employeeProfileOnly: true,
+      },
+      {
+        label: "My schedule",
+        path: "/my-schedule",
+        icon: CalendarClock,
+        employeeProfileOnly: true,
+      },
+      {
+        label: "My leave",
+        path: "/my-leave",
+        icon: FileText,
+        employeeProfileOnly: true,
+      },
+      {
+        label: "My attendance",
+        path: "/my-attendance",
+        icon: CalendarClock,
+        employeeProfileOnly: true,
+      },
+      {
+        label: "My payslips",
+        path: "/my-payslips",
+        icon: Wallet,
+        employeeProfileOnly: true,
+      },
+      {
+        label: "Payment history",
+        parentPath: "/my-payslips",
+        path: "/my-pay-history",
+        icon: Receipt,
+        employeeProfileOnly: true,
       },
       {
         label: "My contracts",
         path: "/my-contracts",
         icon: FileText,
-        permission: "attendance.clock_self",
         employeeProfileOnly: true,
       },
       {
@@ -143,6 +187,7 @@ export const WORKSPACE_NAV: NavGroup[] = [
         path: "/attendance",
         icon: CalendarClock,
         permission: "attendance.read",
+        hideForEmployeeProfile: true,
       },
       {
         label: "Shifts",
@@ -155,12 +200,18 @@ export const WORKSPACE_NAV: NavGroup[] = [
         path: "/leave",
         icon: FileText,
         permission: "leave.read",
+        hideForEmployeeProfile: true,
       },
       {
         label: "My trainings",
         path: "/my-trainings",
         icon: BookOpenCheck,
-        permission: "training.read",
+        employeeProfileOnly: true,
+      },
+      {
+        label: "My performance",
+        path: "/my-performance",
+        icon: BarChart3,
         employeeProfileOnly: true,
       },
       {

@@ -29,6 +29,35 @@ function membershipOf(req: Parameters<RequestHandler>[0]) {
   return req.user.activeMembership;
 }
 
+/** Restricts a personal employee endpoint to an active employee profile in the
+ * current workspace. Each downstream service derives the employee again and
+ * scopes records to it; no employee identifier comes from the browser. */
+export const requireActiveEmployeeProfile: RequestHandler = async (req, _res, next) => {
+  try {
+    const membership = membershipOf(req);
+    if (!req.tenant) {
+      throw new BadRequestError("No workspace selected for a personal action", {
+        reason: "no_active_organization",
+      });
+    }
+    const employee = await req.tenant.run((client) =>
+      client.query(
+        `SELECT 1 FROM employees
+          WHERE organization_id=$1 AND member_id=$2
+            AND employment_status IN ('active','probation','on_leave')
+          LIMIT 1`,
+        [membership.organizationId, membership.memberId],
+      ),
+    );
+    if (!employee.rowCount) {
+      throw new ForbiddenError("An active employee profile is required for this personal area");
+    }
+    next();
+  } catch (error) {
+    next(error);
+  }
+};
+
 /** Caller must hold every listed permission code in the active workspace. */
 export function requirePermission(...codes: string[]): RequestHandler {
   return (req, _res, next) => {

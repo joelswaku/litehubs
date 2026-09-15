@@ -3,6 +3,7 @@
 import { useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  AlertTriangle,
   Archive,
   Download,
   FileLock2,
@@ -95,6 +96,7 @@ export function DocumentsArea({ orgSlug }: { orgSlug: string }) {
   const user = useSessionUser();
   const [category, setCategory] = useState("all");
   const [editor, setEditor] = useState<DocumentRow | "new" | null>(null);
+  const [documentToDelete, setDocumentToDelete] = useState<DocumentRow | null>(null);
   const queryClient = useQueryClient();
   const documents = useQuery({
     queryKey: ["company-documents", orgSlug, category],
@@ -132,6 +134,7 @@ export function DocumentsArea({ orgSlug }: { orgSlug: string }) {
   const remove = useMutation({
     mutationFn: (id: string) => documentsApi.remove(orgSlug, id),
     onSuccess: () => {
+      setDocumentToDelete(null);
       void queryClient.invalidateQueries({
         queryKey: ["company-documents", orgSlug],
       });
@@ -353,18 +356,7 @@ export function DocumentsArea({ orgSlug }: { orgSlug: string }) {
                               size="sm"
                               variant="ghost"
                               loading={remove.isPending}
-                              onClick={() => {
-                                if (
-                                  window.confirm(
-                                    copy(
-                                      fr,
-                                      "Delete this document permanently?",
-                                      "Supprimer définitivement ce document ?",
-                                    ),
-                                  )
-                                )
-                                  remove.mutate(document.id);
-                              }}
+                              onClick={() => setDocumentToDelete(document)}
                             >
                               <Trash2 className="text-critical" />
                             </Button>
@@ -444,7 +436,131 @@ export function DocumentsArea({ orgSlug }: { orgSlug: string }) {
           )}
         </aside>
       </div>
+      {documentToDelete ? (
+        <DeleteDocumentDialog
+          document={documentToDelete}
+          fr={fr}
+          locale={locale}
+          busy={remove.isPending}
+          error={remove.error}
+          onCancel={() => setDocumentToDelete(null)}
+          onConfirm={() => remove.mutate(documentToDelete.id)}
+        />
+      ) : null}
     </main>
+  );
+}
+function DeleteDocumentDialog({
+  document,
+  fr,
+  locale,
+  busy,
+  error,
+  onCancel,
+  onConfirm,
+}: {
+  document: DocumentRow;
+  fr: boolean;
+  locale: string;
+  busy: boolean;
+  error: unknown;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const failure =
+    error instanceof ApiError
+      ? error.message
+      : error
+        ? copy(fr, "This document could not be deleted. Please try again.", "Impossible de supprimer ce document. R�essayez.")
+        : null;
+  const documentTitle = text(document.title) || text(document.fileName) || "�";
+
+  return (
+    <div
+      className="fixed inset-0 z-[70] grid place-items-end bg-slate-950/60 p-0 backdrop-blur-sm sm:place-items-center sm:p-5"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (!busy && event.target === event.currentTarget) onCancel();
+      }}
+    >
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="delete-document-title"
+        aria-describedby="delete-document-description"
+        className="w-full max-w-lg overflow-hidden rounded-t-[1.75rem] border border-border bg-surface-1 shadow-2xl sm:rounded-[1.75rem]"
+      >
+        <header className="flex items-start justify-between gap-4 border-b border-critical/15 bg-[linear-gradient(120deg,rgba(239,68,68,.12),transparent_65%)] px-5 py-5 sm:px-6">
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-critical/10 text-critical ring-1 ring-critical/20">
+              <AlertTriangle className="size-5" aria-hidden />
+            </span>
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-[.14em] text-critical">
+                {copy(fr, "Permanent action", "Action d�finitive")}
+              </p>
+              <h2 id="delete-document-title" className="mt-1 text-lg font-semibold text-ink">
+                {copy(fr, "Delete this document?", "Supprimer ce document ?")}
+              </h2>
+              <p id="delete-document-description" className="mt-1 text-sm leading-6 text-ink-secondary">
+                {copy(
+                  fr,
+                  "The private file and its company-library record will be removed permanently.",
+                  "Le fichier priv� et son enregistrement dans la biblioth�que de l�entreprise seront supprim�s d�finitivement.",
+                )}
+              </p>
+            </div>
+          </div>
+          <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={onCancel} aria-label={copy(fr, "Close", "Fermer")}>
+            <X aria-hidden />
+          </Button>
+        </header>
+
+        <div className="space-y-4 px-5 py-5 sm:px-6">
+          <div className="rounded-2xl border border-border bg-surface-2/55 p-4">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-brand/10 text-brand">
+                <FileText className="size-5" aria-hidden />
+              </span>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-ink">{documentTitle}</p>
+                <p className="mt-1 truncate text-xs text-ink-secondary">
+                  {text(document.fileName)} � {size(document.sizeBytes)}
+                </p>
+                <p className="mt-1 text-xs text-ink-muted">
+                  {copy(fr, "Added", "Ajout�")} {date(document.createdAt, locale)}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <p className="rounded-xl border border-warning/25 bg-warning/10 px-3 py-3 text-xs leading-5 text-ink-secondary">
+            <strong className="text-ink">{copy(fr, "Please note: ", "Attention : ")}</strong>
+            {copy(
+              fr,
+              "this cannot be undone. Download a copy first if you may need this file later.",
+              "cette op�ration est irr�versible. T�l�chargez une copie avant de continuer si vous pourriez avoir besoin de ce fichier.",
+            )}
+          </p>
+
+          {failure ? (
+            <p role="alert" className="rounded-xl border border-critical/30 bg-critical/10 px-3 py-3 text-xs text-critical">
+              {failure}
+            </p>
+          ) : null}
+        </div>
+
+        <footer className="flex flex-col-reverse gap-2 border-t border-border bg-surface-2/45 px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
+          <Button type="button" variant="secondary" disabled={busy} onClick={onCancel}>
+            {copy(fr, "Cancel", "Annuler")}
+          </Button>
+          <Button type="button" variant="destructive" loading={busy} onClick={onConfirm}>
+            <Trash2 aria-hidden />
+            {copy(fr, "Delete permanently", "Supprimer d�finitivement")}
+          </Button>
+        </footer>
+      </section>
+    </div>
   );
 }
 function DocumentEditor({

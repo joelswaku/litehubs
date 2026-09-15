@@ -549,16 +549,28 @@ export async function getEmployee(
 }
 
 type MyAccountShiftRow = {
+  assignment_id: string;
   id: string;
   code: string;
   name: string;
   starts_at: string;
   ends_at: string;
+  weekly_schedule: unknown;
   effective_from: string;
   effective_to: string | null;
   site_name: string;
   province_name: string;
   department_name: string | null;
+};
+
+type MyAccountScheduleExceptionRow = {
+  id: string;
+  work_date: string;
+  is_working: boolean;
+  starts_at: string | null;
+  ends_at: string | null;
+  break_minutes: number;
+  note: string | null;
 };
 type MyAccountAttendanceRow = {
   id: string;
@@ -566,6 +578,9 @@ type MyAccountAttendanceRow = {
   status: string;
   clock_in_at: Date | null;
   clock_out_at: Date | null;
+  expected_minutes: string | null;
+  worked_minutes: string | null;
+  overtime_minutes: string | null;
   shift_name: string | null;
   site_name: string | null;
 };
@@ -589,6 +604,7 @@ type MyAccountLeaveRequestRow = {
 type MyAccountPayslipRow = {
   id: string;
   reference: string;
+  payroll_run_reference: string;
   period_start: string;
   period_end: string;
   pay_date: string;
@@ -599,6 +615,22 @@ type MyAccountPayslipRow = {
   net_pay: string;
   payment_method: string | null;
   payment_reference: string | null;
+};
+
+type MyAccountPayslipLineRow = {
+  id: string;
+  payslip_id: string;
+  component_code: string;
+  component_name: string;
+  component_type: "earning" | "deduction" | "employer_cost";
+  amount: string;
+  basis: string | null;
+  sort_order: number;
+};
+
+type MyAccountOrganizationRow = {
+  display_name: string | null;
+  logo_url: string | null;
 };
 
 /**
@@ -630,10 +662,16 @@ export async function getMyAccount(context: EmployeeContext) {
     );
     if (!employee) throw new NotFoundError("Employee not found");
 
-    const [schedule, attendance, leaveBalances, leaveRequests, payslips] =
-      await Promise.all([
-        client.query<MyAccountShiftRow>(
-          `SELECT s.id, s.code, s.name, s.starts_at::text, s.ends_at::text,
+    const [
+      schedule,
+      attendance,
+      leaveBalances,
+      leaveRequests,
+      payslips,
+      organization,
+    ] = await Promise.all([
+      client.query<MyAccountShiftRow>(
+        `SELECT a.id AS assignment_id, s.id, s.code, s.name, s.starts_at::text, s.ends_at::text, s.weekly_schedule,
                   a.effective_from::text, a.effective_to::text,
                   site.name AS site_name, p.name AS province_name,
                   d.name AS department_name
@@ -653,10 +691,11 @@ export async function getMyAccount(context: EmployeeContext) {
               AND (a.effective_to IS NULL OR a.effective_to >= CURRENT_DATE)
             ORDER BY a.effective_from DESC
             LIMIT 1`,
-          [context.organizationId, employeeId],
-        ),
-        client.query<MyAccountAttendanceRow>(
-          `SELECT a.id, a.work_date::text, a.status, a.clock_in_at, a.clock_out_at,
+        [context.organizationId, employeeId],
+      ),
+      client.query<MyAccountAttendanceRow>(
+        `SELECT a.id, a.work_date::text, a.status, a.clock_in_at, a.clock_out_at,
+                  a.expected_minutes::text, a.worked_minutes::text, a.overtime_minutes::text,
                   s.name AS shift_name, site.name AS site_name
              FROM attendance_records a
              LEFT JOIN shifts s
@@ -666,10 +705,10 @@ export async function getMyAccount(context: EmployeeContext) {
             WHERE a.organization_id = $1 AND a.employee_id = $2
             ORDER BY a.work_date DESC, a.created_at DESC
             LIMIT 12`,
-          [context.organizationId, employeeId],
-        ),
-        client.query<MyAccountLeaveBalanceRow>(
-          `SELECT b.id, t.name AS leave_type_name, t.is_paid,
+        [context.organizationId, employeeId],
+      ),
+      client.query<MyAccountLeaveBalanceRow>(
+        `SELECT b.id, t.name AS leave_type_name, t.is_paid,
                   b.entitled_days::text, b.carried_over_days::text, b.taken_days::text
              FROM leave_balances b
              JOIN leave_types t
@@ -678,10 +717,10 @@ export async function getMyAccount(context: EmployeeContext) {
               AND b.employee_id = $2
               AND b.leave_year = EXTRACT(YEAR FROM CURRENT_DATE)::integer
             ORDER BY t.name`,
-          [context.organizationId, employeeId],
-        ),
-        client.query<MyAccountLeaveRequestRow>(
-          `SELECT r.id, t.name AS leave_type_name, t.is_paid,
+        [context.organizationId, employeeId],
+      ),
+      client.query<MyAccountLeaveRequestRow>(
+        `SELECT r.id, t.name AS leave_type_name, t.is_paid,
                   r.starts_on::text, r.ends_on::text, r.requested_days::text, r.status
              FROM leave_requests r
              JOIN leave_types t
@@ -689,10 +728,10 @@ export async function getMyAccount(context: EmployeeContext) {
             WHERE r.organization_id = $1 AND r.employee_id = $2
             ORDER BY r.starts_on DESC, r.created_at DESC
             LIMIT 8`,
-          [context.organizationId, employeeId],
-        ),
-        client.query<MyAccountPayslipRow>(
-          `SELECT p.id, r.reference, r.period_start::text, r.period_end::text,
+        [context.organizationId, employeeId],
+      ),
+      client.query<MyAccountPayslipRow>(
+        `SELECT p.id, p.reference, r.reference AS payroll_run_reference, r.period_start::text, r.period_end::text,
                   r.pay_date::text, p.currency, r.status,
                   p.gross_pay::text, p.total_deductions::text, p.net_pay::text,
                   p.payment_method, p.payment_reference
@@ -702,26 +741,75 @@ export async function getMyAccount(context: EmployeeContext) {
             WHERE p.organization_id = $1
               AND p.employee_id = $2
               AND r.status IN ('approved', 'paid')
-            ORDER BY r.period_end DESC, p.created_at DESC
-            LIMIT 12`,
-          [context.organizationId, employeeId],
-        ),
-      ]);
+            ORDER BY r.period_end DESC, p.created_at DESC`,
+        [context.organizationId, employeeId],
+      ),
+      client.query<MyAccountOrganizationRow>(
+        `SELECT o.display_name, settings.logo_url
+             FROM organizations o
+             LEFT JOIN organization_settings settings
+               ON settings.organization_id = o.id
+            WHERE o.id = $1
+            LIMIT 1`,
+        [context.organizationId],
+      ),
+    ]);
 
+    // These line items are fetched only for the authenticated employee's own
+    // approved or paid payslips. The employee never receives payroll lines
+    // belonging to another person or to a draft cycle.
+    const payslipLines = payslips.rows.length
+      ? await client.query<MyAccountPayslipLineRow>(
+          `SELECT id, payslip_id, component_code, component_name, component_type, amount::text, basis, sort_order
+             FROM payslip_lines
+            WHERE organization_id = $1
+              AND payslip_id = ANY($2::uuid[])
+            ORDER BY sort_order, component_name`,
+          [context.organizationId, payslips.rows.map((row) => row.id)],
+        )
+      : { rows: [] as MyAccountPayslipLineRow[] };
+
+    const scheduleRow = schedule.rows[0];
+    const scheduleExceptions = scheduleRow
+      ? await client.query<MyAccountScheduleExceptionRow>(
+          `SELECT id, work_date::text, is_working, starts_at::text, ends_at::text, break_minutes, note
+             FROM shift_assignment_exceptions
+            WHERE organization_id = $1 AND shift_assignment_id = $2
+            ORDER BY work_date`,
+          [context.organizationId, scheduleRow.assignment_id],
+        )
+      : { rows: [] as MyAccountScheduleExceptionRow[] };
+    const company = organization.rows[0];
     return {
+      organization: {
+        name: company?.display_name?.trim() || "LiteHubs",
+        logoUrl: company?.logo_url ?? null,
+      },
       employee: mapEmployee(employee),
-      schedule: schedule.rows[0]
+      schedule: scheduleRow
         ? {
-            id: schedule.rows[0].id,
-            code: schedule.rows[0].code,
-            name: schedule.rows[0].name,
-            startsAt: schedule.rows[0].starts_at.slice(0, 5),
-            endsAt: schedule.rows[0].ends_at.slice(0, 5),
-            effectiveFrom: schedule.rows[0].effective_from,
-            effectiveTo: schedule.rows[0].effective_to,
-            provinceName: schedule.rows[0].province_name,
-            siteName: schedule.rows[0].site_name,
-            departmentName: schedule.rows[0].department_name,
+            id: scheduleRow.id,
+            code: scheduleRow.code,
+            name: scheduleRow.name,
+            startsAt: scheduleRow.starts_at.slice(0, 5),
+            endsAt: scheduleRow.ends_at.slice(0, 5),
+            weeklySchedule: Array.isArray(scheduleRow.weekly_schedule)
+              ? scheduleRow.weekly_schedule
+              : [],
+            exceptions: scheduleExceptions.rows.map((row) => ({
+              id: row.id,
+              workDate: row.work_date,
+              isWorking: row.is_working,
+              startsAt: row.starts_at?.slice(0, 5) ?? null,
+              endsAt: row.ends_at?.slice(0, 5) ?? null,
+              breakMinutes: Number(row.break_minutes),
+              note: row.note,
+            })),
+            effectiveFrom: scheduleRow.effective_from,
+            effectiveTo: scheduleRow.effective_to,
+            provinceName: scheduleRow.province_name,
+            siteName: scheduleRow.site_name,
+            departmentName: scheduleRow.department_name,
           }
         : null,
       attendance: attendance.rows.map((row) => ({
@@ -730,6 +818,16 @@ export async function getMyAccount(context: EmployeeContext) {
         status: row.status,
         clockInAt: row.clock_in_at,
         clockOutAt: row.clock_out_at,
+        expectedHours:
+          row.expected_minutes === null
+            ? null
+            : Number(row.expected_minutes) / 60,
+        workedHours:
+          row.worked_minutes === null ? null : Number(row.worked_minutes) / 60,
+        overtimeHours:
+          row.overtime_minutes === null
+            ? null
+            : Number(row.overtime_minutes) / 60,
         shiftName: row.shift_name,
         siteName: row.site_name,
       })),
@@ -759,6 +857,7 @@ export async function getMyAccount(context: EmployeeContext) {
       payslips: payslips.rows.map((row) => ({
         id: row.id,
         reference: row.reference,
+        payrollRunReference: row.payroll_run_reference,
         periodStart: row.period_start,
         periodEnd: row.period_end,
         payDate: row.pay_date,
@@ -769,6 +868,16 @@ export async function getMyAccount(context: EmployeeContext) {
         netPay: Number(row.net_pay),
         paymentMethod: row.payment_method,
         paymentReference: row.payment_reference,
+        lines: payslipLines.rows
+          .filter((line) => line.payslip_id === row.id)
+          .map((line) => ({
+            id: line.id,
+            code: line.component_code,
+            name: line.component_name,
+            type: line.component_type,
+            amount: Number(line.amount),
+            basis: line.basis,
+          })),
       })),
     };
   });
@@ -861,7 +970,8 @@ export async function updateEmployee(
       const current = await assertEmployeeAccess(client, context, employeeId);
       if (
         input.loginEmail !== undefined &&
-        input.loginEmail.toLowerCase() !== (current.member_email ?? "").toLowerCase()
+        input.loginEmail.toLowerCase() !==
+          (current.member_email ?? "").toLowerCase()
       ) {
         if (!context.isOwner) {
           throw new ForbiddenError(
@@ -883,7 +993,9 @@ export async function updateEmployee(
           [input.loginEmail.toLowerCase(), current.member_user_id],
         );
         if (!changed.rows[0]) {
-          throw new NotFoundError("The linked LiteHubs account no longer exists");
+          throw new NotFoundError(
+            "The linked LiteHubs account no longer exists",
+          );
         }
         // Existing browser sessions must not continue after a login identifier is
         // reassigned. The employee signs in again using the new address.

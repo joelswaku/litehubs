@@ -5,6 +5,7 @@ import type {
   CreateComponentInput,
   CreateEmployeeComponentInput,
   CreateRunInput,
+  CreateRunExclusionInput,
   MarkPaidInput,
   RunQuery,
   UpdateCompensationInput,
@@ -28,14 +29,12 @@ function param(req: Request, key: string) {
 export const listComponents: RequestHandler = async (req, res) =>
   res.json({ components: await service.listComponents(context(req)) });
 export const createComponent: RequestHandler = async (req, res) =>
-  res
-    .status(201)
-    .json({
-      component: await service.createComponent(
-        context(req),
-        req.body as CreateComponentInput,
-      ),
-    });
+  res.status(201).json({
+    component: await service.createComponent(
+      context(req),
+      req.body as CreateComponentInput,
+    ),
+  });
 export const updateComponent: RequestHandler = async (req, res) =>
   res.json({
     component: await service.updateComponent(
@@ -47,14 +46,12 @@ export const updateComponent: RequestHandler = async (req, res) =>
 export const listCompensations: RequestHandler = async (req, res) =>
   res.json({ compensations: await service.listCompensations(context(req)) });
 export const createCompensation: RequestHandler = async (req, res) =>
-  res
-    .status(201)
-    .json({
-      compensation: await service.createCompensation(
-        context(req),
-        req.body as CreateCompensationInput,
-      ),
-    });
+  res.status(201).json({
+    compensation: await service.createCompensation(
+      context(req),
+      req.body as CreateCompensationInput,
+    ),
+  });
 export const updateCompensation: RequestHandler = async (req, res) =>
   res.json({
     compensation: await service.updateCompensation(
@@ -66,14 +63,12 @@ export const updateCompensation: RequestHandler = async (req, res) =>
 export const listEmployeeComponents: RequestHandler = async (req, res) =>
   res.json({ assignments: await service.listEmployeeComponents(context(req)) });
 export const createEmployeeComponent: RequestHandler = async (req, res) =>
-  res
-    .status(201)
-    .json({
-      assignment: await service.createEmployeeComponent(
-        context(req),
-        req.body as CreateEmployeeComponentInput,
-      ),
-    });
+  res.status(201).json({
+    assignment: await service.createEmployeeComponent(
+      context(req),
+      req.body as CreateEmployeeComponentInput,
+    ),
+  });
 export const updateEmployeeComponent: RequestHandler = async (req, res) =>
   res.json({
     assignment: await service.updateEmployeeComponent(
@@ -87,20 +82,41 @@ export const listRuns: RequestHandler = async (req, res) =>
     payrollRuns: await service.listRuns(context(req), req.query as RunQuery),
   });
 export const createRun: RequestHandler = async (req, res) =>
-  res
-    .status(201)
-    .json({
-      payrollRun: await service.createRun(
-        context(req),
-        req.body as CreateRunInput,
-      ),
-    });
+  res.status(201).json({
+    payrollRun: await service.createRun(
+      context(req),
+      req.body as CreateRunInput,
+    ),
+  });
 export const updateRun: RequestHandler = async (req, res) =>
   res.json({
     payrollRun: await service.updateRun(
       context(req),
       param(req, "runId"),
       req.body as UpdateRunInput,
+    ),
+  });
+export const listRunExclusions: RequestHandler = async (req, res) =>
+  res.json({
+    exclusions: await service.listRunExclusions(
+      context(req),
+      param(req, "runId"),
+    ),
+  });
+export const excludeEmployeeFromRun: RequestHandler = async (req, res) =>
+  res.json({
+    payrollRun: await service.excludeEmployeeFromRun(
+      context(req),
+      param(req, "runId"),
+      req.body as CreateRunExclusionInput,
+    ),
+  });
+export const includeEmployeeInRun: RequestHandler = async (req, res) =>
+  res.json({
+    payrollRun: await service.includeEmployeeInRun(
+      context(req),
+      param(req, "runId"),
+      param(req, "employeeId"),
     ),
   });
 export const calculateRun: RequestHandler = async (req, res) =>
@@ -131,5 +147,18 @@ export const listPayslips: RequestHandler = async (req, res) =>
   res.json({
     payslips: await service.listPayslips(context(req), param(req, "runId")),
   });
+export const downloadPayslipPdf: RequestHandler = async (req, res) => {
+  const french = String(req.query.lang ?? "fr").toLowerCase() !== "en";
+  const pdf = await service.exportPayslipPdf(
+    context(req),
+    param(req, "payslipId"),
+    french,
+  );
+  res
+    .status(200)
+    .type("application/pdf")
+    .setHeader("Content-Disposition", `attachment; filename="${pdf.fileName}"`)
+    .send(pdf.buffer);
+};
 export const summary: RequestHandler = async (req, res) =>
   res.json({ summary: await service.summary(context(req)) });

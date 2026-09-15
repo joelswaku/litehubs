@@ -22,6 +22,37 @@ const nonEmptyUpdate = <T extends z.ZodRawShape>(shape: T) =>
     message: "Provide at least one value to change",
   });
 
+const weeklyScheduleDaySchema = z
+  .object({
+    day: z.coerce.number().int().min(1).max(7),
+    enabled: z.boolean(),
+    startsAt: timeSchema.optional(),
+    endsAt: timeSchema.optional(),
+    breakMinutes: z.coerce.number().int().min(0).max(720).default(0),
+  })
+  .superRefine((value, context) => {
+    if (value.enabled && (!value.startsAt || !value.endsAt)) {
+      context.addIssue({
+        code: "custom",
+        path: ["startsAt"],
+        message: "Working days need a start and end time",
+      });
+    }
+  });
+
+const weeklyScheduleSchema = z
+  .array(weeklyScheduleDaySchema)
+  .length(7, "Provide one entry for every day of the week")
+  .superRefine((days, context) => {
+    const seen = new Set(days.map((day) => day.day));
+    if (seen.size !== 7 || ![1, 2, 3, 4, 5, 6, 7].every((day) => seen.has(day))) {
+      context.addIssue({
+        code: "custom",
+        message: "The weekly schedule must contain Monday through Sunday exactly once",
+      });
+    }
+  });
+
 export const organizationParams = z.object({
   orgSlug: organizationSlugSchema,
 });
@@ -34,6 +65,10 @@ export const attendanceParams = organizationParams.extend({
   attendanceId: idSchema,
 });
 
+export const assignmentParams = shiftParams.extend({
+  assignmentId: idSchema,
+});
+
 export const createShiftSchema = z.object({
   code: shiftCodeSchema,
   name: z.string().trim().min(2).max(150),
@@ -41,6 +76,7 @@ export const createShiftSchema = z.object({
   departmentId: idSchema.optional(),
   startsAt: timeSchema,
   endsAt: timeSchema,
+  weeklySchedule: weeklyScheduleSchema.optional(),
   notes: optionalText(2_000),
 });
 
@@ -51,6 +87,7 @@ export const updateShiftSchema = nonEmptyUpdate({
   departmentId: idSchema.nullable().optional(),
   startsAt: timeSchema.optional(),
   endsAt: timeSchema.optional(),
+  weeklySchedule: weeklyScheduleSchema.optional(),
   isActive: z.boolean().optional(),
   notes: optionalText(2_000).nullable(),
 });
@@ -66,6 +103,32 @@ export const assignEmployeeSchema = z
     { message: "The assignment end date must be on or after the start date" },
   );
 
+export const changeAssignmentSchema = z.object({
+  targetShiftId: idSchema,
+  effectiveFrom: workDateSchema,
+});
+
+export const scheduleExceptionSchema = z
+  .object({
+    workDate: workDateSchema,
+    isWorking: z.boolean(),
+    startsAt: timeSchema.optional(),
+    endsAt: timeSchema.optional(),
+    breakMinutes: z.coerce.number().int().min(0).max(720).default(0),
+    note: optionalText(1_000).nullable(),
+  })
+  .superRefine((value, context) => {
+    if (value.isWorking && (!value.startsAt || !value.endsAt)) {
+      context.addIssue({ code: "custom", path: ["startsAt"], message: "Working exceptions need a start and end time" });
+    }
+    if (!value.isWorking && (value.startsAt || value.endsAt || value.breakMinutes !== 0)) {
+      context.addIssue({ code: "custom", path: ["isWorking"], message: "A rest-day exception cannot contain work hours" });
+    }
+  });
+
+export const exceptionParams = assignmentParams.extend({
+  exceptionId: idSchema,
+});
 const employeeNumberSchema = z
   .string()
   .trim()
@@ -94,6 +157,8 @@ export const correctAttendanceSchema = z.object({
 export type CreateShiftInput = z.infer<typeof createShiftSchema>;
 export type UpdateShiftInput = z.infer<typeof updateShiftSchema>;
 export type AssignEmployeeInput = z.infer<typeof assignEmployeeSchema>;
+export type ChangeAssignmentInput = z.infer<typeof changeAssignmentSchema>;
+export type ScheduleExceptionInput = z.infer<typeof scheduleExceptionSchema>;
 export type ClockInput = z.infer<typeof clockSchema>;
 export type ListAttendanceInput = z.infer<typeof listAttendanceQuery>;
 export type CorrectAttendanceInput = z.infer<typeof correctAttendanceSchema>;

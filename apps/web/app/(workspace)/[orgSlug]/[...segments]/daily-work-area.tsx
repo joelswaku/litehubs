@@ -64,6 +64,10 @@ type ChecklistRun = {
   itemsCompleted: number;
   itemsFailed: number;
   notes?: string | null;
+  completedAt?: string | null;
+  completedByName?: string | null;
+  verifiedAt?: string | null;
+  verifiedByName?: string | null;
   items?: ChecklistItem[];
 };
 type Report = {
@@ -90,10 +94,12 @@ type Handover = {
   acknowledgedAt?: string | null;
   outgoingEmployeeName?: string | null;
   incomingEmployeeName?: string | null;
+  canAcknowledge?: boolean;
 };
 type Site = { id: string; name: string; code: string };
 type Overview = {
   workDate: string;
+  scope: "organization" | "province" | "self";
   summary: {
     checklists: number;
     reports: number;
@@ -307,10 +313,10 @@ export function DailyWorkArea({ orgSlug }: { orgSlug: string }) {
     enabled: canRead,
   });
   const sites = useQuery({
-    queryKey: ["sites", orgSlug],
+    queryKey: ["daily-work-sites", orgSlug],
     queryFn: () =>
-      get<{ sites: Site[] }>(orgUrl(orgSlug, "sites")).then(
-        (data) => data.sites,
+      get<{ sites: Site[] }>(orgUrl(orgSlug, "sites")).then((data) =>
+        Array.isArray(data.sites) ? data.sites : [],
       ),
     enabled: canCreate && can(user, "sites.read"),
   });
@@ -322,6 +328,9 @@ export function DailyWorkArea({ orgSlug }: { orgSlug: string }) {
         .then((data) => data.run),
     enabled: Boolean(selectedRunId) && canRead,
   });
+  const employeeScope = overview.data?.scope === "self";
+  const canManageTemplates =
+    canCreate && Boolean(overview.data) && !employeeScope;
   const refresh = () => {
     queryClient.invalidateQueries({
       queryKey: ["daily-work-overview", orgSlug],
@@ -472,9 +481,10 @@ export function DailyWorkArea({ orgSlug }: { orgSlug: string }) {
   function submitRun(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
+    const siteId = data.get("siteId");
     createRun.mutate({
       templateId: String(data.get("templateId")),
-      siteId: String(data.get("siteId")),
+      siteId: siteId ? String(siteId) : undefined,
       workDate,
     });
   }
@@ -519,9 +529,10 @@ export function DailyWorkArea({ orgSlug }: { orgSlug: string }) {
   function submitHandover(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
+    const siteId = data.get("siteId");
     createHandover.mutate({
       workDate,
-      siteId: String(data.get("siteId")),
+      siteId: siteId ? String(siteId) : undefined,
       summary: String(data.get("summary")),
       urgentItems: String(data.get("urgent")) || null,
       outstandingWork: String(data.get("outstanding")) || null,
@@ -641,7 +652,7 @@ export function DailyWorkArea({ orgSlug }: { orgSlug: string }) {
             </div>
             {canCreate ? (
               <div className="flex gap-2">
-                {tab === "checklists" ? (
+                {tab === "checklists" && canManageTemplates ? (
                   <>
                     <Button
                       size="sm"
@@ -849,20 +860,28 @@ export function DailyWorkArea({ orgSlug }: { orgSlug: string }) {
                 ))}
               </select>
             </Field>
-            <Field label={copy.selectSite} htmlFor="run-site" required>
-              <select
-                id="run-site"
-                name="siteId"
-                required
-                className="h-9 w-full rounded-md border border-border-strong bg-surface-1 px-3 text-sm"
-              >
-                {sites.data?.map((site) => (
-                  <option key={site.id} value={site.id}>
-                    {site.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
+            {employeeScope ? (
+              <div className="rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-sm text-ink-secondary">
+                {locale === "fr"
+                  ? "Cette checklist sera enregistrée pour votre site de travail affecté."
+                  : "This checklist will be recorded for your assigned work site."}
+              </div>
+            ) : (
+              <Field label={copy.selectSite} htmlFor="run-site" required>
+                <select
+                  id="run-site"
+                  name="siteId"
+                  required
+                  className="h-9 w-full rounded-md border border-border-strong bg-surface-1 px-3 text-sm"
+                >
+                  {sites.data?.map((site) => (
+                    <option key={site.id} value={site.id}>
+                      {site.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
             <Button type="submit" loading={createRun.isPending}>
               <ClipboardCheck />
               {copy.create}
@@ -944,20 +963,28 @@ export function DailyWorkArea({ orgSlug }: { orgSlug: string }) {
           close={() => setCreateHandoverOpen(false)}
         >
           <form className="grid gap-4 sm:grid-cols-2" onSubmit={submitHandover}>
-            <Field label={copy.selectSite} htmlFor="handover-site" required>
-              <select
-                id="handover-site"
-                name="siteId"
-                required
-                className="h-9 w-full rounded-md border border-border-strong bg-surface-1 px-3 text-sm"
-              >
-                {sites.data?.map((site) => (
-                  <option key={site.id} value={site.id}>
-                    {site.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
+            {employeeScope ? (
+              <div className="rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-sm text-ink-secondary">
+                {locale === "fr"
+                  ? "La passation sera enregistrée pour votre site de travail affecté."
+                  : "The handover will be recorded for your assigned work site."}
+              </div>
+            ) : (
+              <Field label={copy.selectSite} htmlFor="handover-site" required>
+                <select
+                  id="handover-site"
+                  name="siteId"
+                  required
+                  className="h-9 w-full rounded-md border border-border-strong bg-surface-1 px-3 text-sm"
+                >
+                  {sites.data?.map((site) => (
+                    <option key={site.id} value={site.id}>
+                      {site.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
             <Field
               label={copy.handoverSummary}
               htmlFor="handover-summary"
@@ -1122,6 +1149,9 @@ function RunDetail({
   onVerify: () => void;
   working: boolean;
 }) {
+  const { locale } = useLanguage();
+  const signedLabel = locale === "fr" ? "Terminé et signé" : "Completed and signed";
+  const verifiedLabel = locale === "fr" ? "Vérifié par un responsable" : "Verified by a supervisor";
   if (loading)
     return (
       <aside className="rounded-2xl border border-border-strong/80 bg-surface-1 p-5 shadow-[0_10px_30px_-24px_rgba(15,23,42,.45)]">
@@ -1153,6 +1183,21 @@ function RunDetail({
         <p className="mt-1 text-xs text-ink-secondary">
           {run.itemsCompleted}/{run.itemsTotal} · {run.itemsFailed} failed
         </p>
+        {run.completedAt ? (
+          <div className="mt-3 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs text-ink-secondary">
+            <p className="font-semibold text-emerald-800 dark:text-emerald-300">
+              {signedLabel}
+            </p>
+            <p className="mt-1">
+              {run.completedByName ?? "—"} · {formatInstant(run.completedAt)}
+            </p>
+            {run.verifiedAt ? (
+              <p className="mt-1">
+                {verifiedLabel} · {run.verifiedByName ?? "—"} · {formatInstant(run.verifiedAt)}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
       </div>
       <div className="divide-y divide-border/90">
         {run.items?.map((item) => (
@@ -1316,6 +1361,9 @@ function Reports({
   onReview: (id: string, status: "reviewed" | "flagged") => void;
   working: boolean;
 }) {
+  const { locale } = useLanguage();
+  const signedLabel = locale === "fr" ? "Terminé et signé" : "Completed and signed";
+  const verifiedLabel = locale === "fr" ? "Vérifié par un responsable" : "Verified by a supervisor";
   if (loading)
     return (
       <div className="space-y-3 p-5">
@@ -1394,6 +1442,9 @@ function Handovers({
   onAck: (id: string) => void;
   working: boolean;
 }) {
+  const { locale } = useLanguage();
+  const signedLabel = locale === "fr" ? "Terminé et signé" : "Completed and signed";
+  const verifiedLabel = locale === "fr" ? "Vérifié par un responsable" : "Verified by a supervisor";
   if (loading)
     return (
       <div className="space-y-3 p-5">
@@ -1423,7 +1474,7 @@ function Handovers({
           {handover.urgentItems ? (
             <p className="mt-3 text-sm text-critical">{handover.urgentItems}</p>
           ) : null}
-          {!handover.acknowledgedAt && canUpdate ? (
+          {!handover.acknowledgedAt && canUpdate && handover.canAcknowledge !== false ? (
             <Button
               className="mt-3"
               size="sm"

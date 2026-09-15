@@ -267,6 +267,7 @@ export function TrainingArea({ orgSlug }: { orgSlug: string }) {
   );
   const [selected, setSelected] = useState<Course | null>(null);
   const [courseDialog, setCourseDialog] = useState<Course | null | "new">(null);
+  const [courseToArchive, setCourseToArchive] = useState<Course | null>(null);
   const [professionalBuilder, setProfessionalBuilder] = useState<
     { courseId?: string; versionId?: string } | true | null
   >(null);
@@ -340,7 +341,10 @@ export function TrainingArea({ orgSlug }: { orgSlug: string }) {
         { isActive },
       ),
     onSuccess: (_result, variables) => {
-      if (!variables.isActive) setSelected(null);
+      if (!variables.isActive) {
+        setSelected(null);
+        setCourseToArchive(null);
+      }
       void client.invalidateQueries({ queryKey: ["training-courses", orgSlug] });
       void client.invalidateQueries({ queryKey: ["training-summary", orgSlug] });
     },
@@ -811,17 +815,11 @@ export function TrainingArea({ orgSlug }: { orgSlug: string }) {
             }
             archivePending={setCourseActive.isPending}
             onSetActive={(course) => {
-              if (
-                course.isActive &&
-                typeof window !== "undefined" &&
-                !window.confirm(
-                  fr
-                    ? `Archiver « ${course.name} » ? Elle ne sera plus affectable, mais les parcours et certificats resteront conservés.`
-                    : `Archive “${course.name}”? It can no longer be assigned, while learning history and certificates remain preserved.`,
-                )
-              )
+              if (course.isActive) {
+                setCourseToArchive(course);
                 return;
-              setCourseActive.mutate({ id: course.id, isActive: !course.isActive });
+              }
+              setCourseActive.mutate({ id: course.id, isActive: true });
             }}
           />
         </section>
@@ -1160,6 +1158,22 @@ export function TrainingArea({ orgSlug }: { orgSlug: string }) {
           onClose={() => setCourseDialog(null)}
         />
       ) : null}{" "}
+      {courseToArchive ? (
+        <ArchiveCourseDialog
+          fr={fr}
+          course={courseToArchive}
+          busy={setCourseActive.isPending}
+          error={
+            setCourseActive.error instanceof ApiError
+              ? setCourseActive.error.message
+              : null
+          }
+          onClose={() => setCourseToArchive(null)}
+          onConfirm={() =>
+            setCourseActive.mutate({ id: courseToArchive.id, isActive: false })
+          }
+        />
+      ) : null}
       {professionalBuilder ? (
         <ProfessionalCourseBuilder
           fr={fr}
@@ -3105,6 +3119,74 @@ function Info({ title, value }: { title: string; value: string }) {
       <dt className="text-xs text-ink-muted">{title}</dt>
       <dd className="mt-1 font-medium text-ink">{value}</dd>
     </div>
+  );
+}
+function ArchiveCourseDialog({
+  course,
+  fr,
+  busy,
+  error,
+  onClose,
+  onConfirm,
+}: {
+  course: Course;
+  fr: boolean;
+  busy: boolean;
+  error: string | null;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <Dialog
+      title={label(fr, "Archive training course", "Archiver la formation")}
+      onClose={onClose}
+    >
+      <div className="space-y-5">
+        <div className="rounded-2xl border border-amber-500/25 bg-amber-500/10 p-4">
+          <div className="flex gap-3">
+            <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-amber-500/15 text-amber-700 dark:text-amber-300">
+              <CircleAlert className="size-5" aria-hidden />
+            </span>
+            <div>
+              <p className="text-sm font-semibold text-ink">
+                {label(fr, "Archive this course?", "Archiver ce cours ?")}
+              </p>
+              <p className="mt-1 text-sm leading-6 text-ink-secondary">
+                {course.name}
+              </p>
+            </div>
+          </div>
+        </div>
+        <div className="space-y-3 text-sm leading-6 text-ink-secondary">
+          <p>
+            {label(
+              fr,
+              "The course will no longer be available for new assignments.",
+              "Cette formation ne pourra plus être affectée à de nouveaux employés.",
+            )}
+          </p>
+          <ul className="space-y-2 rounded-2xl border border-border bg-surface-2/45 p-4">
+            <li className="flex gap-2">
+              <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-good" aria-hidden />
+              {label(fr, "Existing learning paths, evidence and certificates remain preserved.", "Les parcours existants, preuves et certificats restent conservés.")}
+            </li>
+            <li className="flex gap-2">
+              <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-good" aria-hidden />
+              {label(fr, "You can restore the course later from the archived catalogue.", "Vous pourrez réactiver la formation plus tard depuis le catalogue archivé.")}
+            </li>
+          </ul>
+        </div>
+        {error ? <p className="rounded-xl border border-critical/25 bg-critical/10 px-3 py-2 text-sm text-critical" role="alert">{error}</p> : null}
+        <div className="flex flex-wrap justify-end gap-2 border-t border-border pt-4">
+          <Button type="button" variant="ghost" disabled={busy} onClick={onClose}>
+            {label(fr, "Cancel", "Annuler")}
+          </Button>
+          <Button type="button" variant="destructive" loading={busy} onClick={onConfirm}>
+            {label(fr, "Archive course", "Archiver le cours")}
+          </Button>
+        </div>
+      </div>
+    </Dialog>
   );
 }
 function Dialog({

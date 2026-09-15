@@ -8,11 +8,13 @@ import {
 import { withTenantContext } from "../../utils/tenant-query";
 import type {
   AssignEmployeeInput,
+  ChangeAssignmentInput,
   ClockInput,
   CorrectAttendanceInput,
   CreateShiftInput,
   ListAttendanceInput,
   UpdateShiftInput,
+  ScheduleExceptionInput,
 } from "./attendance.validation";
 
 export interface WorkforceContext {
@@ -25,6 +27,14 @@ export interface WorkforceContext {
 
 type Scope = "organization" | "province" | "self";
 type AttendanceStatus = "present" | "late" | "absent" | "leave";
+
+interface WeeklyScheduleDay {
+  day: number;
+  enabled: boolean;
+  startsAt?: string;
+  endsAt?: string;
+  breakMinutes: number;
+}
 
 interface Location {
   provinceId: string;
@@ -47,6 +57,7 @@ interface ShiftRow {
   department_name: string | null;
   starts_at: string;
   ends_at: string;
+  weekly_schedule: unknown;
   is_active: boolean;
   notes: string | null;
   created_at: Date;
@@ -81,6 +92,23 @@ interface AssignmentRow {
   employee_job_title: string;
 }
 
+interface ActiveShiftRow extends ShiftRow {
+  assignment_id: string;
+}
+
+interface ScheduleExceptionRow {
+  id: string;
+  shift_assignment_id: string;
+  work_date: string;
+  is_working: boolean;
+  starts_at: string | null;
+  ends_at: string | null;
+  break_minutes: number;
+  note: string | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
 interface AttendanceRow {
   id: string;
   employee_id: string;
@@ -104,6 +132,9 @@ interface AttendanceRow {
   status: AttendanceStatus;
   clock_in_at: Date | null;
   clock_out_at: Date | null;
+  expected_minutes: number | null;
+  worked_minutes: number | null;
+  overtime_minutes: number | null;
   correction_note: string | null;
   approved_at: Date | null;
   approved_by_name: string | null;
@@ -127,6 +158,7 @@ const shiftFields = [
   "d.name AS department_name",
   "s.starts_at::text",
   "s.ends_at::text",
+  "s.weekly_schedule",
   "s.is_active",
   "s.notes",
   "s.created_at",
@@ -173,6 +205,9 @@ const attendanceFields = [
   "a.status",
   "a.clock_in_at",
   "a.clock_out_at",
+  "a.expected_minutes",
+  "a.worked_minutes",
+  "a.overtime_minutes",
   "a.correction_note",
   "a.approved_at",
   "approver.full_name AS approved_by_name",
@@ -181,6 +216,111 @@ const attendanceFields = [
   "a.updated_at",
 ].join(", ");
 
+function defaultWeeklySchedule(
+  startsAt: string,
+  endsAt: string,
+  includeEveryDay = false,
+): WeeklyScheduleDay[] {
+  return Array.from({ length: 7 }, (_, index) => ({
+    day: index + 1,
+    enabled: includeEveryDay || index < 5,
+    startsAt,
+    endsAt,
+    breakMinutes: 0,
+  }));
+}
+
+function normaliseWeeklySchedule(
+  value: unknown,
+  fallbackStartsAt: string,
+  fallbackEndsAt: string,
+): WeeklyScheduleDay[] {
+  const fallback = defaultWeeklySchedule(
+    fallbackStartsAt.slice(0, 5),
+    fallbackEndsAt.slice(0, 5),
+    true,
+  );
+  if (!Array.isArray(value)) return fallback;
+  return fallback.map((fallbackDay) => {
+    const item = value.find(
+      (candidate) =>
+        typeof candidate === "object" &&
+        candidate !== null &&
+        Number((candidate as { day?: unknown }).day) === fallbackDay.day,
+    ) as Record<string, unknown> | undefined;
+    if (!item) return fallbackDay;
+    const enabled = item.enabled === true;
+    const startsAt =
+      typeof item.startsAt === "string" ? item.startsAt.slice(0, 5) : fallbackDay.startsAt;
+    const endsAt =
+      typeof item.endsAt === "string" ? item.endsAt.slice(0, 5) : fallbackDay.endsAt;
+    const breakMinutes = Number.isFinite(Number(item.breakMinutes))
+      ? Math.max(0, Math.min(720, Number(item.breakMinutes)))
+      : 0;
+    return { day: fallbackDay.day, enabled, startsAt, endsAt, breakMinutes };
+  });
+}
+
+function timeMinutes(value: string): number {
+  const [hour = "0", minute = "0"] = value.slice(0, 5).split(":");
+  return Number(hour) * 60 + Number(minute);
+}
+
+function plannedMinutes(day: WeeklyScheduleDay): number {
+  if (!day.enabled || !day.startsAt || !day.endsAt) return 0;
+  const start = timeMinutes(day.startsAt);
+  const end = timeMinutes(day.endsAt);
+  const span = (end - start + 1_440) % 1_440 || 1_440;
+  return Math.max(0, span - day.breakMinutes);
+}
+
+function plannedDayForDate(shift: ShiftRow, workDate: string): WeeklyScheduleDay {
+  const dayOfWeek = new Date(`${workDate}T12:00:00Z`).getUTCDay() || 7;
+  return (
+    normaliseWeeklySchedule(
+      shift.weekly_schedule,
+      shift.starts_at,
+      shift.ends_at,
+    ).find((day) => day.day === dayOfWeek) ?? {
+      day: dayOfWeek,
+      enabled: false,
+      breakMinutes: 0,
+    }
+  );
+}
+
+function exceptionDayForDate(
+  exception: ScheduleExceptionRow | undefined,
+  workDate: string,
+): WeeklyScheduleDay | undefined {
+  if (!exception) return undefined;
+  const dayOfWeek = new Date(`${workDate}T12:00:00Z`).getUTCDay() || 7;
+  return {
+    day: dayOfWeek,
+    enabled: exception.is_working,
+    startsAt: exception.starts_at?.slice(0, 5) ?? undefined,
+    endsAt: exception.ends_at?.slice(0, 5) ?? undefined,
+    breakMinutes: Number(exception.break_minutes ?? 0),
+  };
+}
+
+function mapScheduleException(row: ScheduleExceptionRow) {
+  return {
+    id: row.id,
+    assignmentId: row.shift_assignment_id,
+    workDate: row.work_date,
+    isWorking: row.is_working,
+    startsAt: row.starts_at?.slice(0, 5) ?? null,
+    endsAt: row.ends_at?.slice(0, 5) ?? null,
+    breakMinutes: Number(row.break_minutes),
+    note: row.note,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+function workedMinutes(clockIn: Date, clockOut: Date): number {
+  return Math.max(0, Math.round((clockOut.getTime() - clockIn.getTime()) / 60_000));
+}
 function mapShift(row: ShiftRow) {
   return {
     id: row.id,
@@ -201,6 +341,11 @@ function mapShift(row: ShiftRow) {
       : null,
     startsAt: row.starts_at.slice(0, 5),
     endsAt: row.ends_at.slice(0, 5),
+    weeklySchedule: normaliseWeeklySchedule(
+      row.weekly_schedule,
+      row.starts_at,
+      row.ends_at,
+    ),
     isActive: row.is_active,
     notes: row.notes,
     createdAt: row.created_at,
@@ -237,6 +382,12 @@ function mapAttendance(row: AttendanceRow) {
       : null,
     clockInAt: row.clock_in_at,
     clockOutAt: row.clock_out_at,
+    expectedHours:
+      row.expected_minutes == null ? null : Number(row.expected_minutes) / 60,
+    workedHours:
+      row.worked_minutes == null ? null : Number(row.worked_minutes) / 60,
+    overtimeHours:
+      row.overtime_minutes == null ? null : Number(row.overtime_minutes) / 60,
     correctionNote: row.correction_note,
     approval: row.approved_at
       ? { approvedAt: row.approved_at, approvedByName: row.approved_by_name }
@@ -438,7 +589,11 @@ function translateConflict(error: unknown): never {
     throw new ConflictError(
       pg.constraint === "attendance_employee_day_unique"
         ? "This employee already has an attendance record for this work date"
-        : "A record with that code or assignment already exists",
+        : pg.constraint === "shift_assignments_unique"
+          ? "This employee is already assigned to this schedule. Choose another schedule or use a date exception."
+          : pg.constraint === "shift_assignment_exceptions_one_per_day"
+            ? "A date exception already exists for this employee and date"
+            : "A schedule with this code already exists, or this employee is already assigned to it",
     );
   }
   throw error;
@@ -478,10 +633,13 @@ export async function createShift(
         input.siteId,
         input.departmentId ?? null,
       );
+      const weeklySchedule =
+        input.weeklySchedule ??
+        defaultWeeklySchedule(input.startsAt, input.endsAt);
       const result = await client.query<{ id: string }>(
         `INSERT INTO shifts
-          (organization_id, province_id, site_id, department_id, code, name, starts_at, ends_at, notes, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7::time, $8::time, $9, $10)
+          (organization_id, province_id, site_id, department_id, code, name, starts_at, ends_at, weekly_schedule, notes, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7::time, $8::time, $9::jsonb, $10, $11)
          RETURNING id`,
         [
           context.organizationId,
@@ -492,6 +650,7 @@ export async function createShift(
           input.name,
           input.startsAt,
           input.endsAt,
+          JSON.stringify(weeklySchedule),
           input.notes ?? null,
           context.userId,
         ],
@@ -525,11 +684,28 @@ export async function updateShift(
           ? current.department_id
           : input.departmentId,
       );
+      const currentSchedule = normaliseWeeklySchedule(
+        current.weekly_schedule,
+        current.starts_at,
+        current.ends_at,
+      );
+      const weeklySchedule = input.weeklySchedule ??
+        (input.startsAt || input.endsAt
+          ? currentSchedule.map((day) =>
+              day.enabled
+                ? {
+                    ...day,
+                    startsAt: input.startsAt ?? day.startsAt,
+                    endsAt: input.endsAt ?? day.endsAt,
+                  }
+                : day,
+            )
+          : currentSchedule);
       await client.query(
         `UPDATE shifts
             SET province_id = $3, site_id = $4, department_id = $5, code = $6,
                 name = $7, starts_at = $8::time, ends_at = $9::time,
-                is_active = $10, notes = $11
+                weekly_schedule = $10::jsonb, is_active = $11, notes = $12
           WHERE organization_id = $1 AND id = $2`,
         [
           context.organizationId,
@@ -541,6 +717,7 @@ export async function updateShift(
           input.name ?? current.name,
           input.startsAt ?? current.starts_at.slice(0, 5),
           input.endsAt ?? current.ends_at.slice(0, 5),
+          JSON.stringify(weeklySchedule),
           input.isActive ?? current.is_active,
           input.notes === undefined ? current.notes : input.notes,
         ],
@@ -635,6 +812,128 @@ export async function assignEmployee(
   }
 }
 
+export async function changeAssignment(
+  context: WorkforceContext,
+  shiftId: string,
+  assignmentId: string,
+  input: ChangeAssignmentInput,
+) {
+  try {
+    return await withTenantContext(context, async (client) => {
+      const sourceShift = await assertShiftAccess(client, context, shiftId);
+      const targetShift = await assertShiftAccess(
+        client,
+        context,
+        input.targetShiftId,
+      );
+      if (sourceShift.id === targetShift.id) {
+        throw new BadRequestError("Choose a different shift for this employee");
+      }
+
+      const assignmentResult = await client.query<{
+        id: string;
+        employee_id: string;
+        effective_from: string;
+        effective_to: string | null;
+      }>(
+        `SELECT id, employee_id, effective_from::text, effective_to::text
+           FROM shift_assignments
+          WHERE organization_id = $1 AND shift_id = $2 AND id = $3
+          FOR UPDATE`,
+        [context.organizationId, sourceShift.id, assignmentId],
+      );
+      const assignment = assignmentResult.rows[0];
+      if (!assignment) throw new NotFoundError("Shift assignment not found");
+
+      const employee = await selectEmployee(
+        client,
+        context.organizationId,
+        "id",
+        assignment.employee_id,
+      );
+      if (!employee) throw new NotFoundError("Employee not found");
+      await assertEmployeeAccess(client, context, employee, false);
+      if (employee.province_id !== targetShift.province_id) {
+        throw new BadRequestError(
+          "An employee can only be assigned to a shift in their work province",
+        );
+      }
+      if (input.effectiveFrom <= assignment.effective_from) {
+        throw new BadRequestError(
+          "Choose a new-shift date after the current assignment start date",
+        );
+      }
+      if (assignment.effective_to && input.effectiveFrom > assignment.effective_to) {
+        throw new BadRequestError(
+          "The current assignment does not cover the chosen new-shift date",
+        );
+      }
+
+      const overlap = await client.query(
+        `SELECT 1 FROM shift_assignments
+          WHERE organization_id = $1 AND employee_id = $2 AND id <> $3
+            AND effective_from <= 'infinity'::date
+            AND COALESCE(effective_to, 'infinity'::date) >= $4::date`,
+        [
+          context.organizationId,
+          employee.id,
+          assignment.id,
+          input.effectiveFrom,
+        ],
+      );
+      if ((overlap.rowCount ?? 0) > 0) {
+        throw new ConflictError(
+          "This employee already has another shift assignment covering that date",
+        );
+      }
+
+      await client.query(
+        `UPDATE shift_assignments
+            SET effective_to = ($4::date - INTERVAL '1 day')::date
+          WHERE organization_id = $1 AND shift_id = $2 AND id = $3`,
+        [
+          context.organizationId,
+          sourceShift.id,
+          assignment.id,
+          input.effectiveFrom,
+        ],
+      );
+      const created = await client.query<{
+        id: string;
+        shift_id: string;
+        effective_from: string;
+        effective_to: string | null;
+      }>(
+        `INSERT INTO shift_assignments
+          (organization_id, shift_id, employee_id, effective_from, effective_to, assigned_by)
+         VALUES ($1, $2, $3, $4::date, NULL, $5)
+         RETURNING id, shift_id, effective_from::text, effective_to::text`,
+        [
+          context.organizationId,
+          targetShift.id,
+          employee.id,
+          input.effectiveFrom,
+          context.userId,
+        ],
+      );
+      const row = created.rows[0]!;
+      return {
+        id: row.id,
+        shiftId: row.shift_id,
+        employee: {
+          id: employee.id,
+          employeeNumber: employee.employee_number,
+          fullName: employee.full_name,
+          jobTitle: employee.job_title,
+        },
+        effectiveFrom: row.effective_from,
+        effectiveTo: row.effective_to,
+      };
+    });
+  } catch (error) {
+    return translateConflict(error);
+  }
+}
 export async function listAssignments(
   context: WorkforceContext,
   shiftId: string,
@@ -665,14 +964,142 @@ export async function listAssignments(
   });
 }
 
+async function assignmentForShift(
+  client: PoolClient,
+  context: WorkforceContext,
+  shiftId: string,
+  assignmentId: string,
+): Promise<AssignmentRow> {
+  await assertShiftAccess(client, context, shiftId);
+  const result = await client.query<AssignmentRow>(
+    `SELECT a.id, a.shift_id, a.employee_id, a.effective_from::text, a.effective_to::text,
+            e.employee_number, e.full_name AS employee_name, e.job_title AS employee_job_title
+       FROM shift_assignments a
+       JOIN employees e ON e.organization_id = a.organization_id AND e.id = a.employee_id
+      WHERE a.organization_id = $1 AND a.shift_id = $2 AND a.id = $3`,
+    [context.organizationId, shiftId, assignmentId],
+  );
+  const assignment = result.rows[0];
+  if (!assignment) throw new NotFoundError("Shift assignment not found");
+  return assignment;
+}
+
+async function exceptionRow(
+  client: PoolClient,
+  organizationId: string,
+  exceptionId: string,
+): Promise<ScheduleExceptionRow | undefined> {
+  const result = await client.query<ScheduleExceptionRow>(
+    `SELECT id, shift_assignment_id, work_date::text, is_working,
+            starts_at::text, ends_at::text, break_minutes, note, created_at, updated_at
+       FROM shift_assignment_exceptions
+      WHERE organization_id = $1 AND id = $2`,
+    [organizationId, exceptionId],
+  );
+  return result.rows[0];
+}
+
+async function assertNoAttendanceForException(
+  client: PoolClient,
+  organizationId: string,
+  assignment: AssignmentRow,
+  workDate: string,
+) {
+  const result = await client.query<{ exists: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM attendance_records
+        WHERE organization_id = $1 AND employee_id = $2 AND work_date = $3::date
+     ) AS exists`,
+    [organizationId, assignment.employee_id, workDate],
+  );
+  if (result.rows[0]?.exists) {
+    throw new ConflictError("A schedule exception cannot be changed after attendance is recorded for that date");
+  }
+}
+
+export async function listAssignmentExceptions(
+  context: WorkforceContext,
+  shiftId: string,
+  assignmentId: string,
+) {
+  return withTenantContext(context, async (client) => {
+    await assignmentForShift(client, context, shiftId, assignmentId);
+    const result = await client.query<ScheduleExceptionRow>(
+      `SELECT id, shift_assignment_id, work_date::text, is_working,
+              starts_at::text, ends_at::text, break_minutes, note, created_at, updated_at
+         FROM shift_assignment_exceptions
+        WHERE organization_id = $1 AND shift_assignment_id = $2
+        ORDER BY work_date DESC`,
+      [context.organizationId, assignmentId],
+    );
+    return result.rows.map(mapScheduleException);
+  });
+}
+
+export async function saveAssignmentException(
+  context: WorkforceContext,
+  shiftId: string,
+  assignmentId: string,
+  input: ScheduleExceptionInput,
+) {
+  return withTenantContext(context, async (client) => {
+    const assignment = await assignmentForShift(client, context, shiftId, assignmentId);
+    if (input.workDate < assignment.effective_from || (assignment.effective_to && input.workDate > assignment.effective_to)) {
+      throw new BadRequestError("The exception date must fall within this employee assignment");
+    }
+    await assertNoAttendanceForException(client, context.organizationId, assignment, input.workDate);
+    const saved = await client.query<{ id: string }>(
+      `INSERT INTO shift_assignment_exceptions
+        (organization_id, shift_assignment_id, work_date, is_working, starts_at, ends_at, break_minutes, note, created_by)
+       VALUES ($1, $2, $3::date, $4, $5::time, $6::time, $7, $8, $9)
+       ON CONFLICT (organization_id, shift_assignment_id, work_date) DO UPDATE
+         SET is_working = EXCLUDED.is_working, starts_at = EXCLUDED.starts_at,
+             ends_at = EXCLUDED.ends_at, break_minutes = EXCLUDED.break_minutes, note = EXCLUDED.note
+       RETURNING id`,
+      [
+        context.organizationId,
+        assignmentId,
+        input.workDate,
+        input.isWorking,
+        input.isWorking ? input.startsAt : null,
+        input.isWorking ? input.endsAt : null,
+        input.isWorking ? input.breakMinutes : 0,
+        input.note ?? null,
+        context.userId,
+      ],
+    );
+    return mapScheduleException((await exceptionRow(client, context.organizationId, saved.rows[0]!.id))!);
+  });
+}
+
+export async function deleteAssignmentException(
+  context: WorkforceContext,
+  shiftId: string,
+  assignmentId: string,
+  exceptionId: string,
+) {
+  return withTenantContext(context, async (client) => {
+    const assignment = await assignmentForShift(client, context, shiftId, assignmentId);
+    const exception = await exceptionRow(client, context.organizationId, exceptionId);
+    if (!exception || exception.shift_assignment_id !== assignmentId) {
+      throw new NotFoundError("Schedule exception not found");
+    }
+    await assertNoAttendanceForException(client, context.organizationId, assignment, exception.work_date);
+    await client.query(
+      `DELETE FROM shift_assignment_exceptions
+        WHERE organization_id = $1 AND id = $2 AND shift_assignment_id = $3`,
+      [context.organizationId, exceptionId, assignmentId],
+    );
+  });
+}
 async function activeShiftForEmployee(
   client: PoolClient,
   organizationId: string,
   employeeId: string,
   workDate: string,
-): Promise<ShiftRow> {
-  const result = await client.query<ShiftRow>(
-    `SELECT ${shiftFields}
+): Promise<{ shift: ShiftRow; plannedDay: WeeklyScheduleDay }> {
+  const result = await client.query<ActiveShiftRow>(
+    `SELECT ${shiftFields}, a.id AS assignment_id
        FROM shift_assignments a
        JOIN shifts s ON s.organization_id = a.organization_id AND s.id = a.shift_id
        JOIN provinces p ON p.organization_id = s.organization_id AND p.id = s.province_id
@@ -686,14 +1113,23 @@ async function activeShiftForEmployee(
       LIMIT 1`,
     [organizationId, employeeId, workDate],
   );
-  const shift = result.rows[0];
-  if (!shift)
-    throw new NotFoundError(
-      "No active shift assignment found for this employee and work date",
-    );
-  return shift;
+  const active = result.rows[0];
+  if (!active) {
+    throw new NotFoundError("No active shift assignment found for this employee and work date");
+  }
+  const exceptionResult = await client.query<ScheduleExceptionRow>(
+    `SELECT id, shift_assignment_id, work_date::text, is_working,
+            starts_at::text, ends_at::text, break_minutes, note, created_at, updated_at
+       FROM shift_assignment_exceptions
+      WHERE organization_id = $1 AND shift_assignment_id = $2 AND work_date = $3::date`,
+    [organizationId, active.assignment_id, workDate],
+  );
+  const plannedDay = exceptionDayForDate(exceptionResult.rows[0], workDate) ?? plannedDayForDate(active, workDate);
+  if (!plannedDay.enabled) {
+    throw new BadRequestError("This employee is not scheduled to work on the selected day");
+  }
+  return { shift: active, plannedDay };
 }
-
 async function assertClockAccess(
   client: PoolClient,
   context: WorkforceContext,
@@ -757,12 +1193,13 @@ export async function clockIn(context: WorkforceContext, input: ClockInput) {
       );
       if (!employee) throw new NotFoundError("Employee number not found");
       await assertClockAccess(client, context, employee);
-      const shift = await activeShiftForEmployee(
+      const activeShift = await activeShiftForEmployee(
         client,
         context.organizationId,
         employee.id,
         input.workDate,
       );
+      const { shift, plannedDay } = activeShift;
       if (employee.province_id !== shift.province_id) {
         throw new BadRequestError(
           "The employee work province does not match their assigned shift",
@@ -781,21 +1218,22 @@ export async function clockIn(context: WorkforceContext, input: ClockInput) {
       const occurredAt = input.occurredAt
         ? new Date(input.occurredAt)
         : new Date();
+      const expectedMinutes = plannedMinutes(plannedDay);
       const performancePolicy = await client.query<{ grace_minutes: number }>(
         "SELECT grace_minutes FROM performance_policies WHERE organization_id=$1",
         [context.organizationId],
       );
       const status = attendanceStatus(
         input.workDate,
-        shift.starts_at,
+        plannedDay.startsAt ?? shift.starts_at,
         occurredAt,
         performancePolicy.rows[0]?.grace_minutes ?? 15,
       );
       const result = await client.query<{ id: string }>(
         `INSERT INTO attendance_records
           (organization_id, employee_id, shift_id, province_id, site_id, department_id, work_date,
-           status, clock_in_at, clock_in_by_user_id, notes)
-         VALUES ($1, $2, $3, $4, $5, $6, $7::date, $8, $9, $10, $11)
+           status, clock_in_at, expected_minutes, clock_in_by_user_id, notes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7::date, $8, $9, $10, $11, $12)
          RETURNING id`,
         [
           context.organizationId,
@@ -807,6 +1245,7 @@ export async function clockIn(context: WorkforceContext, input: ClockInput) {
           input.workDate,
           status,
           occurredAt,
+          expectedMinutes,
           context.userId,
           input.notes ?? null,
         ],
@@ -856,16 +1295,32 @@ export async function clockOut(context: WorkforceContext, input: ClockInput) {
         throw new BadRequestError(
           "Clock-out time cannot be before clock-in time",
         );
+      const verifiedWorkedMinutes = workedMinutes(existing.clock_in_at, occurredAt);
+      const historicalShift = existing.shift_id
+        ? await selectShift(client, context.organizationId, existing.shift_id)
+        : undefined;
+      const expectedMinutes =
+        existing.expected_minutes ??
+        (historicalShift
+          ? plannedMinutes(plannedDayForDate(historicalShift, input.workDate))
+          : 0);
+      const verifiedOvertimeMinutes = Math.max(
+        0,
+        verifiedWorkedMinutes - expectedMinutes,
+      );
       await client.query(
         `UPDATE attendance_records
             SET clock_out_at = $3, clock_out_by_user_id = $4,
-                notes = COALESCE($5, notes)
+                worked_minutes = $5, overtime_minutes = $6,
+                notes = COALESCE($7, notes)
           WHERE organization_id = $1 AND id = $2`,
         [
           context.organizationId,
           existing.id,
           occurredAt,
           context.userId,
+          verifiedWorkedMinutes,
+          verifiedOvertimeMinutes,
           input.notes ?? null,
         ],
       );
@@ -952,10 +1407,25 @@ export async function correctAttendance(
         "Clock-out time cannot be before clock-in time",
       );
     }
+    const historicalShift = current.shift_id
+      ? await selectShift(client, context.organizationId, current.shift_id)
+      : undefined;
+    const expectedMinutes =
+      current.expected_minutes ??
+      (historicalShift
+        ? plannedMinutes(plannedDayForDate(historicalShift, current.work_date))
+        : 0);
+    const verifiedWorkedMinutes =
+      clockInAt && clockOutAt ? workedMinutes(clockInAt, clockOutAt) : null;
+    const verifiedOvertimeMinutes =
+      verifiedWorkedMinutes === null
+        ? null
+        : Math.max(0, verifiedWorkedMinutes - expectedMinutes);
     await client.query(
       `UPDATE attendance_records
           SET status = $3, clock_in_at = $4, clock_out_at = $5,
-              notes = $6, correction_note = $7
+              notes = $6, correction_note = $7, expected_minutes = COALESCE(expected_minutes, $8),
+              worked_minutes = $9, overtime_minutes = $10
         WHERE organization_id = $1 AND id = $2`,
       [
         context.organizationId,
@@ -965,6 +1435,9 @@ export async function correctAttendance(
         clockOutAt,
         input.notes === undefined ? current.notes : input.notes,
         input.correctionNote,
+        expectedMinutes,
+        verifiedWorkedMinutes,
+        verifiedOvertimeMinutes,
       ],
     );
     return mapAttendance(

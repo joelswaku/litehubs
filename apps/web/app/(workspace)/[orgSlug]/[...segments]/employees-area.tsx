@@ -100,7 +100,18 @@ type EmployeePerformance = {
   attendance: { scheduledDays: number; presentDays: number; lateDays: number; absentDays: number; unrecordedDays: number };
   dailyReports: { expected: number; submitted: number; missing: number };
   tasks: { assigned: number; completed: number; overdue: number };
-};type Editor = { employee?: Employee } | null;
+};
+type EmploymentContract = {
+  id: string;
+  reference: string;
+  title: string;
+  status: string;
+  startsOn: string;
+  endsOn: string | null;
+  signedOn: string | null;
+  document: { id: string; title: string | null } | null;
+};
+type Editor = { employee?: Employee } | null;
 type EmployeeAccessDraft = {
   email: string;
   roleCode: string;
@@ -374,7 +385,11 @@ export function EmployeesArea({ orgSlug }: { orgSlug: string }) {
 
   return (
     <main className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
-      <header className="relative overflow-hidden rounded-3xl border border-border-strong/80 bg-[radial-gradient(circle_at_88%_10%,rgba(37,99,235,.17),transparent_29%),radial-gradient(circle_at_8%_110%,rgba(45,212,191,.14),transparent_42%),linear-gradient(128deg,rgba(255,255,255,.98),rgba(241,245,249,.95)_56%,rgba(236,253,245,.90))] px-5 py-7 text-ink shadow-[0_28px_58px_-40px_rgba(15,23,42,.38)] dark:bg-surface-1 sm:px-7 sm:py-8">
+      {/* Same story as the profile aside: this stacked a hardcoded blue, a
+          hardcoded teal and two near-whites, so it rendered only in light mode
+          and `dark:bg-surface-1` discarded it wholesale in dark. One token
+          gradient adapts to both. */}
+      <header className="relative overflow-hidden rounded-3xl border border-border bg-surface-1 bg-linear-to-br from-brand/12 to-transparent px-5 py-7 text-ink shadow-md sm:px-7 sm:py-8">
         <div className="relative max-w-3xl">
           <p className="text-xs font-semibold uppercase tracking-[.16em] text-brand">
             {label(fr, "People operations", "Gestion des équipes")}
@@ -490,8 +505,8 @@ export function EmployeesArea({ orgSlug }: { orgSlug: string }) {
         />
       </section>
       <section className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(19rem,.65fr)]">
-        <section className="overflow-hidden rounded-2xl border border-border-strong/80 bg-surface-1 shadow-[0_16px_38px_-30px_rgba(15,23,42,.46)]">
-          <div className="border-b border-border bg-[linear-gradient(115deg,rgba(20,184,166,.07),transparent_48%)] p-4 sm:p-5">
+        <section className="overflow-hidden rounded-2xl border border-border bg-surface-1 shadow-sm">
+          <div className="border-b border-border bg-linear-to-br from-brand/8 to-transparent p-4 sm:p-5">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h2 className="text-base font-semibold text-ink">
@@ -607,13 +622,13 @@ export function EmployeesArea({ orgSlug }: { orgSlug: string }) {
               icon={Users}
             />
           ) : (
-            <div className="grid gap-3 bg-[linear-gradient(135deg,rgba(20,184,166,.035),rgba(37,99,235,.03))] p-3">
+            <div className="grid gap-3 bg-linear-to-br from-brand/5 to-transparent p-3">
               {filtered.map((employee) => (
                 <button
                   key={employee.id}
                   type="button"
                   onClick={() => setSelectedId(employee.id)}
-                  className={`group flex w-full flex-wrap items-center gap-3 rounded-xl border bg-surface-1 px-4 py-4 text-left shadow-[0_8px_22px_-20px_rgba(15,23,42,.4)] transition-all duration-200 sm:px-5 ${selected?.id === employee.id ? "border-brand/50 bg-brand/5 shadow-md shadow-brand/10" : "border-border/80 hover:-translate-y-px hover:border-brand/30 hover:shadow-md"}`}
+                  className={`group flex w-full flex-wrap items-center gap-3 rounded-xl border bg-surface-1 px-4 py-4 text-left shadow-sm transition-all duration-200 sm:px-5 ${selected?.id === employee.id ? "border-brand/50 bg-brand/5 shadow-md shadow-brand/10" : "border-border hover:-translate-y-px hover:border-brand/30 hover:shadow-md"}`}
                 >
                   <span className="grid size-10 shrink-0 place-items-center rounded-xl border border-brand/15 bg-brand/10 text-sm font-bold text-brand">
                     {employee.employeeNumber.slice(-2)}
@@ -668,6 +683,7 @@ export function EmployeesArea({ orgSlug }: { orgSlug: string }) {
           fr={fr}
           canUpdate={canUpdate}
           canPerformance={can(user, "performance.read")}
+          canContracts={can(user, "contracts.read")}
           onEdit={() => selected && setEditor({ employee: selected })}
           canInviteAccess={canInviteAccess}
           invitation={
@@ -676,7 +692,7 @@ export function EmployeesArea({ orgSlug }: { orgSlug: string }) {
           onInvite={() => selected && setAccessInvite(selected)}
         />
       </section>
-      <section className="rounded-2xl border border-border-strong/80 bg-surface-1 p-5 shadow-[0_18px_40px_-32px_rgba(15,23,42,.48)]">
+      <section className="rounded-2xl border border-border bg-surface-1 p-5 shadow-sm">
         <div className="flex items-start gap-3">
           <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-brand/10 text-brand">
             <CircleUserRound className="size-5" />
@@ -821,7 +837,7 @@ function AccessAssignmentDialog({
         "Affecter un accès LiteHubs",
       )}
     >
-      <section className="mx-auto my-10 w-full max-w-xl rounded-2xl border border-border bg-surface-1 p-5 shadow-2xl sm:p-6">
+      <section className="mx-auto my-10 w-full max-w-xl rounded-2xl border border-border bg-surface-1 p-5 shadow-xl sm:p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[.14em] text-brand">
@@ -1009,7 +1025,7 @@ function Metric({
     warning: "border-warning/35 from-warning/15 via-transparent to-transparent",
   };
   return (
-    <article className={`group relative overflow-hidden rounded-2xl border bg-gradient-to-br p-4 shadow-[0_14px_34px_-27px_rgba(15,23,42,.48)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${surface[tone]}`}>
+    <article className={`group relative overflow-hidden rounded-2xl border bg-gradient-to-br p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${surface[tone]}`}>
       <span className="absolute right-4 top-4 size-9 rounded-full border border-current/10 bg-current/[.035]" aria-hidden />
       <div className="relative">
         <div className={`grid size-10 place-items-center rounded-xl border border-current/10 ${colors[tone]}`}>
@@ -1019,7 +1035,7 @@ function Metric({
         <p className="mt-1 text-2xl font-semibold tracking-[-.03em] text-ink">
           {value}
         </p>
-        <p className="mt-2 border-t border-border/75 pt-2 text-xs text-ink-muted">{text}</p>
+        <p className="mt-2 border-t border-border pt-2 text-xs text-ink-muted">{text}</p>
       </div>
     </article>
   );
@@ -1030,6 +1046,7 @@ function EmployeeProfile({
   fr,
   canUpdate,
   canPerformance,
+  canContracts,
   canInviteAccess,
   invitation,
   onInvite,
@@ -1040,6 +1057,7 @@ function EmployeeProfile({
   fr: boolean;
   canUpdate: boolean;
   canPerformance: boolean;
+  canContracts: boolean;
   canInviteAccess: boolean;
   invitation: Invitation | null;
   onInvite: () => void;
@@ -1050,9 +1068,20 @@ function EmployeeProfile({
     queryFn: () => get<{ employees: EmployeePerformance[] }>(orgUrl(orgSlug, `performance-analytics?employeeId=${employee!.id}`)).then((data) => data.employees[0] ?? null),
     enabled: Boolean(employee) && canPerformance,
   });
+  const employmentContracts = useQuery({
+    queryKey: ["employee-employment-contracts", orgSlug, employee?.id],
+    queryFn: () =>
+      get<{ contracts: EmploymentContract[] }>(
+        orgUrl(
+          orgSlug,
+          `contracts?contractType=employment&employeeId=${employee!.id}`,
+        ),
+      ).then((data) => data.contracts),
+    enabled: Boolean(employee) && canContracts,
+  });
   if (!employee)
     return (
-      <section className="rounded-2xl border border-border-strong/80 bg-surface-1 p-5 shadow-[0_18px_40px_-32px_rgba(15,23,42,.48)]">
+      <section className="rounded-2xl border border-border bg-surface-1 p-5 shadow-sm">
         <EmptyState
           title={label(fr, "No employee selected", "Aucun employé sélectionné")}
           description={label(
@@ -1065,7 +1094,7 @@ function EmployeeProfile({
       </section>
     );
   const pair = (icon: ReactNode, name: string, value?: string | null) => (
-    <div className="flex gap-2 rounded-xl border border-border/85 bg-surface-2/55 p-3 text-sm transition-colors hover:border-brand/20">
+    <div className="flex gap-2 rounded-xl border border-border bg-surface-2 p-3 text-sm transition-colors hover:border-brand/20">
       <span className="mt-0.5 text-ink-muted">{icon}</span>
       <div className="min-w-0">
         <p className="text-xs text-ink-muted">{name}</p>
@@ -1076,10 +1105,15 @@ function EmployeeProfile({
     </div>
   );
   return (
-    <aside className="h-fit overflow-hidden rounded-2xl border border-border-strong/80 bg-surface-1 shadow-[0_20px_44px_-34px_rgba(15,23,42,.52)]">
-      <div className="relative border-b border-border bg-[radial-gradient(circle_at_92%_8%,rgba(37,99,235,.16),transparent_31%),radial-gradient(circle_at_12%_100%,rgba(20,184,166,.08),transparent_40%),linear-gradient(135deg,rgba(255,255,255,.98),rgba(241,245,249,.94))] p-5 text-ink dark:bg-surface-1">
+    <aside className="h-fit overflow-hidden rounded-2xl border border-border bg-surface-1 shadow-sm">
+      {/* One brand-derived wash instead of three stacked gradients. The old
+          stack hardcoded a blue, a teal and two near-whites, so it only worked
+          in light mode -- which is why it carried a `dark:bg-surface-1` that
+          threw the whole effect away in dark rather than adapting it. A token
+          gradient renders in both themes and needs no override. */}
+      <div className="relative border-b border-border bg-linear-to-br from-brand/12 to-transparent p-5 text-ink">
         <div className="flex items-start justify-between gap-3">
-          <span className="grid size-12 place-items-center rounded-2xl border border-brand/15 bg-brand text-lg font-semibold text-white shadow-sm">
+          <span className="grid size-12 place-items-center rounded-2xl border border-brand/15 bg-brand text-lg font-semibold text-brand-ink shadow-sm">
             {employee.fullName
               .split(/\s+/)
               .slice(0, 2)
@@ -1098,9 +1132,26 @@ function EmployeeProfile({
           {employee.fullName}
         </h2>
         <p className="mt-1 text-sm text-brand">{employee.jobTitle}</p>
-        <p className="mt-3 text-xs font-semibold tracking-wide text-brand">
-          #{employee.employeeNumber}
-        </p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <p className="text-xs font-semibold tracking-wide text-brand">
+            #{employee.employeeNumber}
+          </p>
+          <Badge
+            variant={
+              employee.member?.memberId
+                ? "good"
+                : invitation
+                  ? "info"
+                  : "outline"
+            }
+          >
+            {employee.member?.memberId
+              ? label(fr, "LiteHubs access active", "Accès LiteHubs actif")
+              : invitation
+                ? label(fr, "Activation pending", "Activation en attente")
+                : label(fr, "Access to create", "Accès à créer")}
+          </Badge>
+        </div>
       </div>
       <div className="space-y-4 p-5">
         {pair(
@@ -1135,6 +1186,13 @@ function EmployeeProfile({
         )}
         {pair(
           <UserCheck className="size-4" />,
+          label(fr, "Emergency contact", "Contact d’urgence"),
+          [employee.contact.emergencyContactName, employee.contact.emergencyContactPhone]
+            .filter(Boolean)
+            .join(" · ") || null,
+        )}
+        {pair(
+          <UserCheck className="size-4" />,
           label(fr, "LiteHubs account", "Compte LiteHubs"),
           employee.member?.email ??
             (invitation
@@ -1148,7 +1206,94 @@ function EmployeeProfile({
                   "Access to create — no sign-in account yet",
                   "Accès à créer — aucun compte de connexion pour le moment",
                 )),
-        )}        {canPerformance ? <div className="rounded-xl border border-brand/20 bg-brand/5 p-3"><div className="flex items-start gap-2"><Award className="mt-0.5 size-4 text-brand" /><div className="min-w-0 flex-1"><p className="text-xs text-ink-muted">{label(fr, "Automatic performance", "Performance automatique")}</p>{automaticPerformance.isPending ? <p className="mt-1 text-sm text-ink-secondary">{label(fr, "Calculating from attendance, reports and tasks…", "Calcul depuis présence, rapports et tâches…")}</p> : automaticPerformance.data ? <><div className="mt-1 flex flex-wrap items-center gap-2"><p className="text-lg font-semibold text-ink">{automaticPerformance.data.score === null ? "—" : `${Math.round(automaticPerformance.data.score)}%`}</p><Badge variant={automaticPerformance.data.level === "excellent" || automaticPerformance.data.level === "good" ? "good" : automaticPerformance.data.level === "medium" ? "info" : automaticPerformance.data.level === "not_enough_data" ? "outline" : "warning"}>{({ excellent: label(fr,"Excellent","Excellent"), good: label(fr,"Good","Bon"), medium: label(fr,"Average","Moyen"), needs_improvement: label(fr,"Needs improvement","À améliorer"), critical: label(fr,"Critical","Critique"), not_enough_data: label(fr,"Data needed","Données insuffisantes") })[automaticPerformance.data.level]}</Badge></div><p className="mt-1 text-xs text-ink-secondary">{automaticPerformance.data.attendance.presentDays + automaticPerformance.data.attendance.lateDays}/{automaticPerformance.data.attendance.scheduledDays} {label(fr,"days recorded","jours enregistrés")} · {automaticPerformance.data.dailyReports.submitted}/{automaticPerformance.data.dailyReports.expected} {label(fr,"reports","rapports")}</p>{automaticPerformance.data.issues.length ? <p className="mt-1 text-xs font-medium text-warning-ink">{label(fr,"Follow-up needed","Suivi nécessaire")}</p> : null}</> : <p className="mt-1 text-xs text-ink-secondary">{label(fr,"No operational record yet.","Aucune donnée opérationnelle pour le moment.")}</p>}</div></div></div> : null}
+        )}
+        {canContracts ? (
+          <section className="overflow-hidden rounded-xl border border-brand/20 bg-brand/5">
+            <div className="flex items-start justify-between gap-3 border-b border-brand/15 px-3 py-3">
+              <div className="flex min-w-0 gap-2">
+                <span className="grid size-8 shrink-0 place-items-center rounded-lg border border-brand/20 bg-surface-1 text-brand">
+                  <FileText className="size-4" />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-ink">
+                    {label(fr, "Employment contracts", "Contrats de travail")}
+                  </p>
+                  <p className="mt-0.5 text-xs leading-5 text-ink-secondary">
+                    {label(
+                      fr,
+                      "Employment contracts linked to this HR record.",
+                      "Contrats de travail liés à cette fiche RH.",
+                    )}
+                  </p>
+                </div>
+              </div>
+              <a
+                href={`/${orgSlug}/contracts`}
+                className="shrink-0 text-xs font-semibold text-brand underline-offset-4 hover:underline"
+              >
+                {label(fr, "Open register", "Ouvrir le registre")}
+              </a>
+            </div>
+            <div className="space-y-2 p-3">
+              {employmentContracts.isPending ? (
+                <p className="text-sm text-ink-secondary">
+                  {label(fr, "Loading contracts…", "Chargement des contrats…")}
+                </p>
+              ) : employmentContracts.isError ? (
+                <p className="text-sm text-warning-ink">
+                  {label(
+                    fr,
+                    "The contracts could not be loaded. Open the register to retry.",
+                    "Les contrats n’ont pas pu être chargés. Ouvrez le registre pour réessayer.",
+                  )}
+                </p>
+              ) : employmentContracts.data?.length ? (
+                employmentContracts.data.map((contract) => (
+                  <article
+                    key={contract.id}
+                    className="rounded-lg border border-border bg-surface-1 px-3 py-2.5"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-ink">
+                          {contract.title}
+                        </p>
+                        <p className="mt-0.5 text-xs text-ink-secondary">
+                          {contract.reference} · {label(fr, "Starts", "Début")}{" "}
+                          {new Intl.DateTimeFormat(fr ? "fr-FR" : "en", {
+                            dateStyle: "medium",
+                          }).format(new Date(`${contract.startsOn}T12:00:00`))}
+                        </p>
+                      </div>
+                      <Badge
+                        variant={
+                          ["active", "signed"].includes(contract.status)
+                            ? "good"
+                            : ["rejected", "terminated", "cancelled"].includes(
+                                  contract.status,
+                                )
+                              ? "serious"
+                              : "warning"
+                        }
+                      >
+                        {pretty(contract.status)}
+                      </Badge>
+                    </div>
+                  </article>
+                ))
+              ) : (
+                <p className="text-sm leading-6 text-ink-secondary">
+                  {label(
+                    fr,
+                    "No employment contract is linked to this employee yet.",
+                    "Aucun contrat de travail n’est encore lié à cet employé.",
+                  )}
+                </p>
+              )}
+            </div>
+          </section>
+        ) : null}
+        {canPerformance ? <div className="rounded-xl border border-brand/20 bg-brand/5 p-3"><div className="flex items-start gap-2"><Award className="mt-0.5 size-4 text-brand" /><div className="min-w-0 flex-1"><p className="text-xs text-ink-muted">{label(fr, "Automatic performance", "Performance automatique")}</p>{automaticPerformance.isPending ? <p className="mt-1 text-sm text-ink-secondary">{label(fr, "Calculating from attendance, reports and tasks…", "Calcul depuis présence, rapports et tâches…")}</p> : automaticPerformance.data ? <><div className="mt-1 flex flex-wrap items-center gap-2"><p className="text-lg font-semibold text-ink">{automaticPerformance.data.score === null ? "—" : `${Math.round(automaticPerformance.data.score)}%`}</p><Badge variant={automaticPerformance.data.level === "excellent" || automaticPerformance.data.level === "good" ? "good" : automaticPerformance.data.level === "medium" ? "info" : automaticPerformance.data.level === "not_enough_data" ? "outline" : "warning"}>{({ excellent: label(fr,"Excellent","Excellent"), good: label(fr,"Good","Bon"), medium: label(fr,"Average","Moyen"), needs_improvement: label(fr,"Needs improvement","À améliorer"), critical: label(fr,"Critical","Critique"), not_enough_data: label(fr,"Data needed","Données insuffisantes") })[automaticPerformance.data.level]}</Badge></div><p className="mt-1 text-xs text-ink-secondary">{automaticPerformance.data.attendance.presentDays + automaticPerformance.data.attendance.lateDays}/{automaticPerformance.data.attendance.scheduledDays} {label(fr,"days recorded","jours enregistrés")} · {automaticPerformance.data.dailyReports.submitted}/{automaticPerformance.data.dailyReports.expected} {label(fr,"reports","rapports")}</p>{automaticPerformance.data.issues.length ? <p className="mt-1 text-xs font-medium text-warning-ink">{label(fr,"Follow-up needed","Suivi nécessaire")}</p> : null}</> : <p className="mt-1 text-xs text-ink-secondary">{label(fr,"No operational record yet.","Aucune donnée opérationnelle pour le moment.")}</p>}</div></div></div> : null}
         {employee.notes ? (
           <div className="rounded-xl border border-border bg-surface-2 p-3">
             <p className="text-xs font-medium text-ink-muted">
@@ -1314,7 +1459,7 @@ function EmployeeDialog({
           : label(fr, "Add employee", "Ajouter un employé")
       }
     >
-      <section className="mx-auto my-5 w-full max-w-4xl rounded-2xl border border-border bg-surface-1 p-5 shadow-2xl sm:p-6">
+      <section className="mx-auto my-5 w-full max-w-4xl rounded-2xl border border-border bg-surface-1 p-5 shadow-xl sm:p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[.14em] text-brand">
@@ -1405,7 +1550,7 @@ function EmployeeDialog({
             </Field>
           </div>
           {employee ? (
-          <div className="rounded-xl border border-border bg-surface-2/60 p-4">
+          <div className="rounded-xl border border-border bg-surface-2 p-4">
             <div className="flex items-start gap-2">
               <ShieldCheck className="mt-0.5 size-4 text-brand" />
               <div>

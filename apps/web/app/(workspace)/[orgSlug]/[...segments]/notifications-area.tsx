@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Archive,
   Bell,
@@ -101,6 +101,8 @@ function displayDate(value: string, locale: string) {
 export function NotificationsArea({ orgSlug }: { orgSlug: string }) {
   const { locale, t } = useLanguage();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const markReadOnOpen = searchParams.get("markRead") === "1";
   const { unreadCount, refresh } = useNotificationCenter();
   const [tab, setTab] = useState<NotificationTab>("all");
   const [category, setCategory] = useState("");
@@ -146,7 +148,9 @@ export function NotificationsArea({ orgSlug }: { orgSlug: string }) {
       if (action === "archive") return notificationsApi.archive(orgSlug, item.id);
       return notificationsApi.remove(orgSlug, item.id);
     },
-    onSuccess: () => void refresh(),
+    onSuccess: async () => {
+      await refresh();
+    },
   });
   const bulk = useMutation({
     mutationFn: (action: "read-all" | "archive-read") =>
@@ -156,8 +160,25 @@ export function NotificationsArea({ orgSlug }: { orgSlug: string }) {
       toast.success(t("notifications.updated"));
     },
   });
+  useEffect(() => {
+    if (!markReadOnOpen) return;
+    let active = true;
+    void notificationsApi.readAll(orgSlug)
+      .then(async () => {
+        if (!active) return;
+        await refresh();
+        router.replace(`/${orgSlug}/notifications`);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [markReadOnOpen, orgSlug, refresh, router]);
+
   const open = async (item: NotificationItem) => {
-    if (!item.isRead) await mutate.mutateAsync({ action: "read", item });
+    if (!item.isRead) await notificationsApi.read(orgSlug, item.id);
+    await notificationsApi.archive(orgSlug, item.id);
+    await refresh();
     const path = notificationActionPath(orgSlug, item);
     if (path) router.push(path);
   };
@@ -210,7 +231,7 @@ export function NotificationsArea({ orgSlug }: { orgSlug: string }) {
         {inbox.isLoading ? <div className="space-y-1 p-3"><SkeletonCard rows={3} /><SkeletonCard rows={3} /></div> : null}
         {inbox.isError ? <ErrorState title={t("notifications.loadFailed")} description={(inbox.error as Error).message} onRetry={() => void inbox.refetch()} /> : null}
         {!inbox.isLoading && !inbox.isError && !notifications.length ? <EmptyState icon={Inbox} title={t("notifications.empty")} description={t("notifications.emptyDescription")} /> : null}
-        {!inbox.isLoading && !inbox.isError && notifications.length ? <div className="divide-y divide-border">{notifications.map((item) => <NotificationCard key={item.id} item={item} locale={localeTag} onOpen={() => void open(item)} onAction={(action) => mutate.mutate({ action, item })} loading={mutate.isPending} />)}</div> : null}
+        {!inbox.isLoading && !inbox.isError && notifications.length ? <div className="divide-y divide-border">{notifications.map((item) => <NotificationCard key={item.id} item={item} locale={localeTag} language={locale} onOpen={() => void open(item)} onAction={(action) => mutate.mutate({ action, item })} loading={mutate.isPending} />)}</div> : null}
         {offset + notifications.length < total ? <div className="border-t border-border p-3 text-center"><Button variant="secondary" size="sm" onClick={() => setOffset((current) => current + PAGE_SIZE)}>{t("notifications.loadMore")}</Button></div> : null}
       </section>
       {preferencesOpen ? <PreferencesDialog orgSlug={orgSlug} onClose={() => setPreferencesOpen(false)} /> : null}
@@ -218,21 +239,83 @@ export function NotificationsArea({ orgSlug }: { orgSlug: string }) {
   );
 }
 
-function NotificationCard({ item, locale, onOpen, onAction, loading }: { item: NotificationItem; locale: string; onOpen: () => void; onAction: (action: "read" | "unread" | "archive" | "delete") => void; loading: boolean }) {
+type NotificationCopy = { title: string; message: string | null };
+
+function notificationDate(value: string, language: "fr" | "en") {
+  return new Intl.DateTimeFormat(language === "fr" ? "fr-FR" : "en-US", { dateStyle: "long" }).format(
+    new Date(`${value}T12:00:00Z`),
+  );
+}
+
+/** New notifications keep their source text; known system notices are rendered in the member's chosen language, including old rows already stored in English. */
+function localizedNotificationCopy(item: NotificationItem, language: "fr" | "en"): NotificationCopy {
+  const message = item.message ?? "";
+  const isContractSignature = ["contract_signature_requested", "employment_contract_signature_requested", "contract_signature_reminder"].includes(item.type);
+  if (isContractSignature) {
+    const contract = message.match(/^(.*?) \(([^()]+)\) (?:is ready for (?:your )?secure review and signature|is ready for review and signature|still needs your secure review and signature)\.$/);
+    const rawTitle = contract?.[1]?.trim() ?? "";
+    const safeTitle = /^(no access|your role does not include|validation failed|internal server error|accès refusé)/i.test(rawTitle)
+      ? (language === "fr" ? "Votre contrat de travail" : "Your employment contract")
+      : rawTitle || (language === "fr" ? "Votre contrat de travail" : "Your employment contract");
+    const reference = contract?.[2] ? ` (${contract[2]})` : "";
+    return language === "fr"
+      ? {
+          title: item.type === "contract_signature_reminder" ? "Rappel de signature du contrat" : "Signature du contrat requise",
+          message: `${safeTitle}${reference} est prêt à être lu et signé en toute sécurité.`,
+        }
+      : {
+          title: item.type === "contract_signature_reminder" ? "Contract signature reminder" : "Contract signature required",
+          message: `${safeTitle}${reference} is ready for your secure review and signature.`,
+        };
+  }
+
+  if (language !== "fr") return { title: item.title, message: item.message };
+
+  const training = message.match(/^(.*?) was due on (\d{4}-\d{2}-\d{2})\.$/);
+  if (item.type === "training_overdue") {
+    return {
+      title: "Formation en retard",
+      message: training?.[1] && training[2] ? `La formation « ${training[1]} » devait être terminée le ${notificationDate(training[2], language)}.` : "Une formation obligatoire est en retard.",
+    };
+  }
+  if (item.type === "training_deadline_approaching") {
+    const due = message.match(/^(.*?) is due on (\d{4}-\d{2}-\d{2})\.$/);
+    return {
+      title: "Échéance de formation proche",
+      message: due?.[1] && due[2] ? `La formation « ${due[1]} » doit être terminée le ${notificationDate(due[2], language)}.` : "Une formation arrive bientôt à échéance.",
+    };
+  }
+  if (["employment_contract_available", "contract_available"].includes(item.type)) {
+    return { title: "Contrat de travail disponible", message: "Votre contrat de travail est disponible dans Mes contrats." };
+  }
+  return { title: item.title, message: item.message };
+}
+function NotificationCard({ item, locale, language, onOpen, onAction, loading }: { item: NotificationItem; locale: string; language: "fr" | "en"; onOpen: () => void; onAction: (action: "read" | "unread" | "archive" | "delete") => void; loading: boolean }) {
   const { t } = useLanguage();
   const Icon = categoryIcon(item.category);
+  const copy = localizedNotificationCopy(item, language);
   return <article className={`group relative flex gap-3 p-4 transition-colors sm:p-5 ${!item.isRead ? "bg-brand-subtle/45" : "hover:bg-surface-2/70"}`}>
     <div className={`grid size-10 shrink-0 place-items-center rounded-xl ${item.priority === "urgent" ? "bg-critical/15 text-critical" : "bg-brand/10 text-brand"}`}><Icon className="size-5" aria-hidden /></div>
-    <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"><div className="flex flex-wrap items-center gap-2"><h2 className="text-sm font-semibold text-ink">{item.title}</h2>{!item.isRead ? <span className="size-2 rounded-full bg-critical" aria-label={t("notifications.unread")} /> : null}<Badge variant={severityVariant(item.priority)}>{t(priorityKey(item.priority))}</Badge><Badge variant="outline" icon={false}>{t(categoryKey(item.category))}</Badge></div>{item.message ? <p className="mt-1 line-clamp-2 text-sm leading-6 text-ink-secondary">{item.message}</p> : null}<p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-muted"><Clock3 className="size-3" aria-hidden />{relativeTime(item.createdAt, locale)}<span aria-hidden>·</span><time dateTime={item.createdAt}>{displayDate(item.createdAt, locale)}</time>{item.actor?.fullName ? <><span aria-hidden>·</span><span>{item.actor.fullName}</span></> : null}{item.province?.name ? <><span aria-hidden>·</span><span>{item.province.name}</span></> : null}</p></button>
+    <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"><div className="flex flex-wrap items-center gap-2"><h2 className="text-sm font-semibold text-ink">{copy.title}</h2>{!item.isRead ? <span className="size-2 rounded-full bg-critical" aria-label={t("notifications.unread")} /> : null}<Badge variant={severityVariant(item.priority)}>{t(priorityKey(item.priority))}</Badge><Badge variant="outline" icon={false}>{t(categoryKey(item.category))}</Badge></div>{copy.message ? <p className="mt-1 line-clamp-2 text-sm leading-6 text-ink-secondary">{copy.message}</p> : null}<p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-muted"><Clock3 className="size-3" aria-hidden />{relativeTime(item.createdAt, locale)}<span aria-hidden>·</span><time dateTime={item.createdAt}>{displayDate(item.createdAt, locale)}</time>{item.actor?.fullName ? <><span aria-hidden>·</span><span>{item.actor.fullName}</span></> : null}{item.province?.name ? <><span aria-hidden>·</span><span>{item.province.name}</span></> : null}</p></button>
     <div className="flex shrink-0 items-start gap-1"><Button variant="ghost" size="icon-sm" onClick={() => onAction(item.isRead ? "unread" : "read")} disabled={loading} aria-label={item.isRead ? t("notifications.markUnread") : t("notifications.markRead")}>{item.isRead ? <Bell className="size-4" /> : <Check className="size-4" />}</Button><details className="relative"><summary className="grid size-8 cursor-pointer place-items-center rounded-md text-ink-secondary hover:bg-surface-3 hover:text-ink" aria-label={t("notifications.preferences")}><MoreHorizontal className="size-4" /></summary><div className="absolute right-0 z-20 mt-1 w-44 rounded-lg border border-border bg-surface-1 p-1 shadow-lg"><button type="button" onClick={() => onAction("archive")} className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-ink-secondary hover:bg-surface-2"><Archive className="size-3.5" />{t("notifications.archive")}</button><button type="button" onClick={() => onAction("delete")} className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-critical hover:bg-critical/10"><Trash2 className="size-3.5" />{t("notifications.delete")}</button></div></details>{item.actionUrl ? <ChevronRight className="mt-2 size-4 text-ink-muted" aria-hidden /> : null}</div>
   </article>;
 }
 
 function PreferencesDialog({ orgSlug, onClose }: { orgSlug: string; onClose: () => void }) {
-  const { locale, t } = useLanguage();
+  const { locale, setLocale, t } = useLanguage();
+  const queryClient = useQueryClient();
   const { refresh } = useNotificationCenter();
   const preferences = useQuery({ queryKey: ["notification-preferences", orgSlug], queryFn: () => notificationsApi.preferences(orgSlug) });
-  const save = useMutation({ mutationFn: (body: Parameters<typeof notificationsApi.updatePreferences>[1]) => notificationsApi.updatePreferences(orgSlug, body), onSuccess: async () => { await refresh(); onClose(); toast.success(t("notifications.updated")); } });
+  const save = useMutation({
+    mutationFn: (body: Parameters<typeof notificationsApi.updatePreferences>[1]) => notificationsApi.updatePreferences(orgSlug, body),
+    onSuccess: async (result) => {
+      queryClient.setQueryData(["notification-preferences", orgSlug], result);
+      setLocale(result.profile.preferredLanguage);
+      await refresh();
+      onClose();
+      toast.success(t("notifications.updated"));
+    },
+  });
   if (preferences.isLoading) return <DialogShell title={t("notifications.settingsTitle")} onClose={onClose}><SkeletonCard rows={6} /></DialogShell>;
   if (preferences.isError) return <DialogShell title={t("notifications.settingsTitle")} onClose={onClose}><ErrorState title={t("notifications.loadFailed")} onRetry={() => void preferences.refetch()} /></DialogShell>;
   const profile = preferences.data!.profile;

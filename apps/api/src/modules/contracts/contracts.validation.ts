@@ -72,6 +72,7 @@ export const contractQuery = z.object({
   status: z.enum(contractStatuses).optional(),
   contractType: z.enum(contractTypes).optional(),
   provinceId: id.optional(),
+  employeeId: id.optional(),
   expiringOnly: z.enum(["true", "false"]).transform((value) => value === "true").optional(),
 });
 export type CreateContractInput = z.infer<typeof createContractSchema>;

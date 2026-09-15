@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { authenticate } from "../../middleware/auth.middleware";
-import { requireOwner, requirePermission } from "../../middleware/permissions.middleware";
+import { requireActiveEmployeeProfile, requireOwner, requirePermission } from "../../middleware/permissions.middleware";
 import { requireOrganization } from "../../middleware/organization.middleware";
 import { validate } from "../../middleware/validation.middleware";
 import * as controller from "./performance.controller";
@@ -107,4 +107,15 @@ performanceRoutes.get(
   requirePermission("performance.read"),
   validate({ query: analyticsQuery }),
   controller.analytics,
+);
+/**
+ * Personal employee data. The API derives the employee record from the
+ * authenticated membership, never from a browser-supplied employee id.
+ */
+performanceRoutes.get(
+  "/organizations/:orgSlug/my-performance",
+  ...inside,
+  requireActiveEmployeeProfile,
+  validate({ query: analyticsQuery }),
+  controller.myPerformance,
 );

@@ -9,9 +9,13 @@ import { validate } from "../../middleware/validation.middleware";
 import * as controller from "./attendance.controller";
 import {
   assignEmployeeSchema,
+  assignmentParams,
+  changeAssignmentSchema,
   attendanceParams,
   clockSchema,
   correctAttendanceSchema,
+  exceptionParams,
+  scheduleExceptionSchema,
   createShiftSchema,
   listAttendanceQuery,
   organizationParams,
@@ -61,6 +65,16 @@ attendanceRoutes.delete(
   controller.deleteShift,
 );
 
+attendanceRoutes.post(
+  "/organizations/:orgSlug/shifts/:shiftId/assignments/:assignmentId/change",
+  authenticate,
+  validate({ params: assignmentParams }),
+  requireOrganization,
+  requirePermission("shifts.update"),
+  validate({ body: changeAssignmentSchema }),
+  controller.changeAssignment,
+);
+
 attendanceRoutes.get(
   "/organizations/:orgSlug/shifts/:shiftId/assignments",
   authenticate,
@@ -80,6 +94,33 @@ attendanceRoutes.post(
   controller.assignEmployee,
 );
 
+attendanceRoutes.get(
+  "/organizations/:orgSlug/shifts/:shiftId/assignments/:assignmentId/exceptions",
+  authenticate,
+  validate({ params: assignmentParams }),
+  requireOrganization,
+  requirePermission("shifts.read"),
+  controller.listAssignmentExceptions,
+);
+
+attendanceRoutes.post(
+  "/organizations/:orgSlug/shifts/:shiftId/assignments/:assignmentId/exceptions",
+  authenticate,
+  validate({ params: assignmentParams }),
+  requireOrganization,
+  requirePermission("shifts.update"),
+  validate({ body: scheduleExceptionSchema }),
+  controller.saveAssignmentException,
+);
+
+attendanceRoutes.delete(
+  "/organizations/:orgSlug/shifts/:shiftId/assignments/:assignmentId/exceptions/:exceptionId",
+  authenticate,
+  validate({ params: exceptionParams }),
+  requireOrganization,
+  requirePermission("shifts.update"),
+  controller.deleteAssignmentException,
+);
 attendanceRoutes.get(
   "/organizations/:orgSlug/attendance",
   ...inOrganization,

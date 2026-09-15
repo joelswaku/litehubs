@@ -144,6 +144,9 @@ export function useOptionalNotificationCenter() {
 }
 
 export function notificationActionPath(orgSlug: string, item: NotificationItem): string | null {
+  // Employment notices always lead an employee to their private contract area.
+  // This also corrects older notifications that were stored with /my-account.
+  if (item.category === "contract") return `/${orgSlug}/my-contracts`;
   return workspaceActionPath(orgSlug, item.actionUrl);
 }
 

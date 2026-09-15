@@ -30,12 +30,21 @@ function queryString(query?: AttendanceQuery): string {
   return serialized ? `?${serialized}` : "";
 }
 
+export interface WeeklyScheduleDay {
+  /** ISO weekday: 1 Monday through 7 Sunday. */
+  day: number;
+  enabled: boolean;
+  startsAt?: string;
+  endsAt?: string;
+  breakMinutes: number;
+}
 export interface Shift {
   id: string;
   code: string;
   name: string;
   startsAt: string;
   endsAt: string;
+  weeklySchedule?: WeeklyScheduleDay[];
   isActive: boolean;
   provinceId?: string | null;
   provinceName?: string | null;
@@ -67,6 +76,18 @@ export interface ShiftAssignment {
   effectiveTo?: string | null;
 }
 
+export interface ScheduleException {
+  id: string;
+  assignmentId: string;
+  workDate: string;
+  isWorking: boolean;
+  startsAt?: string | null;
+  endsAt?: string | null;
+  breakMinutes: number;
+  note?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
 export interface AttendanceRecord {
   id: string;
   employee?: AttendanceEmployee | null;
@@ -78,6 +99,7 @@ export interface AttendanceRecord {
   clockInAt?: string | null;
   clockOutAt?: string | null;
   workedHours?: number | string | null;
+  expectedHours?: number | string | null;
   overtimeHours?: number | string | null;
   approvedAt?: string | null;
   approvedBy?: string | null;
@@ -124,6 +146,36 @@ export const attendanceApi = {
     body: { employeeId: string; effectiveFrom: string; effectiveTo?: string },
   ) {
     return post<T>(base(orgSlug, `shifts/${shiftId}/assignments`), body);
+  },
+  listAssignmentExceptions<T>(orgSlug: string, shiftId: string, assignmentId: string) {
+    return get<T>(base(orgSlug, `shifts/${shiftId}/assignments/${assignmentId}/exceptions`));
+  },
+  saveAssignmentException<T>(
+    orgSlug: string,
+    shiftId: string,
+    assignmentId: string,
+    body: { workDate: string; isWorking: boolean; startsAt?: string; endsAt?: string; breakMinutes?: number; note?: string | null },
+  ) {
+    return post<T>(base(orgSlug, `shifts/${shiftId}/assignments/${assignmentId}/exceptions`), body);
+  },
+  removeAssignmentException<T>(orgSlug: string, shiftId: string, assignmentId: string, exceptionId: string) {
+    return del<T>(base(orgSlug, `shifts/${shiftId}/assignments/${assignmentId}/exceptions/${exceptionId}`));
+  },
+  /**
+   * Moves one employee to another existing shift from a future work date.
+   * The previous assignment is end-dated in the same server transaction, so
+   * historical attendance remains attached to the original shift.
+   */
+  changeAssignment<T>(
+    orgSlug: string,
+    shiftId: string,
+    assignmentId: string,
+    body: { targetShiftId: string; effectiveFrom: string },
+  ) {
+    return post<T>(
+      base(orgSlug, `shifts/${shiftId}/assignments/${assignmentId}/change`),
+      body,
+    );
   },
 
   /* ---------------------------------------------------------- attendance -- */

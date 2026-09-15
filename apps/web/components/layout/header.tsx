@@ -72,7 +72,7 @@ export function Header({
         </button>
         <LanguageSwitcher className="mr-1" />
         {notificationHref ? (
-          <Link href={notificationHref} className="relative grid size-9 place-items-center rounded-md text-ink-secondary hover:bg-surface-2 hover:text-ink" aria-label={t("header.unread", { count: notificationCenter?.unreadCount ?? 0 })}>
+          <Link href={`${notificationHref}${notificationHref.includes("?") ? "&" : "?"}markRead=1`} className="relative grid size-9 place-items-center rounded-md text-ink-secondary hover:bg-surface-2 hover:text-ink" aria-label={t("header.unread", { count: notificationCenter?.unreadCount ?? 0 })}>
             <Bell className="size-4" aria-hidden />
             {notificationCenter && notificationCenter.unreadCount > 0 ? <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-critical px-1 text-center text-[10px] font-semibold leading-4 text-white">{notificationCenter.formattedUnreadCount}</span> : null}
           </Link>

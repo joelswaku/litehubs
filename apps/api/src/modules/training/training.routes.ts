@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { authenticate } from "../../middleware/auth.middleware";
-import { requirePermission } from "../../middleware/permissions.middleware";
+import { requireActiveEmployeeProfile, requirePermission } from "../../middleware/permissions.middleware";
 import { requireOrganization } from "../../middleware/organization.middleware";
 import { validate } from "../../middleware/validation.middleware";
 import * as controller from "./training.controller";
@@ -70,11 +70,11 @@ const inside = [
   requireOrganization,
 ] as const;
 
-// Employee portal: the service derives the employee from the authenticated membership.
+// Learner portal: the guard requires a linked active employee; services derive it again and scope every assignment to that employee.
 trainingRoutes.get(
   "/organizations/:orgSlug/my-trainings",
   ...inside,
-  requirePermission("training.read"),
+  requireActiveEmployeeProfile,
   controller.listMyTrainings,
 );
 trainingRoutes.get(
@@ -82,7 +82,7 @@ trainingRoutes.get(
   authenticate,
   validate({ params: assignmentParams }),
   requireOrganization,
-  requirePermission("training.read"),
+  requireActiveEmployeeProfile,
   controller.myTrainingDetail,
 );
 trainingRoutes.post(
@@ -90,7 +90,7 @@ trainingRoutes.post(
   authenticate,
   validate({ params: assignmentParams }),
   requireOrganization,
-  requirePermission("training.update"),
+  requireActiveEmployeeProfile,
   controller.startMyTraining,
 );
 trainingRoutes.patch(
@@ -98,7 +98,7 @@ trainingRoutes.patch(
   authenticate,
   validate({ params: myTrainingMaterialParams }),
   requireOrganization,
-  requirePermission("training.update"),
+  requireActiveEmployeeProfile,
   validate({ body: learnerLessonProgressSchema }),
   controller.updateMyTrainingMaterial,
 );
@@ -107,7 +107,7 @@ trainingRoutes.post(
   authenticate,
   validate({ params: assignmentParams }),
   requireOrganization,
-  requirePermission("training.update"),
+  requireActiveEmployeeProfile,
   controller.submitMyTraining,
 );
 trainingRoutes.get(
@@ -115,7 +115,7 @@ trainingRoutes.get(
   authenticate,
   validate({ params: assignmentParams }),
   requireOrganization,
-  requirePermission("training.read"),
+  requireActiveEmployeeProfile,
   controller.myTrainingCertificate,
 );
 trainingRoutes.get(
@@ -123,7 +123,7 @@ trainingRoutes.get(
   authenticate,
   validate({ params: myTrainingMaterialParams }),
   requireOrganization,
-  requirePermission("training.read"),
+  requireActiveEmployeeProfile,
   controller.myTrainingMaterialContent,
 );
 trainingRoutes.get(
@@ -220,7 +220,6 @@ trainingRoutes.get(
 trainingRoutes.get(
   "/organizations/:orgSlug/training-me",
   ...inside,
-  requirePermission("training.read"),
   controller.currentEmployee,
 );
 
@@ -400,7 +399,7 @@ trainingRoutes.get(
   authenticate,
   validate({ params: lmsAssignmentParams }),
   requireOrganization,
-  requirePermission("training.read"),
+  requireActiveEmployeeProfile,
   lmsController.learnerCourse,
 );
 trainingRoutes.patch(
@@ -408,7 +407,7 @@ trainingRoutes.patch(
   authenticate,
   validate({ params: learnerBlockParams, body: learnerBlockProgressSchema }),
   requireOrganization,
-  requirePermission("training.update"),
+  requireActiveEmployeeProfile,
   lmsController.learnerBlockProgress,
 );
 trainingRoutes.post(
@@ -416,7 +415,7 @@ trainingRoutes.post(
   authenticate,
   validate({ params: learnerBlockParams, body: quizSubmissionSchema }),
   requireOrganization,
-  requirePermission("training.update"),
+  requireActiveEmployeeProfile,
   lmsController.submitQuiz,
 );
 trainingRoutes.get(
@@ -424,7 +423,7 @@ trainingRoutes.get(
   authenticate,
   validate({ params: learnerBlockParams }),
   requireOrganization,
-  requirePermission("training.read"),
+  requireActiveEmployeeProfile,
   lmsController.learnerBlockFile,
 );
 trainingRoutes.patch(
@@ -449,6 +448,6 @@ trainingRoutes.get(
   authenticate,
   validate({ params: lmsAssignmentParams }),
   requireOrganization,
-  requirePermission("training.read"),
+  requireActiveEmployeeProfile,
   lmsController.learnerCertificatePdf,
 );

@@ -604,3 +604,34 @@ export async function analytics(context: PerformanceContext, query: AnalyticsQue
     return { policy, period: { from, to }, employees: scores, generatedAt: new Date().toISOString() };
   });
 }
+/**
+ * Personal employee data. The employee id is looked up from the authenticated
+ * membership, so ownership does not depend on any identifier from the browser.
+ */
+export async function myPerformance(
+  context: PerformanceContext,
+  query: AnalyticsQuery,
+) {
+  const employeeId = await withTenantContext(context, async (client) => {
+    const result = await client.query<{ id: string }>(
+      `SELECT id
+         FROM employees
+        WHERE organization_id=$1
+          AND member_id=$2
+          AND employment_status IN ('active','probation','on_leave')
+        LIMIT 1`,
+      [context.organizationId, context.memberId],
+    );
+    const employee = result.rows[0];
+    if (!employee)
+      throw new NotFoundError("Active employee profile not found");
+    return employee.id;
+  });
+
+  const [performance, reviews] = await Promise.all([
+    analytics(context, { ...query, employeeId }),
+    listReviews(context, { employeeId }),
+  ]);
+
+  return { ...performance, reviews };
+}

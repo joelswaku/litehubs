@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { PDFDocument, StandardFonts, rgb, type PDFImage, type PDFPage, type PDFFont } from "pdf-lib";
+import { PDFDocument, StandardFonts, degrees, rgb, type PDFImage, type PDFPage, type PDFFont } from "pdf-lib";
 import type { PoolClient } from "pg";
 import { readPrivateDocument, storePrivateDocument } from "../../services/file-storage.service";
 import {
@@ -406,6 +406,17 @@ export async function listContracts(
       await assertProvince(client, context, query.provinceId);
       params.push(query.provinceId);
       where.push(`c.province_id=$${params.length}`);
+    }
+    if (query.employeeId) {
+      await assertScopedId(
+        client,
+        context.organizationId,
+        "employees",
+        query.employeeId,
+        "employeeId",
+      );
+      params.push(query.employeeId);
+      where.push(`c.employee_id=${params.length}`);
     }
     if (query.expiringOnly)
       where.push(
@@ -1001,6 +1012,9 @@ function companyInitials(companyName: string) {
 type SignatureRole = "employee" | "employer";
 type SignatureSlot = { pageNumber: number; x: number; y: number; width: number; height: number };
 type ContractPdfBranding = { companyName: string; reference: string; logoUrl?: string | null };
+/** Document-bound values woven into the security watermark. Both optional: a
+ * draft has no frozen hash yet, and the mark still has to render without one. */
+type ContractSecurityMark = { versionLabel?: string | null; documentHash?: string | null };
 type SignatureRequirements = Record<SignatureRole, number>;
 
 /** A signature never belongs on a flowing text page. These coordinates point to
@@ -1041,11 +1055,24 @@ function storedSignatureSlots(fields: WorkspaceFieldRow[], pageNumber: number) {
   return positions;
 }
 
-async function contractPdf(blocks: WorkspaceBlock[], title: string, referenceText: string, companyName: string, logoUrl?: string | null, signaturePlan: SignatureRequirements = { employee: 1, employer: 1 }): Promise<Buffer> {
+async function contractPdf(blocks: WorkspaceBlock[], title: string, referenceText: string, companyName: string, logoUrl?: string | null, signaturePlan: SignatureRequirements = { employee: 1, employer: 1 }, security: ContractSecurityMark = {}): Promise<Buffer> {
   const pdf = await PDFDocument.create();
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
   const fetchedLogo = await companyLogo(logoUrl);
+  // A second embed of the same bytes, because the watermark is drawn into this
+  // document while the header is stamped into the reloaded one further down.
+  // An image object cannot cross between two PDFDocument instances.
+  let watermarkLogo: PDFImage | null = null;
+  if (fetchedLogo) {
+    try {
+      watermarkLogo = fetchedLogo.kind === "png"
+        ? await pdf.embedPng(fetchedLogo.bytes)
+        : await pdf.embedJpg(fetchedLogo.bytes);
+    } catch {
+      watermarkLogo = null;
+    }
+  }
   const pageWidth = 595.28;
   const pageHeight = 841.89;
   const margin = 54;
@@ -1100,7 +1127,110 @@ async function contractPdf(blocks: WorkspaceBlock[], title: string, referenceTex
     }
   };
 
+  /**
+   * Security watermark, drawn per page *before* any clause text.
+   *
+   * In PDF, later operators paint over earlier ones, so the contract body lands
+   * on top of this at full opacity and stays completely crisp. That ordering is
+   * the whole trick: a watermark stamped afterwards, as an overlay, has to drop
+   * to an opacity so low it deters nobody, precisely because it is sitting on
+   * the words. Underneath, it can be plainly visible and still cost nothing in
+   * legibility.
+   *
+   * Three features, each aimed at a different way of faking a contract:
+   *
+   * - **A guilloche rosette** of 52 overlapping hairlines at 0.3pt. Tedious to
+   *   redraw by hand, and a photocopier or phone camera renders the interference
+   *   pattern as moire rather than clean curves.
+   * - **Microtext** at 4.6pt, repeating the company, reference, version and
+   *   hash. Sharp when zoomed, mush once rescanned — the classic tell.
+   * - **Document-bound identifiers.** The reference, version and SHA-256 prefix
+   *   are inside the mark, so lifting a page into a different contract carries
+   *   the original's identity along and contradicts the document it is
+   *   pretending to belong to.
+   *
+   * None of this is a cryptographic guarantee — `document_hash_sha256` is what
+   * actually proves a file unaltered, and the footer prints it so a recipient
+   * can check. This raises the cost of a casual forgery and makes tampering
+   * visible to someone holding only the paper.
+   */
+  const securityCaption = [security.versionLabel, security.documentHash ? `SHA ${security.documentHash.slice(0, 10).toUpperCase()}` : null]
+    .filter(Boolean)
+    .join(" · ") || "EXEMPLAIRE CONTROLE";
+
+  const drawSecurityWatermark = (target: PDFPage) => {
+    const centreX = pageWidth / 2;
+    const centreY = pageHeight / 2;
+    const guilloche = rgb(.04, .43, .35);
+
+    // `size` is the radius, and the envelope of circles offset from a common
+    // centre leaves a hole of (radius - offset). Keeping the offset close to
+    // the radius shrinks that hole to almost nothing, which matters because an
+    // unfilled hole reads as a layout accident rather than a seal — very
+    // visibly so on a sparse page like the signature sheet.
+    const petals = 60;
+    const petalRadius = 72;
+    const petalOffset = 56;
+    for (let index = 0; index < petals; index += 1) {
+      const angle = (index / petals) * Math.PI * 2;
+      target.drawCircle({
+        x: centreX + Math.cos(angle) * petalOffset,
+        y: centreY + Math.sin(angle) * petalOffset,
+        size: petalRadius,
+        borderWidth: .3,
+        borderColor: guilloche,
+        borderOpacity: .07,
+      });
+    }
+
+    // The mark sits in the eye of the rosette so the two read as one seal
+    // rather than a stamp dropped onto a pattern. Initials stand in when the
+    // company has no logo: the centre must never be left empty.
+    if (watermarkLogo) {
+      const scale = Math.min(104 / watermarkLogo.width, 104 / watermarkLogo.height);
+      const width = watermarkLogo.width * scale;
+      const height = watermarkLogo.height * scale;
+      target.drawImage(watermarkLogo, { x: centreX - width / 2, y: centreY - height / 2, width, height, opacity: .11 });
+    } else {
+      const initials = companyInitials(companyName);
+      const initialsSize = 54;
+      const initialsWidth = bold.widthOfTextAtSize(initials, initialsSize);
+      target.drawText(initials, {
+        x: centreX - initialsWidth / 2,
+        // Optical centring, not geometric: drawText places the baseline, so
+        // subtracting a third of the cap height puts the glyphs on the middle
+        // of the rosette rather than sitting above it.
+        y: centreY - initialsSize * .34,
+        size: initialsSize,
+        font: bold,
+        color: guilloche,
+        opacity: .13,
+      });
+    }
+
+    const unit = `${companyName.toLocaleUpperCase("fr-FR").slice(0, 48)} · ${referenceText.slice(0, 48)} · ${securityCaption} · DOCUMENT ORIGINAL · `;
+    const microSize = 4.6;
+    const unitWidth = Math.max(font.widthOfTextAtSize(unit, microSize), 1);
+    // The line has to span the page diagonally after a 24-degree rotation, not
+    // just its width, or the right edge of every row is left bare.
+    const line = unit.repeat(Math.ceil(980 / unitWidth) + 1);
+    for (let row = -3; row <= 19; row += 1) {
+      target.drawText(line, {
+        x: -150,
+        y: row * 46,
+        size: microSize,
+        font,
+        color: guilloche,
+        opacity: .11,
+        rotate: degrees(24),
+      });
+    }
+  };
+
   const drawPageFrame = (firstPage: boolean) => {
+    // Watermark first: the header band below has to cover it, and the clause
+    // text drawn later has to sit on top of it.
+    drawSecurityWatermark(page);
     page.drawRectangle({ x: 0, y: pageHeight - 82, width: pageWidth, height: 82, color: rgb(.965, .98, .975) });
     page.drawRectangle({ x: 0, y: pageHeight - 5, width: pageWidth, height: 5, color: accent });
     y = pageHeight - 106;    if (firstPage && !hasDocumentHeading) {
@@ -1191,7 +1321,9 @@ async function contractPdf(blocks: WorkspaceBlock[], title: string, referenceTex
   }
 
   // Stamp the header after the complete document has been laid out so every
-  // content and signature page receives the same header with no watermark.
+  // content and signature page receives the same header. The watermark is not
+  // applied here on purpose: it goes down per page during layout, underneath
+  // the clause text, which is what keeps the text perfectly legible.
   const finalized = await PDFDocument.load(await pdf.save());
   const headerFont = await finalized.embedFont(StandardFonts.Helvetica);
   const headerBold = await finalized.embedFont(StandardFonts.HelveticaBold);
@@ -1211,6 +1343,13 @@ async function contractPdf(blocks: WorkspaceBlock[], title: string, referenceTex
     current.drawLine({ start: { x: margin, y: 40 }, end: { x: pageWidth - margin, y: 40 }, thickness: .5, color: rgb(.82, .86, .87) });
     const pageNumber = `${index + 1} / ${pages.length}`;
     current.drawText(pageNumber, { x: pageWidth - margin - headerFont.widthOfTextAtSize(pageNumber, 7), y: 27, size: 7, font: headerFont, color: muted });
+    // The hash in plain text, so a recipient holding only this file can verify
+    // it against the record instead of trusting the watermark's appearance.
+    // The watermark deters; this is what actually proves the document.
+    if (security.documentHash) {
+      const seal = `SHA-256 ${security.documentHash.slice(0, 32)}…`;
+      current.drawText(seal, { x: margin, y: 27, size: 6, font: headerFont, color: muted });
+    }
   }
   return Buffer.from(await finalized.save());
 }async function employeeDetails(client: PoolClient, organizationId: string, employeeId: string | null) {
@@ -1258,7 +1397,10 @@ async function renderWorkspacePdf(
     reference,
     logoUrl: organization.rows[0]?.logo_url ?? null,
   };
-  const layout = await contractPdf(blocks, title, reference, branding.companyName, branding.logoUrl, signatureRequirements(fields));
+  const layout = await contractPdf(blocks, title, reference, branding.companyName, branding.logoUrl, signatureRequirements(fields), {
+    versionLabel: `V${version.version_number}`,
+    documentHash: version.document_hash_sha256,
+  });
   const hasCompletedSignature = fields.some((field) => field.status === "signed");
   return {
     hasCompletedSignature,
@@ -1330,7 +1472,10 @@ export async function generateContractDocumentVersion(context: ContractsContext,
     } else {
       if (!body?.blocks?.length) throw new BadRequestError("Add contract content before generating a document",{field:"body"});
       rendered={blocks:renderBlocks(body.blocks,contractMergeValues(contract,employee,{name:companyName,address:companyAddress}))};
-      const pdf=await contractPdf(rendered.blocks,contract.title,contract.reference,companyName,organizationRow?.logo_url ?? null,signatureRequirements(input.signatureFields));
+      // Labelled BROUILLON rather than left to the neutral default: this copy
+      // is generated before the version is frozen and has no hash, so it must
+      // not present itself as a controlled original.
+      const pdf=await contractPdf(rendered.blocks,contract.title,contract.reference,companyName,organizationRow?.logo_url ?? null,signatureRequirements(input.signatureFields),{versionLabel:"BROUILLON"});
       const stored=await storePrivateDocument({organizationId:context.organizationId,originalName:`${contract.reference}-v${Date.now()}.pdf`,mimeType:"application/pdf",buffer:pdf});
       const doc=await client.query<{id:string}>(`INSERT INTO documents (organization_id,title,description,category,storage_path,file_name,mime_type,size_bytes,checksum_sha256,subject_table,subject_id,province_id,is_confidential,uploaded_by) VALUES ($1,$2,$3,'contract',$4,$5,'application/pdf',$6,$7,'contracts',$8,$9,true,$10) RETURNING id`,[context.organizationId,`${contract.title} · brouillon`,"Version générée depuis le modèle de la société",stored.storagePath,`${contract.reference}-draft.pdf`,stored.bytes,stored.checksumSha256,contractId,contract.province_id,context.userId]);
       documentId=doc.rows[0]!.id;
@@ -1485,7 +1630,13 @@ async function rebuildSignedContract(client: PoolClient, context: ContractsConte
   // older pending contract benefit from the current safe layout and company
   // branding without changing a completed/signed version.
   const sourceBytes = version.rendered_content?.blocks?.length
-    ? await contractPdf(version.rendered_content.blocks, contract.title, contract.reference, branding.companyName, branding.logoUrl, signatureRequirements(fields))
+    ? await contractPdf(version.rendered_content.blocks, contract.title, contract.reference, branding.companyName, branding.logoUrl, signatureRequirements(fields), {
+        versionLabel: `V${version.version_number}`,
+        // Null on the first render of a signed copy: the hash is computed from
+        // these very bytes and written back afterwards, so it cannot be inside
+        // them. The watermark falls back to the version label alone.
+        documentHash: version.document_hash_sha256,
+      })
     : await readPrivateDocument(source.rows[0].storage_path);
   const bytes = await renderPdfWithSignedFields(sourceBytes, fields, {
     branding,

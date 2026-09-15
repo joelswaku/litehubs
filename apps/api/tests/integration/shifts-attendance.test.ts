@@ -209,6 +209,13 @@ describe("Shifts and attendance", () => {
         }),
     );
     expect(kinshasaShift.status).toBe(201);
+    expect(kinshasaShift.body.shift.weeklySchedule).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ day: 1, enabled: true, startsAt: "06:00", endsAt: "14:00" }),
+        expect.objectContaining({ day: 6, enabled: false }),
+        expect.objectContaining({ day: 7, enabled: false }),
+      ]),
+    );
 
     const assignedKinshasa = await authorized(
       request(app)
@@ -253,7 +260,7 @@ describe("Shifts and attendance", () => {
       .send({
         employeeNumber: "10001",
         workDate: "2026-08-24",
-        occurredAt: "2026-08-24T06:05:00Z",
+        occurredAt: "2026-08-24T06:00:00Z",
       });
     expect(clockedIn.status).toBe(201);
     expect(clockedIn.body.attendance).toEqual(
@@ -270,7 +277,7 @@ describe("Shifts and attendance", () => {
       .send({
         employeeNumber: "10002",
         workDate: "2026-08-24",
-        occurredAt: "2026-08-24T06:05:00Z",
+        occurredAt: "2026-08-24T06:00:00Z",
       });
     expect(blockedOutsideClock.status).toBe(404);
 
@@ -280,12 +287,55 @@ describe("Shifts and attendance", () => {
       .send({
         employeeNumber: "10001",
         workDate: "2026-08-24",
-        occurredAt: "2026-08-24T14:00:00Z",
+        occurredAt: "2026-08-24T15:00:00Z",
       });
     expect(clockedOut.status).toBe(200);
     expect(clockedOut.body.attendance.clockOutAt).toBe(
-      "2026-08-24T14:00:00.000Z",
+      "2026-08-24T15:00:00.000Z",
     );
+    expect(clockedOut.body.attendance.expectedHours).toBe(8);
+    expect(clockedOut.body.attendance.workedHours).toBe(9);
+    expect(clockedOut.body.attendance.overtimeHours).toBe(1);
+
+    const blockedRestDay = await request(app)
+      .post(`/api/v1/organizations/${organizationSlug}/attendance/clock-in`)
+      .set("Authorization", `Bearer ${supervisorToken}`)
+      .send({
+        employeeNumber: "10001",
+        workDate: "2026-08-30",
+        occurredAt: "2026-08-30T06:00:00Z",
+      });
+    expect(blockedRestDay.status).toBe(400);
+
+    const sundayException = await authorized(
+      request(app)
+        .post(
+          `/api/v1/organizations/${organizationSlug}/shifts/${kinshasaShift.body.shift.id}/assignments/${assignedKinshasa.body.assignment.id}/exceptions`,
+        )
+        .send({
+          workDate: "2026-08-30",
+          isWorking: true,
+          startsAt: "06:00",
+          endsAt: "14:00",
+          breakMinutes: 0,
+          note: "One-off Sunday livestock check.",
+        }),
+    );
+    expect(sundayException.status).toBe(201);
+    expect(sundayException.body.exception).toEqual(
+      expect.objectContaining({ workDate: "2026-08-30", isWorking: true }),
+    );
+
+    const clockedInOnException = await request(app)
+      .post(`/api/v1/organizations/${organizationSlug}/attendance/clock-in`)
+      .set("Authorization", `Bearer ${supervisorToken}`)
+      .send({
+        employeeNumber: "10001",
+        workDate: "2026-08-30",
+        occurredAt: "2026-08-30T06:00:00Z",
+      });
+    expect(clockedInOnException.status).toBe(201);
+    expect(clockedInOnException.body.attendance.expectedHours).toBe(8);
 
     const supervisorAttendance = await request(app)
       .get(
@@ -315,5 +365,108 @@ describe("Shifts and attendance", () => {
     );
     expect(approved.status).toBe(200);
     expect(approved.body.attendance.approval.approvedAt).toBeTruthy();
+
+    const compensation = await authorized(
+      request(app)
+        .post(`/api/v1/organizations/${organizationSlug}/employee-compensation`)
+        .send({
+          employeeId: kinshasaWorker.body.employee.id,
+          effectiveFrom: "2026-08-01",
+          currency: "CDF",
+          basicSalary: 520,
+          payFrequency: "monthly",
+          contractHoursPerWeek: 40,
+          overtimeMultiplier: 1.5,
+          paymentMethod: "cash",
+        }),
+    );
+    expect(compensation.status).toBe(201);
+
+    const transportComponent = await authorized(
+      request(app)
+        .post(`/api/v1/organizations/${organizationSlug}/payroll-components`)
+        .send({
+          code: "transport_allowance",
+          name: "Transport allowance",
+          componentType: "earning",
+          calculation: "fixed",
+          defaultAmount: 150,
+          isTaxable: true,
+          affectsGross: true,
+        }),
+    );
+    expect(transportComponent.status).toBe(201);
+
+    const employeeComponent = await authorized(
+      request(app)
+        .post(`/api/v1/organizations/${organizationSlug}/employee-payroll-components`)
+        .send({
+          employeeId: kinshasaWorker.body.employee.id,
+          componentId: transportComponent.body.component.id,
+          amount: null,
+          percentage: null,
+          effectiveFrom: "2026-08-01",
+          effectiveTo: null,
+          // Simulates an old client that submitted zero for an omitted
+          // recovery value. An earning must never be capped by that value.
+          totalToRecover: 0,
+          recoveredToDate: 0,
+          isActive: true,
+          notes: null,
+        }),
+    );
+    expect(employeeComponent.status).toBe(201);
+    expect(employeeComponent.body.assignment.component.name).toBe(
+      "Transport allowance",
+    );
+
+
+    const payrollRun = await authorized(
+      request(app)
+        .post(`/api/v1/organizations/${organizationSlug}/payroll-runs`)
+        .send({
+          reference: "AUG-2026-OVERTIME",
+          periodStart: "2026-08-01",
+          periodEnd: "2026-08-31",
+          payDate: "2026-08-31",
+          currency: "CDF",
+        }),
+    );
+    expect(payrollRun.status).toBe(201);
+
+    const calculatedRun = await authorized(
+      request(app).post(
+        `/api/v1/organizations/${organizationSlug}/payroll-runs/${payrollRun.body.payrollRun.id}/calculate`,
+      ),
+    );
+    expect(calculatedRun.status).toBe(200);
+    const payrollSlips = await authorized(
+      request(app).get(
+        `/api/v1/organizations/${organizationSlug}/payroll-runs/${payrollRun.body.payrollRun.id}/payslips`,
+      ),
+    );
+    expect(payrollSlips.status).toBe(200);
+    expect(payrollSlips.body.payslips).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          overtimeHours: 1,
+          grossPay: 674.5,
+          lines: expect.arrayContaining([
+            expect.objectContaining({ code: "verified_overtime", amount: 4.5 }),
+            expect.objectContaining({ code: "transport_allowance", amount: 150 }),
+          ]),
+        }),
+      ]),
+    );
+
+    const updatedEmployeeComponent = await authorized(
+      request(app)
+        .patch(
+          `/api/v1/organizations/${organizationSlug}/employee-payroll-components/${employeeComponent.body.assignment.id}`,
+        )
+        .send({ amount: 175 }),
+    );
+    expect(updatedEmployeeComponent.status).toBe(200);
+    expect(updatedEmployeeComponent.body.assignment.amount).toBe(175);
   });
 });

@@ -143,7 +143,7 @@ export const reviewBody = z.object({
 export const handoverBody = z.object({
   workDate: date.optional(),
   provinceId: id.nullable().optional(),
-  siteId: id,
+  siteId: id.optional(),
   outgoingShiftId: id.nullable().optional(),
   incomingShiftId: id.nullable().optional(),
   outgoingEmployeeId: id.nullable().optional(),

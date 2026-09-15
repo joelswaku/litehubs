@@ -1,18 +1,27 @@
 "use client";
 
-import { useMemo, useState, type FormEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BadgeDollarSign,
   Banknote,
   Calculator,
   CheckCircle2,
+  ChevronLeft,
   ChevronRight,
   ClipboardList,
+  Download,
   FileText,
   Landmark,
   Plus,
   ReceiptText,
+  Search,
   Settings2,
   UserRound,
   UsersRound,
@@ -28,10 +37,11 @@ import {
   NoAccessState,
   SkeletonCard,
 } from "@/components/ui/states";
-import { ApiError, get, orgUrl, post } from "@/lib/api";
+import { ApiError, del, get, orgApiUrl, orgUrl, patch, post } from "@/lib/api";
 import { can } from "@/lib/permissions";
 import { useLanguage } from "@/providers/language-provider";
 import { useSessionUser } from "@/stores/session-store";
+import { PayslipStatement } from "@/components/payroll/payslip-statement";
 
 type Employee = {
   id: string;
@@ -63,6 +73,7 @@ type Compensation = {
   basicSalary: number;
   payFrequency: string;
   contractHoursPerWeek?: number | null;
+  overtimeMultiplier?: number | null;
   paymentMethod: string;
   bankName?: string | null;
   bankAccount?: string | null;
@@ -102,8 +113,15 @@ type PayrollRun = {
   approvedAt?: string | null;
   paidAt?: string | null;
 };
+type RunExclusion = {
+  id: string;
+  employee: Employee;
+  reason?: string | null;
+  createdAt?: string;
+};
 type Payslip = {
   id: string;
+  reference: string;
   employee: Employee;
   currency: string;
   basicSalary: number;
@@ -165,6 +183,9 @@ const statusVariant = (
         : status === "cancelled"
           ? "serious"
           : "outline";
+const isIncomeTaxLine = (line: { code: string; type: string }) =>
+  line.type === "deduction" &&
+  /(income_?tax|taxe?|imp[ôo]t|withholding)/i.test(line.code);
 const today = () => new Date().toISOString().slice(0, 10);
 
 export function PayrollArea({ orgSlug }: { orgSlug: string }) {
@@ -182,10 +203,35 @@ export function PayrollArea({ orgSlug }: { orgSlug: string }) {
     "runs" | "payslips" | "compensation" | "components"
   >("runs");
   const [selectedRun, setSelectedRun] = useState<PayrollRun | null>(null);
+  const [editingRun, setEditingRun] = useState<PayrollRun | null>(null);
   const [dialog, setDialog] = useState<
-    "run" | "component" | "compensation" | "assignment" | null
+    | "run"
+    | "edit-run"
+    | "component"
+    | "compensation"
+    | "assignment"
+    | "end-assignment"
+    | null
   >(null);
   const [filter, setFilter] = useState("all");
+  const [editingCompensation, setEditingCompensation] =
+    useState<Compensation | null>(null);
+  const [editingComponent, setEditingComponent] = useState<Component | null>(
+    null,
+  );
+  const [componentPreset, setComponentPreset] = useState<"tax" | null>(null);
+  const [editingAssignment, setEditingAssignment] = useState<Assignment | null>(
+    null,
+  );
+  const [endingAssignment, setEndingAssignment] = useState<Assignment | null>(
+    null,
+  );
+  const [assignmentEmployeeId, setAssignmentEmployeeId] = useState<
+    string | null
+  >(null);
+  const [compensationEmployeeId, setCompensationEmployeeId] = useState<
+    string | null
+  >(null);
   const runs = useQuery({
     queryKey: ["payroll-runs", orgSlug],
     queryFn: () =>
@@ -199,6 +245,19 @@ export function PayrollArea({ orgSlug }: { orgSlug: string }) {
       get<{ summary: Summary }>(orgUrl(orgSlug, "payroll-summary")),
     enabled: canRead,
     select: (data) => data.summary,
+  });
+  const organization = useQuery({
+    queryKey: ["payroll-organization-profile", orgSlug],
+    queryFn: () =>
+      get<{
+        organization: {
+          displayName?: string | null;
+          legalName?: string | null;
+          logoUrl?: string | null;
+        };
+      }>(orgUrl(orgSlug, "")),
+    enabled: canRead,
+    select: (data) => data.organization,
   });
   const components = useQuery({
     queryKey: ["payroll-components", orgSlug],
@@ -225,6 +284,17 @@ export function PayrollArea({ orgSlug }: { orgSlug: string }) {
     enabled: canRead,
     select: (data) => data.assignments,
   });
+  useEffect(() => {
+    const available = runs.data ?? [];
+    if (!available.length) return;
+    const defaultRun =
+      available.find((run) => run.status !== "cancelled") ?? available[0]!;
+    setSelectedRun((current) =>
+      current && available.some((run) => run.id === current.id)
+        ? current
+        : defaultRun,
+    );
+  }, [runs.data]);
   const employees = useQuery({
     queryKey: ["payroll-employees", orgSlug],
     queryFn: () => get<{ employees: Employee[] }>(orgUrl(orgSlug, "employees")),
@@ -240,11 +310,23 @@ export function PayrollArea({ orgSlug }: { orgSlug: string }) {
     enabled: canRead && Boolean(selectedRun),
     select: (data) => data.payslips,
   });
+  const exclusions = useQuery({
+    queryKey: ["payroll-run-exclusions", orgSlug, selectedRun?.id],
+    queryFn: () =>
+      get<{ exclusions: RunExclusion[] }>(
+        orgUrl(orgSlug, `payroll-runs/${selectedRun!.id}/exclusions`),
+      ),
+    enabled: canRead && Boolean(selectedRun),
+    select: (data) => data.exclusions,
+  });
   const refresh = () => {
     void client.invalidateQueries({ queryKey: ["payroll-runs", orgSlug] });
     void client.invalidateQueries({ queryKey: ["payroll-summary", orgSlug] });
     void client.invalidateQueries({
       queryKey: ["payroll-payslips", orgSlug, selectedRun?.id],
+    });
+    void client.invalidateQueries({
+      queryKey: ["payroll-run-exclusions", orgSlug, selectedRun?.id],
     });
   };
   const calculate = useMutation({
@@ -256,6 +338,41 @@ export function PayrollArea({ orgSlug }: { orgSlug: string }) {
     onSuccess: (data) => {
       setSelectedRun(data.payrollRun);
       refresh();
+    },
+  });
+  const excludeEmployee = useMutation({
+    mutationFn: ({
+      runId,
+      employeeId,
+    }: {
+      runId: string;
+      employeeId: string;
+    }) =>
+      post<{ payrollRun: PayrollRun }>(
+        orgUrl(orgSlug, `payroll-runs/${runId}/exclusions`),
+        { employeeId },
+      ),
+    onSuccess: (data, variables) => {
+      setSelectedRun(data.payrollRun);
+      refresh();
+      calculate.mutate(variables.runId);
+    },
+  });
+  const includeEmployee = useMutation({
+    mutationFn: ({
+      runId,
+      employeeId,
+    }: {
+      runId: string;
+      employeeId: string;
+    }) =>
+      del<{ payrollRun: PayrollRun }>(
+        orgUrl(orgSlug, `payroll-runs/${runId}/exclusions/${employeeId}`),
+      ),
+    onSuccess: (data, variables) => {
+      setSelectedRun(data.payrollRun);
+      refresh();
+      calculate.mutate(variables.runId);
     },
   });
   const approve = useMutation({
@@ -383,7 +500,10 @@ export function PayrollArea({ orgSlug }: { orgSlug: string }) {
             <Button
               variant="secondary"
               className="border-white/20 bg-white/10 text-white hover:bg-white/20"
-              onClick={() => setDialog("compensation")}
+              onClick={() => {
+                setEditingCompensation(null);
+                setDialog("compensation");
+              }}
             >
               <UserRound />
               {t(fr, "Set salary", "Définir un salaire")}
@@ -392,7 +512,12 @@ export function PayrollArea({ orgSlug }: { orgSlug: string }) {
         </div>
       </header>
       <div className="flex justify-end">
-        <HrPdfButton orgSlug={orgSlug} report="payroll" fr={fr} className="border-brand/30 bg-brand/10 text-brand hover:bg-brand/15" />
+        <HrPdfButton
+          orgSlug={orgSlug}
+          report="payroll"
+          fr={fr}
+          className="border-brand/30 bg-brand/10 text-brand hover:bg-brand/15"
+        />
       </div>
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Metric
@@ -460,14 +585,27 @@ export function PayrollArea({ orgSlug }: { orgSlug: string }) {
       {tab === "payslips" ? (
         <PayslipsPanel
           fr={fr}
+          orgSlug={orgSlug}
+          organization={organization.data}
           selected={selected}
           payslips={payslips.data ?? []}
           pending={payslips.isPending}
           error={apiError(payslips.error)}
           canCreate={canCreate}
+          canUpdate={canUpdate}
           canApprove={canApprove}
           canReject={canReject}
+          exclusions={exclusions.data ?? []}
+          exclusionsPending={exclusions.isPending}
+          exclusionsError={apiError(exclusions.error)}
+          onEditRun={() => {
+            if (!selected) return;
+            setEditingRun(selected);
+            setDialog("edit-run");
+          }}
           calculate={calculate}
+          excludeEmployee={excludeEmployee}
+          includeEmployee={includeEmployee}
           approve={approve}
           paid={paid}
           cancel={cancel}
@@ -478,9 +616,32 @@ export function PayrollArea({ orgSlug }: { orgSlug: string }) {
           fr={fr}
           rows={compensation.data ?? []}
           assignments={assignments.data ?? []}
-          onAddSalary={() => setDialog("compensation")}
-          onAddComponent={() => setDialog("assignment")}
+          onAddSalary={(employeeId) => {
+            setEditingCompensation(null);
+            setCompensationEmployeeId(employeeId ?? null);
+            setDialog("compensation");
+          }}
+          onEditSalary={(record) => {
+            setEditingCompensation(record);
+            setCompensationEmployeeId(null);
+            setDialog("compensation");
+          }}
+          onAddComponent={(employeeId) => {
+            setEditingAssignment(null);
+            setAssignmentEmployeeId(employeeId ?? null);
+            setDialog("assignment");
+          }}
+          onEditComponent={(assignment) => {
+            setEditingAssignment(assignment);
+            setAssignmentEmployeeId(null);
+            setDialog("assignment");
+          }}
+          onEndComponent={(assignment) => {
+            setEndingAssignment(assignment);
+            setDialog("end-assignment");
+          }}
           canCreate={canCreate}
+          canUpdate={canUpdate}
         />
       ) : null}
       {tab === "components" ? (
@@ -488,13 +649,29 @@ export function PayrollArea({ orgSlug }: { orgSlug: string }) {
           fr={fr}
           rows={components.data ?? []}
           canCreate={canCreate}
-          onAdd={() => setDialog("component")}
+          canUpdate={canUpdate}
+          onAdd={() => {
+            setEditingComponent(null);
+            setComponentPreset(null);
+            setDialog("component");
+          }}
+          onAddTax={() => {
+            setEditingComponent(null);
+            setComponentPreset("tax");
+            setDialog("component");
+          }}
+          onEdit={(component) => {
+            setEditingComponent(component);
+            setComponentPreset(null);
+            setDialog("component");
+          }}
         />
       ) : null}
       {dialog === "run" ? (
         <RunDialog
           fr={fr}
           orgSlug={orgSlug}
+          editing={null}
           onClose={() => setDialog(null)}
           onSaved={(run) => {
             setSelectedRun(run);
@@ -503,11 +680,34 @@ export function PayrollArea({ orgSlug }: { orgSlug: string }) {
           }}
         />
       ) : null}
+      {dialog === "edit-run" && editingRun ? (
+        <RunDialog
+          fr={fr}
+          orgSlug={orgSlug}
+          editing={editingRun}
+          onClose={() => {
+            setEditingRun(null);
+            setDialog(null);
+          }}
+          onSaved={(run) => {
+            setSelectedRun(run);
+            setEditingRun(null);
+            setDialog(null);
+            refresh();
+          }}
+        />
+      ) : null}{" "}
       {dialog === "component" ? (
         <ComponentDialog
           fr={fr}
           orgSlug={orgSlug}
-          onClose={() => setDialog(null)}
+          editing={editingComponent}
+          preset={componentPreset}
+          onClose={() => {
+            setEditingComponent(null);
+            setComponentPreset(null);
+            setDialog(null);
+          }}
         />
       ) : null}
       {dialog === "compensation" ? (
@@ -515,7 +715,18 @@ export function PayrollArea({ orgSlug }: { orgSlug: string }) {
           fr={fr}
           orgSlug={orgSlug}
           employees={employees.data ?? []}
-          onClose={() => setDialog(null)}
+          occupiedEmployeeIds={(compensation.data ?? [])
+            .filter(
+              (record) => !record.effectiveTo || record.effectiveTo >= today(),
+            )
+            .map((record) => record.employee.id)}
+          editing={editingCompensation}
+          defaultEmployeeId={compensationEmployeeId}
+          onClose={() => {
+            setEditingCompensation(null);
+            setCompensationEmployeeId(null);
+            setDialog(null);
+          }}
         />
       ) : null}
       {dialog === "assignment" ? (
@@ -524,7 +735,24 @@ export function PayrollArea({ orgSlug }: { orgSlug: string }) {
           orgSlug={orgSlug}
           employees={employees.data ?? []}
           components={components.data ?? []}
-          onClose={() => setDialog(null)}
+          editing={editingAssignment}
+          defaultEmployeeId={assignmentEmployeeId}
+          onClose={() => {
+            setEditingAssignment(null);
+            setAssignmentEmployeeId(null);
+            setDialog(null);
+          }}
+        />
+      ) : null}
+      {dialog === "end-assignment" && endingAssignment ? (
+        <EndComponentDialog
+          fr={fr}
+          orgSlug={orgSlug}
+          assignment={endingAssignment}
+          onClose={() => {
+            setEndingAssignment(null);
+            setDialog(null);
+          }}
         />
       ) : null}
     </main>
@@ -686,27 +914,49 @@ function RunsPanel({
 
 function PayslipsPanel({
   fr,
+  orgSlug,
+  organization,
   selected,
   payslips,
   pending,
   error,
   canCreate,
+  canUpdate,
   canApprove,
   canReject,
+  exclusions,
+  exclusionsPending,
+  exclusionsError,
+  onEditRun,
   calculate,
+  excludeEmployee,
+  includeEmployee,
   approve,
   paid,
   cancel,
 }: {
   fr: boolean;
+  orgSlug: string;
+  organization?: {
+    displayName?: string | null;
+    legalName?: string | null;
+    logoUrl?: string | null;
+  };
   selected: PayrollRun | null;
   payslips: Payslip[];
   pending: boolean;
   error: string | null;
   canCreate: boolean;
+  canUpdate: boolean;
   canApprove: boolean;
   canReject: boolean;
+  exclusions: RunExclusion[];
+  exclusionsPending: boolean;
+  exclusionsError: string | null;
+  onEditRun: () => void;
   calculate: any;
+  excludeEmployee: any;
+  includeEmployee: any;
   approve: any;
   paid: any;
   cancel: any;
@@ -726,11 +976,16 @@ function PayslipsPanel({
         />
       </section>
     );
+  const editable =
+    ["draft", "calculated"].includes(selected.status) && canUpdate;
   const problem =
     apiError(calculate.error) ||
+    apiError(excludeEmployee.error) ||
+    apiError(includeEmployee.error) ||
     apiError(approve.error) ||
     apiError(paid.error) ||
     apiError(cancel.error) ||
+    exclusionsError ||
     error;
   return (
     <section className="overflow-hidden rounded-2xl border border-border bg-surface-1 shadow-sm">
@@ -750,13 +1005,21 @@ function PayslipsPanel({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {editable ? (
+            <Button variant="secondary" onClick={onEditRun}>
+              <Settings2 />
+              {t(fr, "Edit run", "Modifier le cycle")}
+            </Button>
+          ) : null}
           {["draft", "calculated"].includes(selected.status) && canCreate ? (
             <Button
               onClick={() => calculate.mutate(selected.id)}
               loading={calculate.isPending}
             >
               <Calculator />
-              {t(fr, "Calculate payslips", "Calculer les bulletins")}
+              {selected.status === "calculated"
+                ? t(fr, "Recalculate payslips", "Recalculer les bulletins")
+                : t(fr, "Calculate payslips", "Calculer les bulletins")}
             </Button>
           ) : null}
           {selected.status === "calculated" && canApprove ? (
@@ -777,7 +1040,7 @@ function PayslipsPanel({
               {t(fr, "Mark paid", "Marquer payé")}
             </Button>
           ) : null}
-          {["draft", "calculated"].includes(selected.status) && canReject ? (
+          {editable && canReject ? (
             <Button
               variant="secondary"
               onClick={() => cancel.mutate(selected.id)}
@@ -788,6 +1051,15 @@ function PayslipsPanel({
           ) : null}
         </div>
       </div>
+      {selected.status === "calculated" ? (
+        <p className="border-b border-border bg-amber-500/10 px-5 py-3 text-sm text-ink-secondary">
+          {t(
+            fr,
+            "Salary, component and employee selection changes take effect when payslips are recalculated. Draft payslips will be replaced.",
+            "Les modifications de salaire, de composante ou d’employé prennent effet au prochain recalcul. Les bulletins non approuvés seront remplacés.",
+          )}
+        </p>
+      ) : null}
       <div className="grid gap-px border-b border-border bg-border sm:grid-cols-4">
         <SummaryCell
           label={t(fr, "Gross pay", "Brut")}
@@ -818,33 +1090,56 @@ function PayslipsPanel({
       ) : payslips.length ? (
         <div className="divide-y divide-border">
           {payslips.map((slip) => (
-            <button
-              type="button"
+            <div
               key={slip.id}
-              onClick={() => setOpen(slip)}
-              className="grid w-full gap-3 p-5 text-left transition hover:bg-surface-2 sm:grid-cols-[1.2fr_auto_auto_auto] sm:items-center"
+              className="flex flex-wrap items-center gap-3 p-5 transition hover:bg-surface-2"
             >
-              <div>
-                <p className="font-semibold text-ink">
-                  {slip.employee.fullName}
-                </p>
-                <p className="mt-1 text-xs text-ink-secondary">
-                  #{slip.employee.employeeNumber} · {slip.employee.jobTitle}
-                </p>
-              </div>
-              <Amount
-                label={t(fr, "Gross", "Brut")}
-                value={money(slip.grossPay, slip.currency, fr)}
-              />
-              <Amount
-                label={t(fr, "Deductions", "Retenues")}
-                value={money(slip.totalDeductions, slip.currency, fr)}
-              />
-              <Amount
-                label={t(fr, "Net", "Net")}
-                value={money(slip.netPay, slip.currency, fr)}
-              />
-            </button>
+              <button
+                type="button"
+                onClick={() => setOpen(slip)}
+                className="grid min-w-[14rem] flex-1 gap-3 text-left sm:grid-cols-[1.2fr_auto_auto_auto] sm:items-center"
+              >
+                <div>
+                  <p className="font-semibold text-ink">
+                    {slip.employee.fullName}
+                  </p>
+                  <p className="mt-1 text-xs text-ink-secondary">
+                    #{slip.employee.employeeNumber} · {slip.employee.jobTitle}
+                  </p>
+                  <p className="mt-1 text-xs font-semibold tracking-wide text-brand">
+                    {slip.reference}
+                  </p>
+                </div>
+                <Amount
+                  label={t(fr, "Gross", "Brut")}
+                  value={money(slip.grossPay, slip.currency, fr)}
+                />
+                <Amount
+                  label={t(fr, "Deductions", "Retenues")}
+                  value={money(slip.totalDeductions, slip.currency, fr)}
+                />
+                <Amount
+                  label={t(fr, "Net", "Net")}
+                  value={money(slip.netPay, slip.currency, fr)}
+                />
+              </button>
+              {editable ? (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() =>
+                    excludeEmployee.mutate({
+                      runId: selected.id,
+                      employeeId: slip.employee.id,
+                    })
+                  }
+                  loading={excludeEmployee.isPending}
+                >
+                  <X />
+                  {t(fr, "Exclude", "Exclure")}
+                </Button>
+              ) : null}
+            </div>
           ))}
         </div>
       ) : (
@@ -858,8 +1153,76 @@ function PayslipsPanel({
           )}
         />
       )}
+      {exclusionsPending ? (
+        <div className="border-t border-border p-5">
+          <SkeletonCard rows={2} />
+        </div>
+      ) : exclusions.length ? (
+        <div className="border-t border-border bg-surface-2/45 p-5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 className="font-semibold text-ink">
+                {t(
+                  fr,
+                  "Employees excluded from this run",
+                  "Employés exclus de ce cycle",
+                )}
+              </h3>
+              <p className="mt-1 text-sm text-ink-secondary">
+                {t(
+                  fr,
+                  "They will not be paid in this cycle. You can restore them before approval.",
+                  "Ils ne seront pas payés dans ce cycle. Vous pouvez les réintégrer avant l’approbation.",
+                )}
+              </p>
+            </div>
+            <Badge variant="outline">{exclusions.length}</Badge>
+          </div>
+          <div className="mt-3 grid gap-2">
+            {exclusions.map((item) => (
+              <div
+                key={item.id}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface-1 px-3 py-3"
+              >
+                <div>
+                  <p className="font-medium text-ink">
+                    {item.employee.fullName}
+                  </p>
+                  <p className="text-xs text-ink-secondary">
+                    #{item.employee.employeeNumber} · {item.employee.jobTitle}
+                  </p>
+                </div>
+                {editable ? (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() =>
+                      includeEmployee.mutate({
+                        runId: selected.id,
+                        employeeId: item.employee.id,
+                      })
+                    }
+                    loading={includeEmployee.isPending}
+                  >
+                    <Plus />
+                    {t(fr, "Restore", "Réintégrer")}
+                  </Button>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
       {open ? (
-        <PayslipDialog fr={fr} item={open} onClose={() => setOpen(null)} />
+        <PayslipDialog
+          fr={fr}
+          orgSlug={orgSlug}
+          organization={organization}
+          item={open}
+          run={selected}
+          downloadable={["approved", "paid"].includes(selected.status)}
+          onClose={() => setOpen(null)}
+        />
       ) : null}
     </section>
   );
@@ -885,163 +1248,556 @@ function CompensationPanel({
   rows,
   assignments,
   onAddSalary,
+  onEditSalary,
   onAddComponent,
+  onEditComponent,
+  onEndComponent,
   canCreate,
+  canUpdate,
 }: {
   fr: boolean;
   rows: Compensation[];
   assignments: Assignment[];
-  onAddSalary: () => void;
-  onAddComponent: () => void;
+  onAddSalary: (employeeId?: string) => void;
+  onEditSalary: (record: Compensation) => void;
+  onAddComponent: (employeeId?: string) => void;
+  onEditComponent: (assignment: Assignment) => void;
+  onEndComponent: (assignment: Assignment) => void;
   canCreate: boolean;
+  canUpdate: boolean;
 }) {
+  type RemunerationGroup = {
+    employee: Employee;
+    salaries: Compensation[];
+    components: Assignment[];
+  };
+  const grouped = new Map<string, RemunerationGroup>();
+  const include = (employee: Employee) => {
+    const current = grouped.get(employee.id);
+    if (current) return current;
+    const next = { employee, salaries: [], components: [] };
+    grouped.set(employee.id, next);
+    return next;
+  };
+  rows.forEach((salary) => include(salary.employee).salaries.push(salary));
+  assignments.forEach((component) =>
+    include(component.employee).components.push(component),
+  );
+  const people = Array.from(grouped.values()).sort((a, b) =>
+    a.employee.fullName.localeCompare(b.employee.fullName),
+  );
+  const assignmentValue = (item: Assignment) =>
+    item.amount ??
+    (item.percentage != null
+      ? `${item.percentage}%`
+      : (item.component.defaultAmount ??
+        (item.component.percentage != null
+          ? `${item.component.percentage}%`
+          : "—")));
+  const isPersonal = (item: Assignment) =>
+    item.amount != null || item.percentage != null;
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(0);
+  const [showEndedComponents, setShowEndedComponents] = useState(false);
+  const pageSize = 8;
+  const normalizedSearch = search.trim().toLocaleLowerCase();
+  const filteredPeople = normalizedSearch
+    ? people.filter((person) =>
+        [
+          person.employee.fullName,
+          person.employee.employeeNumber,
+          person.employee.jobTitle,
+          ...person.components.map((item) => item.component.name),
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLocaleLowerCase()
+          .includes(normalizedSearch),
+      )
+    : people;
+  const totalPages = Math.max(1, Math.ceil(filteredPeople.length / pageSize));
+  const activePage = Math.min(page, totalPages - 1);
+  const visiblePeople = filteredPeople.slice(
+    activePage * pageSize,
+    (activePage + 1) * pageSize,
+  );
+
   return (
-    <div className="grid gap-5 xl:grid-cols-[1.2fr_.8fr]">
-      <section className="overflow-hidden rounded-2xl border border-border bg-surface-1 shadow-sm">
-        <div className="flex items-start justify-between gap-3 border-b border-border p-5">
-          <div>
-            <h2 className="text-lg font-semibold text-ink">
-              {t(fr, "Employee salaries", "Salaires des employés")}
-            </h2>
-            <p className="mt-1 text-sm text-ink-secondary">
-              {t(
-                fr,
-                "Effective-dated records protect historic payslips.",
-                "Les enregistrements datés protègent les bulletins historiques.",
-              )}
-            </p>
-          </div>
-          {canCreate ? (
-            <Button size="sm" onClick={onAddSalary}>
+    <section className="overflow-hidden rounded-2xl border border-border-strong bg-surface-1 shadow-[0_18px_42px_-32px_rgba(15,23,42,.55)]">
+      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border bg-[linear-gradient(115deg,rgba(20,184,166,.08),transparent_55%)] px-5 py-5 sm:px-6">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[.14em] text-brand">
+            {t(fr, "Employee pay", "Rémunération des employés")}
+          </p>
+          <h2 className="mt-1 text-lg font-semibold text-ink">
+            {t(
+              fr,
+              "Salary and components by employee",
+              "Salaire et composantes par employé",
+            )}
+          </h2>
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-ink-secondary">
+            {t(
+              fr,
+              "Each employee's salary, allowances and deductions are kept together for a clear payroll review.",
+              "Le salaire, les primes et les retenues de chaque employé restent regroupés pour une lecture claire.",
+            )}
+          </p>
+        </div>
+        {canCreate ? (
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => onAddComponent()}
+            >
+              <Plus />
+              {t(fr, "Add component", "Ajouter une composante")}
+            </Button>
+            <Button size="sm" onClick={() => onAddSalary()}>
               <Plus />
               {t(fr, "Set salary", "Définir un salaire")}
             </Button>
-          ) : null}
-        </div>
-        {rows.length ? (
-          <div className="divide-y divide-border">
-            {rows.map((row) => (
-              <article key={row.id} className="p-5">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="font-semibold text-ink">
-                      {row.employee.fullName}
-                    </p>
-                    <p className="mt-1 text-xs text-ink-secondary">
-                      #{row.employee.employeeNumber} · {row.employee.jobTitle}
-                    </p>
-                  </div>
-                  <p className="font-semibold text-ink">
-                    {money(row.basicSalary, row.currency, fr)}
-                  </p>
-                </div>
-                <p className="mt-3 text-sm text-ink-secondary">
-                  {words(row.payFrequency)} · {words(row.paymentMethod)} ·{" "}
-                  {date(row.effectiveFrom, fr)}{" "}
-                  {row.effectiveTo ? `→ ${date(row.effectiveTo, fr)}` : ""}
-                </p>
-              </article>
-            ))}
           </div>
-        ) : (
-          <EmptyState
-            icon={UsersRound}
-            title={t(fr, "No salary record yet", "Aucun salaire défini")}
-            description={t(
-              fr,
-              "Set basic salaries before creating a payroll run.",
-              "Définissez les salaires de base avant de créer un cycle de paie.",
-            )}
-            action={
-              canCreate
-                ? {
-                    label: t(fr, "Set salary", "Définir un salaire"),
-                    onClick: onAddSalary,
-                  }
-                : undefined
-            }
-          />
-        )}
-      </section>
-      <section className="overflow-hidden rounded-2xl border border-border bg-surface-1 shadow-sm">
-        <div className="flex items-start justify-between gap-3 border-b border-border p-5">
-          <div>
-            <h2 className="text-lg font-semibold text-ink">
-              {t(fr, "Standing adjustments", "Composantes personnelles")}
-            </h2>
-            <p className="mt-1 text-sm text-ink-secondary">
-              {t(
-                fr,
-                "Recurring allowances, deductions and advance recovery plans.",
-                "Indemnités, retenues et récupérations récurrentes.",
-              )}
+        ) : null}
+      </div>
+
+      {people.length ? (
+        <div className="bg-surface-2/40 p-4 sm:p-5">
+          <div className="mb-4 flex flex-col gap-3 rounded-xl border border-border bg-surface-1 p-3 sm:flex-row sm:items-center sm:justify-between sm:px-4">
+            <label className="relative block w-full sm:max-w-md">
+              <Search
+                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-muted"
+                aria-hidden
+              />
+              <input
+                type="search"
+                value={search}
+                onChange={(event) => {
+                  setSearch(event.target.value);
+                  setPage(0);
+                }}
+                placeholder={t(
+                  fr,
+                  "Search by employee, number, role or component…",
+                  "Rechercher un employé, matricule, poste ou composante…",
+                )}
+                aria-label={t(
+                  fr,
+                  "Search employee pay",
+                  "Rechercher une rémunération",
+                )}
+                className="h-10 w-full rounded-lg border border-border bg-surface-2 pl-9 pr-3 text-sm text-ink outline-none transition placeholder:text-ink-muted focus:border-brand focus:ring-2 focus:ring-brand/15"
+              />
+            </label>
+            <p className="shrink-0 text-xs font-semibold text-ink-secondary">
+              {filteredPeople.length} / {people.length}{" "}
+              {t(fr, "employees", "employés")}
             </p>
           </div>
-          {canCreate ? (
-            <Button size="sm" onClick={onAddComponent}>
-              <Plus />
-              {t(fr, "Add", "Ajouter")}
-            </Button>
+          {assignments.some(
+            (item) =>
+              !item.isActive ||
+              (item.effectiveTo && item.effectiveTo < today()),
+          ) ? (
+            <div className="mb-4 flex justify-end">
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => setShowEndedComponents((value) => !value)}
+              >
+                {showEndedComponents
+                  ? t(
+                      fr,
+                      "Hide ended components",
+                      "Masquer les composantes terminées",
+                    )
+                  : t(
+                      fr,
+                      "Show ended components",
+                      "Afficher les composantes terminées",
+                    )}
+              </Button>
+            </div>
+          ) : null}
+          {visiblePeople.length ? (
+            <div className="space-y-4">
+              {visiblePeople.map((person) => {
+                const currency = person.salaries[0]?.currency ?? "CDF";
+                const salaryRows = [...person.salaries].sort((a, b) =>
+                  b.effectiveFrom.localeCompare(a.effectiveFrom),
+                );
+                const activeComponents = person.components.filter(
+                  (item) =>
+                    item.isActive &&
+                    (!item.effectiveTo || item.effectiveTo >= today()),
+                );
+                const endedComponents = person.components.filter(
+                  (item) =>
+                    !activeComponents.some((active) => active.id === item.id),
+                );
+                const componentRows = showEndedComponents
+                  ? person.components
+                  : activeComponents;
+                return (
+                  <article
+                    key={person.employee.id}
+                    className="overflow-hidden rounded-2xl border border-border-strong bg-surface-1 shadow-sm"
+                  >
+                    <header className="flex flex-wrap items-start justify-between gap-3 border-b border-border bg-[linear-gradient(110deg,rgba(20,184,166,.07),transparent_60%)] px-4 py-4 sm:px-5">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <span className="grid size-10 shrink-0 place-items-center rounded-xl border border-brand/20 bg-brand-subtle text-sm font-bold text-brand">
+                          {person.employee.fullName.slice(0, 2).toUpperCase()}
+                        </span>
+                        <div className="min-w-0">
+                          <h3 className="truncate text-base font-semibold text-ink">
+                            {person.employee.fullName}
+                          </h3>
+                          <p className="mt-0.5 truncate text-xs text-ink-secondary">
+                            #{person.employee.employeeNumber} ·{" "}
+                            {person.employee.jobTitle}
+                          </p>
+                        </div>
+                      </div>
+                      <span className="rounded-full border border-border bg-surface-2 px-2.5 py-1 text-xs font-semibold text-ink-secondary">
+                        {salaryRows.length}{" "}
+                        {t(
+                          fr,
+                          salaryRows.length === 1
+                            ? "salary record"
+                            : "salary records",
+                          salaryRows.length === 1
+                            ? "salaire défini"
+                            : "salaires définis",
+                        )}{" "}
+                        · {person.components.length}{" "}
+                        {t(
+                          fr,
+                          person.components.length === 1
+                            ? "component"
+                            : "components",
+                          person.components.length === 1
+                            ? "composante"
+                            : "composantes",
+                        )}
+                      </span>
+                    </header>
+                    <div className="grid divide-y divide-border lg:grid-cols-2 lg:divide-x lg:divide-y-0">
+                      <section className="p-4 sm:p-5">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-xs font-bold uppercase tracking-[.12em] text-ink-muted">
+                              {t(fr, "Base salary", "Salaire de base")}
+                            </p>
+                            <p className="mt-1 text-xs text-ink-secondary">
+                              {t(
+                                fr,
+                                "Effective-dated history",
+                                "Historique daté",
+                              )}
+                            </p>
+                          </div>
+                          {canCreate && salaryRows.length === 0 ? (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => onAddSalary(person.employee.id)}
+                            >
+                              <Plus />
+                              {t(fr, "Set", "Définir")}
+                            </Button>
+                          ) : null}
+                        </div>
+                        {salaryRows.length ? (
+                          <div className="mt-4 space-y-3">
+                            {salaryRows.map((salary) => (
+                              <div
+                                key={salary.id}
+                                className="rounded-xl border border-border bg-surface-2/55 p-3.5"
+                              >
+                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                  <div>
+                                    <p className="text-lg font-semibold tabular-nums text-ink">
+                                      {money(
+                                        salary.basicSalary,
+                                        salary.currency,
+                                        fr,
+                                      )}
+                                    </p>
+                                    <p className="mt-1 text-xs text-ink-secondary">
+                                      {words(salary.payFrequency)} ·{" "}
+                                      {words(salary.paymentMethod)}
+                                    </p>
+                                  </div>
+                                  {canUpdate ? (
+                                    <Button
+                                      size="sm"
+                                      variant="secondary"
+                                      onClick={() => onEditSalary(salary)}
+                                    >
+                                      <Settings2 />
+                                      {t(fr, "Edit", "Modifier")}
+                                    </Button>
+                                  ) : null}
+                                </div>
+                                <p className="mt-3 border-t border-border pt-2.5 text-xs leading-5 text-ink-secondary">
+                                  {date(salary.effectiveFrom, fr)}{" "}
+                                  {salary.effectiveTo
+                                    ? `→ ${date(salary.effectiveTo, fr)}`
+                                    : `→ ${t(fr, "No end date", "sans fin")}`}
+                                  {salary.contractHoursPerWeek
+                                    ? ` · ${salary.contractHoursPerWeek} ${t(fr, "h/week", "h/semaine")}`
+                                    : ""}
+                                  {salary.overtimeMultiplier
+                                    ? ` · ${t(fr, "Overtime ×", "Heures suppl. ×")}${salary.overtimeMultiplier}`
+                                    : ""}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="mt-4 rounded-xl border border-dashed border-border bg-surface-2/40 px-3 py-4 text-sm text-ink-secondary">
+                            {t(
+                              fr,
+                              "No salary is set for this employee.",
+                              "Aucun salaire n’est défini pour cet employé.",
+                            )}
+                          </p>
+                        )}
+                      </section>
+                      <section className="p-4 sm:p-5">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-xs font-bold uppercase tracking-[.12em] text-ink-muted">
+                              {t(
+                                fr,
+                                "Personal components",
+                                "Primes et retenues",
+                              )}
+                            </p>
+                            <p className="mt-1 text-xs text-ink-secondary">
+                              {t(
+                                fr,
+                                "Allowances, deductions and recovery plans",
+                                "Indemnités, retenues et récupérations",
+                              )}
+                            </p>
+                          </div>
+                          {canCreate ? (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => onAddComponent(person.employee.id)}
+                            >
+                              <Plus />
+                              {t(fr, "Add", "Ajouter")}
+                            </Button>
+                          ) : null}
+                        </div>
+                        {componentRows.length ? (
+                          <div className="mt-4 space-y-3">
+                            {componentRows.map((item) => {
+                              const amount = assignmentValue(item);
+                              return (
+                                <div
+                                  key={item.id}
+                                  className="rounded-xl border border-border bg-surface-2/55 p-3.5"
+                                >
+                                  <div className="flex flex-wrap items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <p className="font-semibold text-ink">
+                                        {item.component.name}
+                                      </p>
+                                      <p className="mt-1 text-xs text-ink-secondary">
+                                        {words(item.component.componentType)} ·{" "}
+                                        {isPersonal(item)
+                                          ? t(
+                                              fr,
+                                              "Personal amount",
+                                              "Montant personnalisé",
+                                            )
+                                          : t(
+                                              fr,
+                                              "Template amount",
+                                              "Montant du modèle",
+                                            )}
+                                      </p>
+                                    </div>
+                                    <div className="text-right">
+                                      <p className="text-base font-semibold tabular-nums text-ink">
+                                        {typeof amount === "number"
+                                          ? money(amount, currency, fr)
+                                          : amount}
+                                      </p>
+                                      {isPersonal(item) ? (
+                                        <p className="mt-1 text-[11px] text-ink-muted">
+                                          {t(fr, "Template", "Modèle")} :{" "}
+                                          {item.component.defaultAmount != null
+                                            ? money(
+                                                item.component.defaultAmount,
+                                                currency,
+                                                fr,
+                                              )
+                                            : item.component.percentage != null
+                                              ? `${item.component.percentage}%`
+                                              : "—"}
+                                        </p>
+                                      ) : null}
+                                    </div>
+                                  </div>
+                                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-2.5">
+                                    <p className="text-xs text-ink-muted">
+                                      {date(item.effectiveFrom, fr)}{" "}
+                                      {item.effectiveTo
+                                        ? `→ ${date(item.effectiveTo, fr)}`
+                                        : `→ ${t(fr, "No end date", "sans fin")}`}
+                                    </p>
+                                    <div className="flex flex-wrap items-center gap-1">
+                                      {canUpdate ? (
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          onClick={() => onEditComponent(item)}
+                                        >
+                                          <Settings2 />
+                                          {t(
+                                            fr,
+                                            "Edit allowance",
+                                            "Modifier la prime",
+                                          )}
+                                        </Button>
+                                      ) : null}
+                                      {canUpdate &&
+                                      item.isActive &&
+                                      (!item.effectiveTo ||
+                                        item.effectiveTo >= today()) ? (
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          onClick={() => onEndComponent(item)}
+                                        >
+                                          <X />
+                                          {t(fr, "End", "Terminer")}
+                                        </Button>
+                                      ) : null}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <p className="mt-4 rounded-xl border border-dashed border-border bg-surface-2/40 px-3 py-4 text-sm text-ink-secondary">
+                            {t(
+                              fr,
+                              "No recurring component for this employee.",
+                              "Aucune composante récurrente pour cet employé.",
+                            )}
+                          </p>
+                        )}
+                      </section>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-dashed border-border bg-surface-1 px-5 py-12 text-center">
+              <Search className="mx-auto size-5 text-ink-muted" aria-hidden />
+              <p className="mt-3 font-semibold text-ink">
+                {t(fr, "No employee found", "Aucun employé trouvé")}
+              </p>
+              <p className="mt-1 text-sm text-ink-secondary">
+                {t(
+                  fr,
+                  "Try an employee name, number, role or pay component.",
+                  "Essayez un nom, matricule, poste ou nom de composante.",
+                )}
+              </p>
+              <Button
+                size="sm"
+                variant="secondary"
+                className="mt-4"
+                onClick={() => setSearch("")}
+              >
+                {t(fr, "Clear search", "Effacer la recherche")}
+              </Button>
+            </div>
+          )}
+          {filteredPeople.length > pageSize ? (
+            <nav
+              className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface-1 px-3 py-2.5"
+              aria-label={t(fr, "Employee pay pages", "Pages de rémunération")}
+            >
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={activePage === 0}
+                onClick={() => setPage((current) => Math.max(0, current - 1))}
+              >
+                <ChevronLeft />
+                {t(fr, "Previous", "Précédent")}
+              </Button>
+              <p className="text-xs font-semibold text-ink-secondary">
+                {t(fr, "Page", "Page")} {activePage + 1} {t(fr, "of", "sur")}{" "}
+                {totalPages}
+              </p>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={activePage >= totalPages - 1}
+                onClick={() =>
+                  setPage((current) => Math.min(totalPages - 1, current + 1))
+                }
+              >
+                {t(fr, "Next", "Suivant")}
+                <ChevronRight />
+              </Button>
+            </nav>
           ) : null}
         </div>
-        {assignments.length ? (
-          <div className="divide-y divide-border">
-            {assignments.map((item) => (
-              <article key={item.id} className="p-5">
-                <div className="flex justify-between gap-3">
-                  <div>
-                    <p className="font-semibold text-ink">
-                      {item.component.name}
-                    </p>
-                    <p className="mt-1 text-xs text-ink-secondary">
-                      {item.employee.fullName} ·{" "}
-                      {words(item.component.componentType)}
-                    </p>
-                  </div>
-                  <p className="text-sm font-semibold text-ink">
-                    {item.amount != null
-                      ? item.amount
-                      : item.percentage != null
-                        ? `${item.percentage}%`
-                        : "—"}
-                  </p>
-                </div>
-                <p className="mt-2 text-xs text-ink-muted">
-                  {date(item.effectiveFrom, fr)}{" "}
-                  {item.effectiveTo ? `→ ${date(item.effectiveTo, fr)}` : ""}
-                </p>
-              </article>
-            ))}
-          </div>
-        ) : (
-          <EmptyState
-            icon={Settings2}
-            title={t(
-              fr,
-              "No standing adjustment",
-              "Aucune composante personnelle",
-            )}
-            description={t(
-              fr,
-              "Use this for recurring allowances, deductions or an advance recovery.",
-              "Utilisez ceci pour une indemnité, retenue ou récupération récurrente.",
-            )}
-          />
-        )}
-      </section>
-    </div>
+      ) : (
+        <EmptyState
+          icon={UsersRound}
+          title={t(
+            fr,
+            "No employee pay record yet",
+            "Aucune rémunération définie",
+          )}
+          description={t(
+            fr,
+            "Set a salary or assign a pay component to begin.",
+            "Définissez un salaire ou affectez une composante pour commencer.",
+          )}
+          action={
+            canCreate
+              ? {
+                  label: t(fr, "Set salary", "Définir un salaire"),
+                  onClick: () => onAddSalary(),
+                }
+              : undefined
+          }
+        />
+      )}
+    </section>
   );
 }
 function ComponentsPanel({
   fr,
   rows,
   canCreate,
+  canUpdate,
   onAdd,
+  onAddTax,
+  onEdit,
 }: {
   fr: boolean;
   rows: Component[];
   canCreate: boolean;
+  canUpdate: boolean;
   onAdd: () => void;
+  onAddTax: () => void;
+  onEdit: (component: Component) => void;
 }) {
   return (
     <section className="overflow-hidden rounded-2xl border border-border bg-surface-1 shadow-sm">
@@ -1059,10 +1815,16 @@ function ComponentsPanel({
           </p>
         </div>
         {canCreate ? (
-          <Button onClick={onAdd}>
-            <Plus />
-            {t(fr, "Add component", "Ajouter une composante")}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" onClick={onAddTax}>
+              <Landmark />
+              {t(fr, "Set income tax", "Définir l’impôt")}
+            </Button>
+            <Button onClick={onAdd}>
+              <Plus />
+              {t(fr, "Add component", "Ajouter une composante")}
+            </Button>
+          </div>
         ) : null}
       </div>
       {rows.length ? (
@@ -1070,7 +1832,7 @@ function ComponentsPanel({
           {rows.map((item) => (
             <article
               key={item.id}
-              className="grid gap-3 p-5 sm:grid-cols-[1.2fr_auto_auto_auto] sm:items-center"
+              className="grid gap-3 p-5 sm:grid-cols-[1.2fr_auto_auto_auto_auto] sm:items-center"
             >
               <div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -1110,6 +1872,16 @@ function ComponentsPanel({
                   ? t(fr, "Taxable", "Imposable")
                   : t(fr, "Non-taxable", "Non imposable")}
               </p>
+              {canUpdate ? (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => onEdit(item)}
+                >
+                  <Settings2 />
+                  {t(fr, "Edit", "Modifier")}
+                </Button>
+              ) : null}
             </article>
           ))}
         </div>
@@ -1200,24 +1972,36 @@ function Modal({
 function RunDialog({
   fr,
   orgSlug,
+  editing,
   onClose,
   onSaved,
 }: {
   fr: boolean;
   orgSlug: string;
+  editing: PayrollRun | null;
   onClose: () => void;
   onSaved: (run: PayrollRun) => void;
 }) {
   const save = useMutation({
     mutationFn: (body: Record<string, unknown>) =>
-      post<{ payrollRun: PayrollRun }>(orgUrl(orgSlug, "payroll-runs"), body),
+      editing
+        ? patch<{ payrollRun: PayrollRun }>(
+            orgUrl(orgSlug, `payroll-runs/${editing.id}`),
+            body,
+          )
+        : post<{ payrollRun: PayrollRun }>(
+            orgUrl(orgSlug, "payroll-runs"),
+            body,
+          ),
     onSuccess: (data) => onSaved(data.payrollRun),
   });
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const f = new FormData(event.currentTarget);
     save.mutate({
-      reference: String(f.get("reference") ?? "").trim(),
+      ...(editing
+        ? { reference: String(f.get("reference") ?? "").trim() }
+        : {}),
       periodStart: String(f.get("periodStart") ?? ""),
       periodEnd: String(f.get("periodEnd") ?? ""),
       payDate: String(f.get("payDate") ?? ""),
@@ -1227,33 +2011,81 @@ function RunDialog({
   };
   return (
     <Modal
-      title={t(fr, "New payroll run", "Nouveau cycle de paie")}
+      title={
+        editing
+          ? `${t(fr, "Edit payroll run", "Modifier le cycle")} · ${editing.reference}`
+          : t(fr, "New payroll run", "Nouveau cycle de paie")
+      }
       onClose={onClose}
     >
       <form onSubmit={submit} className="mt-5 grid gap-4 sm:grid-cols-2">
-        <FormField label={t(fr, "Reference", "Référence")} required>
-          <Input name="reference" required placeholder="PAY-2026-09" />
-        </FormField>
+        {editing ? (
+          <p className="sm:col-span-2 rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm leading-6 text-ink-secondary">
+            {t(
+              fr,
+              "Changing the period, currency or scope returns this cycle to Draft and clears its unapproved payslips. The cycle must then be recalculated.",
+              "Changer la période, la devise ou le périmètre replace ce cycle en brouillon et efface ses bulletins non approuvés. Il faudra ensuite le recalculer.",
+            )}
+          </p>
+        ) : null}
+        {editing ? (
+          <FormField label={t(fr, "Reference", "Référence")} required>
+            <Input name="reference" required defaultValue={editing.reference} />
+          </FormField>
+        ) : (
+          <div className="rounded-xl border border-brand/25 bg-brand/5 px-4 py-3 text-sm leading-6 text-ink-secondary">
+            <p className="font-semibold text-ink">
+              {t(fr, "Automatic reference", "Référence automatique")}
+            </p>
+            <p>
+              {t(
+                fr,
+                "The cycle will receive a reference such as PAIE202609001. The year and month come from the period start date; the last number increases automatically for each cycle created that month.",
+                "Le cycle recevra une référence telle que PAIE202609001. L’année et le mois proviennent du début de période ; le dernier numéro augmente automatiquement pour chaque cycle créé ce mois-là.",
+              )}
+            </p>
+          </div>
+        )}
         <FormField label={t(fr, "Currency", "Devise")} required>
-          <select name="currency" defaultValue="USD" className={selectClass}>
+          <select
+            name="currency"
+            defaultValue={editing?.currency ?? "USD"}
+            className={selectClass}
+          >
             <option value="USD">USD — US dollar</option>
             <option value="CDF">CDF — Franc congolais</option>
             <option value="EUR">EUR — Euro</option>
           </select>
         </FormField>
         <FormField label={t(fr, "Period start", "Début de période")} required>
-          <Input name="periodStart" type="date" required />
+          <Input
+            name="periodStart"
+            type="date"
+            required
+            defaultValue={editing?.periodStart?.slice(0, 10) ?? ""}
+          />
         </FormField>
         <FormField label={t(fr, "Period end", "Fin de période")} required>
-          <Input name="periodEnd" type="date" required />
+          <Input
+            name="periodEnd"
+            type="date"
+            required
+            defaultValue={editing?.periodEnd?.slice(0, 10) ?? ""}
+          />
         </FormField>
         <FormField label={t(fr, "Pay date", "Date de paiement")} required>
-          <Input name="payDate" type="date" defaultValue={today()} required />
+          <Input
+            name="payDate"
+            type="date"
+            defaultValue={editing?.payDate?.slice(0, 10) ?? today()}
+            required
+          />
         </FormField>
         <FormField label={t(fr, "Notes", "Notes")} className="sm:col-span-2">
           <Textarea
             name="notes"
             rows={3}
+            defaultValue={editing?.notes ?? ""}
             placeholder={t(
               fr,
               "Optional payroll context",
@@ -1271,8 +2103,10 @@ function RunDialog({
             {t(fr, "Cancel", "Annuler")}
           </Button>
           <Button type="submit" loading={save.isPending}>
-            <Plus />
-            {t(fr, "Create payroll run", "Créer le cycle")}
+            {editing ? <Settings2 /> : <Plus />}
+            {editing
+              ? t(fr, "Save changes", "Enregistrer les modifications")
+              : t(fr, "Create payroll run", "Créer le cycle")}
           </Button>
         </div>
       </form>
@@ -1282,19 +2116,29 @@ function RunDialog({
 function ComponentDialog({
   fr,
   orgSlug,
+  editing,
+  preset,
   onClose,
 }: {
   fr: boolean;
   orgSlug: string;
+  editing: Component | null;
+  preset?: "tax" | null;
   onClose: () => void;
 }) {
   const client = useQueryClient();
+  const taxPreset = !editing && preset === "tax";
   const save = useMutation({
     mutationFn: (body: Record<string, unknown>) =>
-      post(orgUrl(orgSlug, "payroll-components"), body),
+      editing
+        ? patch(orgUrl(orgSlug, `payroll-components/${editing.id}`), body)
+        : post(orgUrl(orgSlug, "payroll-components"), body),
     onSuccess: () => {
       void client.invalidateQueries({
         queryKey: ["payroll-components", orgSlug],
+      });
+      void client.invalidateQueries({
+        queryKey: ["employee-payroll-components", orgSlug],
       });
       onClose();
     },
@@ -1303,13 +2147,14 @@ function ComponentDialog({
     event.preventDefault();
     const f = new FormData(event.currentTarget);
     const name = String(f.get("name") ?? "").trim();
-    const code = String(
-      f.get("code") ??
-        name
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, "_")
-          .replace(/^_|_$/g, ""),
-    );
+    const enteredCode = String(f.get("code") ?? "").trim();
+    const generatedCode = name
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_|_$/g, "");
+    const code = enteredCode || editing?.code || generatedCode;
     const amount = String(f.get("defaultAmount") ?? "").trim(),
       percentage = String(f.get("percentage") ?? "").trim();
     save.mutate({
@@ -1317,8 +2162,8 @@ function ComponentDialog({
       code,
       componentType: f.get("componentType"),
       calculation: f.get("calculation"),
-      defaultAmount: amount ? Number(amount) : null,
-      percentage: percentage ? Number(percentage) : null,
+      defaultAmount: amount === "" ? null : Number(amount),
+      percentage: percentage === "" ? null : Number(percentage),
       isTaxable: f.get("isTaxable") === "on",
       affectsGross: f.get("affectsGross") === "on",
       notes: String(f.get("notes") ?? "").trim() || null,
@@ -1326,14 +2171,33 @@ function ComponentDialog({
   };
   return (
     <Modal
-      title={t(fr, "Add pay component", "Ajouter une composante de paie")}
+      title={
+        editing
+          ? `${t(fr, "Edit pay component", "Modifier la composante")} · ${editing.name}`
+          : taxPreset
+            ? t(fr, "Set income tax", "Définir l’impôt sur le revenu")
+            : t(fr, "Add pay component", "Ajouter une composante de paie")
+      }
       onClose={onClose}
     >
       <form onSubmit={submit} className="mt-5 grid gap-4 sm:grid-cols-2">
+        {taxPreset ? (
+          <div className="sm:col-span-2 rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm leading-6 text-ink-secondary">
+            {t(
+              fr,
+              "Set the rate your company is legally required to withhold. LiteHubs does not impose a country tax rate; confirm it with your payroll adviser.",
+              "Définissez le taux que votre entreprise doit légalement retenir. LiteHubs n’impose aucun taux national : confirmez-le avec votre conseiller paie.",
+            )}
+          </div>
+        ) : null}
         <FormField label={t(fr, "Name", "Nom")} required>
           <Input
             name="name"
             required
+            defaultValue={
+              editing?.name ??
+              (taxPreset ? t(fr, "Income tax", "Impôt sur le revenu") : "")
+            }
             placeholder={t(fr, "Transport allowance", "Indemnité de transport")}
           />
         </FormField>
@@ -1345,12 +2209,17 @@ function ComponentDialog({
             "Généré depuis le nom si vide",
           )}
         >
-          <Input name="code" />
+          <Input
+            name="code"
+            defaultValue={editing?.code ?? (taxPreset ? "income_tax" : "")}
+          />
         </FormField>
         <FormField label={t(fr, "Type", "Type")} required>
           <select
             name="componentType"
-            defaultValue="earning"
+            defaultValue={
+              editing?.componentType ?? (taxPreset ? "deduction" : "earning")
+            }
             className={selectClass}
           >
             <option value="earning">{t(fr, "Earning", "Gain")}</option>
@@ -1363,7 +2232,10 @@ function ComponentDialog({
         <FormField label={t(fr, "Calculation", "Calcul")} required>
           <select
             name="calculation"
-            defaultValue="fixed"
+            defaultValue={
+              editing?.calculation ??
+              (taxPreset ? "percentage_of_gross" : "fixed")
+            }
             className={selectClass}
           >
             <option value="fixed">
@@ -1380,12 +2252,19 @@ function ComponentDialog({
           </select>
         </FormField>
         <FormField label={t(fr, "Default amount", "Montant par défaut")}>
-          <Input name="defaultAmount" type="number" min="0" step="0.01" />
+          <Input
+            name="defaultAmount"
+            type="number"
+            defaultValue={editing?.defaultAmount ?? ""}
+            min="0"
+            step="0.01"
+          />
         </FormField>
         <FormField label={t(fr, "Percentage", "Pourcentage")}>
           <Input
             name="percentage"
             type="number"
+            defaultValue={editing?.percentage ?? (taxPreset ? 0 : "")}
             min="0"
             max="1000"
             step="0.01"
@@ -1396,7 +2275,7 @@ function ComponentDialog({
             <input
               type="checkbox"
               name="isTaxable"
-              defaultChecked
+              defaultChecked={editing?.isTaxable ?? !taxPreset}
               className="size-4 accent-[var(--brand)]"
             />
             {t(fr, "Taxable", "Imposable")}
@@ -1405,7 +2284,7 @@ function ComponentDialog({
             <input
               type="checkbox"
               name="affectsGross"
-              defaultChecked
+              defaultChecked={editing?.affectsGross ?? !taxPreset}
               className="size-4 accent-[var(--brand)]"
             />
             {t(
@@ -1416,7 +2295,20 @@ function ComponentDialog({
           </label>
         </div>
         <FormField label={t(fr, "Notes", "Notes")} className="sm:col-span-2">
-          <Textarea name="notes" rows={3} />
+          <Textarea
+            name="notes"
+            rows={3}
+            defaultValue={
+              editing?.notes ??
+              (taxPreset
+                ? t(
+                    fr,
+                    "Configured income-tax withholding. Verify the rate and applicability with your payroll adviser.",
+                    "Retenue d’impôt configurée. Vérifiez le taux et son application avec votre conseiller paie.",
+                  )
+                : "")
+            }
+          />
         </FormField>
         {apiError(save.error) ? (
           <p className="sm:col-span-2 text-sm text-critical">
@@ -1429,7 +2321,9 @@ function ComponentDialog({
           </Button>
           <Button type="submit" loading={save.isPending}>
             <Plus />
-            {t(fr, "Create component", "Créer la composante")}
+            {editing
+              ? t(fr, "Save changes", "Enregistrer les modifications")
+              : t(fr, "Create component", "Créer la composante")}
           </Button>
         </div>
       </form>
@@ -1440,17 +2334,30 @@ function CompensationDialog({
   fr,
   orgSlug,
   employees,
+  occupiedEmployeeIds,
+  editing,
+  defaultEmployeeId,
   onClose,
 }: {
   fr: boolean;
   orgSlug: string;
   employees: Employee[];
+  occupiedEmployeeIds: string[];
+  editing: Compensation | null;
+  defaultEmployeeId?: string | null;
   onClose: () => void;
 }) {
   const client = useQueryClient();
+  const availableEmployees = editing
+    ? employees
+    : employees.filter(
+        (employee) => !occupiedEmployeeIds.includes(employee.id),
+      );
   const save = useMutation({
     mutationFn: (body: Record<string, unknown>) =>
-      post(orgUrl(orgSlug, "employee-compensation"), body),
+      editing
+        ? patch(orgUrl(orgSlug, `employee-compensation/${editing.id}`), body)
+        : post(orgUrl(orgSlug, "employee-compensation"), body),
     onSuccess: () => {
       void client.invalidateQueries({
         queryKey: ["employee-compensation", orgSlug],
@@ -1462,25 +2369,35 @@ function CompensationDialog({
     event.preventDefault();
     const f = new FormData(event.currentTarget);
     const hours = String(f.get("hours") ?? "").trim();
-    save.mutate({
-      employeeId: f.get("employeeId"),
+    const overtimeMultiplier = String(f.get("overtimeMultiplier") ?? "").trim();
+    const payload = {
       effectiveFrom: f.get("effectiveFrom"),
       effectiveTo: String(f.get("effectiveTo") ?? "").trim() || null,
       currency: f.get("currency"),
       basicSalary: Number(f.get("basicSalary")),
       payFrequency: f.get("payFrequency"),
       contractHoursPerWeek: hours ? Number(hours) : null,
+      overtimeMultiplier: overtimeMultiplier
+        ? Number(overtimeMultiplier)
+        : null,
       paymentMethod: f.get("paymentMethod"),
       bankName: String(f.get("bankName") ?? "").trim() || null,
       bankAccount: String(f.get("bankAccount") ?? "").trim() || null,
       mobileMoneyNumber:
         String(f.get("mobileMoneyNumber") ?? "").trim() || null,
       notes: String(f.get("notes") ?? "").trim() || null,
-    });
+    };
+    save.mutate(
+      editing ? payload : { ...payload, employeeId: f.get("employeeId") },
+    );
   };
   return (
     <Modal
-      title={t(fr, "Set employee salary", "Définir le salaire d’un employé")}
+      title={
+        editing
+          ? `${t(fr, "Edit salary", "Modifier le salaire")} · ${editing.employee.fullName}`
+          : t(fr, "Set employee salary", "Définir le salaire d’un employé")
+      }
       onClose={onClose}
     >
       <form onSubmit={submit} className="mt-5 grid gap-4 sm:grid-cols-2">
@@ -1488,15 +2405,20 @@ function CompensationDialog({
           <select
             name="employeeId"
             required
-            defaultValue=""
+            defaultValue={editing?.employee.id ?? defaultEmployeeId ?? ""}
+            disabled={Boolean(editing)}
             className={selectClass}
           >
             <option value="">
-              {employees.length
+              {availableEmployees.length
                 ? t(fr, "Choose an employee", "Choisir un employé")
-                : t(fr, "No employee available", "Aucun employé disponible")}
+                : t(
+                    fr,
+                    "Every employee already has an active salary",
+                    "Tous les employés ont déjà un salaire actif",
+                  )}
             </option>
-            {employees.map((e) => (
+            {availableEmployees.map((e) => (
               <option key={e.id} value={e.id}>
                 {e.fullName} · #{e.employeeNumber}
               </option>
@@ -1507,6 +2429,7 @@ function CompensationDialog({
           <Input
             name="basicSalary"
             type="number"
+            defaultValue={editing?.basicSalary ?? ""}
             min="0"
             step="0.01"
             required
@@ -1519,15 +2442,23 @@ function CompensationDialog({
           <Input
             name="effectiveFrom"
             type="date"
-            defaultValue={today()}
+            defaultValue={editing?.effectiveFrom ?? today()}
             required
           />
         </FormField>
         <FormField label={t(fr, "Effective until", "Applicable jusqu’au")}>
-          <Input name="effectiveTo" type="date" />
+          <Input
+            name="effectiveTo"
+            type="date"
+            defaultValue={editing?.effectiveTo ?? ""}
+          />
         </FormField>
         <FormField label={t(fr, "Currency", "Devise")} required>
-          <select name="currency" defaultValue="USD" className={selectClass}>
+          <select
+            name="currency"
+            defaultValue={editing?.currency ?? "USD"}
+            className={selectClass}
+          >
             <option value="USD">USD</option>
             <option value="CDF">CDF</option>
             <option value="EUR">EUR</option>
@@ -1536,7 +2467,7 @@ function CompensationDialog({
         <FormField label={t(fr, "Pay frequency", "Fréquence de paie")}>
           <select
             name="payFrequency"
-            defaultValue="monthly"
+            defaultValue={editing?.payFrequency ?? "monthly"}
             className={selectClass}
           >
             <option value="monthly">{t(fr, "Monthly", "Mensuel")}</option>
@@ -1551,7 +2482,7 @@ function CompensationDialog({
         <FormField label={t(fr, "Payment method", "Mode de paiement")}>
           <select
             name="paymentMethod"
-            defaultValue="bank_transfer"
+            defaultValue={editing?.paymentMethod ?? "bank_transfer"}
             className={selectClass}
           >
             <option value="bank_transfer">
@@ -1562,20 +2493,59 @@ function CompensationDialog({
             <option value="cheque">{t(fr, "Cheque", "Chèque")}</option>
           </select>
         </FormField>
-        <FormField label={t(fr, "Hours per week", "Heures par semaine")}>
-          <Input name="hours" type="number" min="1" max="168" step="0.5" />
+        <FormField
+          label={t(fr, "Hours per week", "Heures par semaine")}
+          hint={t(
+            fr,
+            "Used to calculate the hourly reference for a monthly salary.",
+            "Utilisées pour calculer la référence horaire du salaire mensuel.",
+          )}
+        >
+          <Input
+            name="hours"
+            type="number"
+            defaultValue={editing?.contractHoursPerWeek ?? ""}
+            min="1"
+            max="168"
+            step="0.5"
+          />
+        </FormField>
+        <FormField
+          label={t(
+            fr,
+            "Overtime multiplier",
+            "Coefficient heures supplémentaires",
+          )}
+          hint={t(
+            fr,
+            "Leave blank to track overtime without adding it to payroll.",
+            "Laissez vide pour suivre les heures supplémentaires sans les ajouter automatiquement à la paie.",
+          )}
+        >
+          <Input
+            name="overtimeMultiplier"
+            type="number"
+            defaultValue={editing?.overtimeMultiplier ?? ""}
+            min="1"
+            max="10"
+            step="0.01"
+            placeholder="1.50"
+          />
         </FormField>
         <FormField label={t(fr, "Bank name", "Banque")}>
-          <Input name="bankName" />
+          <Input name="bankName" defaultValue={editing?.bankName ?? ""} />
         </FormField>
         <FormField label={t(fr, "Account number", "Numéro de compte")}>
-          <Input name="bankAccount" />
+          <Input name="bankAccount" defaultValue={editing?.bankAccount ?? ""} />
         </FormField>
         <FormField label="Mobile money">
-          <Input name="mobileMoneyNumber" />
+          <Input
+            name="mobileMoneyNumber"
+            defaultValue={editing?.mobileMoneyNumber ?? ""}
+          />
         </FormField>
         <FormField label={t(fr, "Notes", "Notes")} className="sm:col-span-2">
-          <Textarea name="notes" rows={2} />
+          <Textarea name="notes" rows={2} defaultValue={editing?.notes ?? ""} />
         </FormField>
         {apiError(save.error) ? (
           <p className="sm:col-span-2 text-sm text-critical">
@@ -1589,10 +2559,12 @@ function CompensationDialog({
           <Button
             type="submit"
             loading={save.isPending}
-            disabled={!employees.length}
+            disabled={!availableEmployees.length && !editing}
           >
             <UserRound />
-            {t(fr, "Save salary", "Enregistrer le salaire")}
+            {editing
+              ? t(fr, "Save changes", "Enregistrer les modifications")
+              : t(fr, "Save salary", "Enregistrer le salaire")}
           </Button>
         </div>
       </form>
@@ -1604,18 +2576,41 @@ function AssignmentDialog({
   orgSlug,
   employees,
   components,
+  editing,
+  defaultEmployeeId,
   onClose,
 }: {
   fr: boolean;
   orgSlug: string;
   employees: Employee[];
   components: Component[];
+  editing: Assignment | null;
+  defaultEmployeeId?: string | null;
   onClose: () => void;
 }) {
   const client = useQueryClient();
+  const [effectiveFrom, setEffectiveFrom] = useState(
+    editing?.effectiveFrom ?? today(),
+  );
+  const [dateError, setDateError] = useState<string | null>(null);
+  const [selectedComponentId, setSelectedComponentId] = useState(
+    editing?.component.id ?? "",
+  );
+  const selectedComponent = components.find(
+    (component) => component.id === selectedComponentId,
+  );
+  const percentageBased =
+    selectedComponent?.calculation === "percentage_of_basic" ||
+    selectedComponent?.calculation === "percentage_of_gross";
+  const recoveryComponent = selectedComponent?.componentType === "deduction";
   const save = useMutation({
     mutationFn: (body: Record<string, unknown>) =>
-      post(orgUrl(orgSlug, "employee-payroll-components"), body),
+      editing
+        ? patch(
+            orgUrl(orgSlug, `employee-payroll-components/${editing.id}`),
+            body,
+          )
+        : post(orgUrl(orgSlug, "employee-payroll-components"), body),
     onSuccess: () => {
       void client.invalidateQueries({
         queryKey: ["employee-payroll-components", orgSlug],
@@ -1628,76 +2623,166 @@ function AssignmentDialog({
     const f = new FormData(event.currentTarget);
     const amount = String(f.get("amount") ?? "").trim(),
       percentage = String(f.get("percentage") ?? "").trim(),
-      recover = String(f.get("totalToRecover") ?? "").trim();
-    save.mutate({
-      employeeId: f.get("employeeId"),
-      componentId: f.get("componentId"),
-      amount: amount ? Number(amount) : null,
-      percentage: percentage ? Number(percentage) : null,
-      effectiveFrom: f.get("effectiveFrom"),
-      effectiveTo: String(f.get("effectiveTo") ?? "").trim() || null,
-      totalToRecover: recover ? Number(recover) : null,
-      recoveredToDate: 0,
-      isActive: true,
+      recover = String(f.get("totalToRecover") ?? "").trim(),
+      submittedFrom = String(f.get("effectiveFrom") ?? "").trim(),
+      submittedTo = String(f.get("effectiveTo") ?? "").trim();
+    if (submittedTo && submittedTo < submittedFrom) {
+      setDateError(
+        t(
+          fr,
+          "End date must be on or after the start date.",
+          "La date de fin doit être identique ou postérieure à la date de début.",
+        ),
+      );
+      return;
+    }
+    setDateError(null);
+    const values = {
+      // A fixed allowance uses an amount; a percentage component uses its
+      // percentage. Keeping the unused field null prevents old zero values
+      // from looking like an intentional personal override.
+      amount: percentageBased ? null : amount ? Number(amount) : null,
+      percentage: percentageBased && percentage ? Number(percentage) : null,
+      effectiveFrom: submittedFrom,
+      effectiveTo: submittedTo || null,
+      // Recovery limits have meaning only for deductions such as an advance.
+      totalToRecover: recoveryComponent && recover ? Number(recover) : null,
       notes: String(f.get("notes") ?? "").trim() || null,
-    });
+    };
+    save.mutate(
+      editing
+        ? values
+        : {
+            ...values,
+            employeeId: f.get("employeeId"),
+            componentId: f.get("componentId"),
+            recoveredToDate: 0,
+            isActive: true,
+          },
+    );
   };
   return (
     <Modal
-      title={t(fr, "Assign pay component", "Affecter une composante")}
+      title={t(
+        fr,
+        editing ? "Edit personal pay component" : "Assign pay component",
+        editing
+          ? "Modifier la composante personnelle"
+          : "Affecter une composante",
+      )}
       onClose={onClose}
     >
       <form onSubmit={submit} className="mt-5 grid gap-4 sm:grid-cols-2">
         <FormField label={t(fr, "Employee", "Employé")} required>
-          <select
-            name="employeeId"
-            required
-            defaultValue=""
-            className={selectClass}
-          >
-            <option value="">
-              {t(fr, "Choose an employee", "Choisir un employé")}
-            </option>
-            {employees.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.fullName} · #{e.employeeNumber}
+          {editing ? (
+            <div className="flex h-10 items-center rounded-lg border border-border bg-surface-2 px-3 text-sm text-ink">
+              {editing.employee.fullName} · #{editing.employee.employeeNumber}
+            </div>
+          ) : (
+            <select
+              name="employeeId"
+              required
+              defaultValue={defaultEmployeeId ?? ""}
+              className={selectClass}
+            >
+              <option value="">
+                {t(fr, "Choose an employee", "Choisir un employé")}
               </option>
-            ))}
-          </select>
-        </FormField>
-        <FormField label={t(fr, "Component", "Composante")} required>
-          <select
-            name="componentId"
-            required
-            defaultValue=""
-            className={selectClass}
-          >
-            <option value="">
-              {t(fr, "Choose a component", "Choisir une composante")}
-            </option>
-            {components
-              .filter((x) => x.isActive)
-              .map((x) => (
-                <option key={x.id} value={x.id}>
-                  {x.name} · {words(x.componentType)}
+              {employees.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.fullName} · #{e.employeeNumber}
                 </option>
               ))}
-          </select>
+            </select>
+          )}
         </FormField>
-        <FormField label={t(fr, "Amount override", "Montant personnalisé")}>
-          <Input name="amount" type="number" min="0" step="0.01" />
+        <FormField label={t(fr, "Component", "Composante")} required>
+          {editing ? (
+            <div className="flex h-10 items-center rounded-lg border border-border bg-surface-2 px-3 text-sm text-ink">
+              {editing.component.name} ·{" "}
+              {words(editing.component.componentType)}
+            </div>
+          ) : (
+            <select
+              name="componentId"
+              required
+              value={selectedComponentId}
+              onChange={(event) => {
+                setSelectedComponentId(event.target.value);
+                setDateError(null);
+                save.reset();
+              }}
+              className={selectClass}
+            >
+              <option value="">
+                {t(fr, "Choose a component", "Choisir une composante")}
+              </option>
+              {components
+                .filter((x) => x.isActive)
+                .map((x) => (
+                  <option key={x.id} value={x.id}>
+                    {x.name} · {words(x.componentType)}
+                  </option>
+                ))}
+            </select>
+          )}
         </FormField>
-        <FormField
-          label={t(fr, "Percentage override", "Pourcentage personnalisé")}
-        >
-          <Input
-            name="percentage"
-            type="number"
-            min="0"
-            max="1000"
-            step="0.01"
-          />
-        </FormField>
+        {editing && selectedComponent ? (
+          <div className="sm:col-span-2 rounded-xl border border-border bg-surface-2 px-4 py-3 text-sm">
+            <p className="font-medium text-ink">
+              {selectedComponent.name} · {editing.employee.fullName}
+            </p>
+            <p className="mt-1 text-ink-secondary">
+              {percentageBased
+                ? t(
+                    fr,
+                    `Template: ${selectedComponent.percentage ?? 0}%`,
+                    `Modèle : ${selectedComponent.percentage ?? 0}%`,
+                  )
+                : t(
+                    fr,
+                    `Template: ${selectedComponent.defaultAmount ?? 0}`,
+                    `Montant du modèle : ${selectedComponent.defaultAmount ?? 0}`,
+                  )}
+            </p>
+          </div>
+        ) : null}
+        {percentageBased ? (
+          <FormField
+            label={t(fr, "Percentage override", "Pourcentage personnalisé")}
+            hint={t(
+              fr,
+              "Leave blank to use the template percentage.",
+              "Laissez vide pour utiliser le pourcentage du modèle.",
+            )}
+          >
+            <Input
+              name="percentage"
+              type="number"
+              min="0"
+              max="1000"
+              step="0.01"
+              defaultValue={editing?.percentage ?? ""}
+            />
+          </FormField>
+        ) : (
+          <FormField
+            label={t(fr, "Amount override", "Montant personnalisé")}
+            hint={t(
+              fr,
+              "Leave blank to use the template amount.",
+              "Laissez vide pour utiliser le montant du modèle.",
+            )}
+          >
+            <Input
+              name="amount"
+              type="number"
+              min="0"
+              step="0.01"
+              defaultValue={editing?.amount ?? ""}
+            />
+          </FormField>
+        )}
         <FormField
           label={t(fr, "Effective from", "Applicable à partir du")}
           required
@@ -1705,29 +2790,59 @@ function AssignmentDialog({
           <Input
             name="effectiveFrom"
             type="date"
-            defaultValue={today()}
+            value={effectiveFrom}
+            onChange={(event) => {
+              setEffectiveFrom(event.target.value);
+              setDateError(null);
+              save.reset();
+            }}
             required
           />
         </FormField>
         <FormField label={t(fr, "Effective until", "Applicable jusqu’au")}>
-          <Input name="effectiveTo" type="date" />
+          <Input
+            name="effectiveTo"
+            type="date"
+            min={effectiveFrom}
+            defaultValue={editing?.effectiveTo ?? ""}
+            onChange={() => {
+              setDateError(null);
+              save.reset();
+            }}
+          />
         </FormField>
-        <FormField
-          label={t(fr, "Total to recover", "Total à récupérer")}
-          hint={t(
-            fr,
-            "For an advance repayment",
-            "Pour le remboursement d’une avance",
-          )}
-        >
-          <Input name="totalToRecover" type="number" min="0" step="0.01" />
-        </FormField>
+        {recoveryComponent ? (
+          <FormField
+            label={t(fr, "Total to recover", "Total à récupérer")}
+            hint={t(
+              fr,
+              "For an advance repayment only.",
+              "Uniquement pour le remboursement d’une avance.",
+            )}
+          >
+            <Input
+              name="totalToRecover"
+              type="number"
+              min="0"
+              step="0.01"
+              defaultValue={editing?.totalToRecover ?? ""}
+            />
+          </FormField>
+        ) : null}
         <FormField label={t(fr, "Notes", "Notes")} className="sm:col-span-2">
-          <Textarea name="notes" rows={3} />
+          <Textarea name="notes" rows={3} defaultValue={editing?.notes ?? ""} />
         </FormField>
-        {apiError(save.error) ? (
+        {dateError || apiError(save.error) ? (
           <p className="sm:col-span-2 text-sm text-critical">
-            {apiError(save.error)}
+            {dateError ??
+              (apiError(save.error) ===
+              "End date must be on or after the start date"
+                ? t(
+                    fr,
+                    "End date must be on or after the start date.",
+                    "La date de fin doit être identique ou postérieure à la date de début.",
+                  )
+                : apiError(save.error))}
           </p>
         ) : null}
         <div className="flex justify-end gap-2 sm:col-span-2">
@@ -1737,10 +2852,110 @@ function AssignmentDialog({
           <Button
             type="submit"
             loading={save.isPending}
-            disabled={!employees.length || !components.length}
+            disabled={!editing && (!employees.length || !components.length)}
           >
-            <Plus />
-            {t(fr, "Assign component", "Affecter")}
+            {editing ? <Settings2 /> : <Plus />}
+            {t(
+              fr,
+              editing ? "Save changes" : "Assign component",
+              editing ? "Enregistrer les modifications" : "Affecter",
+            )}
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+function EndComponentDialog({
+  fr,
+  orgSlug,
+  assignment,
+  onClose,
+}: {
+  fr: boolean;
+  orgSlug: string;
+  assignment: Assignment;
+  onClose: () => void;
+}) {
+  const client = useQueryClient();
+  const [effectiveTo, setEffectiveTo] = useState(
+    assignment.effectiveTo ?? today(),
+  );
+  const [dateError, setDateError] = useState<string | null>(null);
+  const save = useMutation({
+    mutationFn: (date: string) =>
+      patch(orgUrl(orgSlug, `employee-payroll-components/${assignment.id}`), {
+        effectiveTo: date,
+      }),
+    onSuccess: () => {
+      void client.invalidateQueries({
+        queryKey: ["employee-payroll-components", orgSlug],
+      });
+      onClose();
+    },
+  });
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (effectiveTo < assignment.effectiveFrom) {
+      setDateError(
+        t(
+          fr,
+          "The end date must be on or after the component start date.",
+          "La date de fin doit être identique ou postérieure à la date de début.",
+        ),
+      );
+      return;
+    }
+    setDateError(null);
+    save.mutate(effectiveTo);
+  };
+
+  return (
+    <Modal
+      title={t(fr, "End pay component", "Terminer la composante")}
+      onClose={onClose}
+    >
+      <form onSubmit={submit} className="mt-5 space-y-5">
+        <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm leading-6 text-ink-secondary">
+          <p className="font-semibold text-ink">
+            {assignment.component.name} · {assignment.employee.fullName}
+          </p>
+          <p className="mt-1">
+            {t(
+              fr,
+              "This component will no longer be included in payroll cycles that start after the selected end date. Existing payslips remain unchanged.",
+              "Cette composante ne sera plus prise en compte dans les cycles de paie qui commencent après la date de fin choisie. Les bulletins déjà calculés restent inchangés.",
+            )}
+          </p>
+        </div>
+        <FormField
+          label={t(fr, "Last applicable date", "Dernier jour applicable")}
+          required
+        >
+          <Input
+            type="date"
+            value={effectiveTo}
+            min={assignment.effectiveFrom}
+            onChange={(event) => {
+              setEffectiveTo(event.target.value);
+              setDateError(null);
+              save.reset();
+            }}
+            required
+          />
+        </FormField>
+        {dateError || apiError(save.error) ? (
+          <p className="text-sm text-critical">
+            {dateError ?? apiError(save.error)}
+          </p>
+        ) : null}
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="secondary" onClick={onClose}>
+            {t(fr, "Cancel", "Annuler")}
+          </Button>
+          <Button type="submit" loading={save.isPending}>
+            <X />
+            {t(fr, "End component", "Terminer la composante")}
           </Button>
         </div>
       </form>
@@ -1749,59 +2964,94 @@ function AssignmentDialog({
 }
 function PayslipDialog({
   fr,
+  orgSlug,
+  organization,
   item,
+  run,
+  downloadable,
   onClose,
 }: {
   fr: boolean;
+  orgSlug: string;
+  organization?: {
+    displayName?: string | null;
+    legalName?: string | null;
+    logoUrl?: string | null;
+  };
   item: Payslip;
+  run: PayrollRun;
+  downloadable: boolean;
   onClose: () => void;
 }) {
+  const organizationName =
+    organization?.displayName?.trim() ||
+    organization?.legalName?.trim() ||
+    orgSlug
+      .split("-")
+      .filter(Boolean)
+      .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
+      .join(" ");
+  const pdfUrl = orgApiUrl(
+    orgSlug,
+    "payslips/" + item.id + "/pdf?lang=" + (fr ? "fr" : "en"),
+  );
+
   return (
-    <Modal title={t(fr, "Payslip", "Bulletin de paie")} onClose={onClose}>
+    <Modal
+      title={t(fr, "Official payslip", "Bulletin de paie officiel")}
+      onClose={onClose}
+    >
       <div className="mt-5">
-        <div className="rounded-xl bg-surface-2 p-4">
-          <p className="font-semibold text-ink">{item.employee.fullName}</p>
-          <p className="mt-1 text-sm text-ink-secondary">
-            #{item.employee.employeeNumber} · {item.employee.jobTitle}
+        <PayslipStatement
+          fr={fr}
+          locale={fr ? "fr-FR" : "en-US"}
+          organization={{
+            name: organizationName,
+            logoUrl: organization?.logoUrl,
+          }}
+          employee={item.employee}
+          payslip={{
+            ...item,
+            reference: item.reference,
+            payrollRunReference: run.reference,
+            periodStart: run.periodStart,
+            periodEnd: run.periodEnd,
+            payDate: run.payDate,
+          }}
+          statusLabel={
+            run.status === "paid"
+              ? t(fr, "Paid", "Payé")
+              : t(fr, "Approved", "Approuvé")
+          }
+          statusHint={t(
+            fr,
+            "Issued from an approved company payroll cycle",
+            "Émis depuis un cycle de paie approuvé de l’entreprise",
+          )}
+        />
+      </div>
+      <div className="mt-5 flex flex-wrap justify-end gap-2">
+        {downloadable ? (
+          <a
+            href={pdfUrl}
+            download
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-brand-ink transition hover:bg-brand-hover"
+          >
+            <Download className="size-4" />
+            {t(fr, "Download PDF", "Télécharger le PDF")}
+          </a>
+        ) : (
+          <p className="self-center text-xs text-ink-secondary">
+            {t(
+              fr,
+              "The PDF becomes available after approval.",
+              "Le PDF devient disponible après approbation.",
+            )}
           </p>
-        </div>
-        <div className="mt-4 divide-y divide-border rounded-xl border border-border">
-          {item.lines.map((line) => (
-            <div
-              key={line.id}
-              className="flex items-start justify-between gap-3 p-3"
-            >
-              <div>
-                <p className="text-sm font-medium text-ink">{line.name}</p>
-                <p className="mt-1 text-xs text-ink-muted">
-                  {line.basis || words(line.type)}
-                </p>
-              </div>
-              <p className="text-sm font-semibold text-ink">
-                {money(line.amount, item.currency, fr)}
-              </p>
-            </div>
-          ))}
-        </div>
-        <div className="mt-4 grid gap-2 rounded-xl bg-brand/10 p-4 sm:grid-cols-3">
-          <Amount
-            label={t(fr, "Gross", "Brut")}
-            value={money(item.grossPay, item.currency, fr)}
-          />
-          <Amount
-            label={t(fr, "Deductions", "Retenues")}
-            value={money(item.totalDeductions, item.currency, fr)}
-          />
-          <Amount
-            label={t(fr, "Net pay", "Net à payer")}
-            value={money(item.netPay, item.currency, fr)}
-          />
-        </div>
-        <div className="mt-5 flex justify-end">
-          <Button variant="secondary" onClick={onClose}>
-            {t(fr, "Close", "Fermer")}
-          </Button>
-        </div>
+        )}
+        <Button variant="secondary" onClick={onClose}>
+          {t(fr, "Close", "Fermer")}
+        </Button>
       </div>
     </Modal>
   );

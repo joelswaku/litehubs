@@ -80,17 +80,18 @@ export function DailyWorkTemplateManager({
   const templates = useQuery({
     queryKey: ["daily-work-templates", orgSlug],
     queryFn: () =>
-      dailyWorkApi.templates.list<{ templates: Template[] }>(orgSlug, {
-        limit: 200,
-      }),
+      dailyWorkApi.templates
+        .list<{ templates: Template[] }>(orgSlug, { limit: 200 })
+        .then((data) => (Array.isArray(data.templates) ? data.templates : [])),
     enabled: can(user, "daily_operations.read"),
-    select: (data) => data.templates,
   });
   const sites = useQuery({
-    queryKey: ["sites", orgSlug],
-    queryFn: () => get<{ sites: Site[] }>(orgUrl(orgSlug, "sites")),
+    queryKey: ["daily-work-sites", orgSlug],
+    queryFn: () =>
+      get<{ sites: Site[] }>(orgUrl(orgSlug, "sites")).then((data) =>
+        Array.isArray(data.sites) ? data.sites : [],
+      ),
     enabled: can(user, "sites.read"),
-    select: (data) => data.sites,
   });
   const refresh = () =>
     client.invalidateQueries({ queryKey: ["daily-work-templates", orgSlug] });

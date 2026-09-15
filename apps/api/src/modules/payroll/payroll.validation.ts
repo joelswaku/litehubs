@@ -7,7 +7,13 @@ const requiredText = (max: number) => z.string().trim().min(1).max(max);
 const optionalText = (max: number) => requiredText(max).optional();
 const nullableText = (max: number) => optionalText(max).nullable();
 const money = z.coerce.number().finite().min(0).max(999_999_999_999);
-const nullableMoney = z.union([money, z.null()]).optional();
+const nullableMoney = z.union([z.null(), money]).optional();
+const nullableOvertimeMultiplier = z
+  .union([z.null(), z.coerce.number().min(1).max(10)])
+  .optional();
+const nullablePercentage = z
+  .union([z.null(), z.coerce.number().min(0).max(1000)])
+  .optional();
 const currency = z
   .string()
   .trim()
@@ -39,6 +45,7 @@ export const employeeComponentParams = organizationParams.extend({
   employeeComponentId: id,
 });
 export const runParams = organizationParams.extend({ runId: id });
+export const runExclusionParams = runParams.extend({ employeeId: id });
 export const payslipParams = organizationParams.extend({ payslipId: id });
 
 export const createComponentSchema = z
@@ -54,9 +61,7 @@ export const createComponentSchema = z
     name: requiredText(120),
     componentType,
     calculation: calculation.default("fixed"),
-    percentage: z
-      .union([z.coerce.number().min(0).max(1000), z.null()])
-      .optional(),
+    percentage: nullablePercentage,
     defaultAmount: nullableMoney,
     isTaxable: z.boolean().default(true),
     affectsGross: z.boolean().default(true),
@@ -93,9 +98,7 @@ export const updateComponentSchema = z
     name: requiredText(120).optional(),
     componentType: componentType.optional(),
     calculation: calculation.optional(),
-    percentage: z
-      .union([z.coerce.number().min(0).max(1000), z.null()])
-      .optional(),
+    percentage: nullablePercentage,
     defaultAmount: nullableMoney,
     isTaxable: z.boolean().optional(),
     affectsGross: z.boolean().optional(),
@@ -120,6 +123,7 @@ export const createCompensationSchema = z
     contractHoursPerWeek: z
       .union([z.coerce.number().positive().max(168), z.null()])
       .optional(),
+    overtimeMultiplier: nullableOvertimeMultiplier,
     paymentMethod: z
       .enum(["bank_transfer", "cash", "mobile_money", "cheque"])
       .default("bank_transfer"),
@@ -147,6 +151,7 @@ export const updateCompensationSchema = z
     contractHoursPerWeek: z
       .union([z.coerce.number().positive().max(168), z.null()])
       .optional(),
+    overtimeMultiplier: nullableOvertimeMultiplier,
     paymentMethod: z
       .enum(["bank_transfer", "cash", "mobile_money", "cheque"])
       .optional(),
@@ -173,9 +178,7 @@ export const createEmployeeComponentSchema = z
     employeeId: id,
     componentId: id,
     amount: nullableMoney,
-    percentage: z
-      .union([z.coerce.number().min(0).max(1000), z.null()])
-      .optional(),
+    percentage: nullablePercentage,
     effectiveFrom: date,
     effectiveTo: z.union([date, z.null()]).optional(),
     totalToRecover: nullableMoney,
@@ -193,9 +196,7 @@ export const createEmployeeComponentSchema = z
 export const updateEmployeeComponentSchema = z
   .object({
     amount: nullableMoney,
-    percentage: z
-      .union([z.coerce.number().min(0).max(1000), z.null()])
-      .optional(),
+    percentage: nullablePercentage,
     effectiveFrom: date.optional(),
     effectiveTo: z.union([date, z.null()]).optional(),
     totalToRecover: nullableMoney,
@@ -218,13 +219,9 @@ export const updateEmployeeComponentSchema = z
   );
 export const createRunSchema = z
   .object({
-    reference: z
-      .string()
-      .trim()
-      .regex(
-        /^[A-Za-z0-9][A-Za-z0-9_/-]{0,62}$/,
-        "Use letters, numbers, underscores, hyphens or slashes",
-      ),
+    // The server creates the official reference from the payroll period.
+    // Keep this optional for backwards-compatible API clients.
+    reference: z.string().trim().max(63).optional(),
     periodStart: date,
     periodEnd: date,
     payDate: date,
@@ -242,7 +239,18 @@ export const createRunSchema = z
   });
 export const updateRunSchema = z
   .object({
+    reference: z
+      .string()
+      .trim()
+      .regex(
+        /^[A-Za-z0-9][A-Za-z0-9_/-]{0,62}$/,
+        "Use letters, numbers, underscores, hyphens or slashes",
+      )
+      .optional(),
+    periodStart: date.optional(),
+    periodEnd: date.optional(),
     payDate: date.optional(),
+    currency: currency.optional(),
     provinceId: z.union([id, z.null()]).optional(),
     notes: nullableText(2_000),
     status: z.enum(["cancelled"]).optional(),
@@ -260,6 +268,10 @@ export const runQuery = z.object({
   status: payrollStatus.optional(),
   provinceId: id.optional(),
 });
+export const createRunExclusionSchema = z.object({
+  employeeId: id,
+  reason: nullableText(500),
+});
 
 export type CreateComponentInput = z.infer<typeof createComponentSchema>;
 export type UpdateComponentInput = z.infer<typeof updateComponentSchema>;
@@ -274,4 +286,5 @@ export type UpdateEmployeeComponentInput = z.infer<
 export type CreateRunInput = z.infer<typeof createRunSchema>;
 export type UpdateRunInput = z.infer<typeof updateRunSchema>;
 export type MarkPaidInput = z.infer<typeof markPaidSchema>;
+export type CreateRunExclusionInput = z.infer<typeof createRunExclusionSchema>;
 export type RunQuery = z.infer<typeof runQuery>;

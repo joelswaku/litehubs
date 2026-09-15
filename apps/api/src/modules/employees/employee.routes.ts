@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { authenticate } from "../../middleware/auth.middleware";
 import { requireOrganization } from "../../middleware/organization.middleware";
-import { requirePermission } from "../../middleware/permissions.middleware";
+import { requireActiveEmployeeProfile, requirePermission } from "../../middleware/permissions.middleware";
 import { validate } from "../../middleware/validation.middleware";
 import * as controller from "./employee.controller";
 import {
@@ -39,7 +39,7 @@ employeeRoutes.get(
 employeeRoutes.get(
   "/organizations/:orgSlug/my-account",
   ...inOrganization,
-  requirePermission("attendance.clock_self"),
+  requireActiveEmployeeProfile,
   controller.getMyAccount,
 );
 

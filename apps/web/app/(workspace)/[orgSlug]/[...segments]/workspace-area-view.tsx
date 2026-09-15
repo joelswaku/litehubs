@@ -14,6 +14,7 @@ import { ApprovalsControlArea } from "./approvals-control-area";
 import { DailyWorkArea } from "./daily-work-area";
 import { DisciplineArea } from "./discipline-area";
 import { PerformanceArea } from "./performance-area";
+import { MyPerformanceArea } from "./my-performance-area";
 import { PayrollArea } from "./payroll-area";
 import { AgricultureArea } from "./agriculture-area";
 import { VeterinaryArea } from "./veterinary-area";
@@ -49,7 +50,11 @@ export function WorkspaceAreaView({
   const user = useSessionUser();
   // Preserve the historic French singular URL while the canonical route remains
   // /appointments. Old bookmarks must not fall through to the generic screen.
-  const canonicalPath = ["/appointment", "/appointement", "/rendez-vous"].includes(path)
+  const canonicalPath = [
+    "/appointment",
+    "/appointement",
+    "/rendez-vous",
+  ].includes(path)
     ? "/appointments"
     : path;
   const item = WORKSPACE_NAV.flatMap((group) => group.items).find(
@@ -75,10 +80,10 @@ export function WorkspaceAreaView({
         <div className="max-w-md text-center">
           <ShieldCheck className="mx-auto size-9 text-ink-muted" aria-hidden />
           <h1 className="mt-3 text-lg font-semibold text-ink">
-            {t("workspace.nothingYet")}
+            {t("workspace.noAccess")}
           </h1>
           <p className="mt-2 text-sm leading-6 text-ink-secondary">
-            {t("workspace.nothingYetDescription")}
+            {t("workspace.noAccessDescription")}
           </p>
         </div>
       </main>
@@ -90,11 +95,25 @@ export function WorkspaceAreaView({
   if (path === "/veterinary") return <VeterinaryArea orgSlug={orgSlug} />;
   if (path === "/projects") return <ProjectsArea orgSlug={orgSlug} />;
   if (path === "/reports") return <ReportsArea orgSlug={orgSlug} />;
-  if (["/sales", "/customers", "/invoices", "/finance", "/finance/cash"].includes(path))
-    return <SalesFinanceArea orgSlug={orgSlug} area={path === "/finance/cash" ? "finance" : path.slice(1) as "sales" | "customers" | "invoices" | "finance"} />;
+  if (
+    ["/sales", "/customers", "/invoices", "/finance", "/finance/cash"].includes(
+      path,
+    )
+  )
+    return (
+      <SalesFinanceArea
+        orgSlug={orgSlug}
+        area={
+          path === "/finance/cash"
+            ? "finance"
+            : (path.slice(1) as "sales" | "customers" | "invoices" | "finance")
+        }
+      />
+    );
   if (path === "/alerts") return <AlertsArea orgSlug={orgSlug} />;
   if (path === "/notifications") return <NotificationsArea orgSlug={orgSlug} />;
-  if (canonicalPath === "/appointments") return <AppointmentsArea orgSlug={orgSlug} />;
+  if (canonicalPath === "/appointments")
+    return <AppointmentsArea orgSlug={orgSlug} />;
   if (path === "/careers") return <CareersArea orgSlug={orgSlug} />;
   if (path === "/incidents") return <IncidentsArea orgSlug={orgSlug} />;
   if (path === "/security") return <SecurityArea orgSlug={orgSlug} />;
@@ -109,15 +128,38 @@ export function WorkspaceAreaView({
   if (path === "/settings") return <MembersArea orgSlug={orgSlug} />;
   if (path === "/settings/sites") return <LocationsArea orgSlug={orgSlug} />;
   if (path === "/my-account") return <MyAccountArea orgSlug={orgSlug} />;
-  if (path === "/my-contracts") return <MyAccountArea orgSlug={orgSlug} initialSection="contracts" />;
+  if (path === "/my-schedule")
+    return <MyAccountArea orgSlug={orgSlug} initialSection="schedule" />;
+  if (path === "/my-leave") return <LeaveArea orgSlug={orgSlug} personal />;
+  if (path === "/my-attendance")
+    return <MyAccountArea orgSlug={orgSlug} initialSection="attendance" />;
+  if (path === "/my-payslips")
+    return <MyAccountArea orgSlug={orgSlug} initialSection="payslips" />;
+  if (path === "/my-pay-history")
+    return (
+      <MyAccountArea
+        orgSlug={orgSlug}
+        initialSection="payslips"
+        payslipView="history"
+      />
+    );
+  if (path === "/my-contracts")
+    return <MyAccountArea orgSlug={orgSlug} initialSection="contracts" />;
   if (path === "/employees") return <EmployeesArea orgSlug={orgSlug} />;
   if (path === "/leave") return <LeaveArea orgSlug={orgSlug} />;
   if (path === "/training") return <TrainingArea orgSlug={orgSlug} />;
   if (path === "/my-trainings") return <MyTrainingsArea orgSlug={orgSlug} />;
   if (path.startsWith("/my-trainings/"))
-    return <MyTrainingsArea orgSlug={orgSlug} assignmentId={path.slice("/my-trainings/".length)} />;
+    return (
+      <MyTrainingsArea
+        orgSlug={orgSlug}
+        assignmentId={path.slice("/my-trainings/".length)}
+      />
+    );
   if (path === "/contracts") return <ContractsArea orgSlug={orgSlug} />;
   if (path === "/audit") return <AuditArea orgSlug={orgSlug} />;
+  if (path === "/my-performance")
+    return <MyPerformanceArea orgSlug={orgSlug} />;
   if (path === "/performance") return <PerformanceArea orgSlug={orgSlug} />;
   if (path === "/payroll") return <PayrollArea orgSlug={orgSlug} />;
   if (path === "/disciplinary-actions")

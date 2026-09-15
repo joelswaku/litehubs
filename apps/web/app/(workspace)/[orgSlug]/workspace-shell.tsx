@@ -13,7 +13,7 @@ import { useSession } from "@/hooks/useAuth";
 import { useWorkspaceProfile } from "@/hooks/useWorkspace";
 import { get, orgUrl, setActiveOrganizationSlug } from "@/lib/api";
 import { WORKSPACE_NAV } from "@/lib/navigation";
-import { can } from "@/lib/permissions";
+import { notificationsApi } from "@/services/notification.service";
 import { useLanguage } from "@/providers/language-provider";
 import { NotificationProvider, useNotificationCenter } from "@/providers/notifications-provider";
 import { useSessionUser } from "@/stores/session-store";
@@ -36,6 +36,25 @@ export function WorkspaceShell({ orgSlug, children }: { orgSlug: string; childre
   return <NotificationProvider orgSlug={orgSlug}><WorkspaceChrome orgSlug={orgSlug}>{children}</WorkspaceChrome></NotificationProvider>;
 }
 
+/** Applies the member's saved workspace language after sign-in and when switching organizations. */
+function WorkspaceLanguagePreferenceSync({ orgSlug }: { orgSlug: string }) {
+  const { setLocale } = useLanguage();
+  const user = useSessionUser();
+  const preferences = useQuery({
+    queryKey: ["notification-preferences", orgSlug],
+    queryFn: () => notificationsApi.preferences(orgSlug),
+    enabled: Boolean(user),
+    retry: false,
+  });
+  const preferredLanguage = preferences.data?.profile.preferredLanguage;
+
+  useEffect(() => {
+    if (preferredLanguage === "fr" || preferredLanguage === "en") setLocale(preferredLanguage);
+  }, [preferredLanguage, setLocale]);
+
+  return null;
+}
+
 function WorkspaceChrome({ orgSlug, children }: { orgSlug: string; children: React.ReactNode }) {
   const { t } = useLanguage();
   const user = useSessionUser();
@@ -48,7 +67,7 @@ function WorkspaceChrome({ orgSlug, children }: { orgSlug: string; children: Rea
   const employeeProfile = useQuery({
     queryKey: ["training-current-employee", orgSlug, user?.id],
     queryFn: () => get<{ employee: { id: string } | null }>(orgUrl(orgSlug, "training-me")),
-    enabled: Boolean(user && can(user, "training.read")),
+    enabled: Boolean(user),
     retry: false,
   });
   const groups = useMemo(
@@ -58,12 +77,14 @@ function WorkspaceChrome({ orgSlug, children }: { orgSlug: string; children: Rea
         items: group.items.filter(
           (item) =>
             (!item.employeeProfileOnly || Boolean(employeeProfile.data?.employee)) &&
+            (!item.hideForEmployeeProfile || !Boolean(employeeProfile.data?.employee)) &&
             isSelectedOperationalNavigation(item.path, profile.data?.operationalServices),
         ),
       })),
     [employeeProfile.data?.employee, profile.data?.operationalServices],
   );
   return <div className="flex h-dvh overflow-hidden bg-page">
+    <WorkspaceLanguagePreferenceSync orgSlug={orgSlug} />
     <div className="hidden shrink-0 lg:block"><Sidebar groups={groups} basePath={basePath} counts={counts} /></div>
     <Drawer.Root open={mobileNavOpen} onOpenChange={setMobileNavOpen} direction="left">
       <Drawer.Portal><Drawer.Overlay className="fixed inset-0 z-40 bg-black/40" /><Drawer.Content className="fixed inset-y-0 left-0 z-50 w-60 outline-none lg:hidden"><Drawer.Title className="sr-only">{t("header.mainNavigation")}</Drawer.Title><Sidebar groups={groups} basePath={basePath} counts={counts} /></Drawer.Content></Drawer.Portal>

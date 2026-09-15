@@ -87,6 +87,28 @@ describe("Professional training journey", () => {
       },
     );
 
+    // Personal performance derives the employee from the authenticated
+    // membership. Supplying another id must not change the result.
+    const otherEmployeeId = await withTenantContext(
+      { organizationId, userId },
+      async (client) => {
+        const inserted = await client.query<{ id: string }>(
+          `INSERT INTO employees (organization_id,employee_number,full_name,job_title)
+             VALUES ($1,$2,$3,$4) RETURNING id`,
+          [organizationId, "90002", "Other employee", "Worker"],
+        );
+        return inserted.rows[0]!.id;
+      },
+    );
+    const mine = await authorized(
+      request(app).get(
+        `/api/v1/organizations/${slug}/my-performance?employeeId=${otherEmployeeId}`,
+      ),
+    );
+    expect(mine.status).toBe(200);
+    expect(mine.body.employees).toHaveLength(1);
+    expect(mine.body.employees[0].employee.id).toBe(employeeId);
+
     const created = await authorized(
       request(app).post(
         `/api/v1/organizations/${slug}/professional-training-courses`,
@@ -225,5 +247,28 @@ describe("Professional training journey", () => {
     );
     expect(certificate.status).toBe(200);
     expect(certificate.headers["content-type"]).toContain("application/pdf");
+
+    // The learner portal is profile-scoped, not catalogue-permission-scoped.
+    // Removing management/read grants must not prevent this linked employee
+    // from opening their own assigned course.
+    await withTenantContext({ organizationId, userId }, (client) =>
+      client.query(
+        `DELETE FROM role_permissions rp
+           USING roles r, permissions p
+          WHERE rp.organization_id=$1
+            AND rp.role_id=r.id
+            AND r.organization_id=$1
+            AND r.code='owner'
+            AND rp.permission_id=p.id
+            AND p.code IN ('training.read','training.update')`,
+        [organizationId],
+      ),
+    );
+    const learnerWithoutManagementPermission = await authorized(
+      request(app).get(
+        `/api/v1/organizations/${slug}/my-trainings/${assignmentId}/course`,
+      ),
+    );
+    expect(learnerWithoutManagementPermission.status).toBe(200);
   });
 });

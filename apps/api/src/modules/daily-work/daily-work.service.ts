@@ -72,6 +72,22 @@ async function ownEmployeeId(
   );
   return result.rows[0]?.id ?? null;
 }
+type EmployeeWorkLocation = {
+  id: string;
+  site_id: string | null;
+  province_id: string | null;
+  department_id: string | null;
+};
+async function ownEmployeeLocation(
+  client: PoolClient,
+  context: DailyWorkContext,
+): Promise<EmployeeWorkLocation | null> {
+  const result = await client.query<EmployeeWorkLocation>(
+    "SELECT id, site_id, province_id, department_id FROM employees WHERE organization_id = $1 AND member_id = $2 AND employment_status = 'active'",
+    [context.organizationId, context.memberId],
+  );
+  return result.rows[0] ?? null;
+}
 function addProvinceFilter(
   values: unknown[],
   conditions: string[],
@@ -109,7 +125,13 @@ async function siteLocation(
   );
   const provinceId = result.rows[0]?.province_id;
   if (!provinceId) throw new NotFoundError("Active site not found");
-  await assertProvince(client, context, provinceId);
+  if ((await scopeOf(client, context)) === "self") {
+    const employee = await ownEmployeeLocation(client, context);
+    if (!employee?.site_id || employee.site_id !== siteId)
+      throw new NotFoundError("Active site not found");
+  } else {
+    await assertProvince(client, context, provinceId);
+  }
   return { provinceId, siteId };
 }
 async function optionalLocation(
@@ -145,11 +167,17 @@ async function assertTemplate(
   id: string,
 ): Promise<Row> {
   const row = await record(client, context, "checklist_templates", id);
+  const scope = await scopeOf(client, context);
+  if (scope === "self") {
+    const employee = await ownEmployeeLocation(client, context);
+    if (!employee?.site_id || String(row.site_id ?? "") !== employee.site_id)
+      throw new NotFoundError("Checklist template not found");
+    return row;
+  }
   if (row.site_id) {
     const location = await siteLocation(client, context, String(row.site_id));
     await assertProvince(client, context, location.provinceId);
-  } else if ((await scopeOf(client, context)) === "self")
-    throw new NotFoundError("Checklist template not found");
+  }
   return row;
 }
 async function assertRun(
@@ -184,18 +212,26 @@ export async function listTemplates(
   input: DailyWorkQuery,
 ) {
   return withTenantContext(context, async (client) => {
-    const provinces = await provinceIds(client, context);
+    const scope = await scopeOf(client, context);
     const values: unknown[] = [context.organizationId];
     const conditions = ["t.organization_id = $1"];
-    if (input.siteId) {
-      values.push(input.siteId);
+    if (scope === "self") {
+      const employee = await ownEmployeeLocation(client, context);
+      if (!employee?.site_id) return [];
+      values.push(employee.site_id);
       conditions.push(`t.site_id = $${values.length}`);
-    }
-    if (provinces !== null) {
-      values.push(provinces);
-      conditions.push(
-        `(t.site_id IS NULL OR s.province_id = ANY($${values.length}::uuid[]))`,
-      );
+    } else {
+      const provinces = await provinceIds(client, context);
+      if (input.siteId) {
+        values.push(input.siteId);
+        conditions.push(`t.site_id = $${values.length}`);
+      }
+      if (provinces !== null) {
+        values.push(provinces);
+        conditions.push(
+          `(t.site_id IS NULL OR s.province_id = ANY($${values.length}::uuid[]))`,
+        );
+      }
     }
     const result = await client.query<Row>(
       `SELECT t.*, s.name AS site_name, d.name AS department_name, (SELECT count(*) FROM checklist_template_items i WHERE i.organization_id = t.organization_id AND i.template_id = t.id) AS item_count, COALESCE((SELECT json_agg(json_build_object('id', i.id, 'position', i.position, 'prompt', i.prompt, 'responseType', i.response_type, 'unit', i.unit, 'isRequired', i.is_required, 'criticalControlId', i.critical_control_id, 'guidance', i.guidance) ORDER BY i.position) FROM checklist_template_items i WHERE i.organization_id = t.organization_id AND i.template_id = t.id), '[]'::json) AS items FROM checklist_templates t LEFT JOIN sites s ON s.organization_id = t.organization_id AND s.id = t.site_id LEFT JOIN departments d ON d.organization_id = t.organization_id AND d.id = t.department_id WHERE ${conditions.join(" AND ")} ORDER BY t.domain, t.name`,
@@ -383,7 +419,7 @@ async function runDetail(
 ) {
   const run = await assertRun(client, context, id);
   const info = await client.query<Row>(
-    `SELECT r.*,t.name AS template_name,t.domain,s.name AS site_name,p.name AS province_name FROM checklist_runs r JOIN checklist_templates t ON t.organization_id=r.organization_id AND t.id=r.template_id LEFT JOIN sites s ON s.organization_id=r.organization_id AND s.id=r.site_id LEFT JOIN provinces p ON p.organization_id=r.organization_id AND p.id=r.province_id WHERE r.organization_id=$1 AND r.id=$2`,
+    `SELECT r.*,t.name AS template_name,t.domain,s.name AS site_name,p.name AS province_name,completed_employee.full_name AS completed_by_name,verified_user.full_name AS verified_by_name FROM checklist_runs r JOIN checklist_templates t ON t.organization_id=r.organization_id AND t.id=r.template_id LEFT JOIN sites s ON s.organization_id=r.organization_id AND s.id=r.site_id LEFT JOIN provinces p ON p.organization_id=r.organization_id AND p.id=r.province_id LEFT JOIN employees completed_employee ON completed_employee.organization_id=r.organization_id AND completed_employee.id=r.completed_by LEFT JOIN organization_members verified_member ON verified_member.organization_id=r.organization_id AND verified_member.id=r.verified_by LEFT JOIN users verified_user ON verified_user.id=verified_member.user_id WHERE r.organization_id=$1 AND r.id=$2`,
     [context.organizationId, id],
   );
   const items = await client.query<Row>(
@@ -418,7 +454,7 @@ export async function listRuns(
       conditions.push(`r.created_by_member_id=$${values.length}`);
     } else addProvinceFilter(values, conditions, provinces, "r.province_id");
     const result = await client.query<Row>(
-      `SELECT r.*,t.name AS template_name,t.domain,s.name AS site_name,p.name AS province_name FROM checklist_runs r JOIN checklist_templates t ON t.organization_id=r.organization_id AND t.id=r.template_id LEFT JOIN sites s ON s.organization_id=r.organization_id AND s.id=r.site_id LEFT JOIN provinces p ON p.organization_id=r.organization_id AND p.id=r.province_id WHERE ${conditions.join(" AND ")} ORDER BY r.work_date DESC,r.created_at DESC LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
+      `SELECT r.*,t.name AS template_name,t.domain,s.name AS site_name,p.name AS province_name,completed_employee.full_name AS completed_by_name,verified_user.full_name AS verified_by_name FROM checklist_runs r JOIN checklist_templates t ON t.organization_id=r.organization_id AND t.id=r.template_id LEFT JOIN sites s ON s.organization_id=r.organization_id AND s.id=r.site_id LEFT JOIN provinces p ON p.organization_id=r.organization_id AND p.id=r.province_id LEFT JOIN employees completed_employee ON completed_employee.organization_id=r.organization_id AND completed_employee.id=r.completed_by LEFT JOIN organization_members verified_member ON verified_member.organization_id=r.organization_id AND verified_member.id=r.verified_by LEFT JOIN users verified_user ON verified_user.id=verified_member.user_id WHERE ${conditions.join(" AND ")} ORDER BY r.work_date DESC,r.created_at DESC LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
       [...values, input.limit, input.offset],
     );
     return result.rows.map(mapRow);
@@ -435,11 +471,29 @@ export async function createRun(
         context,
         String(input.templateId),
       );
-      const siteId = String(input.siteId ?? template.site_id ?? "");
+      const requestedSiteId = String(input.siteId ?? "").trim();
+      const siteId = requestedSiteId || String(template.site_id ?? "");
       if (!siteId)
         throw new BadRequestError("Select a site for this checklist run");
       const location = await siteLocation(client, context, siteId);
       const workDate = String(input.workDate ?? today());
+      // A daily template has one auditable run per person, site and date.
+      // Returning the existing run makes repeated clicks safe and lets the
+      // employee reopen their completed or in-progress work instead of duplicating it.
+      if (String(template.frequency) === "daily") {
+        const existing = await client.query<{ id: string }>(
+          `SELECT id FROM checklist_runs WHERE organization_id=$1 AND template_id=$2 AND site_id=$3 AND work_date=$4::date AND created_by_member_id=$5 ORDER BY created_at DESC LIMIT 1`,
+          [
+            context.organizationId,
+            template.id,
+            siteId,
+            workDate,
+            context.memberId,
+          ],
+        );
+        if (existing.rows[0]?.id)
+          return runDetail(client, context, existing.rows[0].id);
+      }
       const result = await client.query<{ id: string }>(
         `INSERT INTO checklist_runs (organization_id,template_id,province_id,site_id,shift_id,work_date,notes,created_by_member_id,items_total) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,(SELECT count(*) FROM checklist_template_items WHERE organization_id=$1 AND template_id=$2)) RETURNING id`,
         [
@@ -626,15 +680,27 @@ export async function createReport(
   input: Record<string, unknown>,
 ) {
   return withTenantContext(context, async (client) => {
-    const level = String(input.reportLevel ?? "supervisor");
-    const location = await optionalLocation(
+    const scope = await scopeOf(client, context);
+    let level = String(input.reportLevel ?? "supervisor");
+    let location = await optionalLocation(
       client,
       context,
       input.siteId,
       input.provinceId,
     );
     let employeeId = input.employeeId ? String(input.employeeId) : null;
-    if (level === "employee") {
+    if (scope === "self") {
+      const employee = await ownEmployeeLocation(client, context);
+      if (!employee?.site_id || !employee.province_id)
+        throw new BadRequestError(
+          "Your employee record needs an assigned site before you can file a daily report",
+        );
+      if (input.siteId && String(input.siteId) !== employee.site_id)
+        throw new NotFoundError("Active site not found");
+      level = "employee";
+      employeeId = employee.id;
+      location = { provinceId: employee.province_id, siteId: employee.site_id };
+    } else if (level === "employee") {
       employeeId = await ownEmployeeId(client, context);
       if (!employeeId)
         throw new BadRequestError(
@@ -760,10 +826,11 @@ export async function listHandovers(
       values.push(query.siteId);
       conditions.push(`h.site_id=$${values.length}`);
     }
+    let currentEmployeeId: string | null = null;
     if (scope === "self") {
-      const employee = await ownEmployeeId(client, context);
-      if (!employee) return [];
-      values.push(employee);
+      currentEmployeeId = await ownEmployeeId(client, context);
+      if (!currentEmployeeId) return [];
+      values.push(currentEmployeeId);
       conditions.push(
         `(h.incoming_employee_id=$${values.length} OR h.outgoing_employee_id=$${values.length})`,
       );
@@ -772,7 +839,13 @@ export async function listHandovers(
       `SELECT h.*,s.name AS site_name,p.name AS province_name,outgoing.full_name AS outgoing_employee_name,incoming.full_name AS incoming_employee_name FROM shift_handovers h JOIN sites s ON s.organization_id=h.organization_id AND s.id=h.site_id LEFT JOIN provinces p ON p.organization_id=h.organization_id AND p.id=h.province_id LEFT JOIN employees outgoing ON outgoing.organization_id=h.organization_id AND outgoing.id=h.outgoing_employee_id LEFT JOIN employees incoming ON incoming.organization_id=h.organization_id AND incoming.id=h.incoming_employee_id WHERE ${conditions.join(" AND ")} ORDER BY h.work_date DESC,h.handed_over_at DESC LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
       [...values, query.limit, query.offset],
     );
-    return result.rows.map(mapRow);
+    return result.rows.map((row) => ({
+      ...mapRow(row),
+      canAcknowledge:
+        scope !== "self" ||
+        (Boolean(row.incoming_employee_id) &&
+          row.incoming_employee_id === currentEmployeeId),
+    }));
   });
 }
 export async function createHandover(
@@ -780,7 +853,20 @@ export async function createHandover(
   input: Record<string, unknown>,
 ) {
   return withTenantContext(context, async (client) => {
-    const location = await siteLocation(client, context, String(input.siteId));
+    const scope = await scopeOf(client, context);
+    const requestedSiteId = String(input.siteId ?? "").trim();
+    const employee = scope === "self"
+      ? await ownEmployeeLocation(client, context)
+      : null;
+    const siteId = requestedSiteId || employee?.site_id || "";
+    if (!siteId) throw new BadRequestError("Select a site for this handover");
+    const location = await siteLocation(client, context, siteId);
+    if (
+      employee &&
+      input.outgoingEmployeeId &&
+      String(input.outgoingEmployeeId) !== employee.id
+    )
+      throw new NotFoundError("Handover not found");
     const result = await client.query<Row>(
       `INSERT INTO shift_handovers (organization_id,work_date,province_id,site_id,outgoing_shift_id,incoming_shift_id,outgoing_employee_id,incoming_employee_id,summary,outstanding_work,urgent_items,equipment_status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
       [
@@ -790,7 +876,7 @@ export async function createHandover(
         location.siteId,
         input.outgoingShiftId ?? null,
         input.incomingShiftId ?? null,
-        input.outgoingEmployeeId ?? null,
+        employee?.id ?? input.outgoingEmployeeId ?? null,
         input.incomingEmployeeId ?? null,
         input.summary,
         input.outstandingWork ?? null,
@@ -814,6 +900,15 @@ export async function acknowledgeHandover(
       throw new BadRequestError(
         "Your account must be linked to an employee record to acknowledge a handover",
       );
+    if (String(handover.outgoing_employee_id ?? "") === employee)
+      throw new BadRequestError(
+        "The employee who sent this handover cannot acknowledge it",
+      );
+    if (
+      (await scopeOf(client, context)) === "self" &&
+      String(handover.incoming_employee_id ?? "") !== employee
+    )
+      throw new NotFoundError("Handover not found");
     await client.query(
       "UPDATE shift_handovers SET acknowledged_at=now(),acknowledged_by=$3 WHERE organization_id=$1 AND id=$2",
       [context.organizationId, id, employee],
