@@ -316,7 +316,8 @@ export function PoultryArea({ orgSlug }: { orgSlug: string }) {
         performance: "Performance",
         setup: "Configuration",
         flocks: "Lots en production",
-        flockSubtitle: "Sélectionnez un lot pour consulter son modèle, ses alertes et le travail à effectuer.",
+        flockSubtitle:
+          "Sélectionnez un lot pour consulter son modèle, ses alertes et le travail à effectuer.",
         house: "Bâtiment",
         site: "Site",
         survival: "Survie",
@@ -355,7 +356,8 @@ export function PoultryArea({ orgSlug }: { orgSlug: string }) {
         performance: "Performance",
         setup: "Setup",
         flocks: "Flocks in production",
-        flockSubtitle: "Select a flock to review its model, alerts and planned work.",
+        flockSubtitle:
+          "Select a flock to review its model, alerts and planned work.",
         house: "House",
         site: "Site",
         survival: "Survival",
@@ -379,6 +381,41 @@ export function PoultryArea({ orgSlug }: { orgSlug: string }) {
     can(user, "poultry." + permission[resource] + ".read");
   const create = (resource: Resource) =>
     can(user, "poultry." + permission[resource] + ".create");
+  // Field workers can record their assigned poultry work, but only operational
+  // managers can create, assign or approve work for the wider team.
+  const canGenerateWork =
+    create("daily-records") &&
+    Boolean(
+      user?.roles.some((role) =>
+        [
+          "owner",
+          "general_manager",
+          "provincial_manager",
+          "farm_manager",
+          "farm_operations_manager",
+          "supervisor",
+          "poultry_supervisor",
+        ].includes(role),
+      ),
+    );
+  const isPoultryFieldWorker =
+    Boolean(user?.roles.includes("poultry_worker")) &&
+    !Boolean(
+      user?.roles.some((role) =>
+        [
+          "owner",
+          "general_manager",
+          "provincial_manager",
+          "farm_manager",
+          "farm_operations_manager",
+          "supervisor",
+          "poultry_supervisor",
+        ].includes(role),
+      ),
+    );
+  // Operational roles can consult the production foundation. Mutation controls
+  // remain individually protected by the create, update and delete permissions.
+  const canViewPoultrySetup = read("houses") || read("flocks");
   const queryString = (resource: Resource) =>
     ["houses", "flocks", "production-targets"].includes(resource)
       ? ""
@@ -497,6 +534,9 @@ export function PoultryArea({ orgSlug }: { orgSlug: string }) {
     if (!flocks.some((flock) => flock.id === flockId))
       setFlockId(flocks[0]?.id ?? null);
   }, [flockId, flocks]);
+  useEffect(() => {
+    if (tab === "setup" && !canViewPoultrySetup) setTab("overview");
+  }, [canViewPoultrySetup, tab]);
   const performance = useQuery({
     queryKey: ["poultry-performance", orgSlug, flockId, reportDate],
     queryFn: () =>
@@ -508,6 +548,7 @@ export function PoultryArea({ orgSlug }: { orgSlug: string }) {
     enabled:
       Boolean(flockId) &&
       flocks.some((flock) => flock.id === flockId) &&
+      !isPoultryFieldWorker &&
       read("flocks"),
     select: (data) => data.performance,
   });
@@ -823,7 +864,7 @@ export function PoultryArea({ orgSlug }: { orgSlug: string }) {
                 </select>
               </label>
             }
-            {flockId && eligibleAssignees.length ? (
+            {canGenerateWork && flockId && eligibleAssignees.length ? (
               <label className="grid gap-1 text-xs font-medium text-cyan-100">
                 <span>{fr ? "Employé pour les tâches" : "Task employee"}</span>
                 <select
@@ -846,7 +887,7 @@ export function PoultryArea({ orgSlug }: { orgSlug: string }) {
                 </select>
               </label>
             ) : null}
-            {flockId && create("daily-records") ? (
+            {flockId && canGenerateWork ? (
               <Button
                 className="border border-white/15 bg-white text-emerald-900 hover:bg-emerald-50"
                 onClick={() => generate.mutate()}
@@ -941,21 +982,23 @@ export function PoultryArea({ orgSlug }: { orgSlug: string }) {
             ["performance", copy.performance],
             ["setup", copy.setup],
           ] as Array<[Tab, string]>
-        ).map(([value, name]) => (
-          <button
-            type="button"
-            key={value}
-            onClick={() => setTab(value)}
-            className={
-              "h-9 shrink-0 rounded-lg px-3 text-sm font-medium transition-colors " +
-              (tab === value
-                ? "bg-brand text-white shadow-sm"
-                : "text-ink-secondary hover:bg-surface-2 hover:text-ink")
-            }
-          >
-            {name}
-          </button>
-        ))}
+        )
+          .filter(([value]) => value !== "setup" || canViewPoultrySetup)
+          .map(([value, name]) => (
+            <button
+              type="button"
+              key={value}
+              onClick={() => setTab(value)}
+              className={
+                "h-9 shrink-0 rounded-lg px-3 text-sm font-medium transition-colors " +
+                (tab === value
+                  ? "bg-brand text-white shadow-sm"
+                  : "text-ink-secondary hover:bg-surface-2 hover:text-ink")
+              }
+            >
+              {name}
+            </button>
+          ))}
       </nav>
       {error ? (
         <p
@@ -1144,13 +1187,13 @@ export function PoultryArea({ orgSlug }: { orgSlug: string }) {
             data={performance.data}
             loading={performance.isPending}
             failed={performance.isError}
+            restricted={isPoultryFieldWorker}
             retry={() => performance.refetch()}
             work={work.data ?? []}
             workLoading={work.isPending}
-            canGenerate={create("daily-records")}
+            canGenerate={canGenerateWork}
             canApprove={
-              can(user, "poultry.daily_records.update") &&
-              !user?.roles.includes("employee")
+              canGenerateWork && can(user, "poultry.daily_records.update")
             }
             busy={
               generate.isPending || finish.isPending || approveWork.isPending
@@ -1167,11 +1210,13 @@ export function PoultryArea({ orgSlug }: { orgSlug: string }) {
               id: employee.member!.memberId,
               label: `${employee.employeeNumber} · ${employee.fullName}`,
             }))}
-            allowed={create("daily-records")}
+            allowed={canGenerateWork}
           />
         </>
       ) : null}
-      {tab === "setup" ? <PoultrySetupView orgSlug={orgSlug} /> : null}
+      {tab === "setup" && canViewPoultrySetup ? (
+        <PoultrySetupView orgSlug={orgSlug} />
+      ) : null}
       {flockDetailOpen && chosen ? (
         <FlockDetailsModal
           copy={copy}
@@ -1181,13 +1226,14 @@ export function PoultryArea({ orgSlug }: { orgSlug: string }) {
           failed={performance.isError}
           retry={() => performance.refetch()}
           work={work.data ?? []}
-workLoading={work.isPending}
+          workLoading={work.isPending}
           orgSlug={orgSlug}
           houses={list("houses") as House[]}
           models={models.data ?? []}
           canEdit={can(user, "poultry.flocks.update")}
           onUpdated={refresh}
-          onClose={() => setFlockDetailOpen(false)}        />
+          onClose={() => setFlockDetailOpen(false)}
+        />
       ) : null}
     </main>
   );
@@ -1589,9 +1635,13 @@ function Overview({
                 const mortality = num(flock.totalMortality);
                 const initialBirds = num(flock.initialBirdCount);
                 const currentBirds = num(flock.currentBirdCount);
-                const survival = initialBirds > 0
-                  ? Math.max(0, Math.min(100, (currentBirds / initialBirds) * 100))
-                  : null;
+                const survival =
+                  initialBirds > 0
+                    ? Math.max(
+                        0,
+                        Math.min(100, (currentBirds / initialBirds) * 100),
+                      )
+                    : null;
                 const needsReview = mortality > 0;
                 return (
                   <button
@@ -1629,7 +1679,8 @@ function Overview({
                               {flock.name}
                             </p>
                             <p className="mt-1 truncate text-xs font-medium text-ink-muted">
-                              {flock.code} · {label(flock.productionType ?? flock.birdType)}
+                              {flock.code} ·{" "}
+                              {label(flock.productionType ?? flock.birdType)}
                             </p>
                           </div>
                         </div>
@@ -1647,12 +1698,19 @@ function Overview({
                       </div>
 
                       <div className="mt-4 flex items-start gap-2 rounded-xl border border-border bg-surface-2/70 px-3 py-2.5">
-                        <MapPin className="mt-0.5 size-3.5 shrink-0 text-brand" aria-hidden />
+                        <MapPin
+                          className="mt-0.5 size-3.5 shrink-0 text-brand"
+                          aria-hidden
+                        />
                         <p className="min-w-0 text-xs leading-5 text-ink-secondary">
-                          <span className="font-semibold text-ink">{copy.house}: </span>
+                          <span className="font-semibold text-ink">
+                            {copy.house}:{" "}
+                          </span>
                           {flock.house?.name ?? "—"}
                           <span className="px-1.5 text-ink-muted">·</span>
-                          <span className="font-semibold text-ink">{copy.site}: </span>
+                          <span className="font-semibold text-ink">
+                            {copy.site}:{" "}
+                          </span>
                           {flock.site?.name ?? flock.province?.name ?? "—"}
                         </p>
                       </div>
@@ -1660,7 +1718,11 @@ function Overview({
                       <div className="mt-4 grid grid-cols-3 divide-x divide-border overflow-hidden rounded-xl border border-border bg-surface-2/45">
                         <FlockMetric
                           label={copy.birds}
-                          value={formatQuantity(flock.currentBirdCount, null, 0)}
+                          value={formatQuantity(
+                            flock.currentBirdCount,
+                            null,
+                            0,
+                          )}
                         />
                         <FlockMetric
                           label={copy.mortality}
@@ -1669,13 +1731,18 @@ function Overview({
                         />
                         <FlockMetric
                           label={copy.survival}
-                          value={survival == null ? "—" : formatPercent(survival)}
+                          value={
+                            survival == null ? "—" : formatPercent(survival)
+                          }
                         />
                       </div>
                     </div>
                     <div className="flex items-center justify-between border-t border-border bg-surface-2/55 px-4 py-3 text-xs font-semibold text-brand transition-colors group-hover:bg-brand-subtle/45">
                       <span>{copy.openFlock}</span>
-                      <ChevronRight className="size-4 transition-transform group-hover:translate-x-0.5" aria-hidden />
+                      <ChevronRight
+                        className="size-4 transition-transform group-hover:translate-x-0.5"
+                        aria-hidden
+                      />
                     </div>
                   </button>
                 );
@@ -1684,7 +1751,8 @@ function Overview({
           ) : (
             <EmptyState title={copy.noRecords} icon={Bird} />
           )}
-        </Panel>        <Recent title={copy.recent} data={recent} empty={copy.noRecords} />
+        </Panel>{" "}
+        <Recent title={copy.recent} data={recent} empty={copy.noRecords} />
       </div>
       <aside className="space-y-5">
         <Panel
@@ -1716,7 +1784,6 @@ function Overview({
                   </p>
                 </div>
               ))}
-
             </div>
           ) : (
             <div className="rounded-xl bg-good/10 p-5 text-center">
@@ -1762,7 +1829,7 @@ function FlockDetailsModal({
   failed,
   retry,
   work,
-workLoading,
+  workLoading,
   orgSlug,
   houses,
   models,
@@ -1776,7 +1843,7 @@ workLoading,
   loading: boolean;
   failed: boolean;
   retry: () => void;
-work: Work[];
+  work: Work[];
   workLoading: boolean;
   orgSlug: string;
   houses: House[];
@@ -1837,7 +1904,7 @@ work: Work[];
       aria-label={fr ? "Détails du lot" : "Flock details"}
     >
       <div className="mx-auto my-4 w-full max-w-5xl rounded-2xl border border-border bg-surface-1 shadow-2xl">
-{editing ? (
+        {editing ? (
           <FlockQuickEditModal
             orgSlug={orgSlug}
             flock={flock}
@@ -1846,9 +1913,13 @@ work: Work[];
             currentModelName={data?.model?.name ?? null}
             fr={fr}
             onCancel={() => setEditing(false)}
-            onSaved={() => { setEditing(false); onUpdated(); }}
+            onSaved={() => {
+              setEditing(false);
+              onUpdated();
+            }}
           />
-        ) : null}        <header className="flex flex-wrap items-start justify-between gap-4 border-b border-border bg-[linear-gradient(110deg,#effdf7,#f0f9ff)] px-5 py-5 sm:px-6">
+        ) : null}{" "}
+        <header className="flex flex-wrap items-start justify-between gap-4 border-b border-border bg-[linear-gradient(110deg,#effdf7,#f0f9ff)] px-5 py-5 sm:px-6">
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-[.14em] text-brand">
               {fr ? "Fiche du lot" : "Flock profile"}
@@ -1874,16 +1945,23 @@ work: Work[];
               {flock.house?.name ?? "—"}
             </p>
           </div>
-<div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <a
-              href={orgApiUrl(orgSlug, `poultry/flocks/${flock.id}/profile.pdf`)}
+              href={orgApiUrl(
+                orgSlug,
+                `poultry/flocks/${flock.id}/profile.pdf`,
+              )}
               className="inline-flex h-9 items-center gap-2 rounded-md border border-border-strong bg-surface-1 px-3 text-sm font-medium text-ink transition hover:bg-surface-2"
             >
               <Download className="size-4" aria-hidden />
               PDF
             </a>
             {canEdit ? (
-              <Button type="button" variant="secondary" onClick={() => setEditing(true)}>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setEditing(true)}
+              >
                 <Pencil aria-hidden />
                 {fr ? "Modifier" : "Edit"}
               </Button>
@@ -2217,7 +2295,9 @@ function FlockQuickEditModal({
           : "The flock could not be updated."
         : null;
   const matchingModels = models.filter(
-    (model) => model.productionType === poultryType && (model.isActive || model.id === flock.performanceModelId),
+    (model) =>
+      model.productionType === poultryType &&
+      (model.isActive || model.id === flock.performanceModelId),
   );
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -2230,11 +2310,19 @@ function FlockQuickEditModal({
     const arrivalDate = value("arrivalDate");
     const threshold = Number(value("mortalityReviewThreshold"));
     if (!name || !code || !houseId || !arrivalDate) {
-      setFormError(fr ? "Complétez les champs obligatoires indiqués." : "Complete the required fields.");
+      setFormError(
+        fr
+          ? "Complétez les champs obligatoires indiqués."
+          : "Complete the required fields.",
+      );
       return;
     }
     if (!Number.isInteger(threshold) || threshold < 1) {
-      setFormError(fr ? "Le seuil de mortalité doit être au moins 1." : "The mortality threshold must be at least 1.");
+      setFormError(
+        fr
+          ? "Le seuil de mortalité doit être au moins 1."
+          : "The mortality threshold must be at least 1.",
+      );
       return;
     }
     setFormError(null);
@@ -2258,30 +2346,196 @@ function FlockQuickEditModal({
     });
   }
 
-  const selectClass = "h-9 w-full rounded-md border border-border-strong bg-surface-1 px-3 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-brand/35";
+  const selectClass =
+    "h-9 w-full rounded-md border border-border-strong bg-surface-1 px-3 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-brand/35";
   return (
-    <div className="fixed inset-0 z-[60] overflow-y-auto bg-ink/55 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={fr ? "Modifier le lot" : "Edit flock"}>
-      <form onSubmit={submit} noValidate className="mx-auto my-5 w-full max-w-3xl rounded-2xl border border-border bg-surface-1 shadow-2xl">
-        <header className="flex items-start justify-between gap-4 border-b border-border bg-surface-2 px-5 py-4 sm:px-6"><div><p className="text-xs font-semibold uppercase tracking-[.14em] text-brand">{fr ? "Configuration du lot" : "Flock configuration"}</p><h3 className="mt-1 text-xl font-semibold text-ink">{fr ? "Modifier le lot" : "Edit flock"}</h3><p className="mt-1 text-xs leading-5 text-ink-secondary">{fr ? "Les comptages, mortalités et historiques restent inchangés." : "Counts, mortality and operational history remain unchanged."}</p></div><Button type="button" variant="ghost" onClick={onCancel}><X aria-hidden />{fr ? "Fermer" : "Close"}</Button></header>
+    <div
+      className="fixed inset-0 z-[60] overflow-y-auto bg-ink/55 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-label={fr ? "Modifier le lot" : "Edit flock"}
+    >
+      <form
+        onSubmit={submit}
+        noValidate
+        className="mx-auto my-5 w-full max-w-3xl rounded-2xl border border-border bg-surface-1 shadow-2xl"
+      >
+        <header className="flex items-start justify-between gap-4 border-b border-border bg-surface-2 px-5 py-4 sm:px-6">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[.14em] text-brand">
+              {fr ? "Configuration du lot" : "Flock configuration"}
+            </p>
+            <h3 className="mt-1 text-xl font-semibold text-ink">
+              {fr ? "Modifier le lot" : "Edit flock"}
+            </h3>
+            <p className="mt-1 text-xs leading-5 text-ink-secondary">
+              {fr
+                ? "Les comptages, mortalités et historiques restent inchangés."
+                : "Counts, mortality and operational history remain unchanged."}
+            </p>
+          </div>
+          <Button type="button" variant="ghost" onClick={onCancel}>
+            <X aria-hidden />
+            {fr ? "Fermer" : "Close"}
+          </Button>
+        </header>
         <div className="grid gap-4 p-5 sm:grid-cols-2 sm:p-6">
-          <Field label={fr ? "Nom du lot" : "Flock name"} required><Input name="name" defaultValue={flock.name} required /></Field>
-          <Field label={fr ? "Code du lot" : "Flock code"} required hint={fr ? "Minuscules, chiffres et tirets bas." : "Lowercase letters, numbers and underscores."}><Input name="code" defaultValue={flock.code} required /></Field>
-          <Field label={fr ? "Type de volaille" : "Poultry type"} required><select name="productionType" value={poultryType} onChange={(event) => setPoultryType(event.target.value)} className={selectClass}>{["broiler", "layer", "breeder"].map((type) => <option value={type} key={type}>{label(type)}</option>)}</select></Field>
-          <Field label={fr ? "Bâtiment" : "House"} required><select name="houseId" defaultValue={flock.house?.id ?? ""} className={selectClass} required>{houses.map((house) => <option key={house.id} value={house.id}>{house.name} · {house.capacity ?? "—"} {fr ? "places" : "capacity"}</option>)}</select></Field>
-          <Field label={fr ? "Modèle de performance" : "Performance model"}><select name="performanceModelId" defaultValue={flock.performanceModelId ?? ""} className={selectClass}><option value="">{fr ? "Aucun modèle attribué" : "No model assigned"}</option>{flock.performanceModelId && !matchingModels.some((model) => model.id === flock.performanceModelId) ? <option value={flock.performanceModelId}>{currentModelName ?? (fr ? "Modèle actuellement attribué" : "Current assigned model")}</option> : null}{matchingModels.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}</select></Field>
-          <Field label={fr ? "Race / souche" : "Breed / strain"}><Input name="breed" defaultValue={flock.breed ?? ""} /></Field>
-          <Field label={fr ? "Fournisseur / couvoir" : "Supplier / hatchery"}><Input name="sourceName" defaultValue={flock.sourceName ?? ""} /></Field>
-          <Field label={fr ? "Source des poussins" : "Chick source"}><Input name="chickSource" defaultValue={flock.chickSource ?? ""} /></Field>
-          <Field label={fr ? "Sexe" : "Sex"}><select name="sex" defaultValue={flock.sex ?? "mixed"} className={selectClass}><option value="mixed">{fr ? "Mixte" : "Mixed"}</option><option value="female">{fr ? "Femelle" : "Female"}</option><option value="male">{fr ? "Mâle" : "Male"}</option></select></Field>
-          <Field label={fr ? "Date d’arrivée" : "Arrival date"} required><Input name="arrivalDate" type="date" defaultValue={flock.arrivalDate ?? ""} required /></Field>
-          <Field label={fr ? "Date d’éclosion" : "Hatch date"}><Input name="hatchDate" type="date" defaultValue={flock.hatchDate ?? ""} /></Field>
-          <Field label={fr ? "Fin prévue" : "Expected end"}><Input name="expectedProductionEndDate" type="date" defaultValue={flock.expectedProductionEndDate ?? ""} /></Field>
-          <Field label={fr ? "Âge au départ (jours)" : "Starting age (days)"}><Input name="startingAgeDays" type="number" min="0" max="1000" defaultValue={flock.startingAgeDays ?? 0} /></Field>
-          <Field label={fr ? "Seuil de revue de mortalité" : "Mortality review threshold"} required><Input name="mortalityReviewThreshold" type="number" min="1" step="1" defaultValue={flock.mortalityReviewThreshold ?? 1} required /></Field>
-          <Field label={fr ? "Notes" : "Notes"} className="sm:col-span-2"><Textarea name="notes" defaultValue={flock.notes ?? ""} rows={3} /></Field>
+          <Field label={fr ? "Nom du lot" : "Flock name"} required>
+            <Input name="name" defaultValue={flock.name} required />
+          </Field>
+          <Field
+            label={fr ? "Code du lot" : "Flock code"}
+            required
+            hint={
+              fr
+                ? "Minuscules, chiffres et tirets bas."
+                : "Lowercase letters, numbers and underscores."
+            }
+          >
+            <Input name="code" defaultValue={flock.code} required />
+          </Field>
+          <Field label={fr ? "Type de volaille" : "Poultry type"} required>
+            <select
+              name="productionType"
+              value={poultryType}
+              onChange={(event) => setPoultryType(event.target.value)}
+              className={selectClass}
+            >
+              {["broiler", "layer", "breeder"].map((type) => (
+                <option value={type} key={type}>
+                  {label(type)}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label={fr ? "Bâtiment" : "House"} required>
+            <select
+              name="houseId"
+              defaultValue={flock.house?.id ?? ""}
+              className={selectClass}
+              required
+            >
+              {houses.map((house) => (
+                <option key={house.id} value={house.id}>
+                  {house.name} · {house.capacity ?? "—"}{" "}
+                  {fr ? "places" : "capacity"}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label={fr ? "Modèle de performance" : "Performance model"}>
+            <select
+              name="performanceModelId"
+              defaultValue={flock.performanceModelId ?? ""}
+              className={selectClass}
+            >
+              <option value="">
+                {fr ? "Aucun modèle attribué" : "No model assigned"}
+              </option>
+              {flock.performanceModelId &&
+              !matchingModels.some(
+                (model) => model.id === flock.performanceModelId,
+              ) ? (
+                <option value={flock.performanceModelId}>
+                  {currentModelName ??
+                    (fr
+                      ? "Modèle actuellement attribué"
+                      : "Current assigned model")}
+                </option>
+              ) : null}
+              {matchingModels.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label={fr ? "Race / souche" : "Breed / strain"}>
+            <Input name="breed" defaultValue={flock.breed ?? ""} />
+          </Field>
+          <Field label={fr ? "Fournisseur / couvoir" : "Supplier / hatchery"}>
+            <Input name="sourceName" defaultValue={flock.sourceName ?? ""} />
+          </Field>
+          <Field label={fr ? "Source des poussins" : "Chick source"}>
+            <Input name="chickSource" defaultValue={flock.chickSource ?? ""} />
+          </Field>
+          <Field label={fr ? "Sexe" : "Sex"}>
+            <select
+              name="sex"
+              defaultValue={flock.sex ?? "mixed"}
+              className={selectClass}
+            >
+              <option value="mixed">{fr ? "Mixte" : "Mixed"}</option>
+              <option value="female">{fr ? "Femelle" : "Female"}</option>
+              <option value="male">{fr ? "Mâle" : "Male"}</option>
+            </select>
+          </Field>
+          <Field label={fr ? "Date d’arrivée" : "Arrival date"} required>
+            <Input
+              name="arrivalDate"
+              type="date"
+              defaultValue={flock.arrivalDate ?? ""}
+              required
+            />
+          </Field>
+          <Field label={fr ? "Date d’éclosion" : "Hatch date"}>
+            <Input
+              name="hatchDate"
+              type="date"
+              defaultValue={flock.hatchDate ?? ""}
+            />
+          </Field>
+          <Field label={fr ? "Fin prévue" : "Expected end"}>
+            <Input
+              name="expectedProductionEndDate"
+              type="date"
+              defaultValue={flock.expectedProductionEndDate ?? ""}
+            />
+          </Field>
+          <Field label={fr ? "Âge au départ (jours)" : "Starting age (days)"}>
+            <Input
+              name="startingAgeDays"
+              type="number"
+              min="0"
+              max="1000"
+              defaultValue={flock.startingAgeDays ?? 0}
+            />
+          </Field>
+          <Field
+            label={
+              fr ? "Seuil de revue de mortalité" : "Mortality review threshold"
+            }
+            required
+          >
+            <Input
+              name="mortalityReviewThreshold"
+              type="number"
+              min="1"
+              step="1"
+              defaultValue={flock.mortalityReviewThreshold ?? 1}
+              required
+            />
+          </Field>
+          <Field label={fr ? "Notes" : "Notes"} className="sm:col-span-2">
+            <Textarea name="notes" defaultValue={flock.notes ?? ""} rows={3} />
+          </Field>
         </div>
-        {formError || serverError ? <p className="mx-5 mb-4 rounded-xl border border-critical/25 bg-critical/10 px-3 py-2 text-sm text-critical sm:mx-6" role="alert">{formError ?? serverError}</p> : null}
-        <footer className="flex flex-wrap justify-end gap-2 border-t border-border px-5 py-4 sm:px-6"><Button type="button" variant="ghost" onClick={onCancel}>{fr ? "Annuler" : "Cancel"}</Button><Button type="submit" loading={update.isPending}>{fr ? "Enregistrer les modifications" : "Save changes"}</Button></footer>
+        {formError || serverError ? (
+          <p
+            className="mx-5 mb-4 rounded-xl border border-critical/25 bg-critical/10 px-3 py-2 text-sm text-critical sm:mx-6"
+            role="alert"
+          >
+            {formError ?? serverError}
+          </p>
+        ) : null}
+        <footer className="flex flex-wrap justify-end gap-2 border-t border-border px-5 py-4 sm:px-6">
+          <Button type="button" variant="ghost" onClick={onCancel}>
+            {fr ? "Annuler" : "Cancel"}
+          </Button>
+          <Button type="submit" loading={update.isPending}>
+            {fr ? "Enregistrer les modifications" : "Save changes"}
+          </Button>
+        </footer>
       </form>
     </div>
   );
@@ -2836,7 +3090,6 @@ function HealthView({
                     Icon={Icon}
                   />
                 ))}
-
             </div>
           ) : (
             <EmptyState title={copy.noRecords} icon={Icon} />
@@ -2933,8 +3186,7 @@ function operationalWorkText(item: Work, fr: boolean) {
     },
     egg_collection: {
       title: "Collecter et trier les œufs",
-      details:
-        "Enregistrez les œufs totaux, cassés, sales et rejetés du jour.",
+      details: "Enregistrez les œufs totaux, cassés, sales et rejetés du jour.",
     },
     vaccination: {
       title: "Effectuer la vaccination prévue",
@@ -2962,10 +3214,12 @@ function operationalWorkText(item: Work, fr: boolean) {
         "Sélectionnez un modèle compatible afin de calculer les objectifs d’aliment, eau, poids, mortalité et vaccination.",
     },
   };
-  return content[item.workType ?? ""] ?? {
-    title: item.title,
-    details: item.details,
-  };
+  return (
+    content[item.workType ?? ""] ?? {
+      title: item.title,
+      details: item.details,
+    }
+  );
 }
 function OperationalAnalysis({
   brief,
@@ -3036,7 +3290,9 @@ function OperationalAnalysis({
               <Sparkles className="size-4" aria-hidden />
             </span>
             <p className="text-sm font-semibold text-ink">
-              {fr ? "Analyse opérationnelle du jour" : "Today’s operational analysis"}
+              {fr
+                ? "Analyse opérationnelle du jour"
+                : "Today’s operational analysis"}
             </p>
           </div>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-ink-secondary">
@@ -3111,6 +3367,7 @@ function PerformanceView({
   data,
   loading,
   failed,
+  restricted,
   retry,
   work,
   workLoading,
@@ -3126,6 +3383,7 @@ function PerformanceView({
   data?: Performance;
   loading: boolean;
   failed: boolean;
+  restricted: boolean;
   retry: () => void;
   work: Work[];
   workLoading: boolean;
@@ -3156,6 +3414,22 @@ function PerformanceView({
         <Skeleton className="h-[450px]" />
         <Skeleton className="h-[450px]" />
       </div>
+    );
+  if (restricted)
+    return (
+      <section className="rounded-2xl border border-brand/20 bg-gradient-to-br from-brand-subtle via-surface-1 to-sky-500/10 p-6 shadow-sm">
+        <Badge variant="info">
+          {fr ? "Suivi superviseur" : "Supervisor review"}
+        </Badge>
+        <h2 className="mt-4 text-xl font-semibold text-ink">
+          {fr ? "Analyse de performance" : "Performance analysis"}
+        </h2>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-ink-secondary">
+          {fr
+            ? "Vos relevés terrain servent au calcul. Les objectifs, comparaisons et recommandations sont vérifiés par votre superviseur."
+            : "Your field records feed the calculation. Targets, comparisons and recommendations are reviewed by your supervisor."}
+        </p>
+      </section>
     );
   if (failed || !data)
     return (
@@ -3298,7 +3572,8 @@ function PerformanceView({
             </div>
           </div>
         </section>
-        <OperationalAnalysis brief={data.operationalBrief} fr={fr} />        <Panel
+        <OperationalAnalysis brief={data.operationalBrief} fr={fr} />{" "}
+        <Panel
           title={copy.recommendations}
           subtitle={
             fr
@@ -3343,7 +3618,6 @@ function PerformanceView({
                   </div>
                 </div>
               ))}
-
             </div>
           ) : (
             <EmptyState
@@ -3381,96 +3655,96 @@ function PerformanceView({
               {work.map((item) => {
                 const text = operationalWorkText(item, fr);
                 return (
-                <div
-                  className="rounded-xl border border-border p-3"
-                  key={item.id}
-                >
-                  <div className="flex gap-3">
-                    <span
-                      className={
-                        "mt-0.5 grid size-7 shrink-0 place-items-center rounded-full " +
-                        (item.status === "completed"
-                          ? "bg-good/15 text-good-ink"
-                          : "bg-brand-subtle text-brand")
-                      }
-                    >
-                      <Check className="size-3.5" aria-hidden />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-ink">
-                        {text.title}
-                      </p>
-                      {text.details ? (
-                        <p className="mt-1 text-xs leading-5 text-ink-secondary">
-                          {text.details}
+                  <div
+                    className="rounded-xl border border-border p-3"
+                    key={item.id}
+                  >
+                    <div className="flex gap-3">
+                      <span
+                        className={
+                          "mt-0.5 grid size-7 shrink-0 place-items-center rounded-full " +
+                          (item.status === "completed"
+                            ? "bg-good/15 text-good-ink"
+                            : "bg-brand-subtle text-brand")
+                        }
+                      >
+                        <Check className="size-3.5" aria-hidden />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-ink">
+                          {text.title}
                         </p>
-                      ) : null}
-                      {item.assignedMember ? (
-                        <p className="mt-2 text-xs font-medium text-ink-secondary">
-                          {item.assignedMember.fullName ??
-                            "Assigned team member"}
-                        </p>
-                      ) : (
-                        <p className="mt-2 text-xs text-warning-ink">
-                          {fr ? "Non assigne" : "Unassigned"}
-                        </p>
-                      )}
-                      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Badge
-                            variant={
-                              item.status === "completed"
-                                ? "good"
-                                : item.status === "overdue"
-                                  ? "critical"
-                                  : "info"
-                            }
-                          >
-                            {label(item.status)}
-                          </Badge>
-                          {item.requiresSupervisorApproval ? (
+                        {text.details ? (
+                          <p className="mt-1 text-xs leading-5 text-ink-secondary">
+                            {text.details}
+                          </p>
+                        ) : null}
+                        {item.assignedMember ? (
+                          <p className="mt-2 text-xs font-medium text-ink-secondary">
+                            {item.assignedMember.fullName ??
+                              "Assigned team member"}
+                          </p>
+                        ) : (
+                          <p className="mt-2 text-xs text-warning-ink">
+                            {fr ? "Non assigne" : "Unassigned"}
+                          </p>
+                        )}
+                        <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             <Badge
                               variant={
-                                item.approvalStatus === "approved"
+                                item.status === "completed"
                                   ? "good"
-                                  : item.approvalStatus === "returned"
-                                    ? "warning"
-                                    : "neutral"
+                                  : item.status === "overdue"
+                                    ? "critical"
+                                    : "info"
                               }
                             >
-                              {label(item.approvalStatus ?? "pending")}
+                              {label(item.status)}
                             </Badge>
-                          ) : null}
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {item.status !== "completed" && canGenerate ? (
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              onClick={() => complete(item.id)}
-                              loading={busy}
-                            >
-                              {copy.complete}
-                            </Button>
-                          ) : null}
-                          {item.status === "completed" &&
-                          item.requiresSupervisorApproval &&
-                          item.approvalStatus === "pending" &&
-                          canApprove ? (
-                            <Button
-                              size="sm"
-                              onClick={() => approve(item.id)}
-                              loading={busy}
-                            >
-                              {fr ? "Approuver" : "Approve"}
-                            </Button>
-                          ) : null}
+                            {item.requiresSupervisorApproval ? (
+                              <Badge
+                                variant={
+                                  item.approvalStatus === "approved"
+                                    ? "good"
+                                    : item.approvalStatus === "returned"
+                                      ? "warning"
+                                      : "neutral"
+                                }
+                              >
+                                {label(item.approvalStatus ?? "pending")}
+                              </Badge>
+                            ) : null}
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {item.status !== "completed" && canGenerate ? (
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={() => complete(item.id)}
+                                loading={busy}
+                              >
+                                {copy.complete}
+                              </Button>
+                            ) : null}
+                            {item.status === "completed" &&
+                            item.requiresSupervisorApproval &&
+                            item.approvalStatus === "pending" &&
+                            canApprove ? (
+                              <Button
+                                size="sm"
+                                onClick={() => approve(item.id)}
+                                loading={busy}
+                              >
+                                {fr ? "Approuver" : "Approve"}
+                              </Button>
+                            ) : null}
+                          </div>
                         </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              );
+                );
               })}
             </div>
           ) : (
@@ -3525,7 +3799,6 @@ function PerformanceView({
                   </div>
                 </div>
               ))}
-
             </div>
           ) : (
             <EmptyState
@@ -3641,7 +3914,6 @@ function SetupView({
                   </p>
                 </div>
               ))}
-
             </div>
           ) : (
             <EmptyState title="No houses configured." icon={Bird} />
@@ -3678,7 +3950,6 @@ function SetupView({
                   </p>
                 </div>
               ))}
-
             </div>
           ) : (
             <EmptyState
@@ -3716,7 +3987,6 @@ function SetupView({
                   </p>
                 </div>
               ))}
-
             </div>
           ) : (
             <EmptyState title="No weekly targets yet." icon={Scale} />

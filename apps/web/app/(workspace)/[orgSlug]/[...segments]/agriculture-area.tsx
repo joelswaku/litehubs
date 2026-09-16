@@ -361,7 +361,9 @@ function normalizedCode(value: unknown, prefix: string) {
   const withPrefix = /^[a-z]/.test(normalized)
     ? normalized
     : `${prefix}_${normalized}`;
-  return (withPrefix.replace(/_+/g, "_").slice(0, 63).replace(/_+$/g, "") || undefined);
+  return (
+    withPrefix.replace(/_+/g, "_").slice(0, 63).replace(/_+$/g, "") || undefined
+  );
 }
 
 export function AgricultureArea({ orgSlug }: { orgSlug: string }) {
@@ -369,7 +371,25 @@ export function AgricultureArea({ orgSlug }: { orgSlug: string }) {
   const { locale } = useLanguage();
   const client = useQueryClient();
   const fr = locale === "fr";
-  const [area, setArea] = useState<Area>("setup");
+  const isAgricultureFieldWorker =
+    Boolean(user?.roles.includes("agriculture_worker")) &&
+    !Boolean(
+      user?.roles.some((role) =>
+        [
+          "owner",
+          "general_manager",
+          "provincial_manager",
+          "farm_manager",
+          "farm_operations_manager",
+          "supervisor",
+          "agriculture_supervisor",
+          "agronomist",
+        ].includes(role),
+      ),
+    );
+  const [area, setArea] = useState<Area>(() =>
+    isAgricultureFieldWorker ? "fieldwork" : "setup",
+  );
   const [resource, setResource] = useState<AgricultureResource>("farms");
   const [siteId, setSiteId] = useState("");
   const [editor, setEditor] = useState<Editor | null>(null);
@@ -486,8 +506,25 @@ export function AgricultureArea({ orgSlug }: { orgSlug: string }) {
           ? "Une action n’a pas pu être enregistrée."
           : "An action could not be saved."
         : null;
+  const availableAreas = useMemo(
+    () =>
+      (["setup", "planning", "fieldwork", "monitoring"] as Area[]).filter(
+        (candidate) =>
+          (!isAgricultureFieldWorker ||
+            (candidate !== "setup" && candidate !== "planning")) &&
+          areaResources[candidate].some((item) =>
+            can(user, `agriculture.${permissionResource[item]}.read`),
+          ),
+      ),
+    [isAgricultureFieldWorker, user],
+  );
   const visible = areaResources[area].filter((item) => canDo(item, "read"));
   const items = records(resource);
+
+  useEffect(() => {
+    if (!availableAreas.includes(area))
+      setArea(availableAreas[0] ?? "fieldwork");
+  }, [area, availableAreas]);
 
   if (!AGRICULTURE_RESOURCES.some((item) => canDo(item, "read")))
     return (
@@ -538,32 +575,38 @@ export function AgricultureArea({ orgSlug }: { orgSlug: string }) {
                     {fr ? "Tous les sites" : "All sites"}
                   </option>
                   {sites.data.map((site) => (
-                    <option key={site.id} value={site.id} className="bg-surface-1 text-ink">
+                    <option
+                      key={site.id}
+                      value={site.id}
+                      className="bg-surface-1 text-ink"
+                    >
                       {site.name}
                     </option>
                   ))}
                 </select>
               </label>
             ) : null}
-            <Button
-              size="sm"
-              className="border-white/20 bg-white text-emerald-900 hover:bg-lime-50"
-              disabled={!canDo("farms", "create")}
-              onClick={() => setEditor({ resource: "farms" })}
-            >
-              <Plus />
-              {fr ? "Ajouter une ferme" : "Add farm"}
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="border-white/25 bg-white/10 text-white hover:bg-white/20 hover:text-white"
-              disabled={!canDo("plantings", "create")}
-              onClick={() => setEditor({ resource: "plantings" })}
-            >
-              <Plus />
-              {fr ? "Nouvelle plantation" : "New planting"}
-            </Button>
+            {canDo("farms", "create") ? (
+              <Button
+                size="sm"
+                className="border-white/20 bg-white text-emerald-900 hover:bg-lime-50"
+                onClick={() => setEditor({ resource: "farms" })}
+              >
+                <Plus />
+                {fr ? "Ajouter une ferme" : "Add farm"}
+              </Button>
+            ) : null}
+            {canDo("plantings", "create") ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-white/25 bg-white/10 text-white hover:bg-white/20 hover:text-white"
+                onClick={() => setEditor({ resource: "plantings" })}
+              >
+                <Plus />
+                {fr ? "Nouvelle plantation" : "New planting"}
+              </Button>
+            ) : null}
           </div>
         </div>
         <div className="relative mt-7 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -624,22 +667,20 @@ export function AgricultureArea({ orgSlug }: { orgSlug: string }) {
             className="mt-3 grid grid-cols-2 gap-1.5 rounded-2xl border border-border-strong/70 bg-surface-2/75 p-1.5"
             aria-label={fr ? "Espaces agricoles" : "Agriculture areas"}
           >
-            {(["setup", "planning", "fieldwork", "monitoring"] as Area[]).map(
-              (item) => (
-                <button
-                  key={item}
-                  type="button"
-                  aria-pressed={area === item}
-                  onClick={() => setArea(item)}
-                  className={`flex min-h-11 items-center gap-2 rounded-xl border px-2.5 text-left text-xs font-semibold transition ${area === item ? "border-brand/20 bg-surface-1 text-brand shadow-sm" : "border-transparent text-ink-secondary hover:border-border hover:bg-surface-1 hover:text-ink"}`}
-                >
-                  <span
-                    className={`size-1.5 shrink-0 rounded-full ${area === item ? "bg-brand" : "bg-ink-muted/45"}`}
-                  />
-                  <span className="truncate">{areaName(item, fr)}</span>
-                </button>
-              ),
-            )}
+            {availableAreas.map((item) => (
+              <button
+                key={item}
+                type="button"
+                aria-pressed={area === item}
+                onClick={() => setArea(item)}
+                className={`flex min-h-11 items-center gap-2 rounded-xl border px-2.5 text-left text-xs font-semibold transition ${area === item ? "border-brand/20 bg-surface-1 text-brand shadow-sm" : "border-transparent text-ink-secondary hover:border-border hover:bg-surface-1 hover:text-ink"}`}
+              >
+                <span
+                  className={`size-1.5 shrink-0 rounded-full ${area === item ? "bg-brand" : "bg-ink-muted/45"}`}
+                />
+                <span className="truncate">{areaName(item, fr)}</span>
+              </button>
+            ))}
           </nav>
           <div className="mt-4 border-t border-border-strong/75 pt-4">
             <div className="flex items-center justify-between gap-2 px-2">

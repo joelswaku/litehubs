@@ -16,7 +16,10 @@ INSERT INTO role_presets (code, name, description, level, is_owner_role, sort_or
   ('storekeeper',      'Storekeeper',      'Inventory, warehouses and stock movements',         50, false, 90),
   ('security_officer', 'Security Officer', 'Gate register, visitors and asset movements',       50, false, 100),
   ('employee',                  'Employee',               'Records own daily work and views own data',                         90, false, 110),
-  ('appointment_receptionist',  'Reception & Appointments','Receives visitors and manages site appointments and live queues',    55, false, 105)
+  ('appointment_receptionist',  'Reception & Appointments','Receives visitors and manages site appointments and live queues',    55, false, 105),
+  ('poultry_worker',            'Poultry Worker',         'Records assigned-site poultry checks and field data',                85, false, 112),
+  ('pig_worker',                'Pig Worker',             'Records assigned-site pig checks and field data',                    85, false, 113),
+  ('agriculture_worker',        'Agriculture Worker',     'Records assigned-site crop and field work',                          85, false, 114)
 ON CONFLICT (code) DO UPDATE
   SET name          = EXCLUDED.name,
       description   = EXCLUDED.description,
@@ -61,6 +64,8 @@ INSERT INTO role_preset_permissions (role_preset_code, permission_code)
 SELECT 'supervisor', p.code FROM permissions p
  WHERE (p.action = 'read'
         AND (p.module_code IN ('poultry', 'pigs', 'agriculture', 'inventory')
+             AND p.resource NOT IN ('poultry.performance_models',
+                                    'poultry.climate_profiles')
              OR p.resource IN ('tasks', 'projects', 'daily_operations', 'employees',
                                'attendance', 'shifts', 'alerts', 'reports',
                                'critical_controls')))
@@ -132,18 +137,108 @@ SELECT 'security_officer', p.code FROM permissions p
     OR (p.action = 'read' AND p.resource IN ('equipment', 'vehicles'))
 ON CONFLICT DO NOTHING;
 
--- Employee: records their own daily work, sees their own tasks.
+-- Employee: personal workspace only. Production access is added by selecting
+-- a Poultry Worker, Pig Worker or Agriculture Worker role for that person.
 INSERT INTO role_preset_permissions (role_preset_code, permission_code)
 SELECT 'employee', p.code FROM permissions p
  WHERE (p.action = 'read'
-        AND p.resource IN ('tasks', 'projects', 'daily_operations',
+        AND p.resource IN ('tasks', 'daily_operations',
                            'attendance', 'leave', 'notifications'))
     OR (p.action = 'create'
-        AND (p.resource LIKE '%.daily_records'
-             OR p.resource IN ('daily_operations', 'leave', 'incidents')))
+        AND p.resource IN ('daily_operations', 'leave', 'incidents'))
     OR p.code IN ('tasks.update', 'attendance.clock_self')
 ON CONFLICT DO NOTHING;
 
+
+-- Production workers: the owner assigns one or more of these roles to an employee.
+WITH worker_permissions(role_code, permission_code) AS (
+  VALUES
+    ('poultry_worker', 'poultry.houses.read'),
+    ('poultry_worker', 'poultry.flocks.read'),
+    ('poultry_worker', 'poultry.daily_records.read'),
+    ('poultry_worker', 'poultry.daily_records.create'),
+    ('poultry_worker', 'poultry.daily_records.update'),
+    ('poultry_worker', 'poultry.mortality.read'),
+    ('poultry_worker', 'poultry.mortality.create'),
+    ('poultry_worker', 'poultry.mortality.update'),
+    ('poultry_worker', 'poultry.feed.read'),
+    ('poultry_worker', 'poultry.feed.create'),
+    ('poultry_worker', 'poultry.feed.update'),
+    ('poultry_worker', 'poultry.water.read'),
+    ('poultry_worker', 'poultry.water.create'),
+    ('poultry_worker', 'poultry.water.update'),
+    ('poultry_worker', 'poultry.weights.read'),
+    ('poultry_worker', 'poultry.weights.create'),
+    ('poultry_worker', 'poultry.weights.update'),
+    ('poultry_worker', 'poultry.eggs.read'),
+    ('poultry_worker', 'poultry.eggs.create'),
+    ('poultry_worker', 'poultry.eggs.update'),
+    ('poultry_worker', 'poultry.health.read'),
+    ('poultry_worker', 'poultry.health.create'),
+    ('poultry_worker', 'poultry.sanitation.read'),
+    ('poultry_worker', 'poultry.sanitation.create'),
+    ('poultry_worker', 'poultry.sanitation.update'),
+    ('poultry_worker', 'poultry.biosecurity.read'),
+    ('poultry_worker', 'poultry.biosecurity.create'),
+    ('poultry_worker', 'poultry.biosecurity.update'),
+    ('poultry_worker', 'poultry.losses.read'),
+    ('poultry_worker', 'poultry.losses.create'),
+    ('poultry_worker', 'poultry.losses.update'),
+
+    ('pig_worker', 'pigs.pens.read'),
+    ('pig_worker', 'pigs.groups.read'),
+    ('pig_worker', 'pigs.animals.read'),
+    ('pig_worker', 'pigs.daily_records.read'),
+    ('pig_worker', 'pigs.daily_records.create'),
+    ('pig_worker', 'pigs.daily_records.update'),
+    ('pig_worker', 'pigs.feed.read'),
+    ('pig_worker', 'pigs.feed.create'),
+    ('pig_worker', 'pigs.feed.update'),
+    ('pig_worker', 'pigs.water.read'),
+    ('pig_worker', 'pigs.water.create'),
+    ('pig_worker', 'pigs.water.update'),
+    ('pig_worker', 'pigs.weights.read'),
+    ('pig_worker', 'pigs.weights.create'),
+    ('pig_worker', 'pigs.weights.update'),
+    ('pig_worker', 'pigs.mortality.read'),
+    ('pig_worker', 'pigs.mortality.create'),
+    ('pig_worker', 'pigs.mortality.update'),
+    ('pig_worker', 'pigs.health.read'),
+    ('pig_worker', 'pigs.health.create'),
+    ('pig_worker', 'pigs.losses.read'),
+    ('pig_worker', 'pigs.losses.create'),
+    ('pig_worker', 'pigs.losses.update'),
+
+    ('agriculture_worker', 'agriculture.farms.read'),
+    ('agriculture_worker', 'agriculture.fields.read'),
+    ('agriculture_worker', 'agriculture.plots.read'),
+    ('agriculture_worker', 'agriculture.crops.read'),
+    ('agriculture_worker', 'agriculture.seasons.read'),
+    ('agriculture_worker', 'agriculture.plantings.read'),
+    ('agriculture_worker', 'agriculture.operations.read'),
+    ('agriculture_worker', 'agriculture.operations.create'),
+    ('agriculture_worker', 'agriculture.operations.update'),
+    ('agriculture_worker', 'agriculture.irrigation.read'),
+    ('agriculture_worker', 'agriculture.irrigation.create'),
+    ('agriculture_worker', 'agriculture.irrigation.update'),
+    ('agriculture_worker', 'agriculture.scouting.read'),
+    ('agriculture_worker', 'agriculture.scouting.create'),
+    ('agriculture_worker', 'agriculture.scouting.update'),
+    ('agriculture_worker', 'agriculture.weather.read'),
+    ('agriculture_worker', 'agriculture.weather.create'),
+    ('agriculture_worker', 'agriculture.weather.update'),
+    ('agriculture_worker', 'agriculture.harvest.read'),
+    ('agriculture_worker', 'agriculture.harvest.create'),
+    ('agriculture_worker', 'agriculture.harvest.update'),
+    ('agriculture_worker', 'agriculture.losses.read'),
+    ('agriculture_worker', 'agriculture.losses.create'),
+    ('agriculture_worker', 'agriculture.losses.update')
+)
+INSERT INTO role_preset_permissions (role_preset_code, permission_code)
+SELECT wanted.role_code, p.code
+  FROM worker_permissions wanted
+  JOIN permissions p ON p.code = wanted.permission_code
+ON CONFLICT DO NOTHING;
 
 -- ------------------------------------------------ Congo Omega role set ----
 -- These roles are for the Mixed Farm template used by Congo Omega. They do not
@@ -151,7 +246,7 @@ ON CONFLICT DO NOTHING;
 
 UPDATE role_presets
    SET data_scope = CASE
-     WHEN code = 'employee' THEN 'self'
+     WHEN code IN ('employee', 'poultry_worker', 'pig_worker', 'agriculture_worker') THEN 'self'
      WHEN code IN ('farm_manager', 'supervisor', 'veterinarian', 'agronomist',
                    'storekeeper', 'security_officer', 'appointment_receptionist') THEN 'province'
      ELSE 'organization'
@@ -232,7 +327,15 @@ ON CONFLICT DO NOTHING;
 INSERT INTO role_preset_permissions (role_preset_code, permission_code)
 SELECT 'poultry_supervisor', p.code
   FROM permissions p
- WHERE (p.module_code = 'poultry' AND p.action IN ('create', 'read', 'update'))
+ WHERE ((p.module_code = 'poultry'
+         AND p.action IN ('create', 'read', 'update')
+         AND p.resource NOT IN ('poultry.houses', 'poultry.flocks',
+                                'poultry.production_targets',
+                                'poultry.performance_models',
+                                'poultry.climate_profiles'))
+       OR (p.resource IN ('poultry.houses', 'poultry.flocks',
+                          'poultry.production_targets')
+           AND p.action = 'read'))
     OR (p.action = 'read'
         AND p.resource IN ('sites', 'departments', 'employees', 'supervisors',
                            'attendance', 'shifts', 'tasks', 'daily_operations',

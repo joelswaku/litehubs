@@ -192,9 +192,10 @@ export function PoultryConfigurationTools({
     scheduleSave.error,
     scheduleDelete.error,
   ].find(Boolean);
+  const canCreateClimate = can(user, "poultry.climate_profiles.create");
+  const canCreateModel = can(user, "poultry.performance_models.create");
   const writeClimate =
-    can(user, "poultry.climate_profiles.create") ||
-    can(user, "poultry.climate_profiles.update");
+    canCreateClimate || can(user, "poultry.climate_profiles.update");
   const deleteClimate = can(user, "poultry.climate_profiles.delete");
   const writeSchedule = can(user, "poultry.performance_models.update");
 
@@ -219,7 +220,7 @@ export function PoultryConfigurationTools({
               )}
             </p>
           </div>
-          {can(user, "poultry.climate_profiles.create") ? (
+          {canCreateClimate ? (
             <Button size="sm" onClick={() => setDialog({ kind: "climate" })}>
               <Plus />
               {tr("Add profile", "Ajouter un profil")}
@@ -316,16 +317,24 @@ export function PoultryConfigurationTools({
         ) : (
           <EmptyState
             title={tr(
-              "No climate profile configured.",
-              "Aucun profil climatique configure.",
+              canCreateClimate
+                ? "No climate profile configured."
+                : "Climate profiles are managed by the responsible team.",
+              canCreateClimate
+                ? "Aucun profil climatique configure."
+                : "Les profils climatiques sont gérés par l équipe responsable.",
             )}
             description={tr(
-              "Create a profile for local heat, humidity and seasonal operating conditions.",
-              "Creez un profil pour la chaleur, humidite et les conditions saisonnieres locales.",
+              canCreateClimate
+                ? "Create a profile for local heat, humidity and seasonal operating conditions."
+                : "Authorized managers maintain regional climate conditions. Your field records remain available to the team.",
+              canCreateClimate
+                ? "Creez un profil pour la chaleur, humidite et les conditions saisonnieres locales."
+                : "Les responsables autorisés définissent les conditions climatiques régionales. Vos relevés terrain restent disponibles pour l équipe.",
             )}
             icon={CloudSun}
             action={
-              can(user, "poultry.climate_profiles.create")
+              canCreateClimate
                 ? {
                     label: "Add profile",
                     onClick: () => setDialog({ kind: "climate" }),
@@ -456,8 +465,12 @@ export function PoultryConfigurationTools({
                   "Aucun calendrier vaccinal configure.",
                 )}
                 description={tr(
-                  "Add vaccine requirements by bird age for this model.",
-                  "Ajoutez les besoins vaccinaux par age des oiseaux pour ce modele.",
+                  writeSchedule
+                    ? "Add vaccine requirements by bird age for this model."
+                    : "Vaccine requirements will appear here when an authorized manager configures this model.",
+                  writeSchedule
+                    ? "Ajoutez les besoins vaccinaux par age des oiseaux pour ce modele."
+                    : "Les besoins vaccinaux apparaîtront ici lorsqu un responsable autorisé aura configuré ce modèle.",
                 )}
                 icon={ShieldCheck}
                 action={
@@ -478,12 +491,20 @@ export function PoultryConfigurationTools({
         ) : (
           <EmptyState
             title={tr(
-              "Create a performance model first.",
-              "Creez d abord un modele de performance.",
+              canCreateModel
+                ? "Create a performance model first."
+                : "Performance models are managed by the responsible team.",
+              canCreateModel
+                ? "Creez d abord un modele de performance."
+                : "Les modèles de performance sont gérés par l équipe responsable.",
             )}
             description={tr(
-              "A vaccine schedule belongs to a broiler, layer or breeder model.",
-              "Un calendrier vaccinal appartient a un modele broiler, pondeuse ou reproducteur.",
+              canCreateModel
+                ? "A vaccine schedule belongs to a broiler, layer or breeder model."
+                : "Authorized managers configure the models and vaccination schedules. The actions assigned to you remain visible in Daily Work and on the flock record.",
+              canCreateModel
+                ? "Un calendrier vaccinal appartient a un modele broiler, pondeuse ou reproducteur."
+                : "Les responsables autorisés configurent les modèles et calendriers vaccinaux. Les actions qui vous concernent restent visibles dans le Travail quotidien et la fiche du lot.",
             )}
             icon={ShieldCheck}
           />

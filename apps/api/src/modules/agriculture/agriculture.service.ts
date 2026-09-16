@@ -19,6 +19,35 @@ export interface AgricultureContext {
 }
 
 type Scope = "organization" | "province" | "self";
+type EmployeeAgricultureLocation = { siteId: string };
+
+/** Self-scoped field workers may work only at their active employee work site. */
+async function ownEmployeeAgricultureLocation(
+  client: PoolClient,
+  context: AgricultureContext,
+): Promise<EmployeeAgricultureLocation | null> {
+  const result = await client.query<{ site_id: string | null }>(
+    `SELECT site_id
+       FROM employees
+      WHERE organization_id = $1
+        AND member_id = $2
+        AND employment_status = 'active'
+      LIMIT 1`,
+    [context.organizationId, context.memberId],
+  );
+  const siteId = result.rows[0]?.site_id;
+  return siteId ? { siteId } : null;
+}
+
+async function assertOwnEmployeeAgricultureSite(
+  client: PoolClient,
+  context: AgricultureContext,
+  siteId: string,
+): Promise<void> {
+  const employee = await ownEmployeeAgricultureLocation(client, context);
+  if (!employee || employee.siteId !== siteId)
+    throw new NotFoundError("Agriculture record not found");
+}
 type Row = Record<string, unknown>;
 type Input = Record<string, unknown>;
 
@@ -418,8 +447,8 @@ function scopeSql(
   provinceColumn: string | undefined,
   values: unknown[],
 ): string {
-  if (scope === "self") return "FALSE";
   if (scope === "organization" || !provinceColumn) return "TRUE";
+  if (scope === "self") return "FALSE";
   values.push(context.memberId);
   return (
     "EXISTS (SELECT 1 FROM member_provinces mp WHERE mp.organization_id = $1 AND mp.member_id = $" +
@@ -435,7 +464,8 @@ async function assertProvince(
   context: AgricultureContext,
   provinceId: string,
 ): Promise<void> {
-  if ((await scopeOf(client, context)) === "organization") return;
+  const scope = await scopeOf(client, context);
+  if (scope === "organization" || scope === "self") return;
   const allowed = await client.query(
     "SELECT 1 FROM member_provinces WHERE organization_id = $1 AND member_id = $2 AND province_id = $3",
     [context.organizationId, context.memberId, provinceId],
@@ -465,10 +495,16 @@ async function rawRecord(
     [context.organizationId, recordId],
   );
   const row = result.rows[0];
-  if (!row || (await scopeOf(client, context)) === "self")
-    throw new NotFoundError("Agriculture record not found");
-  if (config.provinceColumn)
+  if (!row) throw new NotFoundError("Agriculture record not found");
+  const scope = await scopeOf(client, context);
+  if (scope === "self") {
+    if (config.provinceColumn)
+      await assertOwnEmployeeAgricultureSite(client, context, String(row.site_id));
+    if (config.recorded && String(row.recorded_by_user_id ?? "") !== context.userId)
+      throw new NotFoundError("Agriculture record not found");
+  } else if (config.provinceColumn) {
     await assertProvince(client, context, String(row.province_id));
+  }
   return row;
 }
 
@@ -519,6 +555,10 @@ async function siteProvince(
   );
   const provinceId = result.rows[0]?.province_id;
   if (!provinceId) throw new BadRequestError("Choose a site in this company");
+  if ((await scopeOf(client, context)) === "self") {
+    await assertOwnEmployeeAgricultureSite(client, context, siteId);
+    return;
+  }
   await assertProvince(client, context, provinceId);
 }
 
@@ -663,18 +703,29 @@ export async function listAgricultureRecords(
 ): Promise<Row[]> {
   const config = configFor(resource);
   return withTenantContext(context, async (client) => {
+    const dataScope = await scopeOf(client, context);
+    const selfLocation =
+      dataScope === "self"
+        ? await ownEmployeeAgricultureLocation(client, context)
+        : null;
+    if (dataScope === "self" && !selfLocation) return [];
     const values: unknown[] = [context.organizationId];
-    const scope = scopeSql(
-      await scopeOf(client, context),
-      context,
-      config.provinceColumn,
-      values,
-    );
+    const scope = scopeSql(dataScope, context, config.provinceColumn, values);
     const conditions = [
       "r.organization_id = $1",
       scope,
       ...filterSql(config, query, values),
     ];
+    if (dataScope === "self" && config.provinceColumn) {
+      const siteColumn = config.filters.siteId;
+      if (!siteColumn) throw new NotFoundError("Agriculture record not found");
+      values.push(selfLocation!.siteId);
+      conditions.push(siteColumn + " = $" + values.length);
+    }
+    if (dataScope === "self" && config.recorded) {
+      values.push(context.userId);
+      conditions.push("r.recorded_by_user_id = $" + values.length);
+    }
     values.push(query.limit);
     const location = config.location ? ", " + config.location : "";
     const result = await client.query<Row>(

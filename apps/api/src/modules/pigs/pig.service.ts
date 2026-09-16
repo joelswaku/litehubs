@@ -147,6 +147,35 @@ async function scopeOf(
 }
 
 type Scope = "organization" | "province" | "self";
+type EmployeePigLocation = { siteId: string };
+
+/** Self-scoped pig workers can use only their active employee work site. */
+async function ownEmployeePigLocation(
+  client: PoolClient,
+  context: PigContext,
+): Promise<EmployeePigLocation | null> {
+  const result = await client.query<{ site_id: string | null }>(
+    `SELECT site_id
+       FROM employees
+      WHERE organization_id = $1
+        AND member_id = $2
+        AND employment_status = 'active'
+      LIMIT 1`,
+    [context.organizationId, context.memberId],
+  );
+  const siteId = result.rows[0]?.site_id;
+  return siteId ? { siteId } : null;
+}
+
+async function assertOwnEmployeePigSite(
+  client: PoolClient,
+  context: PigContext,
+  siteId: string,
+): Promise<void> {
+  const employee = await ownEmployeePigLocation(client, context);
+  if (!employee || employee.siteId !== siteId)
+    throw new NotFoundError("Pig record not found");
+}
 type Row = Record<string, unknown>;
 type Input = Record<string, unknown>;
 type EventResource = Exclude<PigResource, "pens" | "groups" | "animals">;
@@ -275,7 +304,8 @@ async function assertProvince(
   context: PigContext,
   provinceId: string,
 ): Promise<void> {
-  if ((await scopeOf(client, context)) === "organization") return;
+  const scope = await scopeOf(client, context);
+  if (scope === "organization" || scope === "self") return;
   const allowed = await client.query(
     "SELECT 1 FROM member_provinces WHERE organization_id = $1 AND member_id = $2 AND province_id = $3",
     [context.organizationId, context.memberId, provinceId],
@@ -303,9 +333,12 @@ async function pen(
     [context.organizationId, id],
   );
   const row = result.rows[0];
-  if (!row || (await scopeOf(client, context)) === "self")
-    throw new NotFoundError("Pig pen not found");
-  await assertProvince(client, context, String(row.province_id));
+  if (!row) throw new NotFoundError("Pig pen not found");
+  const scope = await scopeOf(client, context);
+  if (scope === "self")
+    await assertOwnEmployeePigSite(client, context, String(row.site_id));
+  else
+    await assertProvince(client, context, String(row.province_id));
   return row;
 }
 async function group(
@@ -318,9 +351,12 @@ async function group(
     [context.organizationId, id],
   );
   const row = result.rows[0];
-  if (!row || (await scopeOf(client, context)) === "self")
-    throw new NotFoundError("Pig group not found");
-  await assertProvince(client, context, String(row.province_id));
+  if (!row) throw new NotFoundError("Pig group not found");
+  const scope = await scopeOf(client, context);
+  if (scope === "self")
+    await assertOwnEmployeePigSite(client, context, String(row.site_id));
+  else
+    await assertProvince(client, context, String(row.province_id));
   return row;
 }
 async function animal(
@@ -333,9 +369,12 @@ async function animal(
     [context.organizationId, id],
   );
   const row = result.rows[0];
-  if (!row || (await scopeOf(client, context)) === "self")
-    throw new NotFoundError("Pig animal not found");
-  await assertProvince(client, context, String(row.province_id));
+  if (!row) throw new NotFoundError("Pig animal not found");
+  const scope = await scopeOf(client, context);
+  if (scope === "self")
+    await assertOwnEmployeePigSite(client, context, String(row.site_id));
+  else
+    await assertProvince(client, context, String(row.province_id));
   return row;
 }
 function idOf(input: Input, key: string): string | null {
@@ -487,9 +526,15 @@ async function details(
     );
   }
   const row = result.rows[0];
-  if (!row || (await scopeOf(client, context)) === "self")
-    throw new NotFoundError("Pig record not found");
-  await assertProvince(client, context, String(row.province_id));
+  if (!row) throw new NotFoundError("Pig record not found");
+  const scope = await scopeOf(client, context);
+  if (scope === "self") {
+    await assertOwnEmployeePigSite(client, context, String(row.site_id));
+    if (isEvent(resource) && String(row.recorded_by_user_id ?? "") !== context.userId)
+      throw new NotFoundError("Pig record not found");
+  } else {
+    await assertProvince(client, context, String(row.province_id));
+  }
   return row;
 }
 
@@ -580,12 +625,21 @@ export async function listPigRecords(
 ): Promise<Row[]> {
   return withTenantContext(context, async (client) => {
     const scope = await scopeOf(client, context);
+    const selfLocation =
+      scope === "self" ? await ownEmployeePigLocation(client, context) : null;
+    if (scope === "self" && !selfLocation) return [];
     const values: unknown[] = [context.organizationId];
     const source = listFrom(resource);
     const where = [
       `r.organization_id = $1`,
-      scopeSql(scope, context, "pr.id", values),
+      scope === "self"
+        ? `s.id = $${values.push(selfLocation!.siteId)}`
+        : scopeSql(scope, context, "pr.id", values),
     ];
+    if (scope === "self" && isEvent(resource)) {
+      values.push(context.userId);
+      where.push(`r.recorded_by_user_id = $${values.length}`);
+    }
     if (query.siteId) {
       values.push(query.siteId);
       where.push(`s.id = $${values.length}`);

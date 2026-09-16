@@ -554,7 +554,25 @@ export function PigsArea({ orgSlug }: { orgSlug: string }) {
   const user = useSessionUser();
   const { locale } = useLanguage();
   const client = useQueryClient();
-  const [area, setArea] = useState<Area>("foundation");
+  const isPigFieldWorker =
+    Boolean(user?.roles.includes("pig_worker")) &&
+    !Boolean(
+      user?.roles.some((role) =>
+        [
+          "owner",
+          "general_manager",
+          "provincial_manager",
+          "farm_manager",
+          "farm_operations_manager",
+          "supervisor",
+          "pig_supervisor",
+          "veterinarian",
+        ].includes(role),
+      ),
+    );
+  const [area, setArea] = useState<Area>(() =>
+    isPigFieldWorker ? "daily" : "foundation",
+  );
   const [resource, setResource] = useState<PigResource>("pens");
   const [siteId, setSiteId] = useState("");
   const [editor, setEditor] = useState<Editor | null>(null);
@@ -669,10 +687,26 @@ export function PigsArea({ orgSlug }: { orgSlug: string }) {
           ? "Une action n’a pas pu être enregistrée."
           : "An action could not be saved."
         : null;
+  const availableAreas = useMemo(
+    () =>
+      (["foundation", "daily", "breeding", "health"] as Area[]).filter(
+        (candidate) =>
+          (!isPigFieldWorker ||
+            (candidate !== "foundation" && candidate !== "breeding")) &&
+          areaResources[candidate].some((item) =>
+            can(user, `pigs.${resourcePermission[item]}.read`),
+          ),
+      ),
+    [isPigFieldWorker, user],
+  );
   const items = records(resource);
   const visibleResources = areaResources[area].filter((item) =>
     canDo(item, "read"),
   );
+
+  useEffect(() => {
+    if (!availableAreas.includes(area)) setArea(availableAreas[0] ?? "daily");
+  }, [area, availableAreas]);
 
   if (!PIG_RESOURCES.some((item) => canDo(item, "read")))
     return (
@@ -723,32 +757,38 @@ export function PigsArea({ orgSlug }: { orgSlug: string }) {
                     {fr ? "Tous les sites" : "All sites"}
                   </option>
                   {sites.data.map((site) => (
-                    <option key={site.id} value={site.id} className="bg-surface-1 text-ink">
+                    <option
+                      key={site.id}
+                      value={site.id}
+                      className="bg-surface-1 text-ink"
+                    >
                       {site.name}
                     </option>
                   ))}
                 </select>
               </label>
             ) : null}
-            <Button
-              size="sm"
-              className="border-white/20 bg-white text-rose-900 hover:bg-amber-50"
-              disabled={!canDo("pens", "create")}
-              onClick={() => setEditor({ resource: "pens" })}
-            >
-              <Plus />
-              {fr ? "Ajouter un enclos" : "Add pen"}
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="border-white/25 bg-white/10 text-white hover:bg-white/20 hover:text-white"
-              disabled={!canDo("animals", "create")}
-              onClick={() => setEditor({ resource: "animals" })}
-            >
-              <Plus />
-              {fr ? "Ajouter un animal" : "Add animal"}
-            </Button>
+            {canDo("pens", "create") ? (
+              <Button
+                size="sm"
+                className="border-white/20 bg-white text-rose-900 hover:bg-amber-50"
+                onClick={() => setEditor({ resource: "pens" })}
+              >
+                <Plus />
+                {fr ? "Ajouter un enclos" : "Add pen"}
+              </Button>
+            ) : null}
+            {canDo("animals", "create") ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-white/25 bg-white/10 text-white hover:bg-white/20 hover:text-white"
+                onClick={() => setEditor({ resource: "animals" })}
+              >
+                <Plus />
+                {fr ? "Ajouter un animal" : "Add animal"}
+              </Button>
+            ) : null}
           </div>
         </div>
         <div className="relative mt-7 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -809,22 +849,20 @@ export function PigsArea({ orgSlug }: { orgSlug: string }) {
             className="grid gap-2 border-b border-border-strong bg-surface-1 px-3 py-3 dark:border-border"
             aria-label={fr ? "Espaces de l’élevage porcin" : "Pig farm areas"}
           >
-            {(["foundation", "daily", "breeding", "health"] as Area[]).map(
-              (item) => (
-                <button
-                  key={item}
-                  type="button"
-                  aria-pressed={area === item}
-                  onClick={() => setArea(item)}
-                  className={`flex min-h-12 items-center gap-2.5 rounded-xl border px-3 text-left text-sm font-semibold transition ${area === item ? "border-brand/35 bg-brand-subtle text-brand shadow-[0_8px_18px_-15px_rgba(42,120,214,.8)]" : "border-border bg-surface-1 text-ink-secondary shadow-[0_4px_10px_-9px_rgba(15,23,42,.38)] hover:border-brand/35 hover:bg-surface-2 hover:text-ink dark:border-border"}`}
-                >
-                  <span
-                    className={`size-1.5 shrink-0 rounded-full ${area === item ? "bg-brand" : "bg-ink-muted/45"}`}
-                  />
-                  <span className="truncate">{areaName(item, fr)}</span>
-                </button>
-              ),
-            )}
+            {availableAreas.map((item) => (
+              <button
+                key={item}
+                type="button"
+                aria-pressed={area === item}
+                onClick={() => setArea(item)}
+                className={`flex min-h-12 items-center gap-2.5 rounded-xl border px-3 text-left text-sm font-semibold transition ${area === item ? "border-brand/35 bg-brand-subtle text-brand shadow-[0_8px_18px_-15px_rgba(42,120,214,.8)]" : "border-border bg-surface-1 text-ink-secondary shadow-[0_4px_10px_-9px_rgba(15,23,42,.38)] hover:border-brand/35 hover:bg-surface-2 hover:text-ink dark:border-border"}`}
+              >
+                <span
+                  className={`size-1.5 shrink-0 rounded-full ${area === item ? "bg-brand" : "bg-ink-muted/45"}`}
+                />
+                <span className="truncate">{areaName(item, fr)}</span>
+              </button>
+            ))}
           </nav>
           <div className="bg-surface-1 px-3 py-4">
             <div className="flex items-center justify-between gap-2 px-2">

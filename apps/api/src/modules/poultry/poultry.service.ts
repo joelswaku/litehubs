@@ -393,6 +393,45 @@ async function assertProvince(
     throw new NotFoundError("Poultry record not found");
 }
 
+type EmployeePoultryLocation = {
+  siteId: string;
+  provinceId: string | null;
+};
+
+/** A self-scoped employee may work only at the site on their active employee
+ * profile. They cannot browse another site or another employee's records. */
+async function ownEmployeePoultryLocation(
+  client: PoolClient,
+  context: PoultryContext,
+): Promise<EmployeePoultryLocation | null> {
+  const result = await client.query<{
+    site_id: string | null;
+    province_id: string | null;
+  }>(
+    `SELECT site_id, province_id
+       FROM employees
+      WHERE organization_id = $1
+        AND member_id = $2
+        AND employment_status = 'active'
+      LIMIT 1`,
+    [context.organizationId, context.memberId],
+  );
+  const row = result.rows[0];
+  return row?.site_id
+    ? { siteId: row.site_id, provinceId: row.province_id }
+    : null;
+}
+
+async function assertOwnEmployeePoultrySite(
+  client: PoolClient,
+  context: PoultryContext,
+  siteId: string,
+): Promise<void> {
+  const employee = await ownEmployeePoultryLocation(client, context);
+  if (!employee || employee.siteId !== siteId)
+    throw new NotFoundError("Poultry record not found");
+}
+
 function addScope(
   scope: Scope,
   context: PoultryContext,
@@ -403,6 +442,24 @@ function addScope(
   if (scope === "self") return "FALSE";
   values.push(context.memberId);
   return `EXISTS (SELECT 1 FROM member_provinces mp WHERE mp.organization_id = $1 AND mp.member_id = $${values.length} AND mp.province_id = ${provinceSql})`;
+}
+
+function addSelfSiteScope(
+  siteId: string,
+  siteSql: string,
+  values: unknown[],
+) {
+  values.push(siteId);
+  return `${siteSql} = $${values.length}`;
+}
+
+function addSelfRecordScope(
+  siteId: string,
+  userId: string,
+  values: unknown[],
+) {
+  values.push(siteId, userId);
+  return `h.site_id = $${values.length - 1} AND r.recorded_by_user_id = $${values.length}`;
 }
 
 const locationFields =
@@ -441,7 +498,8 @@ async function house(
   const row = result.rows[0];
   if (!row) throw new NotFoundError("Poultry house not found");
   const scope = await scopeOf(client, context);
-  if (scope === "self") throw new NotFoundError("Poultry house not found");
+  if (scope === "self")
+    await assertOwnEmployeePoultrySite(client, context, String(row.site_id));
   if (scope === "province")
     await assertProvince(client, context, String(row.province_id));
   return row;
@@ -459,7 +517,8 @@ async function flock(
   const row = result.rows[0];
   if (!row) throw new NotFoundError("Poultry flock not found");
   const scope = await scopeOf(client, context);
-  if (scope === "self") throw new NotFoundError("Poultry flock not found");
+  if (scope === "self")
+    await assertOwnEmployeePoultrySite(client, context, String(row.site_id));
   if (scope === "province")
     await assertProvince(client, context, String(row.province_id));
   return row;
@@ -503,7 +562,11 @@ async function record(
   const row = result.rows[0];
   if (!row) throw new NotFoundError("Poultry record not found");
   const scope = await scopeOf(client, context);
-  if (scope === "self") throw new NotFoundError("Poultry record not found");
+  if (scope === "self") {
+    await assertOwnEmployeePoultrySite(client, context, String(row.site_id));
+    if (String(row.recorded_by_user_id ?? "") !== context.userId)
+      throw new NotFoundError("Poultry record not found");
+  }
   if (scope === "province")
     await assertProvince(client, context, String(row.province_id));
   return row;
@@ -516,11 +579,18 @@ export async function listPoultryRecords(
 ) {
   return withTenantContext(context, async (client) => {
     const scope = await scopeOf(client, context);
+    const selfLocation =
+      scope === "self"
+        ? await ownEmployeePoultryLocation(client, context)
+        : null;
+    if (scope === "self" && !selfLocation) return [];
     const values: unknown[] = [context.organizationId];
     if (resource === "houses") {
       const conditions = [
         "h.organization_id = $1",
-        addScope(scope, context, "s.province_id", values),
+        scope === "self"
+          ? addSelfSiteScope(selfLocation!.siteId, "h.site_id", values)
+          : addScope(scope, context, "s.province_id", values),
       ];
       if (query.siteId) {
         values.push(query.siteId);
@@ -550,7 +620,9 @@ export async function listPoultryRecords(
     if (resource === "flocks") {
       const conditions = [
         "f.organization_id = $1",
-        addScope(scope, context, "s.province_id", values),
+        scope === "self"
+          ? addSelfSiteScope(selfLocation!.siteId, "h.site_id", values)
+          : addScope(scope, context, "s.province_id", values),
       ];
       if (query.houseId) {
         values.push(query.houseId);
@@ -588,7 +660,9 @@ export async function listPoultryRecords(
     const config = records[resource];
     const conditions = [
       "r.organization_id = $1",
-      addScope(scope, context, "s.province_id", values),
+      scope === "self"
+        ? addSelfRecordScope(selfLocation!.siteId, context.userId, values)
+        : addScope(scope, context, "s.province_id", values),
     ];
     if (query.flockId) {
       if (config.relation !== "flock")
@@ -1429,10 +1503,32 @@ export async function poultryOverview(
 ) {
   return withTenantContext(context, async (client) => {
     const scope = await scopeOf(client, context);
+    const selfLocation =
+      scope === "self"
+        ? await ownEmployeePoultryLocation(client, context)
+        : null;
+    if (scope === "self" && !selfLocation) {
+      return {
+        period: { from: input.from ?? null, to: input.to ?? null },
+        totals: {
+          allFlocks: 0,
+          activeFlocks: 0,
+          initialBirds: 0,
+          mortalityCount: 0,
+          mortalityRatePercent: 0,
+          totalEggs: 0,
+          feedKg: 0,
+          waterLiters: 0,
+        },
+        mortalityReview: [],
+      };
+    }
     const values: unknown[] = [context.organizationId];
     const conditions = [
       "f.organization_id = $1",
-      addScope(scope, context, "s.province_id", values),
+      scope === "self"
+        ? addSelfSiteScope(selfLocation!.siteId, "h.site_id", values)
+        : addScope(scope, context, "s.province_id", values),
     ];
     if (input.siteId) {
       values.push(input.siteId);

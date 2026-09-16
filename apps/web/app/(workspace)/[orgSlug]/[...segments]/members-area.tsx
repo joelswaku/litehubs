@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BadgeCheck,
+  Bird,
   Building2,
   CalendarClock,
   ImagePlus,
@@ -25,6 +26,9 @@ import {
   UserCog,
   UserPlus,
   Users,
+  Wheat,
+  PiggyBank,
+  type LucideIcon,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -107,10 +111,25 @@ export function MembersArea({ orgSlug }: { orgSlug: string }) {
           </div>
           <div className="flex flex-col items-end gap-2">
             <div className="rounded-2xl border border-border-strong/80 bg-surface-1/90 px-4 py-3 text-right shadow-sm backdrop-blur-sm dark:border-white/15 dark:bg-black/25 dark:shadow-[0_12px_28px_-22px_rgba(0,0,0,.9)]">
-              <p className="text-xs font-medium text-brand">{fr ? "Sécurisé par rôle et périmètre" : "Secure by role and scope"}</p>
-              <p className="mt-1 flex items-center justify-end gap-1.5 text-sm font-semibold"><Building2 className="size-4" aria-hidden />{orgSlug}</p>
+              <p className="text-xs font-medium text-brand">
+                {fr
+                  ? "Sécurisé par rôle et périmètre"
+                  : "Secure by role and scope"}
+              </p>
+              <p className="mt-1 flex items-center justify-end gap-1.5 text-sm font-semibold">
+                <Building2 className="size-4" aria-hidden />
+                {orgSlug}
+              </p>
             </div>
-            <Link href={`/${orgSlug}/performance`} className="inline-flex items-center gap-2 rounded-xl border border-brand/25 bg-brand-subtle px-3 py-2 text-xs font-semibold text-brand transition hover:border-brand/45 hover:bg-brand hover:text-white dark:border-brand/55 dark:bg-brand/30 dark:text-white dark:shadow-[0_10px_22px_-16px_rgba(0,0,0,.9)] dark:hover:bg-brand"><SlidersHorizontal className="size-4" />{fr ? "Règles de présence & performance" : "Attendance & performance rules"}</Link>
+            <Link
+              href={`/${orgSlug}/performance`}
+              className="inline-flex items-center gap-2 rounded-xl border border-brand/25 bg-brand-subtle px-3 py-2 text-xs font-semibold text-brand transition hover:border-brand/45 hover:bg-brand hover:text-white dark:border-brand/55 dark:bg-brand/30 dark:text-white dark:shadow-[0_10px_22px_-16px_rgba(0,0,0,.9)] dark:hover:bg-brand"
+            >
+              <SlidersHorizontal className="size-4" />
+              {fr
+                ? "Règles de présence & performance"
+                : "Attendance & performance rules"}
+            </Link>
           </div>
         </div>
       </header>
@@ -133,7 +152,13 @@ type CompanyProfile = {
   currency: string;
   timezone: string;
   logoUrl: string | null;
-  address: { addressLine1: string | null; addressLine2: string | null; city: string | null; region: string | null; postalCode: string | null };
+  address: {
+    addressLine1: string | null;
+    addressLine2: string | null;
+    city: string | null;
+    region: string | null;
+    postalCode: string | null;
+  };
 };
 
 function CompanyProfileCard({ orgSlug }: { orgSlug: string }) {
@@ -149,47 +174,83 @@ function CompanyProfileCard({ orgSlug }: { orgSlug: string }) {
   });
   const provinces = useQuery({
     queryKey: ["company-profile-provinces", orgSlug],
-    queryFn: () => get<{ provinces: { id: string; name: string; code: string }[] }>(orgUrl(orgSlug, "provinces")),
+    queryFn: () =>
+      get<{ provinces: { id: string; name: string; code: string }[] }>(
+        orgUrl(orgSlug, "provinces"),
+      ),
     select: (data) => data.provinces,
   });
   const save = useMutation({
-    mutationFn: (body: Record<string, unknown>) => patch(orgUrl(orgSlug, "profile"), body),
+    mutationFn: (body: Record<string, unknown>) =>
+      patch(orgUrl(orgSlug, "profile"), body),
     onSuccess: () => {
       setEditingAddress(false);
-      void queryClient.invalidateQueries({ queryKey: ["workspace-profile", orgSlug] });
+      void queryClient.invalidateQueries({
+        queryKey: ["workspace-profile", orgSlug],
+      });
     },
   });
   const uploadLogo = useMutation({
     mutationFn: async (file: File) => {
       const form = new FormData();
       form.set("file", file);
-      const response = await api.post<{ organization: CompanyProfile }>(orgUrl(orgSlug, "profile/logo"), form, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+      const response = await api.post<{ organization: CompanyProfile }>(
+        orgUrl(orgSlug, "profile/logo"),
+        form,
+        {
+          headers: { "Content-Type": "multipart/form-data" },
+        },
+      );
       return response.data.organization;
     },
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["workspace-profile", orgSlug] }),
+    onSuccess: () =>
+      void queryClient.invalidateQueries({
+        queryKey: ["workspace-profile", orgSlug],
+      }),
   });
-  const blank = (value: FormDataEntryValue | null) => String(value ?? "").trim() || null;
+  const blank = (value: FormDataEntryValue | null) =>
+    String(value ?? "").trim() || null;
 
   if (profile.isPending) return <SkeletonCard rows={3} />;
   if (profile.isError || !profile.data) {
-    return <ErrorState title={fr ? "Impossible de charger le profil de l’entreprise" : "Could not load company profile"} description={profile.error instanceof Error ? profile.error.message : undefined} onRetry={() => void profile.refetch()} />;
+    return (
+      <ErrorState
+        title={
+          fr
+            ? "Impossible de charger le profil de l’entreprise"
+            : "Could not load company profile"
+        }
+        description={
+          profile.error instanceof Error ? profile.error.message : undefined
+        }
+        onRetry={() => void profile.refetch()}
+      />
+    );
   }
 
   const company = profile.data;
   const countryOptions = [
-    { code: "CD", name: fr ? "République démocratique du Congo" : "Democratic Republic of the Congo" },
+    {
+      code: "CD",
+      name: fr
+        ? "République démocratique du Congo"
+        : "Democratic Republic of the Congo",
+    },
     { code: "CG", name: fr ? "République du Congo" : "Republic of the Congo" },
-    { code: "AO", name: "Angola" }, { code: "ZM", name: "Zambia" },
-    { code: "RW", name: "Rwanda" }, { code: "UG", name: "Uganda" },
+    { code: "AO", name: "Angola" },
+    { code: "ZM", name: "Zambia" },
+    { code: "RW", name: "Rwanda" },
+    { code: "UG", name: "Uganda" },
   ];
   const addressLines = [
     company.address.addressLine1,
     company.address.addressLine2,
     [company.address.city, company.address.region].filter(Boolean).join(", "),
     company.address.postalCode,
-    company.country ? (countryOptions.find((country) => country.code === company.country)?.name ?? company.country) : null,
+    company.country
+      ? (countryOptions.find((country) => country.code === company.country)
+          ?.name ?? company.country)
+      : null,
   ].filter(Boolean);
   const submitAddress = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -209,27 +270,254 @@ function CompanyProfileCard({ orgSlug }: { orgSlug: string }) {
     });
   };
 
-  return <section className="overflow-hidden rounded-2xl border border-brand/20 bg-surface-1 shadow-[0_18px_44px_-34px_rgba(15,23,42,.52)]">
-    <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border bg-[linear-gradient(120deg,rgba(20,184,166,.11),transparent_54%)] px-5 py-5">
-      <div><div className="flex items-center gap-2"><span className="grid size-9 place-items-center rounded-xl border border-brand/20 bg-brand-subtle text-brand"><Building2 className="size-4" /></span><h2 className="text-base font-semibold text-ink">{fr ? "Profil officiel de l’entreprise" : "Official company profile"}</h2></div><p className="mt-2 max-w-2xl text-xs leading-5 text-ink-secondary">{fr ? "Cette adresse est utilisée automatiquement dans les contrats, documents et PDF de Congo Omega." : "This address is used automatically in Congo Omega contracts, documents, and PDFs."}</p></div>
-      <Badge variant="info">{fr ? "Propriétaire uniquement" : "Owner only"}</Badge>
-    </div>
-    <div className="grid gap-5 p-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
-      <div className="flex min-w-0 items-start gap-4">
-        {company.logoUrl ? <img src={company.logoUrl} alt={company.displayName} className="size-14 shrink-0 rounded-2xl border border-border bg-white object-contain p-1.5 shadow-sm" /> : <span className="grid size-14 shrink-0 place-items-center rounded-2xl border border-brand/20 bg-brand-subtle text-brand"><Building2 className="size-6" /></span>}
-        <div className="min-w-0"><p className="text-xs font-medium uppercase tracking-[0.14em] text-ink-muted">{fr ? "Adresse et identité officielle" : "Official address and identity"}</p><p className="mt-2 text-sm font-semibold text-ink">{company.legalName || company.displayName}</p>{addressLines.length ? <div className="mt-1 space-y-0.5 text-sm leading-5 text-ink-secondary">{addressLines.map((line, index) => <p key={`${line}-${index}`}>{line}</p>)}</div> : <p className="mt-1 text-sm text-warning">{fr ? "Aucune adresse officielle enregistrée." : "No official address has been recorded."}</p>}<p className="mt-2 text-xs text-ink-muted">{company.logoUrl ? (fr ? "Logo intégré aux prochains PDF de contrats." : "Logo will be used in future contract PDFs.") : (fr ? "Ajoutez le logo officiel pour l’intégrer aux prochains PDF." : "Add the official logo to include it in future PDFs.")}</p></div>
+  return (
+    <section className="overflow-hidden rounded-2xl border border-brand/20 bg-surface-1 shadow-[0_18px_44px_-34px_rgba(15,23,42,.52)]">
+      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border bg-[linear-gradient(120deg,rgba(20,184,166,.11),transparent_54%)] px-5 py-5">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="grid size-9 place-items-center rounded-xl border border-brand/20 bg-brand-subtle text-brand">
+              <Building2 className="size-4" />
+            </span>
+            <h2 className="text-base font-semibold text-ink">
+              {fr
+                ? "Profil officiel de l’entreprise"
+                : "Official company profile"}
+            </h2>
+          </div>
+          <p className="mt-2 max-w-2xl text-xs leading-5 text-ink-secondary">
+            {fr
+              ? "Cette adresse est utilisée automatiquement dans les contrats, documents et PDF de Congo Omega."
+              : "This address is used automatically in Congo Omega contracts, documents, and PDFs."}
+          </p>
+        </div>
+        <Badge variant="info">
+          {fr ? "Propriétaire uniquement" : "Owner only"}
+        </Badge>
       </div>
-      <div className="flex flex-wrap gap-2"><input ref={logoInput} type="file" accept="image/png,image/jpeg" className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) uploadLogo.mutate(file); }} /><Button type="button" variant="secondary" loading={uploadLogo.isPending} onClick={() => logoInput.current?.click()}><ImagePlus />{company.logoUrl ? (fr ? "Remplacer le logo" : "Replace logo") : (fr ? "Ajouter le logo" : "Add logo")}</Button><Button type="button" variant="secondary" onClick={() => setEditingAddress(true)}><Pencil />{fr ? "Modifier l’adresse" : "Edit address"}</Button></div>
-    </div>
-    {uploadLogo.error ? <p className="mx-5 mb-5 rounded-xl border border-critical/30 bg-critical/10 px-3 py-2 text-sm text-critical">{(uploadLogo.error as Error).message}</p> : null}
-    {editingAddress ? <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/55 p-0 sm:items-center sm:p-6" role="dialog" aria-modal="true" aria-labelledby="company-address-title">
-      <div className="max-h-[92dvh] w-full overflow-y-auto rounded-t-3xl border border-border bg-surface-1 shadow-2xl sm:max-w-3xl sm:rounded-3xl">
-        <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-border bg-surface-1/95 px-5 py-4 backdrop-blur"><div><h3 id="company-address-title" className="text-lg font-semibold text-ink">{fr ? "Modifier l’adresse officielle" : "Edit official address"}</h3><p className="mt-1 text-sm text-ink-secondary">{fr ? "Cette adresse sera utilisée pour les prochains contrats et documents." : "This address will be used for future contracts and documents."}</p></div><Button type="button" variant="ghost" size="icon" aria-label={fr ? "Fermer" : "Close"} onClick={() => setEditingAddress(false)}><X /></Button></div>
-        <form onSubmit={submitAddress} className="space-y-5 p-5"><div className="grid gap-4 sm:grid-cols-2"><Field label={fr ? "Adresse ligne 1" : "Address line 1"}><Input name="addressLine1" defaultValue={company.address.addressLine1 ?? ""} placeholder={fr ? "Ex. 12 avenue de la Paix" : "e.g. 12 Peace Avenue"} /></Field><Field label={fr ? "Adresse ligne 2" : "Address line 2"}><Input name="addressLine2" defaultValue={company.address.addressLine2 ?? ""} /></Field><Field label={fr ? "Ville" : "City"}><Input name="city" defaultValue={company.address.city ?? ""} /></Field><Field label={fr ? "Province / région" : "Province / region"}><select name="region" defaultValue="" className="h-10 w-full rounded-xl border border-border-strong bg-surface-1 px-3 text-sm text-ink"><option value="">{fr ? "Choisir une province" : "Choose a province"}</option>{company.address.region && !(provinces.data ?? []).some((province) => province.name === company.address.region) ? <option value={company.address.region}>{company.address.region}</option> : null}{(provinces.data ?? []).map((province) => <option key={province.id} value={province.name}>{province.name} · {province.code}</option>)}</select></Field><Field label={fr ? "Code postal" : "Postal code"}><Input name="postalCode" defaultValue={company.address.postalCode ?? ""} /></Field><Field label={fr ? "Pays" : "Country"}><select name="country" defaultValue="" className="h-10 w-full rounded-xl border border-border-strong bg-surface-1 px-3 text-sm text-ink"><option value="">{fr ? "Choisir un pays" : "Choose a country"}</option>{company.country && !countryOptions.some((country) => country.code === company.country) ? <option value={company.country}>{company.country}</option> : null}{countryOptions.map((country) => <option key={country.code} value={country.code}>{country.name} · {country.code}</option>)}</select></Field></div>{save.error ? <p className="rounded-xl border border-critical/30 bg-critical/10 p-3 text-sm text-critical">{(save.error as Error).message}</p> : null}<div className="flex flex-wrap justify-end gap-3 border-t border-border pt-5"><Button type="button" variant="ghost" onClick={() => setEditingAddress(false)}>{fr ? "Annuler" : "Cancel"}</Button><Button type="submit" loading={save.isPending}><Building2 />{fr ? "Enregistrer l’adresse" : "Save address"}</Button></div></form>
+      <div className="grid gap-5 p-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+        <div className="flex min-w-0 items-start gap-4">
+          {company.logoUrl ? (
+            <img
+              src={company.logoUrl}
+              alt={company.displayName}
+              className="size-14 shrink-0 rounded-2xl border border-border bg-white object-contain p-1.5 shadow-sm"
+            />
+          ) : (
+            <span className="grid size-14 shrink-0 place-items-center rounded-2xl border border-brand/20 bg-brand-subtle text-brand">
+              <Building2 className="size-6" />
+            </span>
+          )}
+          <div className="min-w-0">
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-ink-muted">
+              {fr
+                ? "Adresse et identité officielle"
+                : "Official address and identity"}
+            </p>
+            <p className="mt-2 text-sm font-semibold text-ink">
+              {company.legalName || company.displayName}
+            </p>
+            {addressLines.length ? (
+              <div className="mt-1 space-y-0.5 text-sm leading-5 text-ink-secondary">
+                {addressLines.map((line, index) => (
+                  <p key={`${line}-${index}`}>{line}</p>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-1 text-sm text-warning">
+                {fr
+                  ? "Aucune adresse officielle enregistrée."
+                  : "No official address has been recorded."}
+              </p>
+            )}
+            <p className="mt-2 text-xs text-ink-muted">
+              {company.logoUrl
+                ? fr
+                  ? "Logo intégré aux prochains PDF de contrats."
+                  : "Logo will be used in future contract PDFs."
+                : fr
+                  ? "Ajoutez le logo officiel pour l’intégrer aux prochains PDF."
+                  : "Add the official logo to include it in future PDFs."}
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <input
+            ref={logoInput}
+            type="file"
+            accept="image/png,image/jpeg"
+            className="sr-only"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.currentTarget.value = "";
+              if (file) uploadLogo.mutate(file);
+            }}
+          />
+          <Button
+            type="button"
+            variant="secondary"
+            loading={uploadLogo.isPending}
+            onClick={() => logoInput.current?.click()}
+          >
+            <ImagePlus />
+            {company.logoUrl
+              ? fr
+                ? "Remplacer le logo"
+                : "Replace logo"
+              : fr
+                ? "Ajouter le logo"
+                : "Add logo"}
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => setEditingAddress(true)}
+          >
+            <Pencil />
+            {fr ? "Modifier l’adresse" : "Edit address"}
+          </Button>
+        </div>
       </div>
-    </div> : null}
-  </section>;
-}function SettingsOverview({
+      {uploadLogo.error ? (
+        <p className="mx-5 mb-5 rounded-xl border border-critical/30 bg-critical/10 px-3 py-2 text-sm text-critical">
+          {(uploadLogo.error as Error).message}
+        </p>
+      ) : null}
+      {editingAddress ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/55 p-0 sm:items-center sm:p-6"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="company-address-title"
+        >
+          <div className="max-h-[92dvh] w-full overflow-y-auto rounded-t-3xl border border-border bg-surface-1 shadow-2xl sm:max-w-3xl sm:rounded-3xl">
+            <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-border bg-surface-1/95 px-5 py-4 backdrop-blur">
+              <div>
+                <h3
+                  id="company-address-title"
+                  className="text-lg font-semibold text-ink"
+                >
+                  {fr
+                    ? "Modifier l’adresse officielle"
+                    : "Edit official address"}
+                </h3>
+                <p className="mt-1 text-sm text-ink-secondary">
+                  {fr
+                    ? "Cette adresse sera utilisée pour les prochains contrats et documents."
+                    : "This address will be used for future contracts and documents."}
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label={fr ? "Fermer" : "Close"}
+                onClick={() => setEditingAddress(false)}
+              >
+                <X />
+              </Button>
+            </div>
+            <form onSubmit={submitAddress} className="space-y-5 p-5">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label={fr ? "Adresse ligne 1" : "Address line 1"}>
+                  <Input
+                    name="addressLine1"
+                    defaultValue={company.address.addressLine1 ?? ""}
+                    placeholder={
+                      fr ? "Ex. 12 avenue de la Paix" : "e.g. 12 Peace Avenue"
+                    }
+                  />
+                </Field>
+                <Field label={fr ? "Adresse ligne 2" : "Address line 2"}>
+                  <Input
+                    name="addressLine2"
+                    defaultValue={company.address.addressLine2 ?? ""}
+                  />
+                </Field>
+                <Field label={fr ? "Ville" : "City"}>
+                  <Input
+                    name="city"
+                    defaultValue={company.address.city ?? ""}
+                  />
+                </Field>
+                <Field label={fr ? "Province / région" : "Province / region"}>
+                  <select
+                    name="region"
+                    defaultValue=""
+                    className="h-10 w-full rounded-xl border border-border-strong bg-surface-1 px-3 text-sm text-ink"
+                  >
+                    <option value="">
+                      {fr ? "Choisir une province" : "Choose a province"}
+                    </option>
+                    {company.address.region &&
+                    !(provinces.data ?? []).some(
+                      (province) => province.name === company.address.region,
+                    ) ? (
+                      <option value={company.address.region}>
+                        {company.address.region}
+                      </option>
+                    ) : null}
+                    {(provinces.data ?? []).map((province) => (
+                      <option key={province.id} value={province.name}>
+                        {province.name} · {province.code}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label={fr ? "Code postal" : "Postal code"}>
+                  <Input
+                    name="postalCode"
+                    defaultValue={company.address.postalCode ?? ""}
+                  />
+                </Field>
+                <Field label={fr ? "Pays" : "Country"}>
+                  <select
+                    name="country"
+                    defaultValue=""
+                    className="h-10 w-full rounded-xl border border-border-strong bg-surface-1 px-3 text-sm text-ink"
+                  >
+                    <option value="">
+                      {fr ? "Choisir un pays" : "Choose a country"}
+                    </option>
+                    {company.country &&
+                    !countryOptions.some(
+                      (country) => country.code === company.country,
+                    ) ? (
+                      <option value={company.country}>{company.country}</option>
+                    ) : null}
+                    {countryOptions.map((country) => (
+                      <option key={country.code} value={country.code}>
+                        {country.name} · {country.code}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              </div>
+              {save.error ? (
+                <p className="rounded-xl border border-critical/30 bg-critical/10 p-3 text-sm text-critical">
+                  {(save.error as Error).message}
+                </p>
+              ) : null}
+              <div className="flex flex-wrap justify-end gap-3 border-t border-border pt-5">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setEditingAddress(false)}
+                >
+                  {fr ? "Annuler" : "Cancel"}
+                </Button>
+                <Button type="submit" loading={save.isPending}>
+                  <Building2 />
+                  {fr ? "Enregistrer l’adresse" : "Save address"}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+function SettingsOverview({
   members,
   roles,
   invitations,
@@ -421,52 +709,538 @@ function FlowStep({
   );
 }
 
-const titleWords = (value: string) => value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+const titleWords = (value: string) =>
+  value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 
+const systemRoleCopy: Record<
+  string,
+  {
+    fr: { name: string; description: string };
+    en: { name: string; description: string };
+  }
+> = {
+  appointment_receptionist: {
+    fr: {
+      name: "Réception et rendez-vous",
+      description:
+        "Accueille les visiteurs et gère les rendez-vous ainsi que la file d’attente de son périmètre.",
+    },
+    en: {
+      name: "Reception & appointments",
+      description:
+        "Receives visitors and manages appointments and the live queue in scope.",
+    },
+  },
+};
+
+const roleName = (role: Pick<OrganizationRole, "code" | "name">, fr: boolean) =>
+  systemRoleCopy[role.code]?.[fr ? "fr" : "en"].name ?? role.name;
+
+const roleDescription = (
+  role: Pick<OrganizationRole, "code" | "description">,
+  fr: boolean,
+) =>
+  systemRoleCopy[role.code]?.[fr ? "fr" : "en"].description ?? role.description;
+
+const roleScopeLabel = (scope: string, fr: boolean) => {
+  const labels: Record<string, string> = fr
+    ? {
+        organization: "Entreprise",
+        province: "Province",
+        project: "Projet",
+        self: "Personnel",
+      }
+    : {
+        organization: "Organization",
+        province: "Province",
+        project: "Project",
+        self: "Personal",
+      };
+  return labels[scope] ?? titleWords(scope);
+};
 const permissionModuleLabel = (module: string, fr: boolean) => {
-  if (module === "appointments") return fr ? "Rendez-vous et accueil" : "Appointments & reception";
+  if (module === "appointments")
+    return fr ? "Rendez-vous et accueil" : "Appointments & reception";
   return titleWords(module);
 };
 
-function RoleLibrary({ roles, orgSlug, canUpdate }: { roles: OrganizationRole[]; orgSlug: string; canUpdate: boolean }) {
+function RoleLibrary({
+  roles,
+  orgSlug,
+  canUpdate,
+}: {
+  roles: OrganizationRole[];
+  orgSlug: string;
+  canUpdate: boolean;
+}) {
   const { locale } = useLanguage();
   const fr = locale === "fr";
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const queryClient = useQueryClient();
-  const permissions = useQuery({ queryKey: ["org-permissions", orgSlug], queryFn: () => companySetupApi.listPermissions<{ permissions: OrganizationPermission[] }>(orgSlug), enabled: Boolean(selectedId), select: (data) => data.permissions });
-  const save = useMutation({ mutationFn: ({ roleId, permissionCodes }: { roleId: string; permissionCodes: string[] }) => companySetupApi.updateRole<{ role: OrganizationRole }>(orgSlug, roleId, { permissionCodes }), onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ["org-roles", orgSlug] }); setSelectedId(null); } });
+  const permissions = useQuery({
+    queryKey: ["org-permissions", orgSlug],
+    queryFn: () =>
+      companySetupApi.listPermissions<{
+        permissions: OrganizationPermission[];
+      }>(orgSlug),
+    enabled: Boolean(selectedId),
+    select: (data) => data.permissions,
+  });
+  const save = useMutation({
+    mutationFn: ({
+      roleId,
+      permissionCodes,
+    }: {
+      roleId: string;
+      permissionCodes: string[];
+    }) =>
+      companySetupApi.updateRole<{ role: OrganizationRole }>(orgSlug, roleId, {
+        permissionCodes,
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["org-roles", orgSlug] });
+      setSelectedId(null);
+    },
+  });
   const selected = roles.find((role) => role.id === selectedId) ?? null;
   if (!roles.length) return null;
-  return <>
-    <section className="overflow-hidden rounded-2xl border border-border-strong/80 bg-[radial-gradient(circle_at_top_right,rgba(26,115,232,.12),transparent_38%),radial-gradient(circle_at_bottom_left,rgba(16,185,129,.08),transparent_34%),var(--surface-1)] shadow-[0_20px_46px_-34px_rgba(15,23,42,.55)]">
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border-strong/80 bg-surface-1/70 p-5 sm:p-6"><div><div className="flex items-center gap-2"><ShieldCheck className="size-4 text-brand" aria-hidden /><h2 className="text-base font-semibold text-ink">{fr ? "Bibliothèque de rôles" : "Role library"}</h2></div><p className="mt-1 max-w-2xl text-xs leading-5 text-ink-secondary">{fr ? "Ouvrez un rôle pour consulter toutes ses permissions et adapter les accès de l’entreprise. Le nom et le périmètre des rôles système restent protégés." : "Open a role to review every permission and tailor company access. Built-in role names and scopes remain protected."}</p></div><span className="inline-flex min-w-8 items-center justify-center rounded-full border border-brand/20 bg-brand-subtle px-2.5 py-1 text-xs font-bold text-brand">{roles.length}</span></div>
-      <div className="grid gap-3 bg-surface-2/60 p-3 sm:grid-cols-2 sm:p-4 xl:grid-cols-3">
-        {roles.map((role) => { const appointmentCount = (role.permissionCodes ?? []).filter((code) => code.startsWith("appointments.")).length; return <button key={role.id} type="button" onClick={() => setSelectedId(role.id)} className={`group relative overflow-hidden rounded-xl border border-border-strong/80 p-4 text-left shadow-[0_12px_26px_-24px_rgba(15,23,42,.55)] transition-all duration-200 hover:-translate-y-0.5 hover:border-brand/50 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ${role.dataScope === "province" ? "bg-[linear-gradient(145deg,rgba(16,185,129,.09),var(--surface-1)_48%)]" : role.isSystem ? "bg-[linear-gradient(145deg,rgba(26,115,232,.09),var(--surface-1)_48%)]" : "bg-[linear-gradient(145deg,rgba(139,92,246,.08),var(--surface-1)_48%)]"}`} aria-label={fr ? `Ouvrir les permissions de ${role.name}` : `Open ${role.name} permissions`}>
-          <span className={`absolute inset-x-0 top-0 h-0.5 ${role.dataScope === "province" ? "bg-good/70" : role.isSystem ? "bg-brand/70" : "bg-violet-500/70"}`} aria-hidden /><div className="flex flex-wrap items-start justify-between gap-2"><div><p className="text-sm font-semibold text-ink">{role.name}</p><p className="mt-0.5 text-xs text-ink-muted">{role.code}</p></div><Badge variant={role.isSystem ? "outline" : "info"}>{role.isSystem ? (fr ? "Système" : "System") : (fr ? "Personnalisé" : "Custom")}</Badge></div><p className="mt-3 min-h-10 text-xs leading-5 text-ink-secondary">{role.description ?? (fr ? "Rôle configuré pour cette entreprise." : "Role configured for this company.")}</p>{appointmentCount ? <Badge variant="info" className="mt-3"><CalendarClock className="size-3" />{fr ? `Rendez-vous · ${appointmentCount}/4` : `Appointments · ${appointmentCount}/4`}</Badge> : null}<div className="mt-3 flex items-center justify-between gap-2 border-t border-border pt-3"><div className="flex flex-wrap gap-1.5"><Badge variant="outline"><MapPin className="size-3" />{(role.dataScope ?? "organization").replace(/_/g, " ")}</Badge><Badge variant="outline"><ShieldCheck className="size-3" />{role.permissionCodes?.length ?? 0}</Badge></div><span className="inline-flex items-center gap-1 text-xs font-semibold text-brand opacity-80 transition group-hover:opacity-100">{fr ? "Permissions" : "Permissions"}<ChevronRight className="size-3.5 transition-transform group-hover:translate-x-0.5" aria-hidden /></span></div>
-        </button>; })}
-      </div>
-    </section>
-    {selected ? <RolePermissionDialog role={selected} permissions={permissions.data ?? []} loading={permissions.isPending} error={permissions.error} fr={fr} canUpdate={canUpdate} saving={save.isPending} saveError={save.error} onClose={() => { setSelectedId(null); save.reset(); }} onSave={(permissionCodes) => save.mutate({ roleId: selected.id, permissionCodes })} /> : null}
-  </>;
+  return (
+    <>
+      <section className="overflow-hidden rounded-2xl border border-border-strong/80 bg-[radial-gradient(circle_at_top_right,rgba(26,115,232,.12),transparent_38%),radial-gradient(circle_at_bottom_left,rgba(16,185,129,.08),transparent_34%),var(--surface-1)] shadow-[0_20px_46px_-34px_rgba(15,23,42,.55)]">
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border-strong/80 bg-surface-1/70 p-5 sm:p-6">
+          <div>
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="size-4 text-brand" aria-hidden />
+              <h2 className="text-base font-semibold text-ink">
+                {fr ? "Bibliothèque de rôles" : "Role library"}
+              </h2>
+            </div>
+            <p className="mt-1 max-w-2xl text-xs leading-5 text-ink-secondary">
+              {fr
+                ? "Ouvrez un rôle pour consulter toutes ses permissions et adapter les accès de l’entreprise. Le nom et le périmètre des rôles système restent protégés."
+                : "Open a role to review every permission and tailor company access. Built-in role names and scopes remain protected."}
+            </p>
+          </div>
+          <span className="inline-flex min-w-8 items-center justify-center rounded-full border border-brand/20 bg-brand-subtle px-2.5 py-1 text-xs font-bold text-brand">
+            {roles.length}
+          </span>
+        </div>
+        <div className="grid gap-3 bg-surface-2/60 p-3 sm:grid-cols-2 sm:p-4 xl:grid-cols-3">
+          {roles.map((role) => {
+            const displayName = roleName(role, fr);
+            const displayDescription = roleDescription(role, fr);
+            const appointmentCount = (role.permissionCodes ?? []).filter(
+              (code) => code.startsWith("appointments."),
+            ).length;
+            return (
+              <button
+                key={role.id}
+                type="button"
+                onClick={() => setSelectedId(role.id)}
+                className={`group relative overflow-hidden rounded-xl border border-border-strong/80 p-4 text-left shadow-[0_12px_26px_-24px_rgba(15,23,42,.55)] transition-all duration-200 hover:-translate-y-0.5 hover:border-brand/50 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ${role.dataScope === "province" ? "bg-[linear-gradient(145deg,rgba(16,185,129,.09),var(--surface-1)_48%)]" : role.isSystem ? "bg-[linear-gradient(145deg,rgba(26,115,232,.09),var(--surface-1)_48%)]" : "bg-[linear-gradient(145deg,rgba(139,92,246,.08),var(--surface-1)_48%)]"}`}
+                aria-label={
+                  fr
+                    ? `Ouvrir les permissions de ${displayName}`
+                    : `Open ${displayName} permissions`
+                }
+              >
+                <span
+                  className={`absolute inset-x-0 top-0 h-0.5 ${role.dataScope === "province" ? "bg-good/70" : role.isSystem ? "bg-brand/70" : "bg-violet-500/70"}`}
+                  aria-hidden
+                />
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold text-ink">
+                      {displayName}
+                    </p>
+                    <p className="mt-0.5 text-xs text-ink-muted">{role.code}</p>
+                  </div>
+                  <Badge variant={role.isSystem ? "outline" : "info"}>
+                    {role.isSystem
+                      ? fr
+                        ? "Système"
+                        : "System"
+                      : fr
+                        ? "Personnalisé"
+                        : "Custom"}
+                  </Badge>
+                </div>
+                <p className="mt-3 min-h-10 text-xs leading-5 text-ink-secondary">
+                  {displayDescription ??
+                    (fr
+                      ? "Rôle configuré pour cette entreprise."
+                      : "Role configured for this company.")}
+                </p>
+                {appointmentCount ? (
+                  <Badge variant="info" className="mt-3">
+                    <CalendarClock className="size-3" />
+                    {fr
+                      ? `Rendez-vous · ${appointmentCount}/4`
+                      : `Appointments · ${appointmentCount}/4`}
+                  </Badge>
+                ) : null}
+                <div className="mt-3 flex items-center justify-between gap-2 border-t border-border pt-3">
+                  <div className="flex flex-wrap gap-1.5">
+                    <Badge variant="outline">
+                      <MapPin className="size-3" />
+                      {roleScopeLabel(role.dataScope ?? "organization", fr)}
+                    </Badge>
+                    <Badge variant="outline">
+                      <ShieldCheck className="size-3" />
+                      {role.permissionCodes?.length ?? 0}
+                    </Badge>
+                  </div>
+                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-brand opacity-80 transition group-hover:opacity-100">
+                    {fr ? "Permissions" : "Permissions"}
+                    <ChevronRight
+                      className="size-3.5 transition-transform group-hover:translate-x-0.5"
+                      aria-hidden
+                    />
+                  </span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+      {selected ? (
+        <RolePermissionDialog
+          role={selected}
+          permissions={permissions.data ?? []}
+          loading={permissions.isPending}
+          error={permissions.error}
+          fr={fr}
+          canUpdate={canUpdate}
+          saving={save.isPending}
+          saveError={save.error}
+          onClose={() => {
+            setSelectedId(null);
+            save.reset();
+          }}
+          onSave={(permissionCodes) =>
+            save.mutate({ roleId: selected.id, permissionCodes })
+          }
+        />
+      ) : null}
+    </>
+  );
 }
 
-function RolePermissionDialog({ role, permissions, loading, error, fr, canUpdate, saving, saveError, onClose, onSave }: { role: OrganizationRole; permissions: OrganizationPermission[]; loading: boolean; error: unknown; fr: boolean; canUpdate: boolean; saving: boolean; saveError: unknown; onClose: () => void; onSave: (permissionCodes: string[]) => void }) {
+function RolePermissionDialog({
+  role,
+  permissions,
+  loading,
+  error,
+  fr,
+  canUpdate,
+  saving,
+  saveError,
+  onClose,
+  onSave,
+}: {
+  role: OrganizationRole;
+  permissions: OrganizationPermission[];
+  loading: boolean;
+  error: unknown;
+  fr: boolean;
+  canUpdate: boolean;
+  saving: boolean;
+  saveError: unknown;
+  onClose: () => void;
+  onSave: (permissionCodes: string[]) => void;
+}) {
   const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<Set<string>>(() => new Set(role.permissionCodes ?? []));
+  const [selected, setSelected] = useState<Set<string>>(
+    () => new Set(role.permissionCodes ?? []),
+  );
   const initialCodes = (role.permissionCodes ?? []).join("|");
-  useEffect(() => { setSelected(new Set(role.permissionCodes ?? [])); setSearch(""); }, [role.id, initialCodes]);
-  const protectedOwnerPermissions = new Set(role.code === "owner" ? ["organization.read", "organization.update", "members.read", "members.update", "roles.read", "roles.update"] : []);
+  useEffect(() => {
+    setSelected(new Set(role.permissionCodes ?? []));
+    setSearch("");
+  }, [role.id, initialCodes]);
+  const protectedOwnerPermissions = new Set(
+    role.code === "owner"
+      ? [
+          "organization.read",
+          "organization.update",
+          "members.read",
+          "members.update",
+          "roles.read",
+          "roles.update",
+        ]
+      : [],
+  );
   const normalizedSearch = search.trim().toLocaleLowerCase();
-  const groups = useMemo(() => { const values = permissions.filter((permission) => [permission.code, permission.description ?? "", permission.moduleCode ?? "", permission.resource, permission.action].join(" ").toLocaleLowerCase().includes(normalizedSearch)); const grouped = new Map<string, OrganizationPermission[]>(); for (const permission of values) { const key = permission.moduleCode ?? permission.resource ?? "general"; grouped.set(key, [...(grouped.get(key) ?? []), permission]); } return [...grouped.entries()].map(([module, entries]) => ({ module, permissions: entries.sort((left, right) => left.code.localeCompare(right.code)) })).sort((left, right) => left.module.localeCompare(right.module)); }, [permissions, normalizedSearch]);
-  const toggle = (code: string) => { if (!canUpdate || protectedOwnerPermissions.has(code)) return; setSelected((current) => { const next = new Set(current); if (next.has(code)) next.delete(code); else next.add(code); return next; }); };
-  const message = (saveError instanceof ApiError ? saveError.message : null) ?? (error instanceof ApiError ? error.message : null);
-  return <div className="fixed inset-0 z-[70] overflow-y-auto bg-ink/50 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={fr ? `Permissions : ${role.name}` : `Permissions: ${role.name}`}><section className="mx-auto my-5 w-full max-w-5xl overflow-hidden rounded-3xl border border-border-strong bg-surface-1 shadow-2xl">
-    <header className="relative overflow-hidden border-b border-border bg-[radial-gradient(circle_at_92%_10%,rgba(37,99,235,.14),transparent_30%),linear-gradient(125deg,rgba(255,255,255,.98),rgba(241,245,249,.95))] p-5 dark:bg-surface-1 sm:p-6"><div className="flex items-start justify-between gap-4"><div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-[.16em] text-brand">{fr ? "Contrôle des permissions" : "Permission control"}</p><h2 className="mt-1 truncate text-xl font-semibold tracking-tight text-ink">{role.name}</h2><p className="mt-1 max-w-3xl text-sm leading-6 text-ink-secondary">{fr ? "Cochez uniquement les actions que les personnes utilisant ce rôle peuvent effectuer. Les changements s’appliquent immédiatement à l’entreprise." : "Select only the actions people using this role may perform. Changes apply to the company immediately."}</p></div><Button variant="ghost" size="icon-sm" onClick={onClose} aria-label={fr ? "Fermer" : "Close"}><X /></Button></div><div className="mt-4 flex flex-wrap gap-2"><Badge variant={role.isSystem ? "outline" : "info"}>{role.isSystem ? (fr ? "Rôle système" : "System role") : (fr ? "Rôle personnalisé" : "Custom role")}</Badge><Badge variant="outline"><MapPin className="size-3" />{titleWords(role.dataScope ?? "organization")}</Badge><Badge variant="outline"><ShieldCheck className="size-3" />{selected.size} {fr ? "permission(s) active(s)" : "active permission(s)"}</Badge></div>{role.code === "owner" ? <p className="mt-4 rounded-xl border border-warning/30 bg-warning/10 px-3 py-2 text-xs leading-5 text-warning-ink">{fr ? "Les permissions essentielles de gestion de l’entreprise et des accès restent verrouillées afin d’éviter de bloquer le propriétaire hors des réglages." : "Core company and access-management permissions stay locked to prevent the Owner from being locked out of Settings."}</p> : null}</header>
-    <div className="border-b border-border bg-surface-2/55 p-4 sm:px-6"><label className="relative block max-w-xl"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-muted" aria-hidden /><Input value={search} onChange={(event) => setSearch(event.target.value)} className="pl-9" placeholder={fr ? "Rechercher une permission, un module ou une action…" : "Search a permission, module or action…"} /></label></div>
-    {message ? <p role="alert" className="mx-5 mt-5 rounded-xl border border-critical/30 bg-critical/10 px-4 py-3 text-sm text-critical sm:mx-6">{message}</p> : null}
-    <div className="max-h-[58dvh] space-y-3 overflow-y-auto bg-surface-2/45 p-4 sm:p-6">{loading ? <SkeletonCard rows={8} /> : groups.length ? groups.map((group, index) => { const selectedCount = group.permissions.filter((permission) => selected.has(permission.code)).length; return <details key={group.module} open={Boolean(normalizedSearch) || index < 2} className="overflow-hidden rounded-2xl border border-border-strong/80 bg-surface-1 shadow-sm"><summary className="flex cursor-pointer list-none items-center justify-between gap-3 bg-[linear-gradient(115deg,rgba(20,184,166,.065),transparent_52%)] px-4 py-3.5 marker:hidden"><span><span className="block text-sm font-semibold text-ink">{permissionModuleLabel(group.module, fr)}</span><span className="mt-0.5 block text-xs text-ink-secondary">{group.permissions.length} {fr ? "permission(s)" : "permission(s)"}</span></span><Badge variant={selectedCount ? "good" : "outline"} icon={false}>{selectedCount} {fr ? "activée(s)" : "enabled"}</Badge></summary><div className="divide-y divide-border">{group.permissions.map((permission) => { const checked = selected.has(permission.code); const locked = protectedOwnerPermissions.has(permission.code); return <label key={permission.code} className={`flex cursor-pointer items-start gap-3 px-4 py-3 transition ${checked ? "bg-brand-subtle/45" : "hover:bg-surface-2"} ${locked || !canUpdate ? "cursor-not-allowed opacity-75" : ""}`}><input type="checkbox" checked={checked} disabled={locked || !canUpdate} onChange={() => toggle(permission.code)} className="mt-0.5 size-4 accent-[var(--brand)]" /><span className="min-w-0 flex-1"><span className="flex flex-wrap items-center gap-2"><span className="text-sm font-semibold text-ink">{permission.description || titleWords(permission.resource + " " + permission.action)}</span>{locked ? <Badge variant="warning" icon={false}>{fr ? "Protégée" : "Protected"}</Badge> : null}</span><span className="mt-1 block break-all font-mono text-[11px] text-ink-muted">{permission.code}</span></span></label>; })}</div></details>; }) : <EmptyState icon={ShieldCheck} title={fr ? "Aucune permission trouvée" : "No permission found"} description={fr ? "Essayez un autre terme de recherche." : "Try another search term."} />}</div>
-    <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-surface-1 p-4 sm:px-6"><p className="text-xs text-ink-secondary">{canUpdate ? (fr ? "Le rôle conserve au moins une permission active." : "The role must keep at least one active permission.") : (fr ? "Vous pouvez consulter les permissions, mais seul le propriétaire peut les modifier." : "You can review permissions, but only the Owner can change them.")}</p><div className="flex gap-2"><Button variant="secondary" onClick={onClose}>{fr ? "Annuler" : "Cancel"}</Button>{canUpdate ? <Button disabled={selected.size === 0} loading={saving} onClick={() => onSave([...selected].sort())}>{fr ? "Enregistrer les permissions" : "Save permissions"}</Button> : null}</div></footer>
-  </section></div>;
+  const groups = useMemo(() => {
+    const values = permissions.filter((permission) =>
+      [
+        permission.code,
+        permission.description ?? "",
+        permission.moduleCode ?? "",
+        permission.resource,
+        permission.action,
+      ]
+        .join(" ")
+        .toLocaleLowerCase()
+        .includes(normalizedSearch),
+    );
+    const grouped = new Map<string, OrganizationPermission[]>();
+    for (const permission of values) {
+      const key = permission.moduleCode ?? permission.resource ?? "general";
+      grouped.set(key, [...(grouped.get(key) ?? []), permission]);
+    }
+    return [...grouped.entries()]
+      .map(([module, entries]) => ({
+        module,
+        permissions: entries.sort((left, right) =>
+          left.code.localeCompare(right.code),
+        ),
+      }))
+      .sort((left, right) => left.module.localeCompare(right.module));
+  }, [permissions, normalizedSearch]);
+  const toggle = (code: string) => {
+    if (!canUpdate || protectedOwnerPermissions.has(code)) return;
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(code)) next.delete(code);
+      else next.add(code);
+      return next;
+    });
+  };
+  const message =
+    (saveError instanceof ApiError ? saveError.message : null) ??
+    (error instanceof ApiError ? error.message : null);
+  const displayName = roleName(role, fr);
+  const displayDescription = roleDescription(role, fr);
+  return (
+    <div
+      className="fixed inset-0 z-[70] overflow-y-auto bg-ink/50 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-label={
+        fr ? `Permissions : ${displayName}` : `Permissions: ${displayName}`
+      }
+    >
+      <section className="mx-auto my-5 w-full max-w-5xl overflow-hidden rounded-3xl border border-border-strong bg-surface-1 shadow-2xl">
+        <header className="relative overflow-hidden border-b border-border bg-[radial-gradient(circle_at_92%_10%,rgba(37,99,235,.14),transparent_30%),linear-gradient(125deg,rgba(255,255,255,.98),rgba(241,245,249,.95))] p-5 dark:bg-surface-1 sm:p-6">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-[.16em] text-brand">
+                {fr ? "Contrôle des permissions" : "Permission control"}
+              </p>
+              <h2 className="mt-1 truncate text-xl font-semibold tracking-tight text-ink">
+                {displayName}
+              </h2>
+              <p className="mt-1 max-w-3xl text-sm leading-6 text-ink-secondary">
+                {displayDescription ??
+                  (fr
+                    ? "Cochez uniquement les actions que les personnes utilisant ce rôle peuvent effectuer. Les changements s’appliquent immédiatement à l’entreprise."
+                    : "Select only the actions people using this role may perform. Changes apply to the company immediately.")}
+              </p>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={onClose}
+              aria-label={fr ? "Fermer" : "Close"}
+            >
+              <X />
+            </Button>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Badge variant={role.isSystem ? "outline" : "info"}>
+              {role.isSystem
+                ? fr
+                  ? "Rôle système"
+                  : "System role"
+                : fr
+                  ? "Rôle personnalisé"
+                  : "Custom role"}
+            </Badge>
+            <Badge variant="outline">
+              <MapPin className="size-3" />
+              {roleScopeLabel(role.dataScope ?? "organization", fr)}
+            </Badge>
+            <Badge variant="outline">
+              <ShieldCheck className="size-3" />
+              {selected.size}{" "}
+              {fr ? "permission(s) active(s)" : "active permission(s)"}
+            </Badge>
+          </div>
+          {role.code === "owner" ? (
+            <p className="mt-4 rounded-xl border border-warning/30 bg-warning/10 px-3 py-2 text-xs leading-5 text-warning-ink">
+              {fr
+                ? "Les permissions essentielles de gestion de l’entreprise et des accès restent verrouillées afin d’éviter de bloquer le propriétaire hors des réglages."
+                : "Core company and access-management permissions stay locked to prevent the Owner from being locked out of Settings."}
+            </p>
+          ) : null}
+          {role.code === "appointment_receptionist" ? (
+            <div className="mt-4 rounded-2xl border border-brand/20 bg-brand/5 p-3.5 text-xs leading-5 text-ink-secondary">
+              <p className="font-semibold text-ink">
+                {fr ? "Accès de réception" : "Reception access"}
+              </p>
+              <ul className="mt-1.5 list-disc space-y-1 pl-4">
+                <li>
+                  {fr
+                    ? "Consulter, créer et mettre à jour les rendez-vous et la file de son périmètre."
+                    : "View, create and update appointments and the queue in scope."}
+                </li>
+                <li>
+                  {fr
+                    ? "Enregistrer une arrivée, appeler, démarrer et terminer un passage depuis un guichet."
+                    : "Check in, call, start and complete visits from a desk."}
+                </li>
+                <li>
+                  {fr
+                    ? "Ne donne pas accès aux projets, à la finance, à la paie ni aux réglages publics du site."
+                    : "Does not grant access to projects, finance, payroll or public site settings."}
+                </li>
+              </ul>
+            </div>
+          ) : null}
+        </header>
+        <div className="border-b border-border bg-surface-2/55 p-4 sm:px-6">
+          <label className="relative block max-w-xl">
+            <Search
+              className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-muted"
+              aria-hidden
+            />
+            <Input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              className="pl-9"
+              placeholder={
+                fr
+                  ? "Rechercher une permission, un module ou une action…"
+                  : "Search a permission, module or action…"
+              }
+            />
+          </label>
+        </div>
+        {message ? (
+          <p
+            role="alert"
+            className="mx-5 mt-5 rounded-xl border border-critical/30 bg-critical/10 px-4 py-3 text-sm text-critical sm:mx-6"
+          >
+            {message}
+          </p>
+        ) : null}
+        <div className="max-h-[58dvh] space-y-3 overflow-y-auto bg-surface-2/45 p-4 sm:p-6">
+          {loading ? (
+            <SkeletonCard rows={8} />
+          ) : groups.length ? (
+            groups.map((group, index) => {
+              const selectedCount = group.permissions.filter((permission) =>
+                selected.has(permission.code),
+              ).length;
+              return (
+                <details
+                  key={group.module}
+                  open={Boolean(normalizedSearch) || index < 2}
+                  className="overflow-hidden rounded-2xl border border-border-strong/80 bg-surface-1 shadow-sm"
+                >
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 bg-[linear-gradient(115deg,rgba(20,184,166,.065),transparent_52%)] px-4 py-3.5 marker:hidden">
+                    <span>
+                      <span className="block text-sm font-semibold text-ink">
+                        {permissionModuleLabel(group.module, fr)}
+                      </span>
+                      <span className="mt-0.5 block text-xs text-ink-secondary">
+                        {group.permissions.length}{" "}
+                        {fr ? "permission(s)" : "permission(s)"}
+                      </span>
+                    </span>
+                    <Badge
+                      variant={selectedCount ? "good" : "outline"}
+                      icon={false}
+                    >
+                      {selectedCount} {fr ? "activée(s)" : "enabled"}
+                    </Badge>
+                  </summary>
+                  <div className="divide-y divide-border">
+                    {group.permissions.map((permission) => {
+                      const checked = selected.has(permission.code);
+                      const locked = protectedOwnerPermissions.has(
+                        permission.code,
+                      );
+                      return (
+                        <label
+                          key={permission.code}
+                          className={`flex cursor-pointer items-start gap-3 px-4 py-3 transition ${checked ? "bg-brand-subtle/45" : "hover:bg-surface-2"} ${locked || !canUpdate ? "cursor-not-allowed opacity-75" : ""}`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            disabled={locked || !canUpdate}
+                            onChange={() => toggle(permission.code)}
+                            className="mt-0.5 size-4 accent-[var(--brand)]"
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="flex flex-wrap items-center gap-2">
+                              <span className="text-sm font-semibold text-ink">
+                                {permission.description ||
+                                  titleWords(
+                                    permission.resource +
+                                      " " +
+                                      permission.action,
+                                  )}
+                              </span>
+                              {locked ? (
+                                <Badge variant="warning" icon={false}>
+                                  {fr ? "Protégée" : "Protected"}
+                                </Badge>
+                              ) : null}
+                            </span>
+                            <span className="mt-1 block break-all font-mono text-[11px] text-ink-muted">
+                              {permission.code}
+                            </span>
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </details>
+              );
+            })
+          ) : (
+            <EmptyState
+              icon={ShieldCheck}
+              title={fr ? "Aucune permission trouvée" : "No permission found"}
+              description={
+                fr
+                  ? "Essayez un autre terme de recherche."
+                  : "Try another search term."
+              }
+            />
+          )}
+        </div>
+        <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-surface-1 p-4 sm:px-6">
+          <p className="text-xs text-ink-secondary">
+            {canUpdate
+              ? fr
+                ? "Le rôle conserve au moins une permission active."
+                : "The role must keep at least one active permission."
+              : fr
+                ? "Vous pouvez consulter les permissions, mais seul le propriétaire peut les modifier."
+                : "You can review permissions, but only the Owner can change them."}
+          </p>
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={onClose}>
+              {fr ? "Annuler" : "Cancel"}
+            </Button>
+            {canUpdate ? (
+              <Button
+                disabled={selected.size === 0}
+                loading={saving}
+                onClick={() => onSave([...selected].sort())}
+              >
+                {fr ? "Enregistrer les permissions" : "Save permissions"}
+              </Button>
+            ) : null}
+          </div>
+        </footer>
+      </section>
+    </div>
+  );
 }
 function MemberList({
   orgSlug,
@@ -517,7 +1291,9 @@ function MemberList({
   const employees = useQuery({
     queryKey: ["settings-employees", orgSlug],
     queryFn: () =>
-      get<{ employees: EmployeeAccessCandidate[] }>(orgUrl(orgSlug, "employees")),
+      get<{ employees: EmployeeAccessCandidate[] }>(
+        orgUrl(orgSlug, "employees"),
+      ),
     enabled: isOwner(user) && can(user, "employees.read"),
     select: (data) => data.employees,
   });
@@ -570,7 +1346,15 @@ function MemberList({
       ),
   );
   const roleLabel = (code: string) =>
-    code.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+    roleName(
+      {
+        code,
+        name: code
+          .replace(/_/g, " ")
+          .replace(/\b\w/g, (letter) => letter.toUpperCase()),
+      },
+      fr,
+    );
   const statusLabel = (status: string) => {
     const labels: Record<string, string> = fr
       ? { active: "Actif", suspended: "Suspendu", inactive: "Inactif" }
@@ -647,7 +1431,7 @@ function MemberList({
               return (
                 <li
                   key={member.memberId}
-                  className="group overflow-hidden rounded-2xl border border-border-strong bg-surface-1 ring-1 ring-black/[.025] shadow-[0_16px_34px_-26px_rgba(15,23,42,.48)] transition-all duration-200 hover:-translate-y-0.5 hover:border-brand/45 hover:shadow-[0_22px_42px_-28px_rgba(15,23,42,.5)]"
+                  className={`group overflow-hidden rounded-2xl border border-border-strong bg-surface-1 ring-1 ring-black/[.025] shadow-[0_16px_34px_-26px_rgba(15,23,42,.48)] transition-all duration-200 hover:-translate-y-0.5 hover:border-brand/45 hover:shadow-[0_22px_42px_-28px_rgba(15,23,42,.5)] ${editing === member.memberId ? "col-span-full" : ""}`}
                 >
                   <div className="p-4">
                     <div className="flex items-start justify-between gap-3">
@@ -704,7 +1488,10 @@ function MemberList({
                           </Badge>
                         ) : (
                           member.roleCodes.map((code) => (
-                            <span key={code} className="inline-flex items-center rounded-md border border-brand/20 bg-brand-subtle px-2 py-1 text-[11px] font-semibold text-brand">
+                            <span
+                              key={code}
+                              className="inline-flex items-center rounded-md border border-brand/20 bg-brand-subtle px-2 py-1 text-[11px] font-semibold text-brand"
+                            >
                               {roleLabel(code)}
                             </span>
                           ))
@@ -773,7 +1560,9 @@ function MemberList({
           <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border p-4 sm:p-5">
             <div>
               <h2 className="text-sm font-semibold text-ink">
-                {fr ? "Employés sans accès LiteHubs" : "Employees without LiteHubs access"}
+                {fr
+                  ? "Employés sans accès LiteHubs"
+                  : "Employees without LiteHubs access"}
               </h2>
               <p className="mt-1 max-w-2xl text-xs leading-5 text-ink-secondary">
                 {fr
@@ -788,7 +1577,9 @@ function MemberList({
           {employees.isPending ? <SkeletonCard rows={2} /> : null}
           {!employees.isPending && employeesWithoutAccess.length === 0 ? (
             <p className="p-4 text-sm text-ink-secondary">
-              {fr ? "Tous les employés actifs ont déjà un accès ou aucune fiche n’est disponible." : "Every active employee already has access, or no employee profile is available."}
+              {fr
+                ? "Tous les employés actifs ont déjà un accès ou aucune fiche n’est disponible."
+                : "Every active employee already has access, or no employee profile is available."}
             </p>
           ) : null}
           {!employees.isPending && employeesWithoutAccess.length ? (
@@ -844,7 +1635,11 @@ function MemberList({
       ) : null}
 
       {can(user, "roles.read") ? (
-        <RoleLibrary roles={roles.data ?? []} orgSlug={orgSlug} canUpdate={canUpdate && isOwner(user)} />
+        <RoleLibrary
+          roles={roles.data ?? []}
+          orgSlug={orgSlug}
+          canUpdate={canUpdate && isOwner(user)}
+        />
       ) : null}
     </>
   );
@@ -1209,6 +2004,7 @@ function InviteMember({
   );
   const [successEmail, setSuccessEmail] = useState<string | null>(null);
   const assignableRoles = roles.filter((role) => role.code !== "owner");
+
   const invite = useMutation({
     mutationFn: (body: {
       email: string;
@@ -1240,7 +2036,9 @@ function InviteMember({
         .trim()
         .toLowerCase(),
       jobTitle:
-        String(form.get("jobTitle") ?? "").trim() || employee?.jobTitle || undefined,
+        String(form.get("jobTitle") ?? "").trim() ||
+        employee?.jobTitle ||
+        undefined,
       employeeId: employee?.id,
       roleCodes: [String(form.get("roleCode") ?? "")],
       provinceIds,
@@ -1320,7 +2118,7 @@ function InviteMember({
               <option value="">{t("members.chooseRole")}</option>
               {assignableRoles.map((role) => (
                 <option key={role.code} value={role.code}>
-                  {role.name}
+                  {roleName(role, fr)}
                 </option>
               ))}
             </select>
@@ -1388,12 +2186,22 @@ function AccessEditor({
   canManageCreationLimits: boolean;
   onDone: () => void;
 }) {
-
   const { t, locale } = useLanguage();
   const fr = locale === "fr";
   const queryClient = useQueryClient();
 
   const assignableRoles = roles.filter((role) => role.code !== "owner");
+  const productionWorkerCodes = new Set([
+    "poultry_worker",
+    "pig_worker",
+    "agriculture_worker",
+  ]);
+  const productionWorkerRoles = assignableRoles.filter((role) =>
+    productionWorkerCodes.has(role.code),
+  );
+  const remainingRoles = assignableRoles.filter(
+    (role) => !productionWorkerCodes.has(role.code),
+  );
   const mustKeepEmployeeRole =
     Boolean(member.employee) &&
     assignableRoles.some((role) => role.code === "employee");
@@ -1408,6 +2216,61 @@ function AccessEditor({
     member.provinces.map((province) => province.id),
   );
 
+  const workerCards: Record<
+    string,
+    {
+      title: string;
+      description: string;
+      workArea: string;
+      Icon: LucideIcon;
+      accent: string;
+      icon: string;
+      selected: string;
+    }
+  > = {
+    poultry_worker: {
+      title: fr ? "Ouvrier avicole" : "Poultry worker",
+      description: fr
+        ? "Saisit les contrôles, l’aliment, l’eau, la mortalité et les données du lot assigné."
+        : "Records checks, feed, water, mortality and data for the assigned flock.",
+      workArea: fr ? "Aviculture" : "Poultry",
+      Icon: Bird,
+      accent:
+        "border-sky-500/25 bg-[linear-gradient(145deg,rgba(14,165,233,.11),transparent_62%)] hover:border-sky-500/50 dark:bg-[linear-gradient(145deg,rgba(14,165,233,.18),transparent_62%)]",
+      icon: "bg-sky-500/15 text-sky-700 dark:bg-sky-400/20 dark:text-sky-200",
+      selected:
+        "border-sky-500 bg-sky-500/[.09] shadow-[0_18px_34px_-26px_rgba(2,132,199,.8)] ring-1 ring-sky-500/20 dark:bg-sky-400/[.12]",
+    },
+    pig_worker: {
+      title: fr ? "Ouvrier porcin" : "Pig worker",
+      description: fr
+        ? "Saisit les contrôles, l’aliment, l’eau, les poids et les incidents de l’élevage assigné."
+        : "Records checks, feed, water, weights and incidents for the assigned pig operation.",
+      workArea: fr ? "Porcs" : "Pigs",
+      Icon: PiggyBank,
+      accent:
+        "border-amber-500/25 bg-[linear-gradient(145deg,rgba(245,158,11,.11),transparent_62%)] hover:border-amber-500/50 dark:bg-[linear-gradient(145deg,rgba(245,158,11,.17),transparent_62%)]",
+      icon: "bg-amber-500/15 text-amber-700 dark:bg-amber-400/20 dark:text-amber-100",
+      selected:
+        "border-amber-500 bg-amber-500/[.09] shadow-[0_18px_34px_-26px_rgba(217,119,6,.8)] ring-1 ring-amber-500/20 dark:bg-amber-400/[.12]",
+    },
+    agriculture_worker: {
+      title: fr ? "Ouvrier agricole" : "Agriculture worker",
+      description: fr
+        ? "Saisit les opérations de champ, l’irrigation, les observations et les récoltes du site assigné."
+        : "Records field work, irrigation, observations and harvests for the assigned site.",
+      workArea: fr ? "Agriculture" : "Agriculture",
+      Icon: Wheat,
+      accent:
+        "border-emerald-500/25 bg-[linear-gradient(145deg,rgba(16,185,129,.11),transparent_62%)] hover:border-emerald-500/50 dark:bg-[linear-gradient(145deg,rgba(16,185,129,.17),transparent_62%)]",
+      icon: "bg-emerald-500/15 text-emerald-700 dark:bg-emerald-400/20 dark:text-emerald-100",
+      selected:
+        "border-emerald-500 bg-emerald-500/[.09] shadow-[0_18px_34px_-26px_rgba(5,150,105,.8)] ring-1 ring-emerald-500/20 dark:bg-emerald-400/[.12]",
+    },
+  };
+  const selectedWorkerCount = productionWorkerRoles.filter((role) =>
+    roleCodes.includes(role.code),
+  ).length;
   // Re-seed when the underlying member changes (a refetch after saving), so the
   // form reflects what the server stored rather than what was typed.
   useEffect(() => {
@@ -1484,7 +2347,7 @@ function AccessEditor({
 
   return (
     <div className="border-t border-border bg-surface-2 p-4">
-      <div className="grid gap-5 sm:grid-cols-2">
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1.35fr)_minmax(19rem,.65fr)]">
         <fieldset>
           <legend className="flex items-center gap-1.5 text-xs font-semibold text-ink">
             <ShieldCheck className="size-3.5" aria-hidden />
@@ -1494,43 +2357,184 @@ function AccessEditor({
             {t("members.rolesHint")}
           </p>
 
-          <div className="mt-2 max-h-56 space-y-1 overflow-y-auto pr-1 scrollbar-thin">
-            {assignableRoles.length === 0 ? (
-              <p className="text-xs text-ink-muted">
-                {t("members.noRolesLoaded")}
-              </p>
-            ) : (
-              assignableRoles.map((role) => (
-                <label
-                  key={role.code}
-                  className="flex cursor-pointer items-start gap-2 rounded-md p-1.5 hover:bg-surface-1"
-                >
-                  <input
-                    type="checkbox"
-                    checked={roleCodes.includes(role.code)}
-                    onChange={() =>
-                      setRoleCodes((list) =>
-                        keepEmployeeRole(toggle(list, role.code)),
-                      )
-                    }
-                    disabled={mustKeepEmployeeRole && role.code === "employee"}
-                    className="mt-0.5 size-4 accent-[var(--brand)]"
-                  />
-                  <span className="min-w-0">
-                    <span className="block text-xs font-medium text-ink">
-                      {role.name}
-                    </span>
-                    {role.description ? (
-                      <span className="block text-xs text-ink-muted">
-                        {role.description}
-                      </span>
-                    ) : null}
+          {productionWorkerRoles.length ? (
+            <section className="mt-4 overflow-hidden rounded-2xl border border-brand/25 bg-[radial-gradient(circle_at_92%_5%,rgba(20,184,166,.13),transparent_32%),linear-gradient(125deg,rgba(248,250,252,.94),rgba(240,253,250,.74))] shadow-[0_18px_40px_-32px_rgba(15,23,42,.55)] dark:border-brand/35 dark:bg-[radial-gradient(circle_at_92%_5%,rgba(20,184,166,.18),transparent_32%),linear-gradient(125deg,rgba(20,28,30,.96),rgba(18,26,27,.92))]">
+              <div className="flex flex-wrap items-start justify-between gap-3 border-b border-brand/15 px-4 py-4 sm:px-5">
+                <div className="flex min-w-0 items-start gap-3">
+                  <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-brand text-white shadow-sm">
+                    <Users className="size-4" aria-hidden />
                   </span>
-                </label>
-              ))
-            )}
-          </div>
+                  <div>
+                    <p className="text-sm font-semibold text-ink">
+                      {fr ? "Métiers de terrain" : "Field work"}
+                    </p>
+                    <p className="mt-1 max-w-xl text-xs leading-5 text-ink-secondary">
+                      {fr
+                        ? "Choisissez les activités réellement exercées. Le site indiqué dans la fiche RH limite toujours les données accessibles."
+                        : "Select only the work they actually do. The site on their HR profile always limits accessible data."}
+                    </p>
+                  </div>
+                </div>
+                <span className="rounded-full border border-brand/25 bg-surface-1/80 px-3 py-1.5 text-xs font-semibold text-brand shadow-sm dark:bg-black/20">
+                  {selectedWorkerCount}/{productionWorkerRoles.length}{" "}
+                  {fr ? "activité(s) attribuée(s)" : "activity assigned"}
+                </span>
+              </div>
 
+              <div className="grid gap-3 p-4 sm:p-5">
+                {productionWorkerRoles.map((role) => {
+                  const card = workerCards[role.code];
+                  if (!card) return null;
+                  const selected = roleCodes.includes(role.code);
+                  const Icon = card.Icon;
+                  return (
+                    <label
+                      key={role.code}
+                      className={`group relative flex min-h-48 cursor-pointer flex-col overflow-hidden rounded-2xl border p-4 transition-all duration-200 focus-within:ring-2 focus-within:ring-brand/50 ${
+                        selected ? card.selected : card.accent
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        onChange={() =>
+                          setRoleCodes((list) =>
+                            keepEmployeeRole(toggle(list, role.code)),
+                          )
+                        }
+                        className="sr-only"
+                      />
+                      <span className="absolute right-3 top-3">
+                        <span
+                          className={`grid size-6 place-items-center rounded-full border text-xs font-bold transition ${
+                            selected
+                              ? "border-brand bg-brand text-white"
+                              : "border-border-strong bg-surface-1 text-transparent group-hover:border-brand/40"
+                          }`}
+                          aria-hidden
+                        >
+                          ✓
+                        </span>
+                      </span>
+
+                      <span className="flex items-start gap-3">
+                        <span
+                          className={`grid size-11 shrink-0 place-items-center rounded-xl ${card.icon}`}
+                        >
+                          <Icon className="size-5" aria-hidden />
+                        </span>
+                        <span className="min-w-0 pr-7">
+                          <span className="block text-sm font-semibold text-ink">
+                            {card.title}
+                          </span>
+                          <span className="mt-1 inline-flex rounded-full border border-current/15 bg-surface-1/55 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-secondary dark:bg-black/10">
+                            {card.workArea}
+                          </span>
+                        </span>
+                      </span>
+
+                      <span className="mt-4 block text-xs leading-5 text-ink-secondary">
+                        {card.description}
+                      </span>
+                      <span className="mt-auto pt-4 text-xs font-semibold text-brand">
+                        {selected
+                          ? fr
+                            ? "Activité attribuée"
+                            : "Activity assigned"
+                          : fr
+                            ? "Cliquer pour attribuer"
+                            : "Click to assign"}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+
+              <div className="flex items-start gap-2 border-t border-brand/15 bg-surface-1/45 px-4 py-3 text-xs leading-5 text-ink-secondary dark:bg-black/10 sm:px-5">
+                <MapPin
+                  className="mt-0.5 size-3.5 shrink-0 text-brand"
+                  aria-hidden
+                />
+                <span>
+                  {fr
+                    ? "Ces activités donnent accès uniquement aux enregistrements du site de travail attribué à cette personne."
+                    : "These activities grant access only to records at this person's assigned work site."}
+                </span>
+              </div>
+            </section>
+          ) : null}
+
+          <section className="mt-4">
+            <div className="flex items-end justify-between gap-3">
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-[0.13em] text-ink-secondary">
+                  {fr
+                    ? "Autres rôles et responsabilités"
+                    : "Other roles and responsibilities"}
+                </h3>
+                <p className="mt-1 text-xs text-ink-muted">
+                  {fr
+                    ? "Supervision, gestion et fonctions de soutien."
+                    : "Supervision, management and support functions."}
+                </p>
+              </div>
+              <span className="text-xs font-medium text-ink-muted">
+                {
+                  remainingRoles.filter((role) => roleCodes.includes(role.code))
+                    .length
+                }{" "}
+                {fr ? "sélectionné(s)" : "selected"}
+              </span>
+            </div>
+
+            <div className="mt-3 grid max-h-96 gap-2 overflow-y-auto pr-1 scrollbar-thin sm:grid-cols-2">
+              {remainingRoles.length === 0 ? (
+                productionWorkerRoles.length === 0 ? (
+                  <p className="text-xs text-ink-muted">
+                    {t("members.noRolesLoaded")}
+                  </p>
+                ) : null
+              ) : (
+                remainingRoles.map((role) => {
+                  const selected = roleCodes.includes(role.code);
+                  const locked =
+                    mustKeepEmployeeRole && role.code === "employee";
+                  return (
+                    <label
+                      key={role.code}
+                      className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition ${
+                        selected
+                          ? "border-brand/45 bg-brand/5 shadow-sm"
+                          : "border-border bg-surface-1 hover:border-brand/35 hover:bg-surface-1"
+                      } ${locked ? "cursor-not-allowed opacity-85" : ""}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        onChange={() =>
+                          setRoleCodes((list) =>
+                            keepEmployeeRole(toggle(list, role.code)),
+                          )
+                        }
+                        disabled={locked}
+                        className="mt-0.5 size-4 shrink-0 accent-[var(--brand)]"
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-sm font-semibold text-ink">
+                          {roleName(role, fr)}
+                        </span>
+                        {roleDescription(role, fr) ? (
+                          <span className="mt-0.5 block text-xs leading-4 text-ink-muted">
+                            {roleDescription(role, fr)}
+                          </span>
+                        ) : null}
+                      </span>
+                    </label>
+                  );
+                })
+              )}
+            </div>
+          </section>
           {mustKeepEmployeeRole ? (
             <p className="mt-2 rounded-lg bg-brand/5 px-2.5 py-2 text-xs leading-5 text-ink-secondary">
               {fr
@@ -1546,7 +2550,9 @@ function AccessEditor({
           {assignableRoles.some((role) => role.code === "employee") ? (
             <div className="mt-4 rounded-xl border border-warning/30 bg-warning/10 p-3">
               <p className="text-xs font-semibold text-ink">
-                {fr ? "Accès temporairement limité" : "Temporary limited access"}
+                {fr
+                  ? "Accès temporairement limité"
+                  : "Temporary limited access"}
               </p>
               <p className="mt-1 text-xs leading-5 text-ink-secondary">
                 {fr
