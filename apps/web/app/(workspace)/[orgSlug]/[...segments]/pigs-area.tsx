@@ -19,9 +19,11 @@ import {
   Check,
   ChevronRight,
   ClipboardList,
+  CloudOff,
   HeartPulse,
   PiggyBank,
   Plus,
+  RefreshCw,
   Scale,
   ShieldCheck,
   Stethoscope,
@@ -30,12 +32,22 @@ import {
   Wheat,
   X,
 } from "lucide-react";
+import { toast } from "sonner";
 import { Badge, severityVariant } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Textarea } from "@/components/ui/input";
 import { EmptyState, ErrorState, SkeletonCard } from "@/components/ui/states";
 import { ApiError, get, orgUrl } from "@/lib/api";
 import { PIG_RESOURCES, pigsApi, type PigResource } from "@/lib/pigs-api";
+import { ownerManagementApi } from "@/lib/owner-management-api";
+import {
+  isNetworkFailure,
+  isOfflinePigResource,
+  newOfflinePigSyncKey,
+  offlinePigRecordCount,
+  queueOfflinePigRecord,
+  syncOfflinePigRecords,
+} from "@/lib/offline-pig-records";
 import { can } from "@/lib/permissions";
 import { formatBusinessDay, formatQuantity } from "@/lib/utils";
 import { useLanguage } from "@/providers/language-provider";
@@ -576,6 +588,9 @@ export function PigsArea({ orgSlug }: { orgSlug: string }) {
   const [resource, setResource] = useState<PigResource>("pens");
   const [siteId, setSiteId] = useState("");
   const [editor, setEditor] = useState<Editor | null>(null);
+  const [isOnline, setIsOnline] = useState(true);
+  const [offlinePending, setOfflinePending] = useState(0);
+  const [syncingOffline, setSyncingOffline] = useState(false);
   const [selected, setSelected] = useState<{
     resource: PigResource;
     id: string;
@@ -586,11 +601,39 @@ export function PigsArea({ orgSlug }: { orgSlug: string }) {
     action: "create" | "read" | "update" | "delete",
   ) => can(user, `pigs.${resourcePermission[item]}.${action}`);
 
+  useEffect(() => {
+    const updateOfflineState = () => {
+      setIsOnline(navigator.onLine);
+      setOfflinePending(offlinePigRecordCount(orgSlug));
+    };
+    updateOfflineState();
+    window.addEventListener("online", updateOfflineState);
+    window.addEventListener("offline", updateOfflineState);
+    window.addEventListener("litehubs:offline-pig-change", updateOfflineState);
+    return () => {
+      window.removeEventListener("online", updateOfflineState);
+      window.removeEventListener("offline", updateOfflineState);
+      window.removeEventListener("litehubs:offline-pig-change", updateOfflineState);
+    };
+  }, [orgSlug]);
+
   const sites = useQuery({
     queryKey: ["pig-sites", orgSlug],
     queryFn: () => get<{ sites: Site[] }>(orgUrl(orgSlug, "sites")),
     enabled: can(user, "sites.read"),
     select: (data) => data.sites,
+  });
+  const feedStockItems = useQuery({
+    queryKey: ["pig-feed-stock-items", orgSlug],
+    queryFn: () => ownerManagementApi.list<{ records: Item[] }>(orgSlug, "inventory-items", { limit: 200 }),
+    enabled: can(user, "inventory.items.read"),
+    select: (data) => data.records.filter((item) => ["kg", "kilogram", "kilogramme", "kilogrammes"].includes(String(item.unit ?? "").trim().toLowerCase()) && /feed|aliment/i.test(String(item.category ?? ""))),
+  });
+  const feedWarehouses = useQuery({
+    queryKey: ["pig-feed-warehouses", orgSlug],
+    queryFn: () => ownerManagementApi.list<{ records: Item[] }>(orgSlug, "warehouses", { limit: 200 }),
+    enabled: can(user, "inventory.warehouses.read"),
+    select: (data) => data.records.filter((item) => item.isActive !== false),
   });
   const overview = useQuery({
     queryKey: ["pig-overview", orgSlug, siteId],
@@ -641,7 +684,7 @@ export function PigsArea({ orgSlug }: { orgSlug: string }) {
     client.invalidateQueries({ queryKey: ["pig-overview", orgSlug] });
   };
   const save = useMutation({
-    mutationFn: ({
+    mutationFn: async ({
       resource: item,
       record,
       body,
@@ -649,16 +692,71 @@ export function PigsArea({ orgSlug }: { orgSlug: string }) {
       resource: PigResource;
       record?: Item;
       body: Record<string, unknown>;
-    }) =>
-      record
-        ? pigsApi.update(orgSlug, item, record.id, body)
-        : pigsApi.create(orgSlug, item, body),
-    onSuccess: () => {
+    }) => {
+      if (record) return pigsApi.update(orgSlug, item, record.id, body);
+      if (!isOfflinePigResource(item)) return pigsApi.create(orgSlug, item, body);
+
+      // Make the first send and every future retry represent exactly one field
+      // entry. The server's tenant-scoped idempotency ledger protects feed too.
+      const queuedBody = { ...body, offlineSyncKey: newOfflinePigSyncKey() };
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        queueOfflinePigRecord(orgSlug, item, queuedBody);
+        return { queuedOffline: true };
+      }
+      try {
+        return await pigsApi.create(orgSlug, item, queuedBody);
+      } catch (error) {
+        if (!isNetworkFailure(error)) throw error;
+        queueOfflinePigRecord(orgSlug, item, queuedBody);
+        return { queuedOffline: true };
+      }
+    },
+    onSuccess: (result) => {
       setEditor(null);
       setSelected(null);
+      if (
+        result &&
+        typeof result === "object" &&
+        "queuedOffline" in result &&
+        result.queuedOffline === true
+      ) {
+        setOfflinePending(offlinePigRecordCount(orgSlug));
+        toast.info(fr ? "Saisie enregistrée sur ce téléphone" : "Record saved on this device", {
+          description: fr
+            ? "Elle sera synchronisée automatiquement dès le retour du réseau."
+            : "It will synchronize automatically when the connection returns.",
+        });
+      }
       refresh();
     },
   });
+  const synchronizeOffline = async () => {
+    if (!navigator.onLine) {
+      toast.error(fr ? "Connexion requise pour synchroniser" : "A connection is required to sync");
+      return;
+    }
+    setSyncingOffline(true);
+    try {
+      const result = await syncOfflinePigRecords(orgSlug);
+      setOfflinePending(result.pending);
+      if (result.synced > 0) {
+        refresh();
+        toast.success(
+          fr
+            ? `${result.synced} saisie(s) porcine(s) synchronisée(s)`
+            : `${result.synced} pig record(s) synchronized`,
+        );
+      } else if (result.needsAttention > 0) {
+        toast.error(
+          fr
+            ? "Une saisie porcine hors ligne doit être corrigée avant synchronisation"
+            : "An offline pig record needs correction before synchronization",
+        );
+      }
+    } finally {
+      setSyncingOffline(false);
+    }
+  };
   const remove = useMutation({
     mutationFn: ({
       resource: item,
@@ -745,6 +843,24 @@ export function PigsArea({ orgSlug }: { orgSlug: string }) {
             </p>
           </div>
           <div className="flex flex-wrap items-end gap-2">
+            {!isOnline ? (
+              <span className="inline-flex h-9 items-center gap-1.5 rounded-md border border-amber-200/35 bg-amber-100/10 px-2.5 text-xs font-semibold text-amber-50">
+                <CloudOff className="size-3.5" />
+                {fr ? "Hors connexion" : "Offline"}
+              </span>
+            ) : null}
+            {offlinePending > 0 ? (
+              <Button
+                size="sm"
+                variant="outline"
+                loading={syncingOffline}
+                className="border-white/25 bg-white/10 text-white hover:bg-white/20 hover:text-white"
+                onClick={() => void synchronizeOffline()}
+              >
+                <RefreshCw />
+                {fr ? `Synchroniser ${offlinePending}` : `Sync ${offlinePending}`}
+              </Button>
+            ) : null}
             {sites.data?.length ? (
               <label className="grid gap-1 text-xs font-medium text-amber-100">
                 <span>{fr ? "Site / ferme" : "Site / farm"}</span>
@@ -1040,6 +1156,8 @@ export function PigsArea({ orgSlug }: { orgSlug: string }) {
           groups={groups}
           animals={animals}
           farrowings={records("farrowing")}
+          feedItems={feedStockItems.data ?? []}
+          feedWarehouses={feedWarehouses.data ?? []}
           busy={save.isPending}
           onClose={() => setEditor(null)}
           onSave={(body) =>
@@ -1275,6 +1393,8 @@ function RecordEditor({
   groups,
   animals,
   farrowings,
+  feedItems,
+  feedWarehouses,
   busy,
   onClose,
   onSave,
@@ -1285,6 +1405,8 @@ function RecordEditor({
   groups: Item[];
   animals: Item[];
   farrowings: Item[];
+  feedItems: Item[];
+  feedWarehouses: Item[];
   busy: boolean;
   onClose: () => void;
   onSave: (body: Record<string, unknown>) => void;
@@ -1329,6 +1451,8 @@ function RecordEditor({
             groups={groups}
             animals={animals}
             farrowings={farrowings}
+            feedItems={feedItems}
+            feedWarehouses={feedWarehouses}
           />
           <div className="mt-6 flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={onClose}>
@@ -1352,6 +1476,8 @@ function PigFields({
   groups,
   animals,
   farrowings,
+  feedItems,
+  feedWarehouses,
 }: {
   resource: PigResource;
   item?: Item;
@@ -1360,6 +1486,8 @@ function PigFields({
   groups: Item[];
   animals: Item[];
   farrowings: Item[];
+  feedItems: Item[];
+  feedWarehouses: Item[];
 }) {
   const { locale } = useLanguage();
   const fr = locale === "fr";
@@ -1572,6 +1700,8 @@ function PigFields({
             groups={groups}
             animals={animals}
             farrowings={farrowings}
+            feedItems={feedItems}
+            feedWarehouses={feedWarehouses}
           />
         ) : null}
         <EventFields
@@ -1580,6 +1710,8 @@ function PigFields({
           pens={pens}
           groups={groups}
           animals={animals}
+          feedItems={feedItems}
+          feedWarehouses={feedWarehouses}
         />
       </div>
       <Field label={fieldText("Notes", fr)} htmlFor="pig-notes">
@@ -1596,6 +1728,8 @@ function ReferenceFields({
   groups,
   animals,
   farrowings,
+  feedItems,
+  feedWarehouses,
 }: {
   resource: PigResource;
   item?: Item;
@@ -1603,6 +1737,8 @@ function ReferenceFields({
   groups: Item[];
   animals: Item[];
   farrowings: Item[];
+  feedItems: Item[];
+  feedWarehouses: Item[];
 }) {
   const { locale } = useLanguage();
   const fr = locale === "fr";
@@ -1673,12 +1809,16 @@ function EventFields({
   pens,
   groups,
   animals,
+  feedItems,
+  feedWarehouses,
 }: {
   resource: PigResource;
   item?: Item;
   pens: Item[];
   groups: Item[];
   animals: Item[];
+  feedItems: Item[];
+  feedWarehouses: Item[];
 }) {
   const { locale } = useLanguage();
   const fr = locale === "fr";
@@ -1773,6 +1913,8 @@ function EventFields({
           value={item?.feedName}
           required
         />
+        {feedItems.length ? <SelectField name="inventoryItemId" label="Stocked manufactured feed (optional)" value={clearValue(item?.inventoryItemId)}><option value="">Record only — do not reduce stock</option>{feedItems.map((feed) => <option key={feed.id} value={feed.id}>{String(feed.name ?? feed.code)} · {String(feed.unit ?? "kg")}</option>)}</SelectField> : null}
+        {feedWarehouses.length ? <SelectField name="warehouseId" label="Warehouse for this feed" value={clearValue(item?.warehouseId)}><option value="">Choose only when using stocked feed</option>{feedWarehouses.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{String(warehouse.name ?? warehouse.code)}</option>)}</SelectField> : null}
         <Choice
           name="feedStage"
           label="Feed stage"
@@ -2432,6 +2574,8 @@ function buildBody(
       quantityKg: requiredNumber(form, "quantityKg"),
       bagCount: optionalNumber(form, "bagCount"),
       batchNumber: optional(form, "batchNumber"),
+      inventoryItemId: optional(form, "inventoryItemId"),
+      warehouseId: optional(form, "warehouseId"),
       notes,
     };
   if (resource === "water")

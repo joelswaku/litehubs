@@ -16,6 +16,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Textarea } from "@/components/ui/input";
+import { PhoneInput } from "@/components/ui/phone-input";
 import { EmptyState, ErrorState, Skeleton } from "@/components/ui/states";
 import { ApiError, get, orgUrl } from "@/lib/api";
 import {
@@ -684,7 +685,7 @@ function SecurityEditor({
                 />
               </Field>
               <Field label={copy(fr, "Phone", "Téléphone")}>
-                <Input name="phone" defaultValue={text(current?.phone)} />
+                <PhoneInput name="phone" defaultValue={text(current?.phone)} fr={fr} />
               </Field>
             </div>
             <Field label={copy(fr, "Host employee", "Employé hôte")}>

@@ -1031,3 +1031,34 @@ Créez un code secret de l'API afin que davantage d'événements soient envoyés
 Masquer les données
 Empêchez l'envoi de données spécifiques à Google Analytics. En savoir plus
 Adresse e-mail activeClés des paramètres de requête d'URL inactives
+
+
+
+
+
+testorlab120@gmail.com
+
+
+
+Swama2410!
+
+
+
+joelswaku@gmail.com
+
+
+Swama2410!@
+
+
+| Élément | État actuel | Ce qui manque |
+| Événement | Destinataire | Priorité |
+|---|---|---|
+| Tâche High/Critical affectée | Employé affecté | Immédiat |
+| Échéance demain / tâche en retard | Employé affecté, puis manager | Rappel |
+| Tâche bloquée | Manager projet + propriétaire | Immédiat |
+| Demande d’achat soumise | Propriétaire / approbateur | Immédiat |
+| Demande approuvée, refusée ou renvoyée en brouillon | Demandeur | Immédiat |
+| Dépense à approuver | Propriétaire / comptable | Immédiat |
+| Budget atteint à 80 %, 90 %, 100 % | Manager projet + propriétaire | Alerte |
+| Réception refusée ou avec quantité endommagée | Manager projet + acheteur | Immédiat |
+| Maintenance urgente / sécurité | Responsable + propriétaire | Urgent |

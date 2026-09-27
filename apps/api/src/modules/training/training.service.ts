@@ -11,6 +11,8 @@ import {
   notifyOrganizationOwnersInTransaction,
 } from "../notifications/notifications.service";
 import { readPrivateDocument } from "../../services/file-storage.service";
+import { sendMail, sendSms } from "../../services/notification.service";
+import { env } from "../../config/env";
 import type {
   AssignmentQuery,
   CreateAssignmentInput,
@@ -66,7 +68,17 @@ interface EmployeeRow {
   site_id: string | null;
   site_name: string | null;
   employment_status: string;
+  phone?: string | null;
 }
+
+type TrainingAvailabilityDelivery = {
+  employeeName: string;
+  courseName: string;
+  dueOn: string | null;
+  phone: string | null;
+  email: string | null;
+  courseUrl: string;
+};
 interface MaterialRow {
   id: string;
   course_id: string;
@@ -259,6 +271,53 @@ function mapRecord(row: RecordRow) {
     createdAt: row.created_at,
   };
 }
+
+function escapeTrainingEmail(value: string): string {
+  return value.replace(
+    /[&<>"']/g,
+    (character) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      })[character]!,
+  );
+}
+
+/**
+ * Training availability is intentionally SMS-first for Congo. Email is a
+ * fallback channel only: the same lesson notification must never reach a
+ * learner twice when Brevo has accepted the SMS.
+ */
+async function deliverTrainingAvailability(
+  delivery: TrainingAvailabilityDelivery,
+): Promise<void> {
+  const due = delivery.dueOn ? ` À terminer avant le ${delivery.dueOn}.` : "";
+  const sms = `LiteHubs : une nouvelle formation « ${delivery.courseName} » est disponible.${due} Ouvrez LiteHubs pour commencer.`;
+  const smsResult = delivery.phone
+    ? await sendSms({ to: delivery.phone, content: sms })
+    : { sent: false };
+
+  if (smsResult.sent || !delivery.email) return;
+
+  const safeName = escapeTrainingEmail(delivery.employeeName || "");
+  const safeCourse = escapeTrainingEmail(delivery.courseName);
+  const safeUrl = escapeTrainingEmail(delivery.courseUrl);
+  await sendMail({
+    to: delivery.email,
+    subject: `Nouvelle formation disponible · ${delivery.courseName}`,
+    text: [
+      `Bonjour ${delivery.employeeName || ""},`,
+      "",
+      `La formation « ${delivery.courseName} » est maintenant disponible.${due}`,
+      "",
+      `Ouvrir la formation : ${delivery.courseUrl}`,
+    ].join("\n"),
+    html: `<div style="max-width:600px;margin:0 auto;padding:28px;font-family:Arial,sans-serif;color:#101828;"><p style="margin:0 0 20px;color:#0f5132;font-size:20px;font-weight:700;">LiteHubs</p><h1 style="margin:0 0 16px;font-size:24px;">Nouvelle formation disponible</h1><p>Bonjour ${safeName},</p><p>La formation <strong>« ${safeCourse} »</strong> est maintenant disponible.${escapeTrainingEmail(due)}</p><p style="margin-top:24px;"><a href="${safeUrl}" style="display:inline-block;padding:12px 18px;background:#146c43;border-radius:8px;color:#fff;font-weight:700;text-decoration:none;">Ouvrir la formation</a></p></div>`,
+  });
+}
 async function scopeOf(
   client: PoolClient,
   context: TrainingContext,
@@ -347,7 +406,7 @@ async function employeeFor(
   employeeId: string,
 ): Promise<EmployeeRow> {
   const result = await client.query<EmployeeRow>(
-    `SELECT e.id,e.member_id,e.employee_number,e.full_name,e.job_title,e.province_id,p.name AS province_name,e.site_id,s.name AS site_name,e.employment_status FROM employees e LEFT JOIN provinces p ON p.organization_id=e.organization_id AND p.id=e.province_id LEFT JOIN sites s ON s.organization_id=e.organization_id AND s.id=e.site_id WHERE e.organization_id=$1 AND e.id=$2`,
+    `SELECT e.id,e.member_id,e.employee_number,e.full_name,e.job_title,e.province_id,p.name AS province_name,e.site_id,s.name AS site_name,e.employment_status,e.phone FROM employees e LEFT JOIN provinces p ON p.organization_id=e.organization_id AND p.id=e.province_id LEFT JOIN sites s ON s.organization_id=e.organization_id AND s.id=e.site_id WHERE e.organization_id=$1 AND e.id=$2`,
     [context.organizationId, employeeId],
   );
   const employee = result.rows[0];
@@ -666,7 +725,7 @@ export async function createAssignments(
   context: TrainingContext,
   input: CreateAssignmentInput,
 ) {
-  return withTenantContext(context, async (client) => {
+  const created = await withTenantContext(context, async (client) => {
     await assertTrainingManager(client, context);
     const course = await courseFor(
       client,
@@ -675,7 +734,13 @@ export async function createAssignments(
     );
     if (!course.is_active)
       throw new ConflictError("Inactive courses cannot be assigned");
+    const organization = await client.query<{ slug: string }>(
+      "SELECT slug FROM organizations WHERE id=$1",
+      [context.organizationId],
+    );
+    const organizationSlug = organization.rows[0]?.slug;
     const result: AssignmentRow[] = [];
+    const deliveries: TrainingAvailabilityDelivery[] = [];
     for (const employeeId of [...new Set(input.employeeIds)]) {
       const employee = await employeeFor(client, context, employeeId);
       const duplicate = await client.query(
@@ -716,7 +781,7 @@ export async function createAssignments(
       if (
         assignment.employee_member_id &&
         assignment.employee_member_id !== context.memberId
-      )
+      ) {
         await createNotificationInTransaction(client, {
           organizationId: context.organizationId,
           recipientMemberId: assignment.employee_member_id,
@@ -733,10 +798,45 @@ export async function createAssignments(
           entityType: "training_assignment",
           entityId: assignment.id,
           deduplicationKey: `training-assignment:${assignment.id}`,
+          skipEmailDelivery: true,
         });
+        const contact = await client.query<{
+          email: string;
+          phone: string | null;
+        }>(
+          `SELECT user_account.email::text, employee.phone
+             FROM employees employee
+             JOIN organization_members member
+               ON member.organization_id=employee.organization_id
+              AND member.id=employee.member_id
+              AND member.status='active'
+             JOIN users user_account ON user_account.id=member.user_id
+            WHERE employee.organization_id=$1 AND employee.id=$2`,
+          [context.organizationId, assignment.employee_id],
+        );
+        const recipient = contact.rows[0];
+        if (recipient) {
+          deliveries.push({
+            employeeName: assignment.employee_name,
+            courseName: assignment.course_name,
+            dueOn: assignment.due_on,
+            phone: recipient.phone,
+            email: recipient.email,
+            courseUrl: organizationSlug
+              ? `${env.frontendUrl}/${organizationSlug}/my-trainings/${assignment.id}`
+              : `${env.frontendUrl}/my-trainings/${assignment.id}`,
+          });
+        }
+      }
     }
-    return result.map(mapAssignment);
+    return { assignments: result.map(mapAssignment), deliveries };
   });
+  // This occurs only after the assignment transaction has committed. A
+  // temporary email/SMS outage never rolls back the learner's training.
+  await Promise.allSettled(
+    created.deliveries.map((delivery) => deliverTrainingAvailability(delivery)),
+  );
+  return created.assignments;
 }
 export async function updateAssignment(
   context: TrainingContext,

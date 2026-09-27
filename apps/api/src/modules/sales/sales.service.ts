@@ -1,8 +1,9 @@
 import type { PoolClient } from "pg";
+import { sendMail, sendSms } from "../../services/notification.service";
 import { withTenantContext } from "../../utils/tenant-query";
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from "../../utils/errors";
 import { createNotificationInTransaction } from "../notifications/notifications.service";
-import type { CreateOrderInput, CustomerInput, DeliveryInput, OfferInput, PaymentInput, SalesListQuery } from "./sales.validation";
+import type { CreateOrderInput, CustomerInput, CustomerUpdateInput, DeliveryInput, OfferInput, PaymentInput, SalesListQuery } from "./sales.validation";
 
 export interface SalesContext {
   organizationId: string;
@@ -20,9 +21,36 @@ const mapRow = (row: Row): Row => Object.fromEntries(Object.entries(row).map(([k
 const number = (value: unknown) => Number(value ?? 0);
 const decimal = (value: number) => Math.round((value + Number.EPSILON) * 1000) / 1000;
 const today = () => new Date().toISOString().slice(0, 10);
+const isUuid = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+const pageWindow = (query: Pick<SalesListQuery, "page" | "limit">) => {
+  const requestedLimit = Number(query.limit);
+  const requestedPage = Number(query.page);
+  const limit = Number.isInteger(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 100) : 50;
+  const page = Number.isInteger(requestedPage) ? Math.max(requestedPage, 1) : 1;
+  return { limit, offset: (page - 1) * limit };
+};
+const nullableText = (value: string | null | undefined) => {
+  const normalized = typeof value === "string" ? value.trim() : value;
+  return normalized || null;
+};
 
 async function maySeeProvince(client: PoolClient, context: SalesContext, provinceId: string | null): Promise<boolean> {
   if (context.isOwner || !provinceId) return true;
+  if (!isUuid(context.memberId)) return false;
+  if (!isUuid(provinceId)) {
+    // Some legacy rows stored a province label instead of its UUID. They have no
+    // reliable province scope, but organization-wide roles may still read them.
+    // Province-limited members never receive those ambiguous rows.
+    const scope = await client.query<{ organization_scope: boolean }>(
+      `SELECT EXISTS(
+         SELECT 1 FROM member_roles mr
+         JOIN roles r ON r.organization_id=mr.organization_id AND r.id=mr.role_id
+         WHERE mr.organization_id=$1 AND mr.member_id=$2 AND r.data_scope='organization'
+       ) AS organization_scope`,
+      [context.organizationId, context.memberId],
+    );
+    return Boolean(scope.rows[0]?.organization_scope);
+  }
   const scope = await client.query<{ organization_scope: boolean; allowed: boolean }>(
     `SELECT
        EXISTS(SELECT 1 FROM member_roles mr JOIN roles r ON r.organization_id=mr.organization_id AND r.id=mr.role_id WHERE mr.organization_id=$1 AND mr.member_id=$2 AND r.data_scope='organization') AS organization_scope,
@@ -31,7 +59,6 @@ async function maySeeProvince(client: PoolClient, context: SalesContext, provinc
   );
   return Boolean(scope.rows[0]?.organization_scope || scope.rows[0]?.allowed);
 }
-
 async function assertProvinceScope(client: PoolClient, context: SalesContext, provinceId: string | null) {
   if (!(await maySeeProvince(client, context, provinceId)))
     throw new ForbiddenError("You are not allowed to work with sales records in this province");
@@ -110,7 +137,7 @@ async function sourceQuantity(client: PoolClient, context: SalesContext, offer: 
     poultry_flock: `SELECT COALESCE((SELECT live_bird_count FROM poultry_daily_records WHERE organization_id=$1 AND flock_id=$2 ORDER BY record_date DESC, created_at DESC LIMIT 1),(SELECT initial_bird_count FROM poultry_flocks WHERE organization_id=$1 AND id=$2),0) AS quantity`,
     pig_group: `SELECT COALESCE((SELECT closing_count FROM pig_daily_records WHERE organization_id=$1 AND group_id=$2 AND closing_count IS NOT NULL ORDER BY record_date DESC,created_at DESC LIMIT 1),(SELECT initial_count FROM pig_groups WHERE organization_id=$1 AND id=$2),0) * COALESCE((SELECT average_weight_kg FROM pig_weight_records WHERE organization_id=$1 AND group_id=$2 ORDER BY record_date DESC,created_at DESC LIMIT 1),0) AS quantity`,
     pig_animal: `SELECT COALESCE((SELECT average_weight_kg FROM pig_weight_records WHERE organization_id=$1 AND animal_id=$2 ORDER BY record_date DESC,created_at DESC LIMIT 1),0) AS quantity`,
-    harvest_planting: `SELECT COALESCE(SUM(quantity-rejected_quantity),0) AS quantity FROM agriculture_harvest_records WHERE organization_id=$1 AND planting_id=$2 AND COALESCE(unit,'kg')='kg'`,
+    harvest_planting: `SELECT GREATEST(COALESCE((SELECT SUM(h.quantity-h.rejected_quantity) FROM agriculture_harvest_records h WHERE h.organization_id=$1 AND h.planting_id=$2 AND lower(COALESCE(h.unit,'kg'))='kg'),0) - COALESCE((SELECT SUM(input.quantity_kg) FROM management_feed_batch_inputs input JOIN management_feed_batches batch ON batch.organization_id=input.organization_id AND batch.id=input.batch_id WHERE input.organization_id=$1 AND input.source_type='harvest' AND input.harvest_record_id IN (SELECT id FROM agriculture_harvest_records WHERE organization_id=$1 AND planting_id=$2) AND batch.status='confirmed' AND batch.stock_applied_at IS NOT NULL),0),0) AS quantity`,
     inventory_item: `SELECT COALESCE(SUM(quantity_on_hand-quantity_reserved),0) AS quantity FROM management_inventory_stock WHERE organization_id=$1 AND item_id=$2`,
   };
   const result = await client.query<{ quantity: string }>(queries[sourceType], [context.organizationId, sourceId]);
@@ -142,35 +169,180 @@ function lineTotal(quantity: number, unitPrice: number, discountPercent: number,
 }
 
 function generated(prefix: string) { return `${prefix}-${new Date().toISOString().slice(0,10).replaceAll("-","")}-${Math.random().toString(36).slice(2,8).toUpperCase()}`; }
+type InvoiceNotice = { email: string | null; phone: string | null; companyName: string; customerName: string; invoiceNumber: string; invoiceDate: string; dueDate: string; currency: string; total: number; lines: Array<{ description: string; quantity: number; unit: string; lineTotal: number }> };
+const escapeInvoiceHtml = (value: string) => value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
+const invoiceMoney = (value: number, currency: string) => new Intl.NumberFormat("fr-FR", { style: "currency", currency, maximumFractionDigits: 2 }).format(value);
+
+async function sendIssuedInvoiceNotice(invoice: InvoiceNotice): Promise<void> {
+  const amount = invoiceMoney(invoice.total, invoice.currency);
+  const sms = `Bonjour ${invoice.customerName}, votre facture ${invoice.invoiceNumber} de ${amount} est disponible. Échéance : ${invoice.dueDate}. — ${invoice.companyName}`;
+  if (invoice.email) {
+    const lines = invoice.lines.map((line) => `<tr><td style="padding:9px 0;border-bottom:1px solid #eaecf0;">${escapeInvoiceHtml(line.description)}</td><td style="padding:9px 0;border-bottom:1px solid #eaecf0;text-align:right;">${line.quantity} ${escapeInvoiceHtml(line.unit)}</td><td style="padding:9px 0;border-bottom:1px solid #eaecf0;text-align:right;">${escapeInvoiceHtml(invoiceMoney(line.lineTotal, invoice.currency))}</td></tr>`).join("");
+    await sendMail({ to: invoice.email, subject: `Facture ${invoice.invoiceNumber} · ${invoice.companyName}`, text: `${sms}\n\nDétail :\n${invoice.lines.map((line) => `- ${line.description} : ${line.quantity} ${line.unit} — ${invoiceMoney(line.lineTotal, invoice.currency)}`).join("\n")}`, html: `<div style="max-width:640px;margin:0 auto;padding:28px;font-family:Arial,sans-serif;color:#101828;"><p style="margin:0 0 18px;color:#0f5132;font-size:20px;font-weight:700;">${escapeInvoiceHtml(invoice.companyName)}</p><h1 style="margin:0 0 8px;font-size:24px;">Facture ${escapeInvoiceHtml(invoice.invoiceNumber)}</h1><p style="margin:0 0 22px;color:#475467;line-height:1.6;">Bonjour ${escapeInvoiceHtml(invoice.customerName)}, votre facture est disponible.</p><table style="width:100%;border-collapse:collapse;font-size:14px;"><thead><tr style="color:#667085;text-align:left;"><th style="padding-bottom:9px;">Description</th><th style="padding-bottom:9px;text-align:right;">Quantité</th><th style="padding-bottom:9px;text-align:right;">Total</th></tr></thead><tbody>${lines}</tbody></table><div style="margin-top:20px;padding:16px;background:#f0fdf4;border-radius:10px;"><strong>Total à payer : ${escapeInvoiceHtml(amount)}</strong><br/><span style="color:#475467;font-size:13px;">Échéance : ${escapeInvoiceHtml(invoice.dueDate)}</span></div></div>` });
+    return;
+  }
+  if (invoice.phone) await sendSms({ to: invoice.phone, content: sms });
+}
 
 export async function listCustomers(context: SalesContext, query: SalesListQuery) {
   return withTenantContext(context, async (client) => {
+    if (context.isOwner) {
+      const result = await client.query<Row>(
+        "SELECT * FROM customers WHERE organization_id=$1 ORDER BY is_active DESC,name LIMIT 100",
+        [context.organizationId],
+      );
+      return result.rows.map(mapRow);
+    }
+    const { limit, offset } = pageWindow(query);
     const args: unknown[] = [context.organizationId];
     const terms = ["organization_id=$1"];
     if (query.provinceId) { args.push(query.provinceId); terms.push(`province_id=$${args.length}`); }
     if (query.search) { args.push(`%${query.search}%`); terms.push(`(name ILIKE $${args.length} OR code ILIKE $${args.length})`); }
-    args.push(query.limit, (query.page-1)*query.limit);
-    const result = await client.query<Row>(`SELECT * FROM customers WHERE ${terms.join(" AND ")} ORDER BY is_active DESC,name LIMIT $${args.length-1} OFFSET $${args.length}`, args);
+    args.push(limit, offset);
+    let rows: Row[];
+    try {
+      const result = await client.query<Row>(
+        `SELECT * FROM customers WHERE ${terms.join(" AND ")} ORDER BY is_active DESC,name LIMIT ${args.length - 1} OFFSET ${args.length}`,
+        args,
+      );
+      rows = result.rows;
+    } catch (error: unknown) {
+      // A legacy filter value must not make the whole customer register unusable.
+      // The fallback retains the organization boundary and is deliberately capped.
+      if ((error as { code?: string } | undefined)?.code !== "22P02") throw error;
+      const result = await client.query<Row>(
+        "SELECT * FROM customers WHERE organization_id=$1 ORDER BY is_active DESC,name LIMIT 100",
+        [context.organizationId],
+      );
+      rows = result.rows;
+    }
     const visible: Row[] = [];
-    for (const row of result.rows) if (await maySeeProvince(client, context, row.province_id as string | null)) visible.push(mapRow(row));
+    for (const row of rows) {
+      if (context.isOwner) { visible.push(mapRow(row)); continue; }
+      try {
+        if (await maySeeProvince(client, context, row.province_id as string | null)) visible.push(mapRow(row));
+      } catch (error: unknown) {
+        // Do not expose an ambiguous legacy record to a province-limited role.
+        // Other valid customer records remain visible.
+        if ((error as { code?: string } | undefined)?.code !== "22P02") throw error;
+      }
+    }
     return visible;
   });
+}
+async function nextCustomerCode(client: PoolClient, organizationId: string) {
+  await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+    `customer-reference:${organizationId}`,
+  ]);
+  const result = await client.query<{ next_code: number | string }>(
+    `SELECT COALESCE(
+       MAX(((regexp_match(code, '^CLI-([0-9]+)$'))[1])::integer),
+       0
+     ) + 1 AS next_code
+     FROM customers
+     WHERE organization_id=$1`,
+    [organizationId],
+  );
+  return `CLI-${String(Number(result.rows[0]?.next_code ?? 1)).padStart(6, "0")}`;
 }
 
 export async function createCustomer(context: SalesContext, input: CustomerInput) {
   return withTenantContext(context, async (client) => {
     await assertProvinceScope(client, context, input.provinceId ?? null);
+    const customerCode = input.code ?? await nextCustomerCode(client, context.organizationId);
     try {
       const result = await client.query<Row>(
         `INSERT INTO customers (organization_id,code,name,customer_type,contact_name,phone,email,address_line1,address_line2,city,region,postal_code,country,currency,payment_terms_days,credit_limit,province_id,is_active,notes,created_by)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING *`,
-        [context.organizationId,input.code,input.name,input.customerType,input.contactName??null,input.phone??null,input.email??null,input.addressLine1??null,input.addressLine2??null,input.city??null,input.region??null,input.postalCode??null,input.country??null,input.currency??null,input.paymentTermsDays,input.creditLimit??null,input.provinceId??null,input.isActive,input.notes??null,context.userId],
+        [
+          context.organizationId, customerCode, input.name, input.customerType ?? "business",
+          nullableText(input.contactName), nullableText(input.phone), nullableText(input.email),
+          nullableText(input.addressLine1), nullableText(input.addressLine2), nullableText(input.city),
+          nullableText(input.region), nullableText(input.postalCode), nullableText(input.country),
+          input.currency ?? null, input.paymentTermsDays ?? 0, input.creditLimit ?? null,
+          input.provinceId ?? null, input.isActive ?? true, nullableText(input.notes), context.userId,
+        ],
       );
       return mapRow(result.rows[0]!);
     } catch (error: unknown) {
       if ((error as { code?: string }).code === "23505") throw new ConflictError("A customer with that code already exists");
       throw error;
     }
+  });
+}
+
+export async function updateCustomer(context: SalesContext, customerId: string, input: CustomerUpdateInput) {
+  return withTenantContext(context, async (client) => {
+    const existing = await client.query<{ province_id: string | null }>(
+      "SELECT province_id FROM customers WHERE organization_id=$1 AND id=$2 FOR UPDATE",
+      [context.organizationId, customerId],
+    );
+    if (!existing.rowCount) throw new NotFoundError("Customer not found");
+    await assertProvinceScope(client, context, existing.rows[0]!.province_id);
+    const changes: Array<[string, unknown]> = [];
+    if (input.name !== undefined) changes.push(["name", input.name]);
+    if (input.customerType !== undefined) changes.push(["customer_type", input.customerType]);
+    if (input.contactName !== undefined) changes.push(["contact_name", input.contactName]);
+    if (input.phone !== undefined) changes.push(["phone", input.phone]);
+    if (input.email !== undefined) changes.push(["email", input.email]);
+    if (input.addressLine1 !== undefined) changes.push(["address_line1", input.addressLine1]);
+    if (input.addressLine2 !== undefined) changes.push(["address_line2", input.addressLine2]);
+    if (input.city !== undefined) changes.push(["city", input.city]);
+    if (input.region !== undefined) changes.push(["region", input.region]);
+    if (input.postalCode !== undefined) changes.push(["postal_code", input.postalCode]);
+    if (input.country !== undefined) changes.push(["country", input.country]);
+    if (input.paymentTermsDays !== undefined) changes.push(["payment_terms_days", input.paymentTermsDays]);
+    if (input.isActive !== undefined) changes.push(["is_active", input.isActive]);
+    if (input.notes !== undefined) changes.push(["notes", input.notes]);
+    if (!changes.length) throw new BadRequestError("Provide at least one customer change");
+    const result = await client.query<Row>(
+      `UPDATE customers
+       SET ${changes.map(([column], index) => `${column}=$${index + 1}`).join(", ")}
+       WHERE organization_id=$${changes.length + 1} AND id=$${changes.length + 2}
+       RETURNING *`,
+      [...changes.map(([, value]) => value), context.organizationId, customerId],
+    );
+    return mapRow(result.rows[0]!);
+  });
+}
+
+export async function customerDetail(context: SalesContext, customerId: string) {
+  return withTenantContext(context, async (client) => {
+    const customerResult = await client.query<Row>(
+      "SELECT * FROM customers WHERE organization_id=$1 AND id=$2",
+      [context.organizationId, customerId],
+    );
+    if (!customerResult.rowCount) throw new NotFoundError("Customer not found");
+    const customer = customerResult.rows[0]!;
+    await assertProvinceScope(client, context, customer.province_id as string | null);
+    const [orders, invoices, payments] = await Promise.all([
+      client.query<Row>(`SELECT id,order_number,order_date,required_date,status,currency,total,created_at
+                           FROM sales_orders WHERE organization_id=$1 AND customer_id=$2
+                           ORDER BY order_date DESC,created_at DESC`, [context.organizationId, customerId]),
+      client.query<Row>(`SELECT id,invoice_number,invoice_date,due_date,status,currency,total,paid_total,created_at
+                           FROM sales_invoices WHERE organization_id=$1 AND customer_id=$2
+                           ORDER BY invoice_date DESC,created_at DESC`, [context.organizationId, customerId]),
+      client.query<Row>(`SELECT id,payment_number,received_on,method,currency,amount,reference,created_at
+                           FROM customer_payments WHERE organization_id=$1 AND customer_id=$2
+                           ORDER BY received_on DESC,created_at DESC`, [context.organizationId, customerId]),
+    ]);
+    const totals = new Map<string, { currency: string; ordersTotal: number; invoicedTotal: number; paidTotal: number; outstanding: number; receiptsTotal: number }>();
+    const totalFor = (currencyValue: unknown) => {
+      const currencyCode = String(currencyValue || "CDF");
+      const current = totals.get(currencyCode) ?? { currency: currencyCode, ordersTotal: 0, invoicedTotal: 0, paidTotal: 0, outstanding: 0, receiptsTotal: 0 };
+      totals.set(currencyCode, current);
+      return current;
+    };
+    for (const order of orders.rows) if (String(order.status) !== "cancelled") totalFor(order.currency).ordersTotal += number(order.total);
+    for (const invoice of invoices.rows) if (String(invoice.status) !== "cancelled") {
+      const current = totalFor(invoice.currency);
+      const paid = number(invoice.paid_total);
+      current.invoicedTotal += number(invoice.total);
+      current.paidTotal += paid;
+      current.outstanding += Math.max(0, number(invoice.total) - paid);
+    }
+    for (const payment of payments.rows) totalFor(payment.currency).receiptsTotal += number(payment.amount);
+    return { customer: mapRow(customer), orders: orders.rows.map(mapRow), invoices: invoices.rows.map(mapRow), payments: payments.rows.map(mapRow), summary: [...totals.values()].map((row) => ({ ...row, ordersTotal: decimal(row.ordersTotal), invoicedTotal: decimal(row.invoicedTotal), paidTotal: decimal(row.paidTotal), outstanding: decimal(row.outstanding), receiptsTotal: decimal(row.receiptsTotal) })) };
   });
 }
 
@@ -327,8 +499,9 @@ async function getOrderInTransaction(client: PoolClient, context: SalesContext, 
 
 export async function listOrders(context: SalesContext, query: SalesListQuery) {
   return withTenantContext(context,async client=>{
+    const { limit, offset } = pageWindow(query);
     const args:unknown[]=[context.organizationId]; const terms=["o.organization_id=$1"];
-    if(query.status){args.push(query.status);terms.push(`o.status=$${args.length}`);} if(query.provinceId){args.push(query.provinceId);terms.push(`o.province_id=$${args.length}`);} if(query.search){args.push(`%${query.search}%`);terms.push(`(o.order_number ILIKE $${args.length} OR c.name ILIKE $${args.length})`);} args.push(query.limit,(query.page-1)*query.limit);
+    if(query.status){args.push(query.status);terms.push(`o.status=$${args.length}`);} if(query.provinceId){args.push(query.provinceId);terms.push(`o.province_id=$${args.length}`);} if(query.search){args.push(`%${query.search}%`);terms.push(`(o.order_number ILIKE $${args.length} OR c.name ILIKE $${args.length})`);} args.push(limit,offset);
     const result=await client.query<Row>(`SELECT o.*,c.name AS customer_name,p.name AS province_name,s.name AS site_name FROM sales_orders o JOIN customers c ON c.organization_id=o.organization_id AND c.id=o.customer_id LEFT JOIN provinces p ON p.organization_id=o.organization_id AND p.id=o.province_id LEFT JOIN sites s ON s.organization_id=o.organization_id AND s.id=o.site_id WHERE ${terms.join(" AND ")} ORDER BY o.order_date DESC,o.created_at DESC LIMIT $${args.length-1} OFFSET $${args.length}`,args);
     const orderIds=result.rows.map(row=>String(row.id)); const lineRows=orderIds.length?await client.query<Row>(`SELECT ol.*,so.source_type AS offer_source_type FROM sales_order_lines ol LEFT JOIN sales_operational_offers so ON so.organization_id=ol.organization_id AND so.id=ol.operational_offer_id WHERE ol.organization_id=$1 AND ol.order_id=ANY($2::uuid[]) ORDER BY ol.line_number`,[context.organizationId,orderIds]):{rows:[] as Row[]};
     const linesByOrder=new Map<string,Row[]>(); for(const line of lineRows.rows){const key=String(line.order_id);const entries=linesByOrder.get(key)??[];entries.push(mapRow(line));linesByOrder.set(key,entries);}
@@ -360,23 +533,28 @@ export async function deliverOrder(context:SalesContext,orderId:string,input:Del
   return mapRow(delivery.rows[0]!);
 });}
 
-export async function invoiceOrder(context:SalesContext,orderId:string){return withTenantContext(context,async client=>{
-  const order=await getOrderInTransaction(client,context,orderId);
-  if(String(order.status)!=="delivered")throw new BadRequestError("Complete the delivery before issuing this invoice");
-  const prior=await client.query("SELECT id FROM sales_invoices WHERE organization_id=$1 AND order_id=$2 AND status<>'cancelled'",[context.organizationId,orderId]);
-  if(prior.rowCount)throw new ConflictError("An invoice already exists for this sales order");
-  const lines=(order.lines as Row[]).filter(line=>number(line.deliveredQuantity)>0);
-  if(!lines.length)throw new BadRequestError("No delivered quantity is available to invoice");
-  const invoiceLines=lines.map(line=>({line,quantity:number(line.deliveredQuantity),totals:lineTotal(number(line.deliveredQuantity),number(line.unitPrice),number(line.discountPercent),number(line.taxPercent))}));
-  const subtotal=invoiceLines.reduce((sum,item)=>sum+item.totals.subtotal,0); const tax=invoiceLines.reduce((sum,item)=>sum+item.totals.tax,0); const total=subtotal+tax;
-  const terms=await client.query<{payment_terms_days:number}>("SELECT payment_terms_days FROM customers WHERE organization_id=$1 AND id=$2",[context.organizationId,order.customerId]);
-  const invoiceDate=today();const due=new Date(`${invoiceDate}T00:00:00Z`);due.setUTCDate(due.getUTCDate()+number(terms.rows[0]?.payment_terms_days));
-  const inv=await client.query<Row>(`INSERT INTO sales_invoices (organization_id,customer_id,order_id,province_id,invoice_number,invoice_date,due_date,status,currency,subtotal,tax_total,total,issued_at,created_by,notes) VALUES ($1,$2,$3,$4,$5,$6,$7,'issued',$8,$9,$10,$11,now(),$12,$13) RETURNING *`,[context.organizationId,order.customerId,orderId,order.provinceId??null,generated("INV"),invoiceDate,due.toISOString().slice(0,10),order.currency,subtotal,tax,total,context.userId,order.notes??null]);
-  for(const [index,item] of invoiceLines.entries())await client.query(`INSERT INTO sales_invoice_lines (organization_id,invoice_id,line_number,item_id,description,quantity,unit,unit_price,discount_percent,tax_percent,line_total) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,[context.organizationId,inv.rows[0]!.id,index+1,item.line.itemId??null,item.line.description,item.quantity,item.line.unit,item.line.unitPrice,item.line.discountPercent,item.line.taxPercent,item.totals.total]);
-  await client.query("UPDATE sales_orders SET status='invoiced' WHERE organization_id=$1 AND id=$2",[context.organizationId,orderId]);
-  return mapRow(inv.rows[0]!);
-});}
-async function ensureRevenueAccounts(client:PoolClient,context:SalesContext,currencyCode:string){
+export async function invoiceOrder(context:SalesContext,orderId:string){
+  const issued=await withTenantContext(context,async client=>{
+    const order=await getOrderInTransaction(client,context,orderId);
+    if(String(order.status)!=="delivered")throw new BadRequestError("Complete the delivery before issuing this invoice");
+    const prior=await client.query("SELECT id FROM sales_invoices WHERE organization_id=$1 AND order_id=$2 AND status<>'cancelled'",[context.organizationId,orderId]);
+    if(prior.rowCount)throw new ConflictError("An invoice already exists for this sales order");
+    const lines=(order.lines as Row[]).filter(line=>number(line.deliveredQuantity)>0);
+    if(!lines.length)throw new BadRequestError("No delivered quantity is available to invoice");
+    const invoiceLines=lines.map(line=>({line,quantity:number(line.deliveredQuantity),totals:lineTotal(number(line.deliveredQuantity),number(line.unitPrice),number(line.discountPercent),number(line.taxPercent))}));
+    const subtotal=invoiceLines.reduce((sum,item)=>sum+item.totals.subtotal,0); const tax=invoiceLines.reduce((sum,item)=>sum+item.totals.tax,0); const total=subtotal+tax;
+    const customer=await client.query<{payment_terms_days:number;name:string;email:string|null;phone:string|null}>("SELECT payment_terms_days,name,email,phone FROM customers WHERE organization_id=$1 AND id=$2",[context.organizationId,order.customerId]);
+    if(!customer.rowCount)throw new NotFoundError("Customer not found");
+    const invoiceDate=today();const due=new Date(`${invoiceDate}T00:00:00Z`);due.setUTCDate(due.getUTCDate()+number(customer.rows[0]!.payment_terms_days));
+    const inv=await client.query<Row>(`INSERT INTO sales_invoices (organization_id,customer_id,order_id,province_id,invoice_number,invoice_date,due_date,status,currency,subtotal,tax_total,total,issued_at,created_by,notes) VALUES ($1,$2,$3,$4,$5,$6,$7,'issued',$8,$9,$10,$11,now(),$12,$13) RETURNING *`,[context.organizationId,order.customerId,orderId,order.provinceId??null,generated("INV"),invoiceDate,due.toISOString().slice(0,10),order.currency,subtotal,tax,total,context.userId,order.notes??null]);
+    for(const [index,item] of invoiceLines.entries())await client.query(`INSERT INTO sales_invoice_lines (organization_id,invoice_id,line_number,item_id,description,quantity,unit,unit_price,discount_percent,tax_percent,line_total) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,[context.organizationId,inv.rows[0]!.id,index+1,item.line.itemId??null,item.line.description,item.quantity,item.line.unit,item.line.unitPrice,item.line.discountPercent,item.line.taxPercent,item.totals.total]);
+    await client.query("UPDATE sales_orders SET status='invoiced' WHERE organization_id=$1 AND id=$2",[context.organizationId,orderId]);
+    const organization=await client.query<{display_name:string;legal_name:string}>("SELECT display_name,legal_name FROM organizations WHERE id=$1",[context.organizationId]);
+    return { invoice:mapRow(inv.rows[0]!), notice:{email:String(customer.rows[0]!.email??"").trim()||null,phone:String(customer.rows[0]!.phone??"").trim()||null,companyName:organization.rows[0]?.display_name||organization.rows[0]?.legal_name||"LiteHubs",customerName:customer.rows[0]!.name,invoiceNumber:String(inv.rows[0]!.invoice_number),invoiceDate,dueDate:due.toISOString().slice(0,10),currency:String(order.currency),total,lines:invoiceLines.map(item=>({description:String(item.line.description),quantity:item.quantity,unit:String(item.line.unit),lineTotal:item.totals.total}))} };
+  });
+  await sendIssuedInvoiceNotice(issued.notice);
+  return issued.invoice;
+}async function ensureRevenueAccounts(client:PoolClient,context:SalesContext,currencyCode:string){
   const wanted=[{code:`CASH-${currencyCode}`,name:`Cash / bank receipts (${currencyCode})`,type:"asset"},{code:`SALES-${currencyCode}`,name:`Sales revenue (${currencyCode})`,type:"income"}]; const accounts:Record<string,string>={};
   for(const account of wanted){const existing=await client.query<{id:string}>("SELECT id FROM finance_accounts WHERE organization_id=$1 AND code=$2",[context.organizationId,account.code]);if(existing.rowCount)accounts[account.type]=existing.rows[0]!.id;else{const inserted=await client.query<{id:string}>("INSERT INTO finance_accounts (organization_id,code,name,account_type,currency,is_postable,is_active,description) VALUES ($1,$2,$3,$4,$5,true,true,'Created automatically for sales receipts') RETURNING id",[context.organizationId,account.code,account.name,account.type,currencyCode]);accounts[account.type]=inserted.rows[0]!.id;}}
   return {cash:accounts.asset!,income:accounts.income!};
@@ -398,5 +576,5 @@ export async function financeSummary(context:SalesContext){return withTenantCont
   for(const row of orders.rows){const current=byCurrency.get(String(row.currency))??{currency:row.currency,monthCashReceived:0,cashReceived:0,outstanding:0,overdueInvoices:0};byCurrency.set(String(row.currency),{...current,openOrders:number(row.open_orders),openOrderValue:number(row.open_order_value)});}
   return { byCurrency:[...byCurrency.values()] };
 });}
-export async function listPayments(context:SalesContext,query:SalesListQuery){return withTenantContext(context,async client=>{const result=await client.query<Row>(`SELECT p.*,c.name AS customer_name,c.province_id FROM customer_payments p JOIN customers c ON c.organization_id=p.organization_id AND c.id=p.customer_id WHERE p.organization_id=$1 ORDER BY p.received_on DESC,p.created_at DESC LIMIT $2 OFFSET $3`,[context.organizationId,query.limit,(query.page-1)*query.limit]);const visible:Row[]=[];for(const row of result.rows)if(await maySeeProvince(client,context,row.province_id as string|null))visible.push(mapRow(row));return visible;});}
+export async function listPayments(context:SalesContext,query:SalesListQuery){return withTenantContext(context,async client=>{const { limit, offset }=pageWindow(query);const result=await client.query<Row>(`SELECT p.*,c.name AS customer_name,c.province_id FROM customer_payments p JOIN customers c ON c.organization_id=p.organization_id AND c.id=p.customer_id WHERE p.organization_id=$1 ORDER BY p.received_on DESC,p.created_at DESC LIMIT $2 OFFSET $3`,[context.organizationId,limit,offset]);const visible:Row[]=[];for(const row of result.rows)if(await maySeeProvince(client,context,row.province_id as string|null))visible.push(mapRow(row));return visible;});}
 

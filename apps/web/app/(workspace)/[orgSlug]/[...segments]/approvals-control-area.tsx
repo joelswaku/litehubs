@@ -35,6 +35,23 @@ import { useSessionUser } from "@/stores/session-store";
 type ApprovalStatus =
   "pending" | "approved" | "rejected" | "partially_approved" | "cancelled";
 type Decision = "approved" | "rejected" | "partially_approved";
+type PurchaseRequestItem = {
+  id: string;
+  description?: string | null;
+  itemKind?: string | null;
+  unit?: string | null;
+  requestedQuantity?: number | string | null;
+  approvedQuantity?: number | string | null;
+  estimatedUnitCost?: number | string | null;
+  estimatedTotal?: number | string | null;
+  notes?: string | null;
+};
+type PurchaseRequestDetails = {
+  requestNumber?: string | null;
+  requiredDate?: string | null;
+  priority?: string | null;
+  reason?: string | null;
+};
 type Approval = {
   id: string;
   approvalNumber: string;
@@ -56,6 +73,8 @@ type Approval = {
   decidedByName?: string | null;
   requestNotes: string | null;
   decisionNotes: string | null;
+  purchaseRequestDetails?: PurchaseRequestDetails | null;
+  purchaseRequestItems?: PurchaseRequestItem[];
 };
 
 const requestTypes = [
@@ -562,6 +581,7 @@ function ApprovalDetail({
   working: boolean;
   onDecide: (decision: Decision) => void;
 }) {
+  const [purchaseDetailsOpen, setPurchaseDetailsOpen] = useState(false);
   if (pending)
     return (
       <aside className="rounded-2xl border border-border bg-surface-1 p-5">
@@ -614,6 +634,11 @@ function ApprovalDetail({
         <p className="mt-1 text-xs text-ink-muted">
           {item.projectName ?? item.projectCode ?? title(item.entityType)}
         </p>
+        {item.requestType === "purchase_request" && item.purchaseRequestDetails?.requestNumber ? (
+          <p className="mt-2 inline-flex rounded-md bg-brand/8 px-2 py-1 text-xs font-semibold text-brand">
+            {t(fr, "Purchase request", "Demande d’achat")} · {item.purchaseRequestDetails.requestNumber}
+          </p>
+        ) : null}
       </div>
       <div className="space-y-5 p-5">
         <div className="grid grid-cols-2 gap-3">
@@ -621,7 +646,9 @@ function ApprovalDetail({
             label={t(fr, "Requested amount", "Montant demandé")}
             value={
               item.requestedAmount == null
-                ? "—"
+                ? item.requestType === "purchase_request" && item.purchaseRequestItems?.length
+                  ? t(fr, "To be estimated", "À chiffrer")
+                  : "—"
                 : money(item.requestedAmount, item.currencyCode, fr)
             }
           />
@@ -646,6 +673,35 @@ function ApprovalDetail({
           <Note title={t(fr, "Requester’s note", "Note du demandeur")}>
             {item.requestNotes}
           </Note>
+        ) : null}
+        {item.requestType === "purchase_request" ? (
+          <button
+            type="button"
+            onClick={() => setPurchaseDetailsOpen(true)}
+            className="flex w-full items-center justify-between gap-3 rounded-xl border border-brand/20 bg-brand/[0.035] px-4 py-3.5 text-left transition hover:border-brand/45 hover:bg-brand/[0.07]"
+          >
+            <span className="flex min-w-0 items-center gap-3">
+              <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-brand/10 text-brand">
+                <ReceiptText className="size-4" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold text-ink">
+                  {t(fr, "Purchase details", "Détails de l’achat")}
+                </span>
+                <span className="mt-0.5 block truncate text-xs text-ink-secondary">
+                  {item.purchaseRequestItems?.length ?? 0} {t(fr, "item(s)", "article(s)")} · {item.requestedAmount == null ? t(fr, "To be estimated", "À chiffrer") : money(item.requestedAmount, item.currencyCode, fr)}
+                </span>
+              </span>
+            </span>
+            <ChevronRight className="size-4 shrink-0 text-brand" />
+          </button>
+        ) : null}
+        {purchaseDetailsOpen && item.requestType === "purchase_request" ? (
+          <PurchaseRequestDetailsDialog
+            fr={fr}
+            item={item}
+            onClose={() => setPurchaseDetailsOpen(false)}
+          />
         ) : null}
         {item.decidedAt ? (
           <div className="rounded-xl border border-good/20 bg-good/5 p-4">
@@ -704,6 +760,148 @@ function ApprovalDetail({
         ) : null}
       </div>
     </aside>
+  );
+}
+function PurchaseRequestDetailsDialog({
+  fr,
+  item,
+  onClose,
+}: {
+  fr: boolean;
+  item: Approval;
+  onClose: () => void;
+}) {
+  const items = item.purchaseRequestItems ?? [];
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-3 backdrop-blur-[1px]"
+      role="dialog"
+      aria-modal="true"
+      aria-label={t(fr, "Purchase request details", "Détails de la demande d’achat")}
+    >
+      <section className="max-h-[calc(100dvh-1.5rem)] w-full max-w-2xl overflow-y-auto rounded-2xl border border-border bg-surface-1 shadow-2xl">
+        <header className="flex items-start justify-between gap-4 border-b border-border bg-surface-2/55 px-5 py-4 sm:px-6">
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-brand/10 text-brand">
+              <ReceiptText className="size-5" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-[.11em] text-brand">
+                {t(fr, "Purchase request", "Demande d’achat")}
+              </p>
+              <h2 className="mt-1 truncate text-lg font-semibold text-ink">
+                {item.purchaseRequestDetails?.requestNumber ?? item.approvalNumber}
+              </h2>
+              <p className="mt-1 text-xs text-ink-secondary">
+                {item.projectName ?? item.projectCode ?? "—"}
+              </p>
+            </div>
+          </div>
+          <Button type="button" size="icon" variant="ghost" onClick={onClose}>
+            <XCircle className="size-5" />
+            <span className="sr-only">{t(fr, "Close", "Fermer")}</span>
+          </Button>
+        </header>
+
+        <div className="space-y-5 p-5 sm:p-6">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <Info
+              label={t(fr, "Requested amount", "Montant demandé")}
+              value={
+                item.requestedAmount == null
+                  ? t(fr, "To be estimated", "À chiffrer")
+                  : money(item.requestedAmount, item.currencyCode, fr)
+              }
+            />
+            <Info
+              label={t(fr, "Requested by", "Demandée par")}
+              value={item.requestedByName ?? "—"}
+            />
+            <Info
+              label={t(fr, "Required", "Nécessaire")}
+              value={item.purchaseRequestDetails?.requiredDate ?? "—"}
+            />
+          </div>
+
+          {item.purchaseRequestDetails?.priority ? (
+            <p className="text-xs text-ink-secondary">
+              <span className="font-semibold text-ink">{t(fr, "Priority", "Priorité")} :</span>{" "}
+              {title(item.purchaseRequestDetails.priority)}
+            </p>
+          ) : null}
+          {item.requestNotes ? (
+            <Note title={t(fr, "Requester’s note", "Note du demandeur")}>
+              {item.requestNotes}
+            </Note>
+          ) : null}
+
+          <section className="overflow-hidden rounded-xl border border-border">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-surface-2/55 px-4 py-3">
+              <div>
+                <h3 className="text-sm font-semibold text-ink">
+                  {t(fr, "Requested items", "Articles demandés")}
+                </h3>
+                <p className="mt-0.5 text-xs text-ink-secondary">
+                  {items.length} {t(fr, "item(s)", "article(s)")}
+                </p>
+              </div>
+              <span className="rounded-md bg-brand/8 px-2 py-1 text-xs font-semibold text-brand">
+                {item.requestedAmount == null
+                  ? t(fr, "To be estimated", "À chiffrer")
+                  : money(item.requestedAmount, item.currencyCode, fr)}
+              </span>
+            </div>
+            {items.length ? (
+              <div className="max-h-80 divide-y divide-border/70 overflow-y-auto">
+                {items.map((line, index) => {
+                  const quantity = Number(line.requestedQuantity ?? 0);
+                  const hasUnitCost = line.estimatedUnitCost != null;
+                  const lineTotal = line.estimatedTotal != null
+                    ? Number(line.estimatedTotal)
+                    : hasUnitCost
+                      ? quantity * Number(line.estimatedUnitCost)
+                      : null;
+                  return (
+                    <article key={line.id || `purchase-line-${index}`} className="px-4 py-3.5">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-ink">{line.description || "—"}</p>
+                          <p className="mt-1 text-xs text-ink-secondary">
+                            {quantity} {line.unit || t(fr, "unit", "unité")}
+                            {line.itemKind ? ` · ${title(line.itemKind)}` : ""}
+                          </p>
+                        </div>
+                        <div className="shrink-0 text-right text-xs">
+                          <p className="font-semibold text-ink">
+                            {hasUnitCost
+                              ? money(line.estimatedUnitCost, item.currencyCode, fr)
+                              : t(fr, "To be estimated", "À chiffrer")}
+                          </p>
+                          {lineTotal != null ? (
+                            <p className="mt-1 text-ink-muted">
+                              {t(fr, "Line total", "Sous-total")} · {money(lineTotal, item.currencyCode, fr)}
+                            </p>
+                          ) : null}
+                        </div>
+                      </div>
+                      {line.notes ? (
+                        <p className="mt-2 border-t border-border/70 pt-2 text-xs leading-5 text-ink-secondary">
+                          {line.notes}
+                        </p>
+                      ) : null}
+                    </article>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="px-4 py-4 text-sm text-ink-muted">
+                {t(fr, "No item was attached to this request.", "Aucun article n’est joint à cette demande.")}
+              </p>
+            )}
+          </section>
+        </div>
+      </section>
+    </div>
   );
 }
 function Info({ label, value }: { label: string; value: string }) {

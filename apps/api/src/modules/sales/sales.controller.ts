@@ -1,6 +1,6 @@
 import type { Request, RequestHandler } from "express";
 import * as service from "./sales.service";
-import type { CreateOrderInput, CustomerInput, DeliveryInput, OfferInput, PaymentInput, SalesListQuery } from "./sales.validation";
+import type { CreateOrderInput, CustomerInput, CustomerUpdateInput, DeliveryInput, OfferInput, PaymentInput, SalesListQuery } from "./sales.validation";
 
 function context(req: Request): service.SalesContext {
   return { organizationId: req.organization!.id, userId: req.user!.id, memberId: req.membership!.memberId, isOwner: req.membership!.isOwner, permissions: req.membership!.permissions };
@@ -9,6 +9,8 @@ function param(req: Request, key: string) { const value=req.params[key]; return 
 
 export const customers: RequestHandler = async (req,res)=>res.json({ customers:await service.listCustomers(context(req),req.query as unknown as SalesListQuery) });
 export const createCustomer: RequestHandler = async (req,res)=>res.status(201).json({ customer:await service.createCustomer(context(req),req.body as CustomerInput) });
+export const updateCustomer: RequestHandler = async (req,res)=>res.json({ customer:await service.updateCustomer(context(req),param(req,"id"),req.body as CustomerUpdateInput) });
+export const customerDetail: RequestHandler = async (req,res)=>res.json(await service.customerDetail(context(req),param(req,"id")));
 export const sources: RequestHandler = async (req,res)=>res.json({ sources:await service.listSellableSources(context(req)) });
 export const warehouses: RequestHandler = async (req,res)=>res.json({ warehouses:await service.listSalesWarehouses(context(req)) });
 export const productionSummary: RequestHandler = async (req,res)=>res.json({ production:await service.productionSummary(context(req)) });

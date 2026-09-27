@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Field, Input, Textarea } from "@/components/ui/input";
+import { PhoneInput } from "@/components/ui/phone-input";
 import { EmptyState, ErrorState, SkeletonCard } from "@/components/ui/states";
 import { get } from "@/lib/api";
 
@@ -585,15 +586,14 @@ function ApplicationForm({
               />
             </Field>
             <Field label={label(fr, "Téléphone", "Phone")} required>
-              <Input
+              <PhoneInput
                 required
-                type="tel"
-                autoComplete="tel"
-                placeholder="+243 …"
+                fr={fr}
                 value={form.phone}
                 onChange={(event) =>
                   setForm((state) => ({ ...state, phone: event.target.value }))
                 }
+                onNormalizedChange={(phone) => setForm((state) => ({ ...state, phone }))}
               />
             </Field>
             <Field label={label(fr, "Ville", "City")}>

@@ -18,6 +18,12 @@ export const ownerManagementResources = [
   "inventory-items",
   "warehouses",
   "stock-movements",
+  "feed-batches",
+  "feed-batch-inputs",
+  "nutrition-profiles",
+  "feed-recipes",
+  "feed-recipe-lines",
+  "feed-orders",
   "purchase-requests",
   "purchase-request-lines",
   "purchase-orders",
@@ -57,9 +63,23 @@ export const ownerManagementRecordParams = ownerManagementResourceParams.extend(
 export const ownerManagementDecisionParams = organizationParams.extend({
   recordId: id,
 });
+export const purchaseRequestReturnToDraftParams = organizationParams.extend({
+  recordId: id,
+});
+export const purchaseRequestReturnToDraftBody = z.object({
+  correctionNote: z.string().trim().max(2_000).optional(),
+});
 export const ownerManagementProjectParams = organizationParams.extend({
   projectId: id,
 });
+
+export const procurementDocumentParams = organizationParams.extend({
+  documentType: z.enum(["purchase-requests", "purchase-orders", "receipts"]),
+  recordId: id,
+});
+export type ProcurementDocumentType = z.infer<
+  typeof procurementDocumentParams
+>["documentType"];
 
 export const ownerManagementTaskDocumentParams = organizationParams.extend({
   taskId: id,
@@ -157,6 +177,37 @@ export type DocumentCategoryCreateInput = z.infer<
 export type DocumentCategoryUpdateInput = z.infer<
   typeof documentCategoryUpdateBody
 >;
+
+const equipmentCategoryFields = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(1, "Equipment category name is required")
+    .max(120)
+    .optional(),
+  description: z.string().trim().max(500).nullable().optional(),
+  isActive: z.boolean().optional(),
+});
+export const equipmentCategoryCreateBody = equipmentCategoryFields.extend({
+  name: z
+    .string()
+    .trim()
+    .min(1, "Equipment category name is required")
+    .max(120),
+});
+export const equipmentCategoryUpdateBody = equipmentCategoryFields.refine(
+  (value) => Object.keys(value).length > 0,
+  "Provide at least one category value to update",
+);
+export const ownerManagementEquipmentCategoryParams = organizationParams.extend({
+  categoryId: id,
+});
+export type EquipmentCategoryCreateInput = z.infer<
+  typeof equipmentCategoryCreateBody
+>;
+export type EquipmentCategoryUpdateInput = z.infer<
+  typeof equipmentCategoryUpdateBody
+>;
 export const ownerManagementListQuery = z.object({
   projectId: id.optional(),
   phaseId: id.optional(),
@@ -178,6 +229,40 @@ export const inventoryStockQuery = z.object({
   lowStock: z.coerce.boolean().optional(),
 });
 export type InventoryStockQuery = z.infer<typeof inventoryStockQuery>;
+export const inventoryStockTransferBody = z
+  .object({
+    sourceWarehouseId: id,
+    destinationWarehouseId: id,
+    itemId: id,
+    quantity: z
+      .number("Enter a quantity")
+      .finite("Enter a finite quantity")
+      .positive("Enter a quantity greater than zero")
+      .max(1_000_000_000, "Quantity is too large"),
+    movementDate: z.string().date("Enter a valid transfer date"),
+    notes: z.string().trim().max(2_000).optional(),
+  })
+  .superRefine((value, issue) => {
+    if (value.sourceWarehouseId === value.destinationWarehouseId)
+      issue.addIssue({
+        code: "custom",
+        path: ["destinationWarehouseId"],
+        message: "Choose a different destination warehouse",
+      });
+  });
+export const inventoryMovementHistoryPdfQuery = z.object({
+  date: z.string().date("Enter a valid history date"),
+  warehouseId: id.optional(),
+  itemId: id.optional(),
+  provinceId: id.optional(),
+  siteId: id.optional(),
+});
+export type InventoryMovementHistoryPdfQuery = z.infer<
+  typeof inventoryMovementHistoryPdfQuery
+>;
+export type InventoryStockTransferInput = z.infer<
+  typeof inventoryStockTransferBody
+>;
 
 export const ownerManagementDashboardQuery = z.object({
   provinceId: id.optional(),
@@ -229,6 +314,28 @@ const optionalAmount = z.preprocess(
 );
 
 /**
+ * A person working on an assigned task may update its status, report a blocker
+ * or add a work note. They cannot change its project, assignee, dates, budget or
+ * priority through the private task workspace.
+ */
+export const myTaskUpdateBody = z
+  .object({
+    status: z
+      .enum(["in_progress", "blocked", "waiting_approval", "completed"], {
+        message: "Choose a valid work status",
+      })
+      .optional(),
+
+    blockedReason: optionalText(),
+    notes: optionalText(),
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "Provide a work update",
+  });
+export type MyTaskUpdateInput = z.infer<typeof myTaskUpdateBody>;
+
+/**
  * Tasks are submitted from a rich form and contain UUIDs, dates and decimals.
  * They used to fall through the generic registry parser and let PostgreSQL
  * discover malformed values. Validate the task contract here so the response
@@ -241,6 +348,8 @@ const taskInput = z
     provinceId: optionalId,
     siteId: optionalId,
     phaseId: optionalId,
+    budgetCurrencyCode: z.enum(["CDF", "USD", "EUR"]).optional(),
+    budgetOverrideReason: optionalText(2_000),
     taskType: z
       .enum(["work", "milestone"], {
         message: "Choose Work or Milestone",

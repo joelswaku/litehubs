@@ -79,6 +79,39 @@ export const itemUpdateBody = itemBody
     (value) => Object.keys(value).length > 0,
     "Provide at least one value to change",
   );
+
+/**
+ * The AI produces a review-only draft. It is validated again before an
+ * authorised manager explicitly creates a checklist template.
+ */
+const generatedChecklistItem = z.object({
+  prompt: text(500),
+  responseType: z.enum(["boolean", "number", "text", "choice", "photo"]),
+  guidance: z.string().trim().max(2000).default(""),
+  isRequired: z.boolean().default(true),
+});
+export const generatedChecklistDraft = z.object({
+  name: text(160),
+  description: z.string().trim().max(2000).default(""),
+  items: z.array(generatedChecklistItem).min(3).max(20),
+});
+export const aiChecklistDraftBody = z.object({
+  siteId: id,
+  domain: z.enum(domains).default("general"),
+  frequency: z
+    .enum(["per_shift", "daily", "weekly", "monthly", "ad_hoc"])
+    .default("daily"),
+  context: text(6000),
+  targetLanguage: z.enum(["fr", "en"]).default("fr"),
+});
+export const applyAiChecklistBody = z.object({
+  siteId: id,
+  domain: z.enum(domains),
+  frequency: z.enum(["per_shift", "daily", "weekly", "monthly", "ad_hoc"]),
+  draft: generatedChecklistDraft,
+});
+export type AiChecklistDraftInput = z.infer<typeof aiChecklistDraftBody>;
+export type ApplyAiChecklistInput = z.infer<typeof applyAiChecklistBody>;
 export const runBody = z.object({
   templateId: id,
   workDate: date.optional(),

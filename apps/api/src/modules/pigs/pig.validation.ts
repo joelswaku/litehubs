@@ -2,6 +2,9 @@ import { z } from "zod";
 import { organizationSlugSchema } from "../organization/organization.validation";
 
 const id = z.string().uuid("Enter a valid identifier");
+// Generated on the device before an offline field entry is submitted. This
+// makes a retry after a lost connection safe and prevents duplicate records.
+const offlineSyncKey = z.string().uuid("Use a valid offline synchronization key").optional();
 const date = z.string().date("Use YYYY-MM-DD");
 const text = (max: number) => z.string().trim().min(1).max(max);
 const nullableText = (max: number) => text(max).nullable().optional();
@@ -219,6 +222,7 @@ const dailyCreate = z.object({
   mortalityCount: nonNegativeInteger.default(0),
   closingCount: nonNegativeInteger.nullable().optional(),
   notes: nullableText(2_000),
+  offlineSyncKey,
 });
 const dailyUpdate = nonEmptyUpdate({
   penId: id.optional(),
@@ -258,7 +262,10 @@ const feedCreate = z.object({
   quantityKg: positiveDecimal,
   bagCount: nonNegativeDecimal.nullable().optional(),
   batchNumber: nullableText(150),
+  inventoryItemId: id.nullable().optional(),
+  warehouseId: id.nullable().optional(),
   notes: nullableText(2_000),
+  offlineSyncKey,
 });
 const feedUpdate = nonEmptyUpdate({
   penId: id.optional(),
@@ -282,6 +289,8 @@ const feedUpdate = nonEmptyUpdate({
   quantityKg: positiveDecimal.optional(),
   bagCount: nonNegativeDecimal.nullable().optional(),
   batchNumber: nullableText(150),
+  inventoryItemId: id.nullable().optional(),
+  warehouseId: id.nullable().optional(),
   notes: nullableText(2_000),
 });
 
@@ -413,6 +422,7 @@ const mortalityCreate = z.object({
     .default("not_required"),
   followUpNotes: nullableText(4_000),
   notes: nullableText(4_000),
+  offlineSyncKey,
 });
 const mortalityUpdate = nonEmptyUpdate({
   penId: id.optional(),

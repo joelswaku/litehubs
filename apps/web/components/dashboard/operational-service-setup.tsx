@@ -23,7 +23,7 @@ const services: Array<{ id: ServiceId; icon: LucideIcon; href: string; english: 
 
 export function OperationalServiceSetup({ orgSlug, fr, initialServices, onSaved }: { orgSlug: string; fr: boolean; initialServices: string[] | null; onSaved: () => void }) {
   const queryClient = useQueryClient();
-  const [selected, setSelected] = useState<string[]>(initialServices ?? []);
+  const [selected, setSelected] = useState<string[]>(initialServices ?? services.map((service) => service.id));
   const save = useMutation({
     mutationFn: () => put<{ services: string[] }>(orgUrl(orgSlug, "operational-services"), { services: selected }),
     onSuccess: (result) => {

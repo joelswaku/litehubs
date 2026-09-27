@@ -72,6 +72,21 @@ export const attachmentStoredFileParams = z.object({
   orgSlug: organizationSlugSchema,
   fileId: id,
 });
+/** An assigned employee can attach a private evidence document to this task. */
+export const taskEvidenceParams = z.object({
+  orgSlug: organizationSlugSchema,
+  taskId: id,
+});
+/** Procurement evidence belongs to one receipt and remains in its project. */
+export const receiptEvidenceParams = z.object({
+  orgSlug: organizationSlugSchema,
+  receiptId: id,
+});
+/** Accounting evidence belongs to one expense and remains in its project. */
+export const expenseEvidenceParams = z.object({
+  orgSlug: organizationSlugSchema,
+  expenseId: id,
+});
 export const attachmentUploadBody = z.object({
   title: text(200).optional(),
   categoryId: id.optional(),

@@ -26,6 +26,14 @@ export const dailyWorkApi = {
   overview<T>(orgSlug: string, query?: DailyWorkQuery) {
     return get<T>(base(orgSlug, `overview${queryString(query)}`));
   },
+  ai: {
+    draft<T>(orgSlug: string, body: DailyWorkBody) {
+      return post<T>(base(orgSlug, "ai-checklist"), body);
+    },
+    apply<T>(orgSlug: string, body: DailyWorkBody) {
+      return post<T>(base(orgSlug, "ai-checklist/apply"), body);
+    },
+  },
   templates: {
     list<T>(orgSlug: string, query?: DailyWorkQuery) {
       return get<T>(base(orgSlug, `templates${queryString(query)}`));

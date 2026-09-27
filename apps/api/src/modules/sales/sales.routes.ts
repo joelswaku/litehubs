@@ -4,13 +4,15 @@ import { requireOrganization } from "../../middleware/organization.middleware";
 import { requirePermission } from "../../middleware/permissions.middleware";
 import { validate } from "../../middleware/validation.middleware";
 import * as controller from "./sales.controller";
-import { createOrderInput, customerInput, deliveryInput, offerInput, organizationParams, paymentInput, salesListQuery, salesOrderParams } from "./sales.validation";
+import { createOrderInput, customerInput, customerUpdateInput, deliveryInput, offerInput, organizationParams, paymentInput, salesIdParams, salesListQuery, salesOrderParams } from "./sales.validation";
 
 export const salesRoutes=Router();
 const inside=[authenticate,validate({params:organizationParams}),requireOrganization] as const;
 
 salesRoutes.get("/organizations/:orgSlug/customers",...inside,requirePermission("customers.read"),validate({query:salesListQuery}),controller.customers);
 salesRoutes.post("/organizations/:orgSlug/customers",...inside,requirePermission("customers.create"),validate({body:customerInput}),controller.createCustomer);
+salesRoutes.patch("/organizations/:orgSlug/customers/:id",authenticate,validate({params:salesIdParams,body:customerUpdateInput}),requireOrganization,requirePermission("customers.update"),controller.updateCustomer);
+salesRoutes.get("/organizations/:orgSlug/customers/:id/detail",authenticate,validate({params:salesIdParams}),requireOrganization,requirePermission("customers.read"),controller.customerDetail);
 salesRoutes.get("/organizations/:orgSlug/sales/sources",...inside,requirePermission("sales.read"),controller.sources);
 salesRoutes.get("/organizations/:orgSlug/sales/warehouses",...inside,requirePermission("sales.read"),controller.warehouses);
 salesRoutes.get("/organizations/:orgSlug/sales/production-summary",...inside,requirePermission("sales.read"),controller.productionSummary);

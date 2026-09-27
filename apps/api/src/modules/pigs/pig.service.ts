@@ -420,12 +420,71 @@ function isEvent(resource: PigResource): resource is EventResource {
 }
 function inputColumns(input: Input): { columns: string[]; values: unknown[] } {
   const entries = Object.entries(input).filter(
-    ([, value]) => value !== undefined,
+    ([key, value]) => key !== "offlineSyncKey" && value !== undefined,
   );
   return {
     columns: entries.map(([key]) => snake(key)),
     values: entries.map(([, value]) => value),
   };
+}
+
+const offlineSyncResources = new Set<PigResource>([
+  "daily-records",
+  "mortality",
+  "feed",
+]);
+
+/**
+ * Reserve the phone-generated key before creating an offline field record.
+ * A replay following a lost response returns the original record, so an agent
+ * cannot duplicate livestock counts, mortality or a stock-backed feed issue.
+ */
+async function replayedOfflineRecordId(
+  client: PoolClient,
+  context: PigContext,
+  resource: PigResource,
+  input: Input,
+): Promise<string | null> {
+  if (!offlineSyncResources.has(resource)) return null;
+  const syncKey = typeof input.offlineSyncKey === "string" ? input.offlineSyncKey : null;
+  if (!syncKey) return null;
+  const created = await client.query<{ record_id: string | null }>(
+    `INSERT INTO pig_offline_sync_operations (organization_id,resource,client_sync_key)
+     VALUES ($1,$2,$3::uuid)
+     ON CONFLICT (organization_id,resource,client_sync_key) DO NOTHING
+     RETURNING record_id`,
+    [context.organizationId, resource, syncKey],
+  );
+  if ((created.rowCount ?? 0) > 0) return null;
+  const existing = await client.query<{ record_id: string | null }>(
+    `SELECT record_id FROM pig_offline_sync_operations
+      WHERE organization_id=$1 AND resource=$2 AND client_sync_key=$3::uuid`,
+    [context.organizationId, resource, syncKey],
+  );
+  const recordId = existing.rows[0]?.record_id;
+  if (!recordId)
+    throw new ConflictError(
+      "This offline pig record is still being synchronized. Please reconnect and try again.",
+    );
+  return recordId;
+}
+
+async function completeOfflineRecordSync(
+  client: PoolClient,
+  context: PigContext,
+  resource: PigResource,
+  input: Input,
+  recordId: string,
+): Promise<void> {
+  if (!offlineSyncResources.has(resource)) return;
+  const syncKey = typeof input.offlineSyncKey === "string" ? input.offlineSyncKey : null;
+  if (!syncKey) return;
+  await client.query(
+    `UPDATE pig_offline_sync_operations
+        SET record_id=$4
+      WHERE organization_id=$1 AND resource=$2 AND client_sync_key=$3::uuid`,
+    [context.organizationId, resource, syncKey, recordId],
+  );
 }
 
 async function assertSpecialRelations(
@@ -538,6 +597,128 @@ async function details(
   return row;
 }
 
+function isFeedStockCategory(value: unknown) {
+  const category = String(value ?? "").trim().toLowerCase();
+  return category.includes("feed") || category.includes("aliment");
+}
+
+function isKilogramUnit(value: unknown) {
+  return ["kg", "kilogram", "kilogramme", "kilogrammes"].includes(
+    String(value ?? "").trim().toLowerCase(),
+  );
+}
+
+async function assertPigFeedRecordCanChange(
+  client: PoolClient,
+  context: PigContext,
+  recordId: string,
+) {
+  const ledger = await client.query(
+    `SELECT 1
+       FROM management_inventory_stock_movements
+      WHERE organization_id = $1
+        AND reference_type = 'pig_feed'
+        AND reference_id = $2
+      LIMIT 1`,
+    [context.organizationId, recordId],
+  );
+  if (ledger.rowCount)
+    throw new BadRequestError(
+      "This feed record already issued inventory. Correct it with an inventory return, then record the actual feed again.",
+    );
+}
+
+async function applyPigFeedInventoryIssue(
+  client: PoolClient,
+  context: PigContext,
+  feed: Row,
+) {
+  const inventoryItemId = feed.inventory_item_id;
+  const warehouseId = feed.warehouse_id;
+  if (inventoryItemId == null && warehouseId == null) return;
+  if (typeof inventoryItemId !== "string" || typeof warehouseId !== "string")
+    throw new BadRequestError(
+      "Choose both the stocked feed and its warehouse to issue feed from inventory",
+    );
+
+  const [warehouseResult, itemResult] = await Promise.all([
+    client.query<{ site_id: string }>(
+      `SELECT site_id
+         FROM management_warehouses
+        WHERE organization_id = $1 AND id = $2 AND is_active`,
+      [context.organizationId, warehouseId],
+    ),
+    client.query<{ standard_unit_cost: string | number | null; unit: string; category: string | null }>(
+      `SELECT standard_unit_cost, unit, category
+         FROM management_inventory_items
+        WHERE organization_id = $1 AND id = $2 AND is_active`,
+      [context.organizationId, inventoryItemId],
+    ),
+  ]);
+  const warehouse = warehouseResult.rows[0];
+  const item = itemResult.rows[0];
+  if (!warehouse || String(warehouse.site_id) !== String(feed.site_id))
+    throw new BadRequestError(
+      "Choose an active warehouse at the pig pen's work site",
+    );
+  if (!item || !isKilogramUnit(item.unit) || !isFeedStockCategory(item.category))
+    throw new BadRequestError(
+      "Choose an active feed stock item measured in kilograms",
+    );
+
+  const manufactured = await client.query<{ target_species: string }>(
+    `SELECT DISTINCT target_species
+       FROM management_feed_batches
+      WHERE organization_id = $1
+        AND output_item_id = $2
+        AND status = 'confirmed'`,
+    [context.organizationId, inventoryItemId],
+  );
+  if (
+    manufactured.rows.some(
+      (batch) => !["pigs", "mixed"].includes(batch.target_species),
+    )
+  )
+    throw new BadRequestError(
+      "This manufactured feed is reserved for poultry",
+    );
+  const quantity = Number(feed.quantity_kg ?? 0);
+  if (!Number.isFinite(quantity) || quantity <= 0)
+    throw new BadRequestError("Feed quantity must be greater than zero");
+  const stock = await client.query(
+    `UPDATE management_inventory_stock
+        SET quantity_on_hand = quantity_on_hand - $4,
+            updated_at = now()
+      WHERE organization_id = $1
+        AND warehouse_id = $2
+        AND item_id = $3
+        AND quantity_on_hand - quantity_reserved >= $4
+      RETURNING quantity_on_hand`,
+    [context.organizationId, warehouseId, inventoryItemId, quantity],
+  );
+  if (!stock.rowCount)
+    throw new BadRequestError(
+      "The selected warehouse does not have enough available feed for this distribution",
+    );
+  await client.query(
+    `INSERT INTO management_inventory_stock_movements (
+       organization_id, warehouse_id, item_id, movement_date, movement_type,
+       quantity_delta, unit_cost, reference_type, reference_id,
+       performed_by_member_id, notes
+     ) VALUES ($1, $2, $3, $4::date, 'issue', $5, $6, 'pig_feed', $7, $8, $9)`,
+    [
+      context.organizationId,
+      warehouseId,
+      inventoryItemId,
+      feed.feed_date,
+      -quantity,
+      item.standard_unit_cost ?? null,
+      feed.id,
+      context.memberId,
+      `Feed issued to ${String(feed.pen_name ?? "pig pen")}`,
+    ],
+  );
+}
 async function sideEffects(
   client: PoolClient,
   context: PigContext,
@@ -711,6 +892,9 @@ export async function createPigRecord(
   input: Input,
 ): Promise<Row> {
   return withTenantContext(context, async (client) => {
+    const replayedRecordId = await replayedOfflineRecordId(client, context, resource, input);
+    if (replayedRecordId)
+      return mapRow(await details(client, context, resource, replayedRecordId));
     await assertSpecialRelations(client, context, resource, input);
     const { columns, values } = inputColumns(input);
     const event = isEvent(resource);
@@ -738,8 +922,12 @@ export async function createPigRecord(
       );
     }
     const id = created.rows[0]!.id;
+    const createdRecord = await details(client, context, resource, id);
+    if (resource === "feed")
+      await applyPigFeedInventoryIssue(client, context, createdRecord);
     await sideEffects(client, context, resource, input);
-    return mapRow(await details(client, context, resource, id));
+    await completeOfflineRecordSync(client, context, resource, input, id);
+    return mapRow(createdRecord);
   });
 }
 
@@ -751,6 +939,8 @@ export async function updatePigRecord(
 ): Promise<Row> {
   return withTenantContext(context, async (client) => {
     const existing = await details(client, context, resource, recordId);
+    if (resource === "feed")
+      await assertPigFeedRecordCanChange(client, context, recordId);
     const merged: Input = Object.fromEntries(
       Object.entries(existing).map(([key, value]) => [camel(key), value]),
     );
@@ -795,6 +985,8 @@ export async function deletePigRecord(
 ): Promise<void> {
   await withTenantContext(context, async (client) => {
     await details(client, context, resource, recordId);
+    if (resource === "feed")
+      await assertPigFeedRecordCanChange(client, context, recordId);
     const result = await client.query(
       `DELETE FROM ${tableFor(resource)} WHERE organization_id = $1 AND id = $2`,
       [context.organizationId, recordId],

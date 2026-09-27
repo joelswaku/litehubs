@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import {
   BadRequestError,
@@ -5,13 +6,17 @@ import {
   NotFoundError,
 } from "../../utils/errors";
 import { withTenantContext } from "../../utils/tenant-query";
-import type { DailyWorkQuery } from "./daily-work.validation";
+import type {
+  ApplyAiChecklistInput,
+  DailyWorkQuery,
+} from "./daily-work.validation";
 
 export interface DailyWorkContext {
   organizationId: string;
   userId: string;
   memberId: string;
   isOwner: boolean;
+  permissions?: string[];
 }
 type Row = Record<string, unknown>;
 type Scope = "organization" | "province" | "self";
@@ -271,6 +276,60 @@ export async function createTemplate(
     return conflict(error);
   }
 }
+/** Creates an AI-reviewed template and all of its checks in one transaction. */
+export async function createAiChecklistTemplate(
+  context: DailyWorkContext,
+  input: ApplyAiChecklistInput,
+) {
+  try {
+    return await withTenantContext(context, async (client) => {
+      await siteLocation(client, context, input.siteId);
+      if ((await scopeOf(client, context)) === "self")
+        throw new NotFoundError("Checklist template not found");
+
+      const code = `ai_${input.domain}_${randomUUID().replace(/-/g, "").slice(0, 16)}`;
+      const result = await client.query<Row>(
+        `INSERT INTO checklist_templates
+           (organization_id, code, name, description, domain, frequency, site_id, is_active, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,true,$8)
+         RETURNING *`,
+        [
+          context.organizationId,
+          code,
+          input.draft.name,
+          input.draft.description || null,
+          input.domain,
+          input.frequency,
+          input.siteId,
+          context.userId,
+        ],
+      );
+      const template = result.rows[0];
+      if (!template)
+        throw new BadRequestError("Could not create checklist template");
+
+      for (const [index, item] of input.draft.items.entries())
+        await client.query(
+          `INSERT INTO checklist_template_items
+             (organization_id,template_id,position,prompt,response_type,is_required,guidance)
+           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+          [
+            context.organizationId,
+            template.id,
+            index + 1,
+            item.prompt,
+            item.responseType,
+            item.isRequired,
+            item.guidance || null,
+          ],
+        );
+      return mapRow(template);
+    });
+  } catch (error) {
+    return conflict(error);
+  }
+}
+
 export async function updateTemplate(
   context: DailyWorkContext,
   id: string,
@@ -855,9 +914,8 @@ export async function createHandover(
   return withTenantContext(context, async (client) => {
     const scope = await scopeOf(client, context);
     const requestedSiteId = String(input.siteId ?? "").trim();
-    const employee = scope === "self"
-      ? await ownEmployeeLocation(client, context)
-      : null;
+    const employee =
+      scope === "self" ? await ownEmployeeLocation(client, context) : null;
     const siteId = requestedSiteId || employee?.site_id || "";
     if (!siteId) throw new BadRequestError("Select a site for this handover");
     const location = await siteLocation(client, context, siteId);

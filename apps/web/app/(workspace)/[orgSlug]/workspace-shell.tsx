@@ -18,6 +18,7 @@ import { useLanguage } from "@/providers/language-provider";
 import { NotificationProvider, useNotificationCenter } from "@/providers/notifications-provider";
 import { useSessionUser } from "@/stores/session-store";
 import { useUiStore } from "@/stores/ui-store";
+import { isOwner } from "@/lib/permissions";
 
 export function WorkspaceShell({ orgSlug, children }: { orgSlug: string; children: React.ReactNode }) {
   const { t } = useLanguage();
@@ -78,10 +79,14 @@ function WorkspaceChrome({ orgSlug, children }: { orgSlug: string; children: Rea
           (item) =>
             (!item.employeeProfileOnly || Boolean(employeeProfile.data?.employee)) &&
             (!item.hideForEmployeeProfile || !Boolean(employeeProfile.data?.employee)) &&
-            isSelectedOperationalNavigation(item.path, profile.data?.operationalServices),
+            isSelectedOperationalNavigation(
+              item.path,
+              profile.data?.operationalServices,
+              isOwner(user),
+            ),
         ),
       })),
-    [employeeProfile.data?.employee, profile.data?.operationalServices],
+    [employeeProfile.data?.employee, profile.data?.operationalServices, user],
   );
   return <div className="flex h-dvh overflow-hidden bg-page">
     <WorkspaceLanguagePreferenceSync orgSlug={orgSlug} />
@@ -94,13 +99,22 @@ function WorkspaceChrome({ orgSlug, children }: { orgSlug: string; children: Rea
   </div>;
 }
 /** Operational setup is a navigation preference; API permissions still protect every direct route. */
-function isSelectedOperationalNavigation(path: string, services: string[] | null | undefined): boolean {
+function isSelectedOperationalNavigation(
+  path: string,
+  services: string[] | null | undefined,
+  owner: boolean,
+): boolean {
+  // The service picker describes the company's current operational focus. It
+  // must never make the company owner lose access to an existing operational
+  // module or its historical data.
+  if (owner) return true;
   if (services == null) return true;
   if (path === "/poultry") return services.includes("poultry");
   if (path === "/pigs") return services.includes("pigs");
   if (path === "/agriculture") return services.includes("agriculture");
   if (path === "/veterinary") return services.includes("poultry") || services.includes("pigs");
-  if (path === "/projects") return services.includes("projects");
+  if (["/projects", "/project-analytics"].includes(path)) return services.includes("projects");
+  if (path.startsWith("/feed-mill")) return services.includes("poultry") || services.includes("pigs") || services.includes("agriculture") || services.includes("procurement");
   if (["/inventory", "/procurement", "/suppliers", "/equipment", "/maintenance"].includes(path)) return services.includes("procurement");
   return true;
 }

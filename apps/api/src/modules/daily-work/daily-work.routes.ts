@@ -5,6 +5,8 @@ import { requirePermission } from "../../middleware/permissions.middleware";
 import { validate } from "../../middleware/validation.middleware";
 import * as controller from "./daily-work.controller";
 import {
+  aiChecklistDraftBody,
+  applyAiChecklistBody,
   dailyWorkQuery,
   handoverBody,
   handoverParams,
@@ -52,6 +54,20 @@ dailyWorkRoutes.post(
   requirePermission("daily_operations.create"),
   validate({ body: templateBody }),
   controller.createTemplate,
+);
+dailyWorkRoutes.post(
+  "/organizations/:orgSlug/daily-work/ai-checklist",
+  ...inOrganization,
+  requirePermission("daily_operations.create"),
+  validate({ body: aiChecklistDraftBody }),
+  controller.aiChecklistDraft,
+);
+dailyWorkRoutes.post(
+  "/organizations/:orgSlug/daily-work/ai-checklist/apply",
+  ...inOrganization,
+  requirePermission("daily_operations.create"),
+  validate({ body: applyAiChecklistBody }),
+  controller.applyAiChecklist,
 );
 dailyWorkRoutes.patch(
   "/organizations/:orgSlug/daily-work/templates/:templateId",

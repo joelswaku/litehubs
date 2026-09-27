@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -16,8 +16,15 @@ import {
   ExternalLink,
   FileText,
   Loader2,
+  Maximize2,
+  Minimize2,
+  Pause,
+  Play,
   PlayCircle,
+  RotateCcw,
   ShieldCheck,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -32,6 +39,7 @@ import { ApiError, get, orgApiUrl, orgUrl, patch, post } from "@/lib/api";
 import { can } from "@/lib/permissions";
 import { useLanguage } from "@/providers/language-provider";
 import { useSessionUser } from "@/stores/session-store";
+import { useUiStore } from "@/stores/ui-store";
 
 type Status =
   | "assigned"
@@ -1031,6 +1039,32 @@ function ProfessionalTrainingReader({
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [answers, setAnswers] = useState<Record<string, unknown>>({});
   const heartbeatRef = useRef<Record<string, number>>({});
+  const sidebarBeforeFocusRef = useRef<boolean | null>(null);
+  const [focusMode, setFocusMode] = useState(false);
+  const sidebarCollapsed = useUiStore((state) => state.sidebarCollapsed);
+  const setSidebarCollapsed = useUiStore((state) => state.setSidebarCollapsed);
+  useEffect(() => {
+    return () => {
+      const previous = sidebarBeforeFocusRef.current;
+      if (previous === null) return;
+      setSidebarCollapsed(previous);
+      sidebarBeforeFocusRef.current = null;
+    };
+  }, [setSidebarCollapsed]);
+  useEffect(() => {
+    if (!focusMode) return;
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setFocusMode(false);
+      const previous = sidebarBeforeFocusRef.current;
+      if (previous !== null) {
+        setSidebarCollapsed(previous);
+        sidebarBeforeFocusRef.current = null;
+      }
+    };
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
+  }, [focusMode, setSidebarCollapsed]);
   const progress = useMutation({
     mutationFn: ({
       blockId,
@@ -1084,6 +1118,23 @@ function ProfessionalTrainingReader({
   const completedCount = outline.filter(
     ({ lesson: row }) => row.required && row.progress.status === "completed",
   ).length;
+  const restoreReadingSpace = () => {
+    setFocusMode(false);
+    const previous = sidebarBeforeFocusRef.current;
+    if (previous !== null) {
+      setSidebarCollapsed(previous);
+      sidebarBeforeFocusRef.current = null;
+    }
+  };
+  const toggleReadingSpace = () => {
+    if (focusMode) {
+      restoreReadingSpace();
+      return;
+    }
+    sidebarBeforeFocusRef.current = sidebarCollapsed;
+    setSidebarCollapsed(true);
+    setFocusMode(true);
+  };
   const openLesson = (index: number, row: ProfessionalLesson, closeOutline = false) => {
     setLessonIndex(index);
     if (closeOutline) setOutlineOpen(false);
@@ -1133,7 +1184,7 @@ function ProfessionalTrainingReader({
     </div>
   );
   return (
-    <main className="mx-auto max-w-7xl space-y-5 p-4 sm:p-6 lg:p-8">
+    <main className={`mx-auto max-w-7xl space-y-4 p-4 sm:p-5 lg:p-7 ${focusMode ? "bg-page" : ""}`}>
       <Link
         href={`/${orgSlug}/my-trainings`}
         className="inline-flex items-center gap-2 text-sm font-semibold text-brand hover:underline"
@@ -1141,16 +1192,13 @@ function ProfessionalTrainingReader({
         <ArrowLeft className="size-4" />
         {label(fr, "My training", "Mes formations")}
       </Link>
-      <header className="relative overflow-hidden rounded-2xl border border-brand/20 bg-[radial-gradient(circle_at_87%_12%,rgba(129,140,248,.25),transparent_28%),linear-gradient(135deg,#102b55,#24488f_58%,#6643ae)] p-4 text-white shadow-[0_24px_52px_-36px_rgba(13,36,85,.95)] sm:rounded-3xl sm:p-7">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[.16em] text-indigo-100">
-              {course.assignment.course.category}
-            </p>
-            <h1 className="mt-1.5 text-xl font-semibold tracking-tight sm:mt-2 sm:text-2xl">
+      <header className={`relative overflow-hidden rounded-2xl border border-brand/20 bg-[radial-gradient(circle_at_87%_12%,rgba(129,140,248,.25),transparent_28%),linear-gradient(135deg,#102b55,#24488f_58%,#6643ae)] p-3.5 text-white shadow-[0_18px_40px_-30px_rgba(13,36,85,.95)] sm:p-4`}>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="truncate text-lg font-semibold tracking-tight sm:text-xl">
               {course.assignment.course.name}
             </h1>
-            <p className="mt-1.5 max-w-3xl line-clamp-2 text-sm leading-5 text-indigo-50/90 sm:mt-2 sm:line-clamp-none sm:leading-6">
+            <p className="mt-1 max-w-3xl truncate text-xs text-indigo-50/90 sm:text-sm">
               {course.assignment.course.summary ??
                 label(
                   fr,
@@ -1159,73 +1207,83 @@ function ProfessionalTrainingReader({
                 )}
             </p>
           </div>
-          <Badge variant={statusVariant(course.assignment.status)}>
-            {statusText(course.assignment.status, fr)}
-          </Badge>
+          <div className="flex shrink-0 items-center gap-2">
+            <Badge variant={statusVariant(course.assignment.status)}>
+              {statusText(course.assignment.status, fr)}
+            </Badge>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => void toggleReadingSpace()}
+              className="h-8 border border-white/20 bg-white/10 px-2.5 text-xs text-white hover:bg-white/20 hover:text-white"
+            >
+              {focusMode ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
+              {focusMode
+                ? label(fr, "Reduce", "Réduire")
+                : label(fr, "Large screen", "Grand écran")}
+            </Button>
+          </div>
         </div>
-        <div className="mt-4 grid grid-cols-3 gap-2 sm:mt-6 sm:gap-3">
-          <MetricCard
-            fr={fr}
-            labelEn="Official progress"
-            labelFr="Progression vérifiée"
-            value={`${course.assignment.progressPercent}%`}
-          />
-          <MetricCard
-            fr={fr}
-            labelEn="Lessons"
-            labelFr="Leçons"
-            value={`${completedCount}/${requiredCount}`}
-          />
-          <MetricCard
-            fr={fr}
-            labelEn="Deadline"
-            labelFr="Échéance"
-            value={date(course.assignment.dueOn, fr)}
-          />
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+          <span className="rounded-md bg-white/10 px-2 py-1 text-indigo-50">
+            {label(fr, "Progress", "Progression")} · <b className="text-white">{course.assignment.progressPercent}%</b>
+          </span>
+          <span className="rounded-md bg-white/10 px-2 py-1 text-indigo-50">
+            {label(fr, "Lessons", "Leçons")} · <b className="text-white">{completedCount}/{requiredCount}</b>
+          </span>
+          <span className="rounded-md bg-white/10 px-2 py-1 text-indigo-50">
+            {label(fr, "Deadline", "Échéance")} · <b className="text-white">{date(course.assignment.dueOn, fr)}</b>
+          </span>
         </div>
-        <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-white/15 sm:mt-5 sm:h-2">
+        <div className="mt-3 h-1 overflow-hidden rounded-full bg-white/15">
           <div
             className="h-full rounded-full bg-emerald-300 transition-[width]"
             style={{ width: `${course.assignment.progressPercent}%` }}
           />
         </div>
-        <p className="mt-2 hidden text-xs text-indigo-100 sm:block">
-          {label(
-            fr,
-            "Progress is saved securely as you complete required content.",
-            "La progression est enregistrée de façon sécurisée à chaque contenu requis terminé.",
-          )}
-        </p>
       </header>
-      <section className="grid gap-4 xl:grid-cols-[19rem_minmax(0,1fr)] xl:gap-5">
-        <div>
-          <details
-            className="rounded-2xl border border-border bg-surface-1 p-3 shadow-sm xl:hidden"
-            open={outlineOpen}
-            onToggle={(event) => setOutlineOpen(event.currentTarget.open)}
-          >
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-xl px-2 py-1 text-left marker:hidden">
-              <span>
-                <span className="block text-xs font-semibold uppercase tracking-wide text-ink-muted">
-                  {label(fr, "Course outline", "Plan du cours")}
-                </span>
-                <span className="mt-1 block max-w-[15rem] truncate text-sm font-semibold text-ink">
-                  {lessonIndex + 1}/{outline.length} · {lesson.title}
-                </span>
+      <section className="space-y-3">
+        <details
+          className="rounded-2xl border border-border bg-surface-1 p-3 shadow-sm xl:hidden"
+          open={outlineOpen}
+          onToggle={(event) => setOutlineOpen(event.currentTarget.open)}
+        >
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-xl px-2 py-1 text-left marker:hidden">
+            <span>
+              <span className="block text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                {label(fr, "Course outline", "Plan du cours")}
               </span>
-              <ChevronRight className={`size-5 shrink-0 text-brand transition-transform ${outlineOpen ? "rotate-90" : ""}`} />
-            </summary>
-            <div className="mt-3 max-h-[50vh] overflow-y-auto border-t border-border pt-3">
-              {outlineList(true)}
-            </div>
-          </details>
-          <aside className="hidden rounded-2xl border border-border bg-surface-1 p-3 shadow-sm xl:block">
-            <p className="px-2 py-2 text-xs font-semibold uppercase tracking-wide text-ink-muted">
-              {label(fr, "Course outline", "Plan du cours")}
-            </p>
-            {outlineList()}
-          </aside>
-        </div>
+              <span className="mt-1 block max-w-[15rem] truncate text-sm font-semibold text-ink">
+                {lessonIndex + 1}/{outline.length} · {lesson.title}
+              </span>
+            </span>
+            <ChevronRight className={`size-5 shrink-0 text-brand transition-transform ${outlineOpen ? "rotate-90" : ""}`} />
+          </summary>
+          <div className="mt-3 max-h-[50vh] overflow-y-auto border-t border-border pt-3">
+            {outlineList(true)}
+          </div>
+        </details>
+        <div className={outlineOpen ? "grid gap-4 xl:grid-cols-[18rem_minmax(0,1fr)] xl:gap-5" : undefined}>
+          {outlineOpen ? (
+            <aside className="hidden rounded-2xl border border-border bg-surface-1 p-3 shadow-sm xl:block">
+              <div className="flex items-center justify-between gap-2 px-2 py-1">
+                <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                  {label(fr, "Course outline", "Plan du cours")}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setOutlineOpen(false)}
+                  className="text-xs font-semibold text-brand hover:underline"
+                >
+                  {label(fr, "Hide", "Masquer")}
+                </button>
+              </div>
+              <div className="mt-2 max-h-[68vh] overflow-y-auto border-t border-border pt-3">
+                {outlineList(true)}
+              </div>
+            </aside>
+          ) : null}
         <article className="rounded-2xl border border-border bg-surface-1 p-5 shadow-sm sm:p-7">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -1241,7 +1299,16 @@ function ProfessionalTrainingReader({
                 </p>
               ) : null}
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                onClick={() => setOutlineOpen((value) => !value)}
+              >
+                <BookOpenCheck className="size-4" />
+                {label(fr, "Course plan", "Plan du cours")}
+              </Button>
               {lesson.required ? (
                 <Badge variant="warning">
                   {label(fr, "Required", "Requis")}
@@ -1283,6 +1350,7 @@ function ProfessionalTrainingReader({
                 answers={answers}
                 setAnswers={setAnswers}
                 heartbeatRef={heartbeatRef}
+                focusMode={focusMode}
               />
             ))}
           </div>
@@ -1319,6 +1387,7 @@ function ProfessionalTrainingReader({
             </Button>
           </div>
         </article>
+        </div>
       </section>
       {course.assignment.status === "awaiting_review" ? (
         <section className="rounded-2xl border border-warning/30 bg-warning/10 p-4 text-sm text-ink">
@@ -1388,6 +1457,7 @@ function ProfessionalBlockReader({
   answers,
   setAnswers,
   heartbeatRef,
+  focusMode,
 }: {
   block: ProfessionalBlock;
   orgSlug: string;
@@ -1401,6 +1471,7 @@ function ProfessionalBlockReader({
   answers: Record<string, unknown>;
   setAnswers: (value: Record<string, unknown>) => void;
   heartbeatRef: React.MutableRefObject<Record<string, number>>;
+  focusMode: boolean;
 }) {
   const content = block.content ?? {};
   const body = String(
@@ -1420,9 +1491,35 @@ function ProfessionalBlockReader({
     : null;
   const complete = Boolean(block.progress.completedAt);
   const action = (next: Record<string, unknown>) => onProgress(next);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const maxWatchedRef = useRef(
+    Math.max(0, Number(block.progress.videoPositionSeconds ?? 0)),
+  );
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [muted, setMuted] = useState(false);
+  const togglePlayback = async () => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (video.paused) {
+      await video.play().catch(() => undefined);
+      return;
+    }
+    video.pause();
+  };
+  const rewindVideo = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.currentTime = Math.max(0, video.currentTime - 10);
+  };
+  const toggleMuted = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.muted = !video.muted;
+    setMuted(video.muted);
+  };
   return (
     <section className="overflow-hidden rounded-2xl border border-border bg-surface-1">
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border bg-surface-2/60 px-4 py-3">
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border bg-surface-2/60 px-3 py-2">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-brand">
             {words(block.type)}
@@ -1450,28 +1547,80 @@ function ProfessionalBlockReader({
           </div>
         ) : null}
         {secureUrl && block.type === "video" ? (
-          <video
-            className="mt-3 aspect-video w-full rounded-xl bg-black"
-            controls
-            controlsList={block.allowDownload ? undefined : "nodownload"}
-            src={secureUrl}
-            onTimeUpdate={(event) => {
-              const current = Math.floor(event.currentTarget.currentTime);
-              const last = heartbeatRef.current[block.id] ?? 0;
-              if (current - last >= 12) {
-                heartbeatRef.current[block.id] = current;
-                action({ action: "heartbeat", videoPositionSeconds: current });
-              }
-            }}
-            onPause={(event) =>
-              action({
-                action: "heartbeat",
-                videoPositionSeconds: Math.floor(
-                  event.currentTarget.currentTime,
-                ),
-              })
-            }
-          />
+          <div className={focusMode ? "relative flex items-center justify-center overflow-hidden rounded-xl bg-black" : "relative mt-3 overflow-hidden rounded-xl bg-black"}>
+            <video
+              ref={videoRef}
+              className={focusMode ? "h-auto max-h-[calc(100dvh-16rem)] w-auto max-w-full object-contain" : "aspect-video w-full"}
+              src={secureUrl}
+              onLoadedMetadata={(event) => {
+                const video = event.currentTarget;
+                const savedPosition = Math.max(
+                  0,
+                  Number(block.progress.videoPositionSeconds ?? 0),
+                );
+                maxWatchedRef.current = savedPosition;
+                if (savedPosition > 0 && savedPosition < video.duration) {
+                  video.currentTime = savedPosition;
+                }
+              }}
+              onPlay={() => setIsPlaying(true)}
+              onSeeking={(event) => {
+                const video = event.currentTarget;
+                const maximum = maxWatchedRef.current;
+                if (video.currentTime > maximum + 0.5) {
+                  video.currentTime = maximum;
+                }
+              }}
+              onTimeUpdate={(event) => {
+                const current = Math.floor(event.currentTarget.currentTime);
+                maxWatchedRef.current = Math.max(maxWatchedRef.current, current);
+                const last = heartbeatRef.current[block.id] ?? 0;
+                if (current - last >= 12) {
+                  heartbeatRef.current[block.id] = current;
+                  action({ action: "heartbeat", videoPositionSeconds: current });
+                }
+              }}
+              onVolumeChange={(event) => setMuted(event.currentTarget.muted)}
+              onPause={(event) => {
+                setIsPlaying(false);
+                action({
+                  action: "heartbeat",
+                  videoPositionSeconds: Math.floor(
+                    event.currentTarget.currentTime,
+                  ),
+                });
+              }}
+            />
+            <div className="absolute bottom-[22px] left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => void togglePlayback()}
+                aria-label={isPlaying ? label(fr, "Pause", "Pause") : label(fr, "Play", "Lire")}
+                className="grid size-8 place-items-center rounded-full border border-white/30 bg-black/70 text-white shadow-md backdrop-blur-sm transition hover:bg-black/90"
+              >
+                {isPlaying ? <Pause className="size-4" /> : <Play className="size-4" />}
+              </button>
+              <button
+                type="button"
+                onClick={rewindVideo}
+                aria-label={label(fr, "Replay the last 10 seconds", "Revoir les 10 dernières secondes")}
+                title={label(fr, "Replay 10 seconds", "Revoir 10 secondes")}
+                className="grid size-8 place-items-center rounded-full border border-white/30 bg-black/70 text-white shadow-md backdrop-blur-sm transition hover:bg-black/90"
+              >
+                <RotateCcw className="size-4" />
+              </button>
+              <button
+                type="button"
+                onClick={toggleMuted}
+                aria-label={muted ? label(fr, "Enable sound", "Activer le son") : label(fr, "Mute", "Couper le son")}
+                className="grid size-8 place-items-center rounded-full border border-white/30 bg-black/70 text-white shadow-md backdrop-blur-sm transition hover:bg-black/90"
+              >
+                {muted ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}
+              </button>
+
+            </div>
+
+          </div>
         ) : null}
         {secureUrl && block.type === "audio" ? (
           <audio

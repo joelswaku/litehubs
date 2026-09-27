@@ -1,11 +1,17 @@
 import type { Request, RequestHandler } from "express";
+import * as checklistAi from "./daily-work-ai.service";
 import * as service from "./daily-work.service";
-import type { DailyWorkQuery } from "./daily-work.validation";
+import type {
+  AiChecklistDraftInput,
+  ApplyAiChecklistInput,
+  DailyWorkQuery,
+} from "./daily-work.validation";
 const contextOf = (req: Request): service.DailyWorkContext => ({
   organizationId: req.organization!.id,
   userId: req.user!.id,
   memberId: req.membership!.memberId,
   isOwner: req.membership!.isOwner,
+  permissions: req.membership!.permissions,
 });
 const parameter = (req: Request, name: string) =>
   Array.isArray(req.params[name])
@@ -29,6 +35,20 @@ export const createTemplate: RequestHandler = async (req, res) =>
   res
     .status(201)
     .json({ template: await service.createTemplate(contextOf(req), req.body) });
+export const aiChecklistDraft: RequestHandler = async (req, res) =>
+  res.json(
+    await checklistAi.createChecklistAiDraft(
+      contextOf(req),
+      req.body as AiChecklistDraftInput,
+    ),
+  );
+export const applyAiChecklist: RequestHandler = async (req, res) =>
+  res.status(201).json({
+    template: await service.createAiChecklistTemplate(
+      contextOf(req),
+      req.body as ApplyAiChecklistInput,
+    ),
+  });
 export const updateTemplate: RequestHandler = async (req, res) =>
   res.json({
     template: await service.updateTemplate(
@@ -42,15 +62,13 @@ export const deleteTemplate: RequestHandler = async (req, res) => {
   res.status(204).send();
 };
 export const createTemplateItem: RequestHandler = async (req, res) =>
-  res
-    .status(201)
-    .json({
-      item: await service.createTemplateItem(
-        contextOf(req),
-        parameter(req, "templateId"),
-        req.body,
-      ),
-    });
+  res.status(201).json({
+    item: await service.createTemplateItem(
+      contextOf(req),
+      parameter(req, "templateId"),
+      req.body,
+    ),
+  });
 export const updateTemplateItem: RequestHandler = async (req, res) =>
   res.json({
     item: await service.updateTemplateItem(

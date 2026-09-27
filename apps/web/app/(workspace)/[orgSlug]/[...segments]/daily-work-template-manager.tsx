@@ -145,13 +145,19 @@ export function DailyWorkTemplateManager({
     canDelete = can(user, "daily_operations.delete"),
     canCreate = can(user, "daily_operations.create");
   return (
-    <section className="rounded-2xl border border-border bg-surface-1 p-5 shadow-sm">
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-ink/55 p-3 backdrop-blur-sm sm:p-6"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="checklist-manager-title"
+    >
+      <section className="max-h-[calc(100dvh-1.5rem)] w-full max-w-5xl overflow-y-auto rounded-2xl border border-border bg-surface-1 p-5 shadow-2xl sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[.14em] text-brand">
             Checklist administration
           </p>
-          <h2 className="mt-1 text-lg font-semibold text-ink">
+          <h2 id="checklist-manager-title" className="mt-1 text-lg font-semibold text-ink">
             Manage checklist templates
           </h2>
           <p className="mt-1 max-w-2xl text-sm leading-6 text-ink-secondary">
@@ -356,7 +362,8 @@ export function DailyWorkTemplateManager({
           )}
         </DialogBox>
       ) : null}
-    </section>
+      </section>
+    </div>
   );
 }
 
@@ -371,7 +378,7 @@ function DialogBox({
 }) {
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center bg-ink/40 p-4"
+      className="fixed inset-0 z-[60] grid place-items-center bg-ink/40 p-4"
       role="dialog"
       aria-modal="true"
     >

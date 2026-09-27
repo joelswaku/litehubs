@@ -1,10 +1,15 @@
 import type { Request, RequestHandler } from "express";
 import { evaluateAutomaticAlerts } from "../alerts/alert-engine.service";
 import * as service from "./owner-management.service";
+import * as feedNutrition from "./feed-nutrition.service";
 import type {
+  InventoryMovementHistoryPdfQuery,
   InventoryStockQuery,
+  InventoryStockTransferInput,
+  MyTaskUpdateInput,
   OwnerManagementListQuery,
   OwnerManagementResource,
+  ProcurementDocumentType,
 } from "./owner-management.validation";
 
 function contextOf(req: Request): service.OwnerManagementContext {
@@ -37,6 +42,16 @@ function resourceOf(req: Request): OwnerManagementResource {
   return parameter(req, "resource") as OwnerManagementResource;
 }
 
+export const feedNutritionOverview: RequestHandler = async (req, res) => {
+  res.json(await feedNutrition.feedNutritionOverview(contextOf(req)));
+};
+export const confirmFeedOrder: RequestHandler = async (req, res) => {
+  res.json({ order: await feedNutrition.confirmFeedOrder(contextOf(req), parameter(req, "recordId")) });
+};
+export const cancelFeedOrder: RequestHandler = async (req, res) => {
+  res.json({ order: await feedNutrition.cancelFeedOrder(contextOf(req), parameter(req, "recordId")) });
+};
+
 export const listOwnerManagementRecords: RequestHandler = async (req, res) => {
   res.json({
     resource: resourceOf(req),
@@ -48,6 +63,27 @@ export const listOwnerManagementRecords: RequestHandler = async (req, res) => {
   });
 };
 
+export const listMyAssignedTasks: RequestHandler = async (req, res) => {
+  res.json({ records: await service.listMyAssignedTasks(contextOf(req)) });
+};
+
+export const listProjectTaskAssignees: RequestHandler = async (req, res) => {
+  res.json({
+    employees: await service.listProjectTaskAssignees(
+      contextOf(req),
+      parameter(req, "projectId"),
+    ),
+  });
+};
+export const updateMyAssignedTask: RequestHandler = async (req, res) => {
+  res.json({
+    record: await service.updateMyAssignedTask(
+      contextOf(req),
+      parameter(req, "taskId"),
+      req.body as MyTaskUpdateInput,
+    ),
+  });
+};
 export const listInventoryStockBalances: RequestHandler = async (req, res) => {
   res.json({
     records: await service.listInventoryStockBalances(
@@ -55,6 +91,21 @@ export const listInventoryStockBalances: RequestHandler = async (req, res) => {
       req.query as unknown as InventoryStockQuery,
     ),
   });
+};
+export const exportInventoryMovementHistoryPdf: RequestHandler = async (req, res) => {
+  const report = await service.exportInventoryMovementHistoryPdf(
+    contextOf(req),
+    req.query as unknown as InventoryMovementHistoryPdfQuery,
+  );
+  res.status(200).type("application/pdf").attachment(report.filename).send(report.buffer);
+};
+export const transferInventoryStock: RequestHandler = async (req, res) => {
+  res.status(201).json(
+    await service.transferInventoryStock(
+      contextOf(req),
+      req.body as InventoryStockTransferInput,
+    ),
+  );
 };
 export const getOwnerManagementRecord: RequestHandler = async (req, res) => {
   res.json({
@@ -140,6 +191,38 @@ export const archiveDocumentCategory: RequestHandler = async (req, res) => {
   );
   res.status(204).send();
 };
+export const listEquipmentCategories: RequestHandler = async (req, res) => {
+  res.json(
+    await service.listEquipmentCategories(
+      contextOf(req),
+      req.query.includeInactive === "true",
+    ),
+  );
+};
+export const createEquipmentCategory: RequestHandler = async (req, res) => {
+  res.status(201).json({
+    category: await service.createEquipmentCategory(
+      contextOf(req),
+      req.body as import("./owner-management.validation").EquipmentCategoryCreateInput,
+    ),
+  });
+};
+export const updateEquipmentCategory: RequestHandler = async (req, res) => {
+  res.json({
+    category: await service.updateEquipmentCategory(
+      contextOf(req),
+      parameter(req, "categoryId"),
+      req.body as import("./owner-management.validation").EquipmentCategoryUpdateInput,
+    ),
+  });
+};
+export const archiveEquipmentCategory: RequestHandler = async (req, res) => {
+  await service.archiveEquipmentCategory(
+    contextOf(req),
+    parameter(req, "categoryId"),
+  );
+  res.status(204).send();
+};
 export const getDocumentAccess: RequestHandler = async (req, res) => {
   res.json({
     access: await service.getDocumentAccess(
@@ -183,6 +266,10 @@ export const ownerDashboard: RequestHandler = async (req, res) => {
   });
 };
 
+export const projectAnalytics: RequestHandler = async (req, res) => {
+  res.json({ analytics: await service.projectAnalytics(contextOf(req)) });
+};
+
 export const projectSummary: RequestHandler = async (req, res) => {
   res.json({
     project: await service.projectSummary(
@@ -201,6 +288,14 @@ export const projectActivity: RequestHandler = async (req, res) => {
   });
 };
 
+export const projectBudgetHistory: RequestHandler = async (req, res) => {
+  res.json({
+    history: await service.projectBudgetHistory(
+      contextOf(req),
+      parameter(req, "projectId"),
+    ),
+  });
+};
 export const exportProjectPdf: RequestHandler = async (req, res) => {
   const report = await service.exportProjectPdf(
     contextOf(req),
@@ -222,6 +317,54 @@ export const exportProjectWorkbook: RequestHandler = async (req, res) => {
     .type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     .attachment(workbook.filename)
     .send(workbook.buffer);
+};
+
+export const exportInventoryStockIssueFormPdf: RequestHandler = async (req, res) => {
+  const report = await service.exportInventoryStockIssueFormPdf(contextOf(req));
+  res.status(200).type("application/pdf").attachment(report.filename).send(report.buffer);
+};
+export const exportInventoryStockTransferFormPdf: RequestHandler = async (req, res) => {
+  const report = await service.exportInventoryStockTransferFormPdf(contextOf(req));
+  res.status(200).type("application/pdf").attachment(report.filename).send(report.buffer);
+};
+export const exportPurchaseRequestFormPdf: RequestHandler = async (req, res) => {
+  const report = await service.exportPurchaseRequestFormPdf(contextOf(req));
+  res
+    .status(200)
+    .type("application/pdf")
+    .attachment(report.filename)
+    .send(report.buffer);
+};
+export const exportPurchaseOrderFormPdf: RequestHandler = async (req, res) => {
+  const report = await service.exportPurchaseOrderFormPdf(contextOf(req));
+  res.status(200).type("application/pdf").attachment(report.filename).send(report.buffer);
+};
+
+export const exportReceiptFormPdf: RequestHandler = async (req, res) => {
+  const report = await service.exportReceiptFormPdf(contextOf(req));
+  res.status(200).type("application/pdf").attachment(report.filename).send(report.buffer);
+};
+export const exportProcurementPdf: RequestHandler = async (req, res) => {
+  const report = await service.exportProcurementDocumentPdf(
+    contextOf(req),
+    parameter(req, "documentType") as ProcurementDocumentType,
+    parameter(req, "recordId"),
+  );
+  res
+    .status(200)
+    .type("application/pdf")
+    .attachment(report.filename)
+    .send(report.buffer);
+};
+export const returnPurchaseRequestToDraft: RequestHandler = async (req, res) => {
+  const body = req.body as { correctionNote?: string };
+  res.json({
+    record: await service.returnPurchaseRequestToDraft(
+      contextOf(req),
+      parameter(req, "recordId"),
+      body.correctionNote,
+    ),
+  });
 };
 export const decideApproval: RequestHandler = async (req, res) => {
   const body = req.body as {

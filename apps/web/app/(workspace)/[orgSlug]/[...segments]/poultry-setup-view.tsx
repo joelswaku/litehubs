@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Archive,
@@ -267,6 +267,10 @@ export function PoultrySetupView({ orgSlug }: { orgSlug: string }) {
       refresh();
     },
   });
+  const openHouseForm = (item?: House) => {
+    houseSave.reset();
+    setMode(item ? { kind: "house", item } : { kind: "house" });
+  };
   const flockSave = useMutation({
     mutationFn: ({
       id,
@@ -371,7 +375,7 @@ export function PoultrySetupView({ orgSlug }: { orgSlug: string }) {
           </div>
           <div className="flex flex-wrap gap-2">
             {addHouse ? (
-              <Button size="sm" onClick={() => setMode({ kind: "house" })}>
+              <Button size="sm" onClick={() => openHouseForm()}>
                 <Building2 />
                 {tr("Add house", "Ajouter un bâtiment")}
               </Button>
@@ -419,7 +423,7 @@ export function PoultrySetupView({ orgSlug }: { orgSlug: string }) {
             <Button
               size="sm"
               variant="secondary"
-              onClick={() => setMode({ kind: "house" })}
+              onClick={() => openHouseForm()}
             >
               <Plus />
               {tr("Add house", "Ajouter un bâtiment")}
@@ -507,7 +511,7 @@ export function PoultrySetupView({ orgSlug }: { orgSlug: string }) {
                     <Button
                       size="sm"
                       variant="ghost"
-                      onClick={() => setMode({ kind: "house", item: house })}
+                      onClick={() => openHouseForm(house)}
                     >
                       <Pencil />
                       {tr("Edit house", "Modifier le bâtiment")}
@@ -529,7 +533,7 @@ export function PoultrySetupView({ orgSlug }: { orgSlug: string }) {
               addHouse
                 ? {
                     label: tr("Add house", "Ajouter un batiment"),
-                    onClick: () => setMode({ kind: "house" }),
+                    onClick: () => openHouseForm(),
                   }
                 : undefined
             }
@@ -865,10 +869,11 @@ export function PoultrySetupView({ orgSlug }: { orgSlug: string }) {
                           "Ajouter les objectifs hebdomadaires",
                         )
           }
-          onClose={() => setMode(null)}
+          onClose={() => { if (mode.kind === "house") houseSave.reset(); setMode(null); }}
         >
           {mode.kind === "house" ? (
             <HouseForm
+              key={mode.item?.id ?? "new-house"}
               item={mode.item}
               sites={sites.data ?? []}
               busy={houseSave.isPending}
@@ -1083,6 +1088,19 @@ function HouseForm({
 }) {
   const fr = useLanguage().locale === "fr";
   const [clientErrors, setClientErrors] = useState<Record<string, string>>({});
+  const [lengthM, setLengthM] = useState(() =>
+    item?.lengthM == null ? "" : String(item.lengthM),
+  );
+  const [widthM, setWidthM] = useState(() =>
+    item?.widthM == null ? "" : String(item.widthM),
+  );
+  const calculatedArea = useMemo(() => {
+    const length = Number(lengthM);
+    const width = Number(widthM);
+    if (!Number.isFinite(length) || !Number.isFinite(width) || length <= 0 || width <= 0)
+      return null;
+    return Math.round(length * width * 100) / 100;
+  }, [lengthM, widthM]);
   const serverErrors = error instanceof ApiError ? error.fieldErrors : {};
   const fieldError = (field: string) =>
     clientErrors[field] ??
@@ -1100,7 +1118,8 @@ function HouseForm({
     const name = String(form.get("name") ?? "").trim();
     const siteId = String(form.get("siteId") ?? "");
     const capacity = numberValue(form, "capacity", 0) ?? 0;
-    const code = stringValue(form, "code");
+    const lengthM = numberValue(form, "lengthM");
+    const widthM = numberValue(form, "widthM");
     const nextErrors: Record<string, string> = {};
 
     if (!name)
@@ -1121,12 +1140,6 @@ function HouseForm({
         "Capacity must be greater than zero.",
         "La capacité doit être supérieure à zéro.",
       );
-    if (code && !/^[a-z][a-z0-9_]{1,62}$/.test(code))
-      nextErrors.code = tx(
-        fr,
-        "Use lowercase letters, numbers and underscores.",
-        "Utilisez des minuscules, des chiffres et des tirets bas.",
-      );
 
     if (Object.keys(nextErrors).length) {
       setClientErrors(nextErrors);
@@ -1136,15 +1149,13 @@ function HouseForm({
     onSubmit({
       siteId,
       name,
-      code: code ?? codeFor(name, "house"),
       houseType: String(form.get("houseType")),
       capacity,
       operationalStatus: String(form.get("operationalStatus")),
       description: stringValue(form, "description"),
       notes: stringValue(form, "notes"),
-      lengthM: numberValue(form, "lengthM"),
-      widthM: numberValue(form, "widthM"),
-      floorAreaM2: numberValue(form, "floorAreaM2"),
+      lengthM,
+      widthM,
       ventilationType: stringValue(form, "ventilationType"),
       waterSystem: stringValue(form, "waterSystem"),
       feedingSystem: stringValue(form, "feedingSystem"),
@@ -1176,19 +1187,27 @@ function HouseForm({
           />
         </Field>
         <Field
-          label={tx(fr, "House code", "Code du bâtiment")}
+          label={tx(fr, "House reference", "Référence du bâtiment")}
           htmlFor="house-code"
-          hint={tx(
-            fr,
-            "Generated when left blank.",
-            "Généré automatiquement si vide.",
-          )}
-          error={fieldError("code")}
+          hint={
+            item
+              ? tx(
+                  fr,
+                  "This reference is kept for traceability.",
+                  "Cette référence est conservée pour la traçabilité.",
+                )
+              : tx(
+                  fr,
+                  "Assigned automatically when the building is created (for example bat_0001).",
+                  "Attribuée automatiquement à la création (ex. bat_0001).",
+                )
+          }
         >
           <Input
-            name="code"
-            defaultValue={item?.code}
-            invalid={Boolean(fieldError("code"))}
+            value={item?.code ?? ""}
+            placeholder={tx(fr, "Assigned automatically", "Attribuée automatiquement")}
+            readOnly
+            className="bg-surface-2 font-medium"
           />
         </Field>
         <Field
@@ -1266,21 +1285,42 @@ function HouseForm({
             ))}
           </Select>
         </Field>
-        <OptionalNumber
-          name="lengthM"
-          label={tx(fr, "Length (m)", "Longueur (m)")}
-          value={item?.lengthM}
-        />
-        <OptionalNumber
-          name="widthM"
-          label={tx(fr, "Width (m)", "Largeur (m)")}
-          value={item?.widthM}
-        />
-        <OptionalNumber
-          name="floorAreaM2"
+        <Field label={tx(fr, "Length (m)", "Longueur (m)")} htmlFor="lengthM">
+          <Input
+            name="lengthM"
+            type="number"
+            min="0.01"
+            step="0.01"
+            value={lengthM}
+            onChange={(event) => setLengthM(event.target.value)}
+          />
+        </Field>
+        <Field label={tx(fr, "Width (m)", "Largeur (m)")} htmlFor="widthM">
+          <Input
+            name="widthM"
+            type="number"
+            min="0.01"
+            step="0.01"
+            value={widthM}
+            onChange={(event) => setWidthM(event.target.value)}
+          />
+        </Field>
+        <Field
           label={tx(fr, "Floor area (m²)", "Surface au sol (m²)")}
-          value={item?.floorAreaM2}
-        />
+          htmlFor="floorAreaM2"
+          hint={tx(
+            fr,
+            "Calculated automatically from length × width.",
+            "Calculée automatiquement : longueur × largeur.",
+          )}
+        >
+          <Input
+            value={calculatedArea == null ? "" : String(calculatedArea)}
+            placeholder="—"
+            readOnly
+            className="bg-surface-2 font-medium tabular-nums"
+          />
+        </Field>
         <Field
           label={tx(fr, "Ventilation", "Ventilation")}
           htmlFor="house-ventilation"

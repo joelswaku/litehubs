@@ -5,6 +5,10 @@ import {
   runScheduledNotificationRemindersForOrganization,
   scheduledOrganizationIds,
 } from "./notifications.service";
+import {
+  runNutritionMonitoringForOrganization,
+  sendNutritionExecutiveSummaryForOrganization,
+} from "../owner-management/feed-nutrition.service";
 
 let scheduled = false;
 
@@ -26,18 +30,23 @@ async function forEachOrganization(
   }
 }
 
-/** Safe to call more than once in hot reload: only one pair of jobs is added. */
+/** Safe to call more than once in hot reload: only one group of jobs is added. */
 export function startNotificationScheduler(): void {
   if (scheduled) return;
   scheduled = true;
-  // Email delivery is intentionally separate from request handlers. A slow SMTP
-  // relay must never slow down a training assignment, task save or approval.
   cron.schedule("*/5 * * * *", () => {
     void forEachOrganization("email_delivery", deliverPendingEmailsForOrganization);
   });
-  // Daily reminders are deduplicated per recipient and date by the service.
   cron.schedule("10 6 * * *", () => {
     void forEachOrganization("daily_reminders", runScheduledNotificationRemindersForOrganization);
-  });
+  }, { timezone: "Africa/Kinshasa" });
+  // Farm health, ration and feed-autonomy checks run before the day starts.
+  cron.schedule("0 6 * * *", () => {
+    void forEachOrganization("nutrition_monitoring", runNutritionMonitoringForOrganization);
+  }, { timezone: "Africa/Kinshasa" });
+  // Delivery, production and feed information stays in one actionable owner summary.
+  cron.schedule("30 18 * * *", () => {
+    void forEachOrganization("nutrition_executive_summary", sendNutritionExecutiveSummaryForOrganization);
+  }, { timezone: "Africa/Kinshasa" });
   logger.info("Notification scheduler started");
 }

@@ -31,6 +31,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Field, Input, Textarea } from "@/components/ui/input";
+import { PhoneInput } from "@/components/ui/phone-input";
 import { EmptyState, ErrorState, SkeletonCard } from "@/components/ui/states";
 import { ApiError, api, del, get, orgUrl, patch, post, put } from "@/lib/api";
 import { can, isOwner } from "@/lib/permissions";
@@ -860,17 +861,17 @@ export function AppointmentsArea({ orgSlug }: { orgSlug: string }) {
                   />
                 </FormField>
                 <FormField label={tr(fr, "Téléphone", "Phone")}>
-                  <Input
-                    type="tel"
-                    inputMode="tel"
-                    autoComplete="tel"
-                    placeholder="+243 800 000 000"
+                  <PhoneInput
+                    fr={fr}
                     value={visit.visitorPhone}
                     onChange={(event) =>
                       setVisit((previous) => ({
                         ...previous,
                         visitorPhone: event.target.value,
                       }))
+                    }
+                    onNormalizedChange={(visitorPhone) =>
+                      setVisit((previous) => ({ ...previous, visitorPhone }))
                     }
                   />
                 </FormField>
@@ -1471,6 +1472,47 @@ export function AppointmentsArea({ orgSlug }: { orgSlug: string }) {
           </CardContent>
         </Card>
       </section>
+      {!canManageSetup ? (
+        <section>
+          <Card className="overflow-hidden border border-brand/25 bg-surface-1 ring-1 ring-brand/[0.045] shadow-[0_16px_38px_-30px_rgb(15_118_110_/_0.55)]">
+            <CardHeader className="border-b border-border/70 bg-surface-2/45 px-5 py-5">
+              <CardTitle>
+                {tr(fr, "Canaux par site", "Site channels")}
+              </CardTitle>
+              <CardDescription className="mt-1">
+                {tr(
+                  fr,
+                  "Consultez les canaux disponibles pour orienter les visiteurs : réservation web, arrivée QR et écran TV.",
+                  "View the available visitor channels: web booking, QR check-in, and TV display.",
+                )}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4 p-5">
+              {settings.isLoading ? (
+                <SkeletonCard />
+              ) : (
+                sites.map((item: any) => (
+                  <SiteChannel
+                    key={item.site.id}
+                    item={item}
+                    orgSlug={orgSlug}
+                    fr={fr}
+                    canManageSetup={false}
+                    canShareChannels
+                    hasOnlineService={(services.data ?? []).some(
+                      (service: any) =>
+                        service.site.id === item.site.id &&
+                        service.isActive &&
+                        service.allowsOnlineBooking,
+                    )}
+                    onConfigure={() => undefined}
+                  />
+                ))
+              )}
+            </CardContent>
+          </Card>
+        </section>
+      ) : null}{" "}
       {canManageSetup ? (
         <>
           <section className="grid gap-6 xl:grid-cols-2">
@@ -1498,6 +1540,7 @@ export function AppointmentsArea({ orgSlug }: { orgSlug: string }) {
                       orgSlug={orgSlug}
                       fr={fr}
                       canManageSetup={canManageSetup}
+                      canShareChannels
                       hasOnlineService={(services.data ?? []).some(
                         (service: any) =>
                           service.site.id === item.site.id &&
@@ -2220,6 +2263,7 @@ function SiteChannel({
   orgSlug,
   fr,
   canManageSetup,
+  canShareChannels,
   hasOnlineService,
   onConfigure,
 }: any) {
@@ -2290,7 +2334,7 @@ function SiteChannel({
           )}
         </p>
       )}
-      {canManageSetup && (
+      {canShareChannels && (
         <div className="mt-4 grid gap-4 lg:grid-cols-[170px_1fr]">
           <div className="rounded-xl border border-border/70 bg-surface-2/35 p-2">
             {item.qrCheckinEnabled && item.checkinToken ? (

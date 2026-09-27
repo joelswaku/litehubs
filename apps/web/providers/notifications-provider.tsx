@@ -11,7 +11,10 @@ import {
 import { usePathname, useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { notificationsApi, type NotificationItem } from "@/services/notification.service";
+import {
+  notificationsApi,
+  type NotificationItem,
+} from "@/services/notification.service";
 import { useLanguage } from "@/providers/language-provider";
 
 interface NotificationCenterValue {
@@ -20,7 +23,9 @@ interface NotificationCenterValue {
   refresh: () => Promise<void>;
 }
 
-const NotificationCenterContext = createContext<NotificationCenterValue | null>(null);
+const NotificationCenterContext = createContext<NotificationCenterValue | null>(
+  null,
+);
 const POLLING_INTERVAL_MS = 45_000;
 
 /**
@@ -28,17 +33,39 @@ const POLLING_INTERVAL_MS = 45_000;
  * `/appointments`. Older records may already include `/${orgSlug}`; accept
  * both so opening one never creates `/org/org/...`.
  */
-function workspaceActionPath(orgSlug: string, actionUrl: string | null): string | null {
+function workspaceActionPath(
+  orgSlug: string,
+  actionUrl: string | null,
+): string | null {
   if (!actionUrl) return null;
   const path = actionUrl.trim();
   if (!path.startsWith("/") || path.startsWith("//")) return null;
   const prefix = `/${orgSlug}`;
-  return path === prefix || path.startsWith(`${prefix}/`) ? path : `${prefix}${path}`;
+  return path === prefix || path.startsWith(`${prefix}/`)
+    ? path
+    : `${prefix}${path}`;
 }
 
-function isViewingAction(pathname: string, orgSlug: string, actionUrl: string | null) {
-  const scoped = workspaceActionPath(orgSlug, actionUrl);
-  return Boolean(scoped && (pathname === scoped || pathname.startsWith(`${scoped}/`)));
+function notificationWorkspacePath(
+  orgSlug: string,
+  item: Pick<NotificationItem, "category" | "actionUrl">,
+): string | null {
+  // A project task assigned to an employee is always opened in their private
+  // work list. This also repairs older notifications saved with /tasks.
+  if (item.category === "task") return `/${orgSlug}/my-tasks`;
+  if (item.category === "contract") return `/${orgSlug}/my-contracts`;
+  return workspaceActionPath(orgSlug, item.actionUrl);
+}
+
+function isViewingAction(
+  pathname: string,
+  orgSlug: string,
+  item: NotificationItem,
+) {
+  const scoped = notificationWorkspacePath(orgSlug, item);
+  return Boolean(
+    scoped && (pathname === scoped || pathname.startsWith(`${scoped}/`)),
+  );
 }
 
 export function NotificationProvider({
@@ -69,7 +96,9 @@ export function NotificationProvider({
   const invalidate = useCallback(async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["notifications", orgSlug] }),
-      queryClient.invalidateQueries({ queryKey: ["notification-preferences", orgSlug] }),
+      queryClient.invalidateQueries({
+        queryKey: ["notification-preferences", orgSlug],
+      }),
     ]);
   }, [orgSlug, queryClient]);
 
@@ -80,10 +109,17 @@ export function NotificationProvider({
 
   useEffect(() => {
     if (typeof BroadcastChannel === "undefined") return;
-    const nextChannel = new BroadcastChannel(`litehubs-notifications:${orgSlug}`);
+    const nextChannel = new BroadcastChannel(
+      `litehubs-notifications:${orgSlug}`,
+    );
     channel.current = nextChannel;
-    nextChannel.onmessage = (event: MessageEvent<{ type?: string; orgSlug?: string }>) => {
-      if (event.data?.type === "notifications:changed" && event.data.orgSlug === orgSlug)
+    nextChannel.onmessage = (
+      event: MessageEvent<{ type?: string; orgSlug?: string }>,
+    ) => {
+      if (
+        event.data?.type === "notifications:changed" &&
+        event.data.orgSlug === orgSlug
+      )
         void invalidate();
     };
     return () => {
@@ -95,20 +131,25 @@ export function NotificationProvider({
   useEffect(() => {
     const notifications = preview.data?.notifications ?? [];
     if (!initialized.current) {
-      notifications.forEach((notification) => seenIds.current.add(notification.id));
+      notifications.forEach((notification) =>
+        seenIds.current.add(notification.id),
+      );
       initialized.current = true;
       return;
     }
     for (const notification of notifications) {
       if (seenIds.current.has(notification.id)) continue;
       seenIds.current.add(notification.id);
-      if (isViewingAction(pathname, orgSlug, notification.actionUrl)) continue;
+      if (isViewingAction(pathname, orgSlug, notification)) continue;
       toast(notification.title, {
         description: notification.message ?? undefined,
         action: notification.actionUrl
           ? {
               label: t("notifications.open"),
-              onClick: () => { const path = workspaceActionPath(orgSlug, notification.actionUrl); if (path) router.push(path); },
+              onClick: () => {
+                const path = notificationWorkspacePath(orgSlug, notification);
+                if (path) router.push(path);
+              },
             }
           : undefined,
         id: `notification:${notification.id}`,
@@ -135,7 +176,9 @@ export function NotificationProvider({
 export function useNotificationCenter() {
   const context = useContext(NotificationCenterContext);
   if (!context)
-    throw new Error("useNotificationCenter must be used inside NotificationProvider");
+    throw new Error(
+      "useNotificationCenter must be used inside NotificationProvider",
+    );
   return context;
 }
 
@@ -143,10 +186,9 @@ export function useOptionalNotificationCenter() {
   return useContext(NotificationCenterContext);
 }
 
-export function notificationActionPath(orgSlug: string, item: NotificationItem): string | null {
-  // Employment notices always lead an employee to their private contract area.
-  // This also corrects older notifications that were stored with /my-account.
-  if (item.category === "contract") return `/${orgSlug}/my-contracts`;
-  return workspaceActionPath(orgSlug, item.actionUrl);
+export function notificationActionPath(
+  orgSlug: string,
+  item: NotificationItem,
+): string | null {
+  return notificationWorkspacePath(orgSlug, item);
 }
-

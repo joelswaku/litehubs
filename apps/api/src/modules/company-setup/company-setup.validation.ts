@@ -139,6 +139,9 @@ export const createInvitationSchema = z.object({
   provinceIds: z.array(idSchema).max(100).default([]),
   jobTitle: z.string().trim().min(1).max(150).optional(),
   employeeId: idSchema.optional(),
+  // An account still uses its email address to sign in.  The Owner can choose
+  // which secure channel receives the one-time activation link.
+  deliveryMethod: z.enum(["email", "sms", "both"]).default("email"),
 });
 
 export type CreateProvinceInput = z.infer<typeof createProvinceSchema>;

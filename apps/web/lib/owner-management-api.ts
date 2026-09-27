@@ -21,6 +21,12 @@ export const OWNER_MANAGEMENT_RESOURCES = [
   "inventory-items",
   "warehouses",
   "stock-movements",
+  "feed-batches",
+  "feed-batch-inputs",
+  "nutrition-profiles",
+  "feed-recipes",
+  "feed-recipe-lines",
+  "feed-orders",
   "purchase-requests",
   "purchase-request-lines",
   "purchase-orders",
@@ -69,11 +75,29 @@ function path(orgSlug: string, pathPart: string) {
 }
 
 export const ownerManagementApi = {
+  feedNutritionOverview<T>(orgSlug: string) {
+    return get<T>(path(orgSlug, "feed-nutrition/overview"));
+  },
+  confirmFeedOrder<T>(orgSlug: string, orderId: string) {
+    return post<T>(path(orgSlug, `feed-nutrition/orders/${orderId}/confirm`), {});
+  },
+  cancelFeedOrder<T>(orgSlug: string, orderId: string) {
+    return post<T>(path(orgSlug, `feed-nutrition/orders/${orderId}/cancel`), {});
+  },
   dashboard<T>(orgSlug: string, query?: ManagementQuery) {
     return get<T>(path(orgSlug, `dashboard${queryString(query)}`));
   },
+  projectAnalytics<T>(orgSlug: string) {
+    return get<T>(path(orgSlug, "projects/analytics"));
+  },
   projectSummary<T>(orgSlug: string, projectId: string) {
     return get<T>(path(orgSlug, `projects/${projectId}/summary`));
+  },
+  projectTaskAssignees<T>(orgSlug: string, projectId: string) {
+    return get<T>(path(orgSlug, `projects/${projectId}/task-assignees`));
+  },
+  projectBudgetHistory<T>(orgSlug: string, projectId: string) {
+    return get<T>(path(orgSlug, `projects/${projectId}/budget-history`));
   },
   list<T>(
     orgSlug: string,
@@ -82,7 +106,19 @@ export const ownerManagementApi = {
   ) {
     return get<T>(path(orgSlug, `${resource}${queryString(query)}`));
   },
-  stockBalances<T>(orgSlug: string, query?: ManagementQuery) {
+  transferInventoryStock<T>(
+    orgSlug: string,
+    body: {
+      sourceWarehouseId: string;
+      destinationWarehouseId: string;
+      itemId: string;
+      quantity: number;
+      movementDate: string;
+      notes?: string;
+    },
+  ) {
+    return post<T>(path(orgSlug, "inventory-transfers"), body);
+  },  stockBalances<T>(orgSlug: string, query?: ManagementQuery) {
     return get<T>(path(orgSlug, `inventory-stock${queryString(query)}`));
   },
   get<T>(orgSlug: string, resource: OwnerManagementResource, recordId: string) {
@@ -169,6 +205,30 @@ export const ownerManagementApi = {
   },
   archiveDocumentCategory<T>(orgSlug: string, categoryId: string) {
     return del<T>(path(orgSlug, `document-categories/${categoryId}`));
+  },
+  equipmentCategories<T>(orgSlug: string, includeInactive = false) {
+    return get<T>(
+      path(
+        orgSlug,
+        `equipment-categories${includeInactive ? "?includeInactive=true" : ""}`,
+      ),
+    );
+  },
+  createEquipmentCategory<T>(
+    orgSlug: string,
+    body: { name: string; description?: string | null },
+  ) {
+    return post<T>(path(orgSlug, "equipment-categories"), body);
+  },
+  updateEquipmentCategory<T>(
+    orgSlug: string,
+    categoryId: string,
+    body: { name?: string; description?: string | null; isActive?: boolean },
+  ) {
+    return patch<T>(path(orgSlug, `equipment-categories/${categoryId}`), body);
+  },
+  archiveEquipmentCategory<T>(orgSlug: string, categoryId: string) {
+    return del<T>(path(orgSlug, `equipment-categories/${categoryId}`));
   },
   assignDocumentCategory<T>(
     orgSlug: string,

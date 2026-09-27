@@ -82,6 +82,7 @@ const records: Record<RecordResource, RecordConfig> = {
       bagCount: "bag_count",
       batchNumber: "batch_number",
       inventoryItemId: "inventory_item_id",
+      warehouseId: "warehouse_id",
       notes: "notes",
     },
   },
@@ -156,6 +157,7 @@ const records: Record<RecordResource, RecordConfig> = {
       nextDueDate: "next_due_date",
       administeredBy: "administered_by",
       inventoryItemId: "inventory_item_id",
+      warehouseId: "warehouse_id",
       notes: "notes",
     },
   },
@@ -173,6 +175,7 @@ const records: Record<RecordResource, RecordConfig> = {
       withdrawalEndDate: "withdrawal_end_date",
       prescribedBy: "prescribed_by",
       inventoryItemId: "inventory_item_id",
+      warehouseId: "warehouse_id",
       notes: "notes",
     },
   },
@@ -188,6 +191,7 @@ const records: Record<RecordResource, RecordConfig> = {
       status: "status",
       performedBy: "performed_by",
       inventoryItemId: "inventory_item_id",
+      warehouseId: "warehouse_id",
       notes: "notes",
     },
   },
@@ -788,6 +792,39 @@ function optionalInput(input: Input, name: string): string | null {
   throw new BadRequestError(`Invalid ${name}`);
 }
 
+function optionalPositiveNumber(input: Input, name: string): number | null {
+  const item = input[name];
+  if (item === undefined || item === null) return null;
+  return numberInput(input, name);
+}
+
+function calculatedFloorArea(lengthM: number | null, widthM: number | null) {
+  if (lengthM === null || widthM === null) return null;
+  return Math.round(lengthM * widthM * 100) / 100;
+}
+
+async function nextHouseCode(
+  client: PoolClient,
+  context: PoultryContext,
+  siteId: string,
+) {
+  // Serialise code assignment per site inside the current transaction.
+  await client.query(
+    "SELECT pg_advisory_xact_lock(hashtextextended($1::text || ':' || $2::text, 481516))",
+    [context.organizationId, siteId],
+  );
+  const result = await client.query<{ next_code: number | string }>(
+    `SELECT COALESCE(
+       MAX(((regexp_match(code, '^bat_([0-9]+)$'))[1])::integer),
+       0
+     ) + 1 AS next_code
+     FROM poultry_houses
+     WHERE organization_id = $1 AND site_id = $2`,
+    [context.organizationId, siteId],
+  );
+  return `bat_${String(Number(result.rows[0]?.next_code ?? 1)).padStart(4, "0")}`;
+}
+
 async function activeSiteProvince(
   client: PoolClient,
   context: PoultryContext,
@@ -818,6 +855,128 @@ async function assertInventoryItem(
     throw new BadRequestError("Choose an inventory item in this company");
 }
 
+function isFeedStockCategory(value: unknown) {
+  const category = String(value ?? "").trim().toLowerCase();
+  return category.includes("feed") || category.includes("aliment");
+}
+
+function isKilogramUnit(value: unknown) {
+  return ["kg", "kilogram", "kilogramme", "kilogrammes"].includes(
+    String(value ?? "").trim().toLowerCase(),
+  );
+}
+
+async function assertFeedRecordCanChange(
+  client: PoolClient,
+  context: PoultryContext,
+  recordId: string,
+) {
+  const ledger = await client.query(
+    `SELECT 1
+       FROM management_inventory_stock_movements
+      WHERE organization_id = $1
+        AND reference_type = 'poultry_feed'
+        AND reference_id = $2
+      LIMIT 1`,
+    [context.organizationId, recordId],
+  );
+  if (ledger.rowCount)
+    throw new BadRequestError(
+      "This feed record already issued inventory. Correct it with an inventory return, then record the actual feed again.",
+    );
+}
+
+async function applyFeedInventoryIssue(
+  client: PoolClient,
+  context: PoultryContext,
+  feed: Row,
+) {
+  const inventoryItemId = feed.inventory_item_id;
+  const warehouseId = feed.warehouse_id;
+  if (inventoryItemId == null && warehouseId == null) return;
+  if (typeof inventoryItemId !== "string" || typeof warehouseId !== "string")
+    throw new BadRequestError(
+      "Choose both the stocked feed and its warehouse to issue feed from inventory",
+    );
+
+  const [warehouseResult, itemResult] = await Promise.all([
+    client.query<{ site_id: string }>(
+      `SELECT site_id
+         FROM management_warehouses
+        WHERE organization_id = $1 AND id = $2 AND is_active`,
+      [context.organizationId, warehouseId],
+    ),
+    client.query<{ standard_unit_cost: string | number | null; unit: string; category: string | null }>(
+      `SELECT standard_unit_cost, unit, category
+         FROM management_inventory_items
+        WHERE organization_id = $1 AND id = $2 AND is_active`,
+      [context.organizationId, inventoryItemId],
+    ),
+  ]);
+  const warehouse = warehouseResult.rows[0];
+  const item = itemResult.rows[0];
+  if (!warehouse || String(warehouse.site_id) !== String(feed.site_id))
+    throw new BadRequestError(
+      "Choose an active warehouse at the flock's work site",
+    );
+  if (!item || !isKilogramUnit(item.unit) || !isFeedStockCategory(item.category))
+    throw new BadRequestError(
+      "Choose an active feed stock item measured in kilograms",
+    );
+
+  const manufactured = await client.query<{ target_species: string }>(
+    `SELECT DISTINCT target_species
+       FROM management_feed_batches
+      WHERE organization_id = $1
+        AND output_item_id = $2
+        AND status = 'confirmed'`,
+    [context.organizationId, inventoryItemId],
+  );
+  if (
+    manufactured.rows.some(
+      (batch) => !["poultry", "mixed"].includes(batch.target_species),
+    )
+  )
+    throw new BadRequestError(
+      "This manufactured feed is reserved for pigs",
+    );
+  const quantity = Number(feed.quantity_kg ?? 0);
+  if (!Number.isFinite(quantity) || quantity <= 0)
+    throw new BadRequestError("Feed quantity must be greater than zero");
+  const stock = await client.query(
+    `UPDATE management_inventory_stock
+        SET quantity_on_hand = quantity_on_hand - $4,
+            updated_at = now()
+      WHERE organization_id = $1
+        AND warehouse_id = $2
+        AND item_id = $3
+        AND quantity_on_hand - quantity_reserved >= $4
+      RETURNING quantity_on_hand`,
+    [context.organizationId, warehouseId, inventoryItemId, quantity],
+  );
+  if (!stock.rowCount)
+    throw new BadRequestError(
+      "The selected warehouse does not have enough available feed for this distribution",
+    );
+  await client.query(
+    `INSERT INTO management_inventory_stock_movements (
+       organization_id, warehouse_id, item_id, movement_date, movement_type,
+       quantity_delta, unit_cost, reference_type, reference_id,
+       performed_by_member_id, notes
+     ) VALUES ($1, $2, $3, $4::date, 'issue', $5, $6, 'poultry_feed', $7, $8, $9)`,
+    [
+      context.organizationId,
+      warehouseId,
+      inventoryItemId,
+      feed.feed_date,
+      -quantity,
+      item.standard_unit_cost ?? null,
+      feed.id,
+      context.memberId,
+      `Feed issued to ${String(feed.flock_name ?? "poultry flock")}`,
+    ],
+  );
+}
 async function expectedLiveBirdCount(
   client: PoolClient,
   context: PoultryContext,
@@ -932,6 +1091,59 @@ function translateDatabaseError(error: unknown): never {
   throw error;
 }
 
+const offlineSyncResources = new Set<RecordResource>(["mortality", "feed", "eggs"]);
+
+/**
+ * Reserves a phone-generated key before creating an offline field record. A
+ * retry after losing signal returns the original record instead of adding it twice.
+ */
+async function replayedOfflineRecordId(
+  client: PoolClient,
+  context: PoultryContext,
+  resource: PoultryResource,
+  input: Input,
+): Promise<string | null> {
+  if (!offlineSyncResources.has(resource as RecordResource)) return null;
+  const syncKey = typeof input.offlineSyncKey === "string" ? input.offlineSyncKey : null;
+  if (!syncKey) return null;
+  const created = await client.query<{ record_id: string | null }>(
+    `INSERT INTO poultry_offline_sync_operations (organization_id,resource,client_sync_key)
+     VALUES ($1,$2,$3::uuid)
+     ON CONFLICT (organization_id,resource,client_sync_key) DO NOTHING
+     RETURNING record_id`,
+    [context.organizationId, resource, syncKey],
+  );
+  if ((created.rowCount ?? 0) > 0) return null;
+  const existing = await client.query<{ record_id: string | null }>(
+    `SELECT record_id FROM poultry_offline_sync_operations
+      WHERE organization_id=$1 AND resource=$2 AND client_sync_key=$3::uuid`,
+    [context.organizationId, resource, syncKey],
+  );
+  const recordId = existing.rows[0]?.record_id;
+  if (!recordId)
+    throw new ConflictError(
+      "This offline field record is still being synchronized. Please reconnect and try again.",
+    );
+  return recordId;
+}
+
+async function completeOfflineRecordSync(
+  client: PoolClient,
+  context: PoultryContext,
+  resource: PoultryResource,
+  input: Input,
+  recordId: string,
+): Promise<void> {
+  if (!offlineSyncResources.has(resource as RecordResource)) return;
+  const syncKey = typeof input.offlineSyncKey === "string" ? input.offlineSyncKey : null;
+  if (!syncKey) return;
+  await client.query(
+    `UPDATE poultry_offline_sync_operations
+        SET record_id=$4
+      WHERE organization_id=$1 AND resource=$2 AND client_sync_key=$3::uuid`,
+    [context.organizationId, resource, syncKey, recordId],
+  );
+}
 function mortalityInput(input: Input, current?: Row): Input {
   const required =
     input.requiresFollowUp === undefined
@@ -961,6 +1173,9 @@ export async function createPoultryRecord(
 ) {
   return withTenantContext(context, async (client) => {
     try {
+      const replayedRecordId = await replayedOfflineRecordId(client, context, resource, input);
+      if (replayedRecordId) return mapRow(await record(client, context, resource as RecordResource, replayedRecordId));
+
       if (resource === "houses") {
         const siteId = stringInput(input, "siteId");
         await assertProvince(
@@ -974,6 +1189,12 @@ export async function createPoultryRecord(
             : input.isActive === false
               ? "inactive"
               : "active";
+        const lengthM = optionalPositiveNumber(input, "lengthM");
+        const widthM = optionalPositiveNumber(input, "widthM");
+        const code =
+          typeof input.code === "string" && input.code.trim()
+            ? input.code.trim()
+            : await nextHouseCode(client, context, siteId);
         const result = await client.query<{ id: string }>(
           `INSERT INTO poultry_houses (
              organization_id, site_id, code, name, house_type, capacity,
@@ -987,16 +1208,16 @@ export async function createPoultryRecord(
           [
             context.organizationId,
             siteId,
-            stringInput(input, "code"),
+            code,
             stringInput(input, "name"),
             stringInput(input, "houseType"),
             numberInput(input, "capacity"),
             operationalStatus === "active",
             operationalStatus,
             input.description ?? null,
-            input.lengthM ?? null,
-            input.widthM ?? null,
-            input.floorAreaM2 ?? null,
+            lengthM,
+            widthM,
+            calculatedFloorArea(lengthM, widthM),
             input.ventilationType ?? null,
             input.waterSystem ?? null,
             input.feedingSystem ?? null,
@@ -1145,9 +1366,11 @@ export async function createPoultryRecord(
         `INSERT INTO ${config.table} (${columns.join(", ")}) VALUES (${values.map((_, index) => `$${index + 1}`).join(", ")}) RETURNING id`,
         values,
       );
-      return mapRow(
-        await record(client, context, resource, result.rows[0]!.id),
-      );
+      const created = await record(client, context, resource, result.rows[0]!.id);
+      if (resource === "feed")
+        await applyFeedInventoryIssue(client, context, created);
+      await completeOfflineRecordSync(client, context, resource, input, String(created.id));
+      return mapRow(created);
     } catch (error) {
       translateDatabaseError(error);
     }
@@ -1216,6 +1439,23 @@ export async function updatePoultryRecord(
         }
 
         const prepared: Input = { ...input };
+        // Floor area is derived from the two dimensions; ignore any manual value.
+        delete prepared.floorAreaM2;
+        if (prepared.lengthM !== undefined || prepared.widthM !== undefined) {
+          const lengthM =
+            prepared.lengthM === undefined
+              ? current.length_m === null
+                ? null
+                : Number(current.length_m)
+              : optionalPositiveNumber(prepared, "lengthM");
+          const widthM =
+            prepared.widthM === undefined
+              ? current.width_m === null
+                ? null
+                : Number(current.width_m)
+              : optionalPositiveNumber(prepared, "widthM");
+          prepared.floorAreaM2 = calculatedFloorArea(lengthM, widthM);
+        }
         if (
           prepared.operationalStatus === undefined &&
           prepared.isActive !== undefined
@@ -1451,6 +1691,8 @@ export async function updatePoultryRecord(
           "Egg collection is available only for layer or breeder flocks",
         );
       await assertInventoryItem(client, context, input.inventoryItemId);
+      if (resource === "feed")
+        await assertFeedRecordCanChange(client, context, recordId);
       await updateColumns(
         client,
         records[resource].table,
@@ -1487,6 +1729,8 @@ export async function deletePoultryRecord(
         );
       }
       await record(client, context, resource, recordId);
+      if (resource === "feed")
+        await assertFeedRecordCanChange(client, context, recordId);
       await client.query(
         `DELETE FROM ${records[resource].table} WHERE organization_id = $1 AND id = $2`,
         [context.organizationId, recordId],

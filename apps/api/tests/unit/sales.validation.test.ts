@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createOrderInput, offerInput, paymentInput } from "../../src/modules/sales/sales.validation";
+import { createOrderInput, customerInput, customerUpdateInput, offerInput, paymentInput } from "../../src/modules/sales/sales.validation";
 
 const ids = {
   customer: "5d4e13c1-0225-4495-99e9-b4d9a0a68b23",
@@ -8,6 +8,18 @@ const ids = {
 };
 
 describe("sales input validation", () => {
+  it("accepts a customer without a code so the API can create the reference", () => {
+    const parsed = customerInput.parse({ name: "Marché Matadi" });
+
+    expect(parsed.code).toBeUndefined();
+  });
+it("accepts a customer update without changing its generated reference", () => {
+    const parsed = customerUpdateInput.parse({ name: "Marché Matadi Central", isActive: true });
+
+    expect(parsed.name).toBe("Marché Matadi Central");
+    expect("code" in parsed).toBe(false);
+  });
+
   it("accepts a decimal kilogram sale, including gram-level quantities", () => {
     const parsed = createOrderInput.parse({
       customerId: ids.customer,

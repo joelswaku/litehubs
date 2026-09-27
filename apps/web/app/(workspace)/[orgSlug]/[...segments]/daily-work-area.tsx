@@ -13,6 +13,7 @@ import {
   Plus,
   Send,
   Siren,
+  Sparkles,
   Wheat,
   X,
 } from "lucide-react";
@@ -97,6 +98,27 @@ type Handover = {
   canAcknowledge?: boolean;
 };
 type Site = { id: string; name: string; code: string };
+type AiChecklistItem = {
+  prompt: string;
+  responseType: "boolean" | "number" | "text" | "choice" | "photo";
+  guidance: string;
+  isRequired: boolean;
+};
+type AiChecklistDraft = {
+  name: string;
+  description: string;
+  items: AiChecklistItem[];
+  siteId: string;
+  domain: string;
+  frequency: string;
+};
+type AiChecklistRequest = {
+  siteId: string;
+  domain: string;
+  frequency: string;
+  context: string;
+  targetLanguage: "fr" | "en";
+};
 type Overview = {
   workDate: string;
   scope: "organization" | "province" | "self";
@@ -145,6 +167,18 @@ const badge = (status: string) =>
         ? ("info" as const)
         : ("warning" as const);
 
+const formatWorkDate = (value: string | null | undefined, locale: string) => {
+  if (!value) return "—";
+  const parsed = new Date(value.includes("T") ? value : `${value}T12:00:00`);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return new Intl.DateTimeFormat(locale === "fr" ? "fr-FR" : "en-US", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(parsed);
+};
+
 export function DailyWorkArea({ orgSlug }: { orgSlug: string }) {
   const { locale, t } = useLanguage();
   const user = useSessionUser();
@@ -152,6 +186,7 @@ export function DailyWorkArea({ orgSlug }: { orgSlug: string }) {
   const [workDate, setWorkDate] = useState(localToday);
   const [templateOpen, setTemplateOpen] = useState(false);
   const [templateManagerOpen, setTemplateManagerOpen] = useState(false);
+  const [aiChecklistOpen, setAiChecklistOpen] = useState(false);
   const [editingReport, setEditingReport] = useState<Report | null>(null);
   const [tab, setTab] = useState<"checklists" | "reports" | "handovers">(
     "checklists",
@@ -473,6 +508,20 @@ export function DailyWorkArea({ orgSlug }: { orgSlug: string }) {
     error instanceof ApiError ? error.message : error ? copy.failed : null;
   const selected =
     detail.data ?? runs.data?.find((run) => run.id === selectedRunId) ?? null;
+  const templatesForRun = templates.data ?? [];
+  const ownRunByTemplate = new Map<string, ChecklistRun>();
+  if (employeeScope) {
+    for (const run of runs.data ?? []) {
+      if (!ownRunByTemplate.has(run.templateId))
+        ownRunByTemplate.set(run.templateId, run);
+    }
+  }
+  // Existing runs belong in the checklist list below, where an employee can
+  // resume or review them. The start form offers only a checklist that has not
+  // yet been opened by this employee for the selected date.
+  const templatesToStart = employeeScope
+    ? templatesForRun.filter((template) => !ownRunByTemplate.has(template.id))
+    : templatesForRun;
   const overallLoading =
     overview.isPending ||
     runs.isPending ||
@@ -482,10 +531,11 @@ export function DailyWorkArea({ orgSlug }: { orgSlug: string }) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     const siteId = data.get("siteId");
+    const selectedWorkDate = String(data.get("workDate") || workDate);
     createRun.mutate({
       templateId: String(data.get("templateId")),
       siteId: siteId ? String(siteId) : undefined,
-      workDate,
+      workDate: selectedWorkDate,
     });
   }
   function submitTemplate(event: FormEvent<HTMLFormElement>) {
@@ -651,15 +701,27 @@ export function DailyWorkArea({ orgSlug }: { orgSlug: string }) {
               ))}
             </div>
             {canCreate ? (
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 {tab === "checklists" && canManageTemplates ? (
                   <>
                     <Button
                       size="sm"
                       variant="secondary"
+                      onClick={() => setAiChecklistOpen(true)}
+                    >
+                      <Sparkles />
+                      {locale === "fr"
+                        ? "Générer avec l’IA"
+                        : "Generate with AI"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
                       onClick={() => setTemplateOpen(true)}
                     >
-                      {locale === "fr" ? "Checklist" : "Checklist"}
+                      {locale === "fr"
+                        ? "Checklist manuelle"
+                        : "Manual checklist"}
                     </Button>
                     <Button
                       size="sm"
@@ -727,9 +789,10 @@ export function DailyWorkArea({ orgSlug }: { orgSlug: string }) {
             copy={copy}
             canUpdate={canUpdate}
             canApprove={canApprove}
-            onResponse={(item, body) =>
-              response.mutate({ itemId: item.id, body })
-            }
+            onResponse={(item, body) => {
+              complete.reset();
+              response.mutate({ itemId: item.id, body });
+            }}
             onComplete={() => complete.mutate()}
             onVerify={() => verify.mutate()}
             working={
@@ -748,6 +811,20 @@ export function DailyWorkArea({ orgSlug }: { orgSlug: string }) {
         <DailyWorkTemplateManager
           orgSlug={orgSlug}
           onClose={() => setTemplateManagerOpen(false)}
+        />
+      ) : null}
+      {aiChecklistOpen ? (
+        <AiChecklistGenerator
+          orgSlug={orgSlug}
+          sites={sites.data ?? []}
+          locale={locale}
+          onClose={() => setAiChecklistOpen(false)}
+          onCreated={() => {
+            setAiChecklistOpen(false);
+            queryClient.invalidateQueries({
+              queryKey: ["daily-work-templates", orgSlug],
+            });
+          }}
         />
       ) : null}
       {templateOpen ? (
@@ -846,6 +923,17 @@ export function DailyWorkArea({ orgSlug }: { orgSlug: string }) {
       {createRunOpen ? (
         <Panel title={copy.start} close={() => setCreateRunOpen(false)}>
           <form className="grid gap-4 sm:grid-cols-2" onSubmit={submitRun}>
+            <Field label={copy.date} htmlFor="run-work-date" required>
+              <Input
+                id="run-work-date"
+                name="workDate"
+                type="date"
+                min={localToday()}
+                value={workDate}
+                onChange={(event) => setWorkDate(event.target.value)}
+                required
+              />
+            </Field>
             <Field label={copy.selectTemplate} htmlFor="run-template" required>
               <select
                 id="run-template"
@@ -853,11 +941,31 @@ export function DailyWorkArea({ orgSlug }: { orgSlug: string }) {
                 required
                 className="h-9 w-full rounded-md border border-border-strong bg-surface-1 px-3 text-sm"
               >
-                {templates.data?.map((template) => (
-                  <option key={template.id} value={template.id}>
-                    {template.name} · {titleCase(template.domain)}
-                  </option>
-                ))}
+                {employeeScope ? (
+                  templatesToStart.length ? (
+                    <optgroup
+                      label={locale === "fr" ? "À démarrer" : "Ready to start"}
+                    >
+                      {templatesToStart.map((template) => (
+                        <option key={template.id} value={template.id}>
+                          {template.name} · {titleCase(template.domain)}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ) : (
+                    <option value="" disabled>
+                      {locale === "fr"
+                        ? "Toutes les checklists sont déjà ouvertes ou terminées pour cette date"
+                        : "Every checklist is already open or completed for this date"}
+                    </option>
+                  )
+                ) : (
+                  templatesForRun.map((template) => (
+                    <option key={template.id} value={template.id}>
+                      {template.name} · {titleCase(template.domain)}
+                    </option>
+                  ))
+                )}
               </select>
             </Field>
             {employeeScope ? (
@@ -882,9 +990,13 @@ export function DailyWorkArea({ orgSlug }: { orgSlug: string }) {
                 </select>
               </Field>
             )}
-            <Button type="submit" loading={createRun.isPending}>
+            <Button
+              type="submit"
+              loading={createRun.isPending}
+              disabled={employeeScope && !templatesToStart.length}
+            >
               <ClipboardCheck />
-              {copy.create}
+              {locale === "fr" ? "Démarrer" : "Start"}
             </Button>
           </form>
         </Panel>
@@ -1068,9 +1180,13 @@ function Production({
           <p className="text-3xl font-semibold tabular-nums tracking-[-.04em] text-ink">
             {main}
           </p>
-          <span className="mb-1 text-xs font-medium text-ink-secondary">{unit}</span>
+          <span className="mb-1 text-xs font-medium text-ink-secondary">
+            {unit}
+          </span>
         </div>
-        <p className="mt-4 border-t border-border/80 pt-3 text-xs font-medium text-ink-muted">{meta}</p>
+        <p className="mt-4 border-t border-border/80 pt-3 text-xs font-medium text-ink-muted">
+          {meta}
+        </p>
       </div>
     </div>
   );
@@ -1088,6 +1204,7 @@ function RunList({
   onSelect: (id: string) => void;
   empty: string;
 }) {
+  const { locale } = useLanguage();
   if (loading)
     return (
       <div className="space-y-3 p-5">
@@ -1096,26 +1213,58 @@ function RunList({
       </div>
     );
   if (!items.length) return <Empty text={empty} />;
+  const toDo = items.filter((run) => run.status === "in_progress");
+  const done = items.filter((run) => run.status !== "in_progress");
+  const row = (run: ChecklistRun) => (
+    <button
+      type="button"
+      key={run.id}
+      onClick={() => onSelect(run.id)}
+      className={`group relative flex w-full items-center justify-between gap-3 px-5 py-4 text-left transition-colors ${run.id === selectedId ? "bg-brand-subtle shadow-[inset_3px_0_0_var(--brand)]" : "hover:bg-surface-2/80"}`}
+    >
+      <div className="min-w-0">
+        <p className="truncate text-sm font-semibold text-ink">
+          {run.templateName ?? "Checklist"}
+        </p>
+        <p className="mt-1 text-xs text-ink-secondary">
+          {run.siteName ?? "—"} · {run.itemsCompleted}/{run.itemsTotal}
+        </p>
+      </div>
+      <Badge variant={badge(run.status)}>{titleCase(run.status)}</Badge>
+    </button>
+  );
   return (
-    <div className="divide-y divide-border/90">
-      {items.map((run) => (
-        <button
-          type="button"
-          key={run.id}
-          onClick={() => onSelect(run.id)}
-          className={`group relative flex w-full items-center justify-between gap-3 px-5 py-4 text-left transition-colors ${run.id === selectedId ? "bg-brand-subtle shadow-[inset_3px_0_0_var(--brand)]" : "hover:bg-surface-2/80"}`}
-        >
-          <div>
-            <p className="text-sm font-semibold text-ink">
-              {run.templateName ?? "Checklist"}
+    <div>
+      <section>
+        <div className="flex items-center justify-between border-b border-border bg-surface-2/55 px-5 py-3">
+          <p className="text-xs font-bold uppercase tracking-[.12em] text-ink-secondary">
+            {locale === "fr" ? "À faire ou à reprendre" : "To do or resume"}
+          </p>
+          <Badge variant={toDo.length ? "warning" : "neutral"}>
+            {toDo.length}
+          </Badge>
+        </div>
+        {toDo.length ? (
+          <div className="divide-y divide-border/90">{toDo.map(row)}</div>
+        ) : (
+          <p className="px-5 py-4 text-sm text-ink-secondary">
+            {locale === "fr"
+              ? "Aucune checklist en cours pour cette date."
+              : "No checklist is in progress for this date."}
+          </p>
+        )}
+      </section>
+      {done.length ? (
+        <section className="border-t border-border">
+          <div className="flex items-center justify-between border-b border-border bg-emerald-500/5 px-5 py-3">
+            <p className="text-xs font-bold uppercase tracking-[.12em] text-emerald-800 dark:text-emerald-300">
+              {locale === "fr" ? "Déjà terminées" : "Already completed"}
             </p>
-            <p className="mt-1 text-xs text-ink-secondary">
-              {run.siteName ?? "—"} · {run.itemsCompleted}/{run.itemsTotal}
-            </p>
+            <Badge variant="good">{done.length}</Badge>
           </div>
-          <Badge variant={badge(run.status)}>{titleCase(run.status)}</Badge>
-        </button>
-      ))}
+          <div className="divide-y divide-border/90">{done.map(row)}</div>
+        </section>
+      ) : null}
     </div>
   );
 }
@@ -1133,6 +1282,7 @@ function RunDetail({
   run: ChecklistRun | null;
   loading: boolean;
   copy: {
+    date: string;
     runDetail: string;
     selectRun: string;
     complete: string;
@@ -1150,8 +1300,10 @@ function RunDetail({
   working: boolean;
 }) {
   const { locale } = useLanguage();
-  const signedLabel = locale === "fr" ? "Terminé et signé" : "Completed and signed";
-  const verifiedLabel = locale === "fr" ? "Vérifié par un responsable" : "Verified by a supervisor";
+  const signedLabel =
+    locale === "fr" ? "Terminé et signé" : "Completed and signed";
+  const verifiedLabel =
+    locale === "fr" ? "Vérifié par un responsable" : "Verified by a supervisor";
   if (loading)
     return (
       <aside className="rounded-2xl border border-border-strong/80 bg-surface-1 p-5 shadow-[0_10px_30px_-24px_rgba(15,23,42,.45)]">
@@ -1173,8 +1325,11 @@ function RunDetail({
         </div>
       </aside>
     );
+  const missingRequired = (run.items ?? []).filter(
+    (item) => item.isRequired && item.passed == null,
+  ).length;
   return (
-    <aside className="h-fit overflow-hidden rounded-2xl border border-border-strong/80 bg-surface-1 shadow-[0_14px_34px_-28px_rgba(15,23,42,.48)]">
+    <aside className="flex max-h-[calc(100dvh-2rem)] min-h-0 flex-col overflow-hidden rounded-2xl border border-border-strong/80 bg-surface-1 shadow-[0_14px_34px_-28px_rgba(15,23,42,.48)]">
       <div className="border-b border-border bg-[linear-gradient(115deg,rgba(20,184,166,.07),transparent_52%)] p-5">
         <Badge variant={badge(run.status)}>{titleCase(run.status)}</Badge>
         <h2 className="mt-3 text-lg font-semibold text-ink">
@@ -1183,6 +1338,13 @@ function RunDetail({
         <p className="mt-1 text-xs text-ink-secondary">
           {run.itemsCompleted}/{run.itemsTotal} · {run.itemsFailed} failed
         </p>
+        <div className="mt-3 inline-flex items-center gap-2 rounded-lg border border-brand/15 bg-brand-subtle/55 px-3 py-2 text-xs text-ink-secondary">
+          <Clock3 className="size-3.5 text-brand" />
+          <span>{copy.date}</span>
+          <time className="font-semibold text-ink" dateTime={run.workDate}>
+            {formatWorkDate(run.workDate, locale)}
+          </time>
+        </div>
         {run.completedAt ? (
           <div className="mt-3 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs text-ink-secondary">
             <p className="font-semibold text-emerald-800 dark:text-emerald-300">
@@ -1193,13 +1355,14 @@ function RunDetail({
             </p>
             {run.verifiedAt ? (
               <p className="mt-1">
-                {verifiedLabel} · {run.verifiedByName ?? "—"} · {formatInstant(run.verifiedAt)}
+                {verifiedLabel} · {run.verifiedByName ?? "—"} ·{" "}
+                {formatInstant(run.verifiedAt)}
               </p>
             ) : null}
           </div>
         ) : null}
       </div>
-      <div className="divide-y divide-border/90">
+      <div className="min-h-0 flex-1 divide-y divide-border/90 overflow-y-auto overscroll-contain">
         {run.items?.map((item) => (
           <ChecklistAnswer
             key={item.id}
@@ -1213,7 +1376,25 @@ function RunDetail({
       </div>
       {run.status === "in_progress" && canUpdate ? (
         <div className="border-t border-border p-4">
-          <Button className="w-full" onClick={onComplete} loading={working}>
+          {missingRequired > 0 ? (
+            <p className="mb-3 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-900 dark:text-amber-200">
+              {locale === "fr"
+                ? `${missingRequired} contrôle obligatoire restant : choisissez une réponse puis cliquez sur « Enregistrer la réponse ».`
+                : `${missingRequired} required check remains: choose a response, then select “Save response”.`}
+            </p>
+          ) : (
+            <p className="mb-3 text-xs text-ink-secondary">
+              {locale === "fr"
+                ? "Tous les contrôles obligatoires sont enregistrés. Vous pouvez terminer la checklist."
+                : "All required checks are recorded. You can complete this checklist."}
+            </p>
+          )}
+          <Button
+            className="w-full"
+            onClick={onComplete}
+            loading={working}
+            disabled={missingRequired > 0}
+          >
             <CheckCircle2 />
             {copy.complete}
           </Button>
@@ -1362,8 +1543,10 @@ function Reports({
   working: boolean;
 }) {
   const { locale } = useLanguage();
-  const signedLabel = locale === "fr" ? "Terminé et signé" : "Completed and signed";
-  const verifiedLabel = locale === "fr" ? "Vérifié par un responsable" : "Verified by a supervisor";
+  const signedLabel =
+    locale === "fr" ? "Terminé et signé" : "Completed and signed";
+  const verifiedLabel =
+    locale === "fr" ? "Vérifié par un responsable" : "Verified by a supervisor";
   if (loading)
     return (
       <div className="space-y-3 p-5">
@@ -1375,7 +1558,10 @@ function Reports({
   return (
     <div className="divide-y divide-border/90">
       {items.map((report) => (
-        <div key={report.id} className="px-5 py-4 transition-colors hover:bg-surface-2/65">
+        <div
+          key={report.id}
+          className="px-5 py-4 transition-colors hover:bg-surface-2/65"
+        >
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <p className="text-sm font-semibold text-ink">{report.summary}</p>
@@ -1443,8 +1629,10 @@ function Handovers({
   working: boolean;
 }) {
   const { locale } = useLanguage();
-  const signedLabel = locale === "fr" ? "Terminé et signé" : "Completed and signed";
-  const verifiedLabel = locale === "fr" ? "Vérifié par un responsable" : "Verified by a supervisor";
+  const signedLabel =
+    locale === "fr" ? "Terminé et signé" : "Completed and signed";
+  const verifiedLabel =
+    locale === "fr" ? "Vérifié par un responsable" : "Verified by a supervisor";
   if (loading)
     return (
       <div className="space-y-3 p-5">
@@ -1456,7 +1644,10 @@ function Handovers({
   return (
     <div className="divide-y divide-border/90">
       {items.map((handover) => (
-        <div key={handover.id} className="px-5 py-4 transition-colors hover:bg-surface-2/65">
+        <div
+          key={handover.id}
+          className="px-5 py-4 transition-colors hover:bg-surface-2/65"
+        >
           <div className="flex flex-wrap justify-between gap-3">
             <div>
               <p className="text-sm font-semibold text-ink">
@@ -1474,7 +1665,9 @@ function Handovers({
           {handover.urgentItems ? (
             <p className="mt-3 text-sm text-critical">{handover.urgentItems}</p>
           ) : null}
-          {!handover.acknowledgedAt && canUpdate && handover.canAcknowledge !== false ? (
+          {!handover.acknowledgedAt &&
+          canUpdate &&
+          handover.canAcknowledge !== false ? (
             <Button
               className="mt-3"
               size="sm"
@@ -1500,7 +1693,7 @@ function Aside({
   loading: boolean;
 }) {
   return (
-    <aside className="h-fit overflow-hidden rounded-2xl border border-border-strong/80 bg-surface-1 shadow-[0_14px_34px_-28px_rgba(15,23,42,.48)]">
+    <aside className="flex max-h-[calc(100dvh-2rem)] min-h-0 flex-col overflow-hidden rounded-2xl border border-border-strong/80 bg-surface-1 shadow-[0_14px_34px_-28px_rgba(15,23,42,.48)]">
       <div className="border-b border-border bg-[linear-gradient(115deg,rgba(20,184,166,.07),transparent_52%)] p-5">
         <h2 className="text-sm font-semibold text-ink">{copy.taskQueue}</h2>
       </div>
@@ -1511,7 +1704,10 @@ function Aside({
       ) : overview?.tasks.length ? (
         <div className="divide-y divide-border/90">
           {overview.tasks.map((task) => (
-            <div key={task.id} className="border-l-2 border-transparent p-4 transition hover:border-brand hover:bg-brand-subtle/45">
+            <div
+              key={task.id}
+              className="border-l-2 border-transparent p-4 transition hover:border-brand hover:bg-brand-subtle/45"
+            >
               <p className="text-sm font-medium text-ink">{task.title}</p>
               <p className="mt-1 text-xs text-ink-secondary">
                 {titleCase(task.priority)} · {task.dueDate ?? "—"}
@@ -1523,6 +1719,270 @@ function Aside({
         <Empty text={copy.noTasks} />
       )}
     </aside>
+  );
+}
+function AiChecklistGenerator({
+  orgSlug,
+  sites,
+  locale,
+  onClose,
+  onCreated,
+}: {
+  orgSlug: string;
+  sites: Site[];
+  locale: string;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const fr = locale === "fr";
+  const [draft, setDraft] = useState<AiChecklistDraft | null>(null);
+  const generate = useMutation({
+    mutationFn: (body: AiChecklistRequest) =>
+      dailyWorkApi.ai.draft<{
+        draft: Omit<AiChecklistDraft, "siteId" | "domain" | "frequency">;
+        usage: { used: number; limit: number };
+      }>(orgSlug, body),
+    onSuccess: (data, input) =>
+      setDraft({
+        ...data.draft,
+        siteId: input.siteId,
+        domain: input.domain,
+        frequency: input.frequency,
+      }),
+  });
+  const apply = useMutation({
+    mutationFn: () => {
+      if (!draft) throw new Error("Checklist draft not found");
+      return dailyWorkApi.ai.apply<{ template: ChecklistTemplate }>(orgSlug, {
+        siteId: draft.siteId,
+        domain: draft.domain,
+        frequency: draft.frequency,
+        draft: {
+          name: draft.name,
+          description: draft.description,
+          items: draft.items,
+        },
+      });
+    },
+    onSuccess: onCreated,
+  });
+  const error = generate.error ?? apply.error;
+  const domains = [
+    "general",
+    "poultry",
+    "pigs",
+    "agriculture",
+    "biosecurity",
+    "safety",
+    "security",
+    "maintenance",
+    "hygiene",
+    "inventory",
+  ];
+  const frequencies = ["per_shift", "daily", "weekly", "monthly", "ad_hoc"];
+  const responseTypeLabel = (value: AiChecklistItem["responseType"]) => {
+    const labels: Record<AiChecklistItem["responseType"], [string, string]> = {
+      boolean: ["Pass / fail", "Conforme / non conforme"],
+      number: ["Number", "Nombre"],
+      text: ["Text", "Texte"],
+      choice: ["Choice", "Choix"],
+      photo: ["Photo", "Photo"],
+    };
+    return fr ? labels[value][1] : labels[value][0];
+  };
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    generate.mutate({
+      siteId: String(form.get("siteId") ?? ""),
+      domain: String(form.get("domain") ?? "general"),
+      frequency: String(form.get("frequency") ?? "daily"),
+      context: String(form.get("context") ?? "").trim(),
+      targetLanguage: fr ? "fr" : "en",
+    });
+  };
+
+  return (
+    <Panel
+      title={
+        fr ? "Générer une checklist avec l’IA" : "Generate a checklist with AI"
+      }
+      close={onClose}
+    >
+      {draft ? (
+        <div className="space-y-5">
+          <div className="rounded-xl border border-brand/25 bg-brand/5 p-4">
+            <div className="flex items-start gap-3">
+              <Sparkles className="mt-0.5 size-5 shrink-0 text-brand" />
+              <div>
+                <p className="font-semibold text-ink">{draft.name}</p>
+                {draft.description ? (
+                  <p className="mt-1 text-sm leading-6 text-ink-secondary">
+                    {draft.description}
+                  </p>
+                ) : null}
+                <p className="mt-2 text-xs font-medium text-ink-secondary">
+                  {draft.items.length}{" "}
+                  {fr ? "contrôles proposés" : "proposed checks"} ·{" "}
+                  {titleCase(draft.frequency)}
+                </p>
+              </div>
+            </div>
+          </div>
+          <p className="text-sm leading-6 text-ink-secondary">
+            {fr
+              ? "Vérifiez ce brouillon avant de le créer. Rien n’est publié ni affecté aux employés tant que vous ne confirmez pas."
+              : "Review this draft before creating it. Nothing is published or assigned to employees until you confirm."}
+          </p>
+          <div className="space-y-2">
+            {draft.items.map((item, index) => (
+              <article
+                key={`${item.prompt}-${index}`}
+                className="rounded-xl border border-border bg-surface-2/65 p-3"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <p className="text-sm font-medium text-ink">
+                    {index + 1}. {item.prompt}
+                  </p>
+                  <Badge variant="neutral">
+                    {responseTypeLabel(item.responseType)}
+                  </Badge>
+                </div>
+                {item.guidance ? (
+                  <p className="mt-2 text-xs leading-5 text-ink-secondary">
+                    {item.guidance}
+                  </p>
+                ) : null}
+              </article>
+            ))}
+          </div>
+          {error ? (
+            <p className="rounded-lg border border-critical/30 bg-critical/10 px-3 py-2 text-sm text-critical">
+              {error instanceof ApiError
+                ? error.message
+                : fr
+                  ? "Impossible de créer cette checklist."
+                  : "Could not create this checklist."}
+            </p>
+          ) : null}
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button variant="outline" onClick={() => setDraft(null)}>
+              {fr ? "Recommencer" : "Start again"}
+            </Button>
+            <Button loading={apply.isPending} onClick={() => apply.mutate()}>
+              <Check />
+              {fr ? "Créer la checklist" : "Create checklist"}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <form className="grid gap-4 sm:grid-cols-2" onSubmit={submit}>
+          <div className="sm:col-span-2 rounded-xl border border-brand/20 bg-brand/5 p-4 text-sm leading-6 text-ink-secondary">
+            {fr
+              ? "L’IA propose un brouillon à partir de votre contexte. Vous le vérifiez avant de créer la checklist ; elle ne sera jamais créée automatiquement."
+              : "AI proposes a draft from your context. You review it before creating the checklist; it is never created automatically."}
+          </div>
+          <Field
+            label={fr ? "Site" : "Site"}
+            htmlFor="ai-checklist-site"
+            required
+          >
+            <select
+              id="ai-checklist-site"
+              name="siteId"
+              required
+              className="control h-10 w-full"
+              defaultValue=""
+            >
+              <option value="">
+                {fr ? "Choisissez un site" : "Choose a site"}
+              </option>
+              {sites.map((site) => (
+                <option key={site.id} value={site.id}>
+                  {site.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field
+            label={fr ? "Domaine" : "Domain"}
+            htmlFor="ai-checklist-domain"
+          >
+            <select
+              id="ai-checklist-domain"
+              name="domain"
+              defaultValue="general"
+              className="control h-10 w-full"
+            >
+              {domains.map((domain) => (
+                <option key={domain} value={domain}>
+                  {titleCase(domain)}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field
+            label={fr ? "Fréquence" : "Frequency"}
+            htmlFor="ai-checklist-frequency"
+          >
+            <select
+              id="ai-checklist-frequency"
+              name="frequency"
+              defaultValue="daily"
+              className="control h-10 w-full"
+            >
+              {frequencies.map((frequency) => (
+                <option key={frequency} value={frequency}>
+                  {titleCase(frequency)}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field
+            label={
+              fr ? "Ce qui doit être contrôlé" : "What needs to be checked"
+            }
+            htmlFor="ai-checklist-context"
+            required
+            className="sm:col-span-2"
+          >
+            <Textarea
+              id="ai-checklist-context"
+              name="context"
+              required
+              maxLength={6000}
+              placeholder={
+                fr
+                  ? "Ex. Contrôle du matin pour les poulets de chair : eau, aliment, ventilation, état des oiseaux, mortalité, nettoyage et biosécurité."
+                  : "E.g. Morning broiler check: water, feed, ventilation, bird condition, mortality, cleaning and biosecurity."
+              }
+            />
+          </Field>
+          {error ? (
+            <p className="sm:col-span-2 rounded-lg border border-critical/30 bg-critical/10 px-3 py-2 text-sm text-critical">
+              {error instanceof ApiError
+                ? error.message
+                : fr
+                  ? "Impossible de générer le brouillon."
+                  : "Could not generate the draft."}
+            </p>
+          ) : null}
+          <div className="sm:col-span-2 flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={onClose}>
+              {fr ? "Annuler" : "Cancel"}
+            </Button>
+            <Button
+              type="submit"
+              loading={generate.isPending}
+              disabled={!sites.length}
+            >
+              <Sparkles />
+              {fr ? "Générer le brouillon" : "Generate draft"}
+            </Button>
+          </div>
+        </form>
+      )}
+    </Panel>
   );
 }
 function Panel({

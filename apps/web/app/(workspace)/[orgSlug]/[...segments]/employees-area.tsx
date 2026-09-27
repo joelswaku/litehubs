@@ -28,6 +28,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { HrPdfButton } from "@/components/hr/hr-pdf-button";
 import { Field, Input, Textarea } from "@/components/ui/input";
+import { PhoneInput } from "@/components/ui/phone-input";
 import {
   EmptyState,
   ErrorState,
@@ -112,10 +113,12 @@ type EmploymentContract = {
   document: { id: string; title: string | null } | null;
 };
 type Editor = { employee?: Employee } | null;
+type AccessDeliveryMethod = "email" | "sms" | "both";
 type EmployeeAccessDraft = {
   email: string;
   roleCode: string;
   provinceIds: string[];
+  deliveryMethod: AccessDeliveryMethod;
 };
 type EmployeeFormSubmission = {
   body: Record<string, unknown>;
@@ -124,6 +127,7 @@ type EmployeeFormSubmission = {
 type EmployeeSaveResult = {
   employee: Employee;
   emailDelivery?: { sent: boolean; reason?: string | null };
+  smsDelivery?: { sent: boolean; reason?: string | null };
   accessError?: string;
 };
 
@@ -266,10 +270,12 @@ export function EmployeesArea({ orgSlug }: { orgSlug: string }) {
             provinceIds: access.provinceIds,
             jobTitle: saved.employee.jobTitle,
             employeeId: saved.employee.id,
+            deliveryMethod: access.deliveryMethod,
           });
         return {
           employee: saved.employee,
           emailDelivery: assigned.emailDelivery,
+          smsDelivery: assigned.smsDelivery,
         };
       } catch (error) {
         return {
@@ -293,22 +299,32 @@ export function EmployeesArea({ orgSlug }: { orgSlug: string }) {
       setEditor(null);
       if (result.accessError) {
         setAccessNotice({ tone: "warning", text: result.accessError });
-      } else if (result.emailDelivery?.sent) {
+      } else if (result.emailDelivery?.sent || result.smsDelivery?.sent) {
+        const sentByEmail = Boolean(result.emailDelivery?.sent);
+        const sentBySms = Boolean(result.smsDelivery?.sent);
         setAccessNotice({
           tone: "good",
           text: label(
             fr,
-            "Employee created and secure LiteHubs access email sent.",
-            "Employé créé et e-mail sécurisé d’accès LiteHubs envoyé.",
+            sentByEmail && sentBySms
+              ? "Employee created and secure LiteHubs access sent by email and SMS."
+              : sentBySms
+                ? "Employee created and secure LiteHubs access SMS sent."
+                : "Employee created and secure LiteHubs access email sent.",
+            sentByEmail && sentBySms
+              ? "Employé créé et accès LiteHubs sécurisé envoyé par e-mail et SMS."
+              : sentBySms
+                ? "Employé créé et SMS sécurisé d’accès LiteHubs envoyé."
+                : "Employé créé et e-mail sécurisé d’accès LiteHubs envoyé.",
           ),
         });
-      } else if (result.emailDelivery) {
+      } else if (result.emailDelivery || result.smsDelivery) {
         setAccessNotice({
           tone: "warning",
           text: label(
             fr,
-            "Employee created and access assigned, but the e-mail was not sent. Check SMTP in development settings.",
-            "Employé créé et accès attribué, mais l’e-mail n’a pas été envoyé. Vérifiez SMTP dans les paramètres de développement.",
+            "Employee created and access assigned, but the selected activation message was not sent. Check the email or SMS configuration.",
+            "Employé créé et accès attribué, mais le message d’activation choisi n’a pas été envoyé. Vérifiez la configuration e-mail ou SMS.",
           ),
         });
       }
@@ -765,11 +781,13 @@ export function EmployeesArea({ orgSlug }: { orgSlug: string }) {
 
 type AccessAssignmentResponse = {
   invitation: { invitationId: string; email: string };
+  deliveryMethod?: AccessDeliveryMethod;
   emailDelivery?: { sent: boolean; reason?: string | null };
+  smsDelivery?: { sent: boolean; reason?: string | null };
 };
 
-/** The recipient activates owner-assigned access through
- * the one-time email link; passwords are never sent by email. */
+/** The recipient activates owner-assigned access through one-time links.
+ * The account still signs in with email; passwords are never sent in either channel. */
 function AccessAssignmentDialog({
   employee,
   orgSlug,
@@ -789,7 +807,14 @@ function AccessAssignmentDialog({
   const [provinceIds, setProvinceIds] = useState<string[]>(
     employee.province?.id ? [employee.province.id] : [],
   );
-  const [result, setResult] = useState<"sent" | "not_sent" | null>(null);
+  const hasPhone = Boolean(employee.contact.phone?.trim());
+  const [deliveryMethod, setDeliveryMethod] = useState<AccessDeliveryMethod>(
+    hasPhone ? "both" : "email",
+  );
+  const [result, setResult] = useState<{
+    emailSent: boolean;
+    smsSent: boolean;
+  } | null>(null);
   const allowedRoles = roles.filter((role) => role.code !== "owner");
   const invite = useMutation({
     mutationFn: (body: {
@@ -798,9 +823,13 @@ function AccessAssignmentDialog({
       provinceIds: string[];
       jobTitle: string;
       employeeId: string;
+      deliveryMethod: AccessDeliveryMethod;
     }) => companySetupApi.assignAccess<AccessAssignmentResponse>(orgSlug, body),
     onSuccess: (response) => {
-      setResult(response.emailDelivery?.sent ? "sent" : "not_sent");
+      setResult({
+        emailSent: Boolean(response.emailDelivery?.sent),
+        smsSent: Boolean(response.smsDelivery?.sent),
+      });
       void client.invalidateQueries({ queryKey: ["org-invitations", orgSlug] });
       void client.invalidateQueries({ queryKey: ["employees", orgSlug] });
     },
@@ -816,6 +845,7 @@ function AccessAssignmentDialog({
       provinceIds,
       jobTitle: employee.jobTitle,
       employeeId: employee.id,
+      deliveryMethod,
     });
   };
   const toggleProvince = (id: string) =>
@@ -853,8 +883,8 @@ function AccessAssignmentDialog({
             <p className="mt-2 text-sm leading-6 text-ink-secondary">
               {label(
                 fr,
-                `Assign LiteHubs access to ${employee.fullName}. They choose their own password from the secure email; LiteHubs never sends passwords by email.`,
-                `Affectez l’accès LiteHubs à ${employee.fullName}. La personne définit son propre mot de passe depuis l’e-mail sécurisé ; LiteHubs n’envoie jamais de mot de passe par e-mail.`,
+                `Assign LiteHubs access to ${employee.fullName}. Choose email, SMS or both for the secure activation link. They choose their own password; LiteHubs never sends a password.`,
+                `Affectez l’accès LiteHubs à ${employee.fullName}. Choisissez e-mail, SMS ou les deux pour le lien sécurisé d’activation. La personne définit son propre mot de passe ; LiteHubs n’envoie jamais de mot de passe.`,
               )}
             </p>
           </div>
@@ -867,27 +897,35 @@ function AccessAssignmentDialog({
             <X />
           </Button>
         </div>
-        {result === "sent" ? (
+        {result && (result.emailSent || result.smsSent) ? (
           <div
             className="mt-5 rounded-xl border border-good/30 bg-good/10 p-3 text-sm text-good-ink"
             role="status"
           >
             {label(
               fr,
-              "The access email was sent. Once activated, LiteHubs automatically links the new account to this employee profile.",
-              "L’e-mail d’accès a été envoyé. Une fois l’accès activé, LiteHubs lie automatiquement le nouveau compte à cette fiche employé.",
+              result.emailSent && result.smsSent
+                ? "The secure activation link was sent by email and SMS. Once activated, LiteHubs automatically links the account to this employee profile."
+                : result.smsSent
+                  ? "The secure activation link was sent by SMS. Once activated, LiteHubs automatically links the account to this employee profile."
+                  : "The secure activation email was sent. Once activated, LiteHubs automatically links the account to this employee profile.",
+              result.emailSent && result.smsSent
+                ? "Le lien sécurisé d’activation a été envoyé par e-mail et SMS. Une fois activé, LiteHubs lie automatiquement le compte à cette fiche employé."
+                : result.smsSent
+                  ? "Le lien sécurisé d’activation a été envoyé par SMS. Une fois activé, LiteHubs lie automatiquement le compte à cette fiche employé."
+                  : "L’e-mail sécurisé d’activation a été envoyé. Une fois activé, LiteHubs lie automatiquement le compte à cette fiche employé.",
             )}
           </div>
         ) : null}
-        {result === "not_sent" ? (
+        {result && !result.emailSent && !result.smsSent ? (
           <div
             className="mt-5 rounded-xl border border-warning/30 bg-warning/10 p-3 text-sm text-warning-ink"
             role="alert"
           >
             {label(
               fr,
-              "The access assignment was created, but its email was not sent. Check SMTP before assigning another address.",
-              "L’affectation d’accès a été créée, mais l’e-mail n’a pas été envoyé. Vérifiez SMTP avant d’affecter une autre adresse.",
+              "The access assignment was created, but the selected activation message was not sent. Check the email or SMS configuration before assigning another address.",
+              "L’affectation d’accès a été créée, mais le message d’activation choisi n’a pas été envoyé. Vérifiez la configuration e-mail ou SMS avant d’affecter une autre adresse.",
             )}
           </div>
         ) : null}
@@ -909,6 +947,59 @@ function AccessAssignmentDialog({
                 invalid={Boolean(employeeError(invite.error, "email"))}
               />
             </Field>
+            <fieldset>
+              <legend className="text-sm font-medium text-ink">
+                {label(fr, "Send activation link by", "Envoyer le lien d’activation par")}
+              </legend>
+              <p className="mt-1 text-xs leading-5 text-ink-secondary">
+                {label(
+                  fr,
+                  "The email remains the sign-in address. SMS sends only the secure link, never a password.",
+                  "L’e-mail reste l’identifiant de connexion. Le SMS envoie seulement le lien sécurisé, jamais un mot de passe.",
+                )}
+              </p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                {([
+                  ["email", "Email", "E-mail"],
+                  ["sms", "SMS", "SMS"],
+                  ["both", "Email and SMS", "E-mail et SMS"],
+                ] as const).map(([value, english, french]) => {
+                  const needsPhone = value !== "email";
+                  const disabled = needsPhone && !hasPhone;
+                  return (
+                    <label
+                      key={value}
+                      className={`flex cursor-pointer items-center gap-2 rounded-xl border p-3 text-sm transition-colors ${
+                        deliveryMethod === value
+                          ? "border-brand bg-brand/10 text-ink"
+                          : "border-border bg-surface-2 text-ink-secondary"
+                      } ${disabled ? "cursor-not-allowed opacity-50" : ""}`}
+                    >
+                      <input
+                        type="radio"
+                        name="deliveryMethod"
+                        value={value}
+                        checked={deliveryMethod === value}
+                        disabled={disabled}
+                        onChange={() => setDeliveryMethod(value)}
+                        className="size-4 accent-[var(--brand)]"
+                      />
+                      {needsPhone ? <Phone className="size-4" /> : <Mail className="size-4" />}
+                      <span>{label(fr, english, french)}</span>
+                    </label>
+                  );
+                })}
+              </div>
+              {!hasPhone ? (
+                <p className="mt-2 text-xs text-warning-ink">
+                  {label(
+                    fr,
+                    "Add the employee’s mobile number first to enable SMS delivery.",
+                    "Ajoutez d’abord le numéro mobile de l’employé pour activer l’envoi par SMS.",
+                  )}
+                </p>
+              ) : null}
+            </fieldset>
             <Field
               label={label(fr, "LiteHubs role", "Rôle LiteHubs")}
               htmlFor="employee-access-role"
@@ -1368,6 +1459,8 @@ function EmployeeDialog({
   );
   const [selectedSite, setSelectedSite] = useState(employee?.site?.id ?? "");
   const [accessEmail, setAccessEmail] = useState("");
+  const [accessDeliveryMethod, setAccessDeliveryMethod] =
+    useState<AccessDeliveryMethod>("email");
   const [accessProvinceIds, setAccessProvinceIds] = useState<string[]>([]);
   const accessRolesForInvite = accessRoles.filter((role) => role.code !== "owner");
   const hasAccessEmail = accessEmail.trim().length > 0;
@@ -1443,6 +1536,7 @@ function EmployeeDialog({
                 : selectedProvince
                   ? [selectedProvince]
                   : [],
+            deliveryMethod: accessDeliveryMethod,
           }
         : undefined,
     });
@@ -1712,8 +1806,45 @@ function EmployeeDialog({
               {hasAccessEmail ? (
                 <fieldset className="mt-4">
                   <legend className="text-xs font-semibold text-ink">
-                    {label(fr, "Province access", "Accès aux provinces")}
+                    {label(fr, "Activation delivery", "Envoi de l’activation")}
                   </legend>
+                  <p className="mt-1 text-xs leading-5 text-ink-secondary">
+                    {label(
+                      fr,
+                      "The email stays the sign-in address. SMS sends the secure link to the phone entered below; it never contains a password.",
+                      "L’e-mail reste l’identifiant de connexion. Le SMS envoie le lien sécurisé au téléphone saisi plus bas ; il ne contient jamais un mot de passe.",
+                    )}
+                  </p>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                    {([
+                      ["email", "Email", "E-mail"],
+                      ["sms", "SMS", "SMS"],
+                      ["both", "Email and SMS", "E-mail et SMS"],
+                    ] as const).map(([value, english, french]) => (
+                      <label
+                        key={value}
+                        className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-xs transition-colors ${
+                          accessDeliveryMethod === value
+                            ? "border-brand bg-brand/10 text-ink"
+                            : "border-border bg-surface-1 text-ink-secondary"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="accessDeliveryMethod"
+                          value={value}
+                          checked={accessDeliveryMethod === value}
+                          onChange={() => setAccessDeliveryMethod(value)}
+                          className="size-3.5 accent-[var(--brand)]"
+                        />
+                        {value === "email" ? <Mail className="size-3.5" /> : <Phone className="size-3.5" />}
+                        {label(fr, english, french)}
+                      </label>
+                    ))}
+                  </div>
+                  <p className="mt-4 text-xs font-semibold text-ink">
+                    {label(fr, "Province access", "Accès aux provinces")}
+                  </p>
                   <p className="mt-1 text-xs text-ink-secondary">
                     {label(
                       fr,
@@ -1743,8 +1874,8 @@ function EmployeeDialog({
                   <p className="mt-3 text-xs leading-5 text-ink-secondary">
                     {label(
                       fr,
-                      "When saved, LiteHubs sends a secure activation message. The employee chooses their own password; no password is sent by email.",
-                      "À l’enregistrement, LiteHubs envoie un message d’activation sécurisé. L’employé choisit son mot de passe ; aucun mot de passe n’est envoyé par e-mail.",
+                      "When saved, LiteHubs sends the secure activation message by the selected channel. The employee chooses their own password; no password is ever sent.",
+                      "À l’enregistrement, LiteHubs envoie le message d’activation sécurisé par le canal choisi. L’employé choisit son mot de passe ; aucun mot de passe n’est jamais envoyé.",
                     )}
                   </p>
                 </fieldset>
@@ -1911,9 +2042,10 @@ function EmployeeDialog({
                 label={label(fr, "Phone", "Téléphone")}
                 htmlFor="employee-phone"
               >
-                <Input
+                <PhoneInput
                   name="phone"
                   defaultValue={employee?.contact.phone ?? ""}
+                  fr={fr}
                 />
               </Field>
               <Field
@@ -1937,9 +2069,10 @@ function EmployeeDialog({
                 )}
                 htmlFor="employee-emergency-phone"
               >
-                <Input
+                <PhoneInput
                   name="emergencyContactPhone"
                   defaultValue={employee?.contact.emergencyContactPhone ?? ""}
+                  fr={fr}
                 />
               </Field>
               <Field

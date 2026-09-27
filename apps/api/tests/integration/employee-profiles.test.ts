@@ -181,6 +181,36 @@ describe("Employee profiles", () => {
     );
     expect(outsideEmployee.status).toBe(201);
 
+    const smsEmployee = await authorized(
+      request(app)
+        .post(`/api/v1/organizations/${organizationSlug}/employees`)
+        .send({
+          fullName: "SMS Access Farm Worker",
+          jobTitle: "Farm Worker",
+          provinceId: kongoCentral.body.province.id,
+          employmentStatus: "active",
+          employmentType: "casual",
+          phone: "+243898869772",
+        }),
+    );
+    expect(smsEmployee.status).toBe(201);
+
+    const smsInvitation = await authorized(
+      request(app)
+        .post(`/api/v1/organizations/${organizationSlug}/invitations`)
+        .send({
+          email: `employee-sms-${suffix}@test.invalid`,
+          roleCodes: ["employee"],
+          provinceIds: [kongoCentral.body.province.id],
+          employeeId: smsEmployee.body.employee.id,
+          deliveryMethod: "sms",
+        }),
+    );
+    expect(smsInvitation.status).toBe(201);
+    expect(smsInvitation.body.deliveryMethod).toBe("sms");
+    expect(smsInvitation.body.emailDelivery.reason).toBe("email_not_selected");
+    expect(smsInvitation.body.smsDelivery.reason).toBe("sms_skipped_in_test");
+
     const supervisorList = await request(app)
       .get(`/api/v1/organizations/${organizationSlug}/employees`)
       .set("Authorization", `Bearer ${supervisorToken}`);

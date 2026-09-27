@@ -19,6 +19,7 @@ import { PayrollArea } from "./payroll-area";
 import { AgricultureArea } from "./agriculture-area";
 import { VeterinaryArea } from "./veterinary-area";
 import { ProjectsArea } from "./projects-area";
+import { ProjectAnalyticsArea } from "./project-analytics-area";
 import { AttendanceArea } from "./attendance-area";
 import { MembersArea } from "./members-area";
 import { LocationsArea } from "./locations-area";
@@ -26,6 +27,7 @@ import { EmployeesArea } from "./employees-area";
 import { LeaveArea } from "./leave-area";
 import { TrainingArea } from "./training-area";
 import { MyTrainingsArea } from "./my-trainings-area";
+import { MyTasksArea } from "./my-tasks-area";
 import { OperationsArea, type OperationsAreaKind } from "./operations-area";
 import { IncidentsArea } from "./incidents-area";
 import { SecurityArea } from "./security-area";
@@ -94,6 +96,7 @@ export function WorkspaceAreaView({
   if (path === "/agriculture") return <AgricultureArea orgSlug={orgSlug} />;
   if (path === "/veterinary") return <VeterinaryArea orgSlug={orgSlug} />;
   if (path === "/projects") return <ProjectsArea orgSlug={orgSlug} />;
+  if (path === "/project-analytics") return <ProjectAnalyticsArea orgSlug={orgSlug} />;
   if (path === "/reports") return <ReportsArea orgSlug={orgSlug} />;
   if (
     ["/sales", "/customers", "/invoices", "/finance", "/finance/cash"].includes(
@@ -128,6 +131,7 @@ export function WorkspaceAreaView({
   if (path === "/settings") return <MembersArea orgSlug={orgSlug} />;
   if (path === "/settings/sites") return <LocationsArea orgSlug={orgSlug} />;
   if (path === "/my-account") return <MyAccountArea orgSlug={orgSlug} />;
+  if (path === "/my-tasks") return <MyTasksArea orgSlug={orgSlug} />;
   if (path === "/my-schedule")
     return <MyAccountArea orgSlug={orgSlug} initialSection="schedule" />;
   if (path === "/my-leave") return <LeaveArea orgSlug={orgSlug} personal />;
@@ -164,6 +168,13 @@ export function WorkspaceAreaView({
   if (path === "/payroll") return <PayrollArea orgSlug={orgSlug} />;
   if (path === "/disciplinary-actions")
     return <DisciplineArea orgSlug={orgSlug} />;
+  if (canonicalPath === "/feed-mill" || canonicalPath.startsWith("/feed-mill/")) {
+    const candidate = canonicalPath.split("/")[2];
+    const feedTab = ["raw-materials", "recipes", "production-orders", "planning"].includes(candidate ?? "")
+      ? (candidate as "raw-materials" | "recipes" | "production-orders" | "planning")
+      : "raw-materials";
+    return <OperationsArea orgSlug={orgSlug} area="feed-mill" feedTab={feedTab} />;
+  }
   if (
     [
       "/tasks",

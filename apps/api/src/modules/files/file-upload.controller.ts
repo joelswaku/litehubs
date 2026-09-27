@@ -44,15 +44,77 @@ export const uploadAttachment: RequestHandler = async (req, res) => {
     ),
   });
 };
+export const uploadTaskEvidence: RequestHandler = async (req, res) => {
+  if (!req.file)
+    throw new BadRequestError(
+      "Attach one evidence file in the 'file' form-data field",
+    );
+  res.status(201).json({
+    document: await service.uploadTaskEvidence(
+      contextOf(req),
+      parameter(req, "taskId"),
+      req.body as AttachmentUploadInput,
+      req.file,
+    ),
+  });
+};
+export const uploadReceiptEvidence: RequestHandler = async (req, res) => {
+  if (!req.file)
+    throw new BadRequestError(
+      "Attach one delivery or receipt document in the 'file' form-data field",
+    );
+  res.status(201).json({
+    document: await service.uploadReceiptEvidence(
+      contextOf(req),
+      parameter(req, "receiptId"),
+      req.body as AttachmentUploadInput,
+      req.file,
+    ),
+  });
+};
+export const uploadExpenseEvidence: RequestHandler = async (req, res) => {
+  if (!req.file)
+    throw new BadRequestError(
+      "Attach one invoice, receipt or payment document in the 'file' form-data field",
+    );
+  res.status(201).json({
+    document: await service.uploadExpenseEvidence(
+      contextOf(req),
+      parameter(req, "expenseId"),
+      req.body as AttachmentUploadInput,
+      req.file,
+    ),
+  });
+};
+
+function sendAttachment(
+  res: Parameters<RequestHandler>[1],
+  file: Record<string, unknown>,
+  disposition: "inline" | "attachment",
+) {
+  const buffer = file.buffer;
+  const fileName = String(file.title ?? "document").replace(/[\r\n"]/g, "");
+  if (Buffer.isBuffer(buffer)) {
+    res.type(String(file.mimeType ?? "application/octet-stream"));
+    res.setHeader(
+      "Content-Disposition",
+      `${disposition}; filename="${fileName}"`,
+    );
+    res.send(buffer);
+    return;
+  }
+  const url = typeof file.storageUrl === "string" ? file.storageUrl : null;
+  if (!url) throw new BadRequestError("This document has no preview URL");
+  res.redirect(302, url);
+}
+
 export const previewAttachment: RequestHandler = async (req, res) => {
   const file = await service.getStoredAttachment(
     contextOf(req),
     parameter(req, "fileId"),
     "preview",
   );
-  const url = typeof file.storageUrl === "string" ? file.storageUrl : null;
-  if (!url) throw new BadRequestError("This document has no preview URL");
-  res.redirect(302, url);
+  sendAttachment(res, file, "inline");
 };
 
 export const downloadAttachment: RequestHandler = async (req, res) => {
@@ -61,9 +123,7 @@ export const downloadAttachment: RequestHandler = async (req, res) => {
     parameter(req, "fileId"),
     "download",
   );
-  const url = typeof file.storageUrl === "string" ? file.storageUrl : null;
-  if (!url) throw new BadRequestError("This document has no download URL");
-  res.redirect(302, url);
+  sendAttachment(res, file, "attachment");
 };
 export const deleteAttachment: RequestHandler = async (req, res) => {
   await service.deleteAttachment(contextOf(req), parameter(req, "imageId"));

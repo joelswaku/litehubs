@@ -1,18 +1,23 @@
 import { z } from "zod";
 import { organizationSlugSchema } from "../organization/organization.validation";
+import { isValidPhone, normalizePhone } from "../../utils/phone";
 
 const id = z.string().uuid("Choose a valid record");
 const code = z.string().trim().toLowerCase().regex(/^[a-z][a-z0-9_]{1,62}$/, "Use lowercase letters, numbers and underscores");
 const text = (max: number) => z.string().trim().min(1).max(max);
 const optionalText = (max: number) => z.string().trim().max(max).transform((value) => value || undefined).optional();
 /** Empty optional contact fields must become undefined before email/phone validation. */
-const optionalContact = (schema: z.ZodString) =>
+const optionalContact = <T extends z.ZodTypeAny>(schema: T) =>
   z.preprocess(
     (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
     schema.optional(),
   );
 const optionalEmail = optionalContact(z.string().trim().email("Use a valid email address").max(255));
-const optionalPhone = optionalContact(z.string().trim().min(5, "Enter a valid phone number").max(80));
+const optionalPhone = optionalContact(
+  z.string().trim().max(80).transform(normalizePhone).refine(isValidPhone, {
+    message: "Enter a valid phone number. For the DRC use +243 followed by 9 digits",
+  }),
+);
 const time = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use HH:MM");
 const preferredLanguage = z.enum(["fr", "en"]).default("fr");
 

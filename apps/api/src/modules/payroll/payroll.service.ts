@@ -1,5 +1,7 @@
 import PDFDocument from "pdfkit";
 import type { PoolClient } from "pg";
+import { env } from "../../config/env";
+import { sendMail, sendSms } from "../../services/notification.service";
 import {
   BadRequestError,
   ConflictError,
@@ -7,6 +9,7 @@ import {
   NotFoundError,
 } from "../../utils/errors";
 import { withTenantContext } from "../../utils/tenant-query";
+import { createNotificationInTransaction } from "../notifications/notifications.service";
 import type {
   CreateCompensationInput,
   CreateComponentInput,
@@ -200,6 +203,12 @@ interface PayslipLineRow {
   sort_order: number;
 }
 
+type PayrollPaymentDelivery = {
+  phone: string | null;
+  email: string | null;
+  payslipsUrl: string;
+};
+
 const employeeFields = `e.id,e.member_id,e.employee_number,e.full_name,e.job_title,e.province_id,p.name AS province_name,e.site_id,s.name AS site_name,e.department_id,d.name AS department_name,e.employment_status`;
 const compensationFields = `c.id,c.employee_id,c.effective_from::text,c.effective_to::text,c.currency,c.basic_salary::text,c.pay_frequency,c.contract_hours_per_week::text,c.overtime_multiplier::text,c.payment_method,c.bank_name,c.bank_account,c.mobile_money_number,c.notes,c.created_at,c.updated_at,e.employee_number,e.full_name AS employee_name,e.job_title AS employee_job_title,e.member_id AS employee_member_id,e.province_id,p.name AS province_name,e.site_id,s.name AS site_name`;
 const componentFields = `id,code,name,component_type,calculation,percentage::text,default_amount::text,is_taxable,affects_gross,ledger_account_id,sort_order,is_active,notes,created_at,updated_at`;
@@ -209,6 +218,45 @@ const payslipFields = `p.id,p.reference,p.run_id,p.employee_id,p.employee_number
 const n = (value: string | null | undefined) =>
   value == null ? null : Number(value);
 const optionalDate = (v: string | null | undefined) => v ?? null;
+
+/**
+ * External payroll messages deliberately contain no salary amount, payslip
+ * reference, employee name, or other private payroll detail. SMS is the
+ * preferred channel in Congo; email is used only when the SMS is not accepted.
+ */
+async function deliverPayrollPayment(
+  delivery: PayrollPaymentDelivery,
+): Promise<void> {
+  const sms =
+    "LiteHubs : votre paie a été marquée payée. Connectez-vous à LiteHubs pour consulter votre fiche en toute sécurité.";
+  const smsResult = delivery.phone
+    ? await sendSms({ to: delivery.phone, content: sms })
+    : { sent: false };
+
+  if (smsResult.sent || !delivery.email) return;
+
+  const safeUrl = delivery.payslipsUrl.replace(
+    /[&<>"']/g,
+    (character) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      })[character]!,
+  );
+  await sendMail({
+    to: delivery.email,
+    subject: "Paie versée · LiteHubs",
+    text: [
+      "Votre paie a été marquée payée.",
+      "",
+      `Connectez-vous à LiteHubs pour consulter votre fiche en toute sécurité : ${delivery.payslipsUrl}`,
+    ].join("\n"),
+    html: `<div style="max-width:600px;margin:0 auto;padding:28px;font-family:Arial,sans-serif;color:#101828;"><p style="margin:0 0 20px;color:#0f5132;font-size:20px;font-weight:700;">LiteHubs</p><h1 style="margin:0 0 16px;font-size:24px;">Paie versée</h1><p>Votre paie a été marquée payée.</p><p>Connectez-vous à LiteHubs pour consulter votre fiche en toute sécurité.</p><p style="margin-top:24px;"><a href="${safeUrl}" style="display:inline-block;padding:12px 18px;background:#146c43;border-radius:8px;color:#fff;font-weight:700;text-decoration:none;">Consulter ma fiche de paie</a></p></div>`,
+  });
+}
 
 function mapRunExclusion(row: RunExclusionRow) {
   return {
@@ -1299,7 +1347,7 @@ export async function markPaid(
   id: string,
   input: MarkPaidInput,
 ) {
-  return withTenantContext(context, async (c) => {
+  const paid = await withTenantContext(context, async (c) => {
     const old = await runFor(c, context, id);
     if (old.status !== "approved")
       throw new ConflictError("Only an approved payroll can be marked paid");
@@ -1312,8 +1360,70 @@ export async function markPaid(
         input.notes === undefined ? old.notes : input.notes,
       ],
     );
-    return mapRun(await runFor(c, context, r.rows[0]!.id));
+    const run = await runFor(c, context, r.rows[0]!.id);
+    const organization = await c.query<{ slug: string }>(
+      "SELECT slug FROM organizations WHERE id=$1",
+      [context.organizationId],
+    );
+    const organizationSlug = organization.rows[0]?.slug;
+    const recipients = await c.query<{
+      payslip_id: string;
+      payslip_reference: string;
+      employee_id: string;
+      member_id: string;
+      province_id: string | null;
+      site_id: string | null;
+      phone: string | null;
+      email: string;
+    }>(
+      `SELECT p.id AS payslip_id,p.reference AS payslip_reference,p.employee_id,
+              e.member_id,e.province_id,e.site_id,e.phone,user_account.email::text
+         FROM payslips p
+         JOIN employees e ON e.organization_id=p.organization_id AND e.id=p.employee_id
+         JOIN organization_members member
+           ON member.organization_id=e.organization_id
+          AND member.id=e.member_id
+          AND member.status='active'
+         JOIN users user_account ON user_account.id=member.user_id
+        WHERE p.organization_id=$1 AND p.run_id=$2`,
+      [context.organizationId, run.id],
+    );
+    const deliveries: PayrollPaymentDelivery[] = [];
+    for (const recipient of recipients.rows) {
+      if (recipient.member_id === context.memberId) continue;
+      await createNotificationInTransaction(c, {
+        organizationId: context.organizationId,
+        recipientMemberId: recipient.member_id,
+        recipientEmployeeId: recipient.employee_id,
+        actorUserId: context.userId,
+        provinceId: recipient.province_id,
+        siteId: recipient.site_id,
+        type: "payroll_paid",
+        category: "payroll",
+        priority: "high",
+        title: "Paie versée",
+        message: recipient.payslip_reference,
+        actionUrl: "/my-payslips",
+        entityType: "payslip",
+        entityId: recipient.payslip_id,
+        deduplicationKey: `payroll-paid:${recipient.payslip_id}`,
+        skipEmailDelivery: true,
+      });
+      deliveries.push({
+        phone: recipient.phone,
+        email: recipient.email,
+        payslipsUrl: organizationSlug
+          ? `${env.frontendUrl}/${organizationSlug}/my-payslips`
+          : `${env.frontendUrl}/my-payslips`,
+      });
+    }
+    return { run: mapRun(run), deliveries };
   });
+  // The paid state commits before either external channel is contacted.
+  await Promise.allSettled(
+    paid.deliveries.map((delivery) => deliverPayrollPayment(delivery)),
+  );
+  return paid.run;
 }
 export async function listPayslips(context: PayrollContext, runId: string) {
   return withTenantContext(context, async (c) => {

@@ -1,11 +1,18 @@
 import { z } from "zod";
 import { organizationSlugSchema } from "../organization/organization.validation";
+import { isValidPhone, normalizePhone } from "../../utils/phone";
 
 const id = z.string().uuid("Choose a valid record");
 const date = z.string().date("Use YYYY-MM-DD");
 const code = z.string().trim().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/, "Use letters, numbers, hyphens or underscores");
 const requiredText = (max: number) => z.string().trim().min(1).max(max);
 const optionalText = (max: number) => requiredText(max).nullable().optional();
+const optionalPhone = z.preprocess(
+  (value) => (typeof value === "string" && value.trim() === "" ? null : value),
+  z.string().trim().max(80).transform(normalizePhone).refine(isValidPhone, {
+    message: "Enter a valid phone number. For the DRC use +243 followed by 9 digits",
+  }).nullable().optional(),
+);
 const positive = z.coerce.number().finite().positive();
 const nonnegative = z.coerce.number().finite().nonnegative();
 const currency = z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/, "Use a 3-letter currency such as CDF");
@@ -18,24 +25,43 @@ export const salesDeliveryParams = organizationParams.extend({ deliveryId: id })
 export const saleSourceTypes = ["egg_flock", "poultry_flock", "pig_group", "pig_animal", "harvest_planting", "inventory_item"] as const;
 
 export const customerInput = z.object({
-  code,
+  code: code.optional(),
   name: requiredText(220),
   customerType: z.enum(["business", "individual", "government", "cooperative", "internal"]).default("business"),
   contactName: optionalText(160),
-  phone: optionalText(80),
+  phone: optionalPhone,
   email: z.string().trim().email("Use a valid email address").nullable().optional(),
   addressLine1: optionalText(220),
   addressLine2: optionalText(220),
   city: optionalText(120),
   region: optionalText(120),
   postalCode: optionalText(40),
-  country: z.string().trim().toUpperCase().regex(/^[A-Z]{2}$/, "Use a 2-letter country code").nullable().optional(),
+  country: optionalText(120),
   currency: currency.nullable().optional(),
   paymentTermsDays: z.coerce.number().int().min(0).max(365).default(0),
   creditLimit: nonnegative.nullable().optional(),
   provinceId: id.nullable().optional(),
   isActive: z.boolean().default(true),
   notes: optionalText(4000),
+});
+
+export const customerUpdateInput = z.object({
+  name: requiredText(220).optional(),
+  customerType: z.enum(["business", "individual", "government", "cooperative", "internal"]).optional(),
+  contactName: optionalText(160),
+  phone: optionalPhone,
+  email: z.string().trim().email("Use a valid email address").nullable().optional(),
+  addressLine1: optionalText(220),
+  addressLine2: optionalText(220),
+  city: optionalText(120),
+  region: optionalText(120),
+  postalCode: optionalText(40),
+  country: optionalText(120),
+  paymentTermsDays: z.coerce.number().int().min(0).max(365).optional(),
+  isActive: z.boolean().optional(),
+  notes: optionalText(4000),
+}).refine((value) => Object.values(value).some((entry) => entry !== undefined), {
+  message: "Provide at least one customer change",
 });
 
 export const offerInput = z.object({
@@ -117,6 +143,7 @@ export const salesListQuery = z.object({
 });
 
 export type CustomerInput = z.infer<typeof customerInput>;
+export type CustomerUpdateInput = z.infer<typeof customerUpdateInput>;
 export type OfferInput = z.infer<typeof offerInput>;
 export type CreateOrderInput = z.infer<typeof createOrderInput>;
 export type DeliveryInput = z.infer<typeof deliveryInput>;

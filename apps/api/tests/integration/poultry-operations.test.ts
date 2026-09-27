@@ -135,6 +135,37 @@ describe("Poultry operations", () => {
       capacity: 500,
     });
     expect(house.status).toBe(201);
+
+    const automaticHouse = await postOwner(poultryPath("houses"), {
+      siteId: kinshasaFarm.body.site.id,
+      name: "Automatic House",
+      houseType: "broiler",
+      capacity: 120,
+      lengthM: 12,
+      widthM: 8,
+      // The service must ignore a manually supplied area.
+      floorAreaM2: 1,
+    });
+    expect(automaticHouse.status).toBe(201);
+    expect(automaticHouse.body.record.code).toBe("bat_0001");
+    expect(Number(automaticHouse.body.record.floorAreaM2)).toBe(96);
+
+    const nextAutomaticHouse = await postOwner(poultryPath("houses"), {
+      siteId: kinshasaFarm.body.site.id,
+      name: "Second automatic house",
+      houseType: "broiler",
+      capacity: 120,
+    });
+    expect(nextAutomaticHouse.status).toBe(201);
+    expect(nextAutomaticHouse.body.record.code).toBe("bat_0002");
+
+    const resizedHouse = await owner(
+      request(app)
+        .patch(`${poultryPath("houses")}/${automaticHouse.body.record.id}`)
+        .send({ lengthM: 15 }),
+    );
+    expect(resizedHouse.status).toBe(200);
+    expect(Number(resizedHouse.body.record.floorAreaM2)).toBe(120);
     const flock = await postOwner(poultryPath("flocks"), {
       houseId: house.body.record.id,
       code: "broiler_a",
@@ -322,7 +353,11 @@ describe("Poultry operations", () => {
       const created = await supervisor(
         request(app).post(poultryPath(resource)).send(body),
       );
-      expect(created.status, resource).toBe(201);
+      // Production targets are company standards, not daily operational data.
+      // A provincial supervisor may record field work but cannot change targets.
+      expect(created.status, resource).toBe(
+        resource === "production-targets" ? 403 : 201,
+      );
     }
 
     const corrected = await supervisor(

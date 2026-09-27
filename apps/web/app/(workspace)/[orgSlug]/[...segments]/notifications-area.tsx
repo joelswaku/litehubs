@@ -42,7 +42,7 @@ const CATEGORIES = [
   "training", "task", "project", "alert", "approval", "leave", "payroll",
   "maintenance", "inventory", "procurement", "finance", "document", "contract",
   "attendance", "schedule", "discipline", "incident", "security", "poultry",
-  "pigs", "agriculture", "veterinary", "general",
+  "pigs", "agriculture", "veterinary", "report", "general",
 ] as const;
 const PRIORITIES: NotificationPriority[] = ["low", "normal", "high", "urgent"];
 
@@ -70,6 +70,7 @@ function categoryKey(category: string) {
     case "pigs": return "notifications.category.pigs";
     case "agriculture": return "notifications.category.agriculture";
     case "veterinary": return "notifications.category.veterinary";
+    case "report": return "notifications.category.report";
     case "general": return "notifications.category.general";
     default: return "notifications.category.other";
   }

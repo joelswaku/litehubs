@@ -31,6 +31,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { HrPdfButton } from "@/components/hr/hr-pdf-button";
 import { Field as BaseField, Input, Textarea } from "@/components/ui/input";
+import { PhoneInput } from "@/components/ui/phone-input";
 import {
   EmptyState,
   ErrorState,
@@ -2539,9 +2540,10 @@ function CompensationDialog({
           <Input name="bankAccount" defaultValue={editing?.bankAccount ?? ""} />
         </FormField>
         <FormField label="Mobile money">
-          <Input
+          <PhoneInput
             name="mobileMoneyNumber"
             defaultValue={editing?.mobileMoneyNumber ?? ""}
+            fr={fr}
           />
         </FormField>
         <FormField label={t(fr, "Notes", "Notes")} className="sm:col-span-2">

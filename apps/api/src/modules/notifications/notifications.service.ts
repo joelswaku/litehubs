@@ -2,10 +2,7 @@ import type { PoolClient } from "pg";
 import { db } from "../../config/database";
 import { env } from "../../config/env";
 import { sendMail } from "../../services/notification.service";
-import {
-  BadRequestError,
-  NotFoundError,
-} from "../../utils/errors";
+import { BadRequestError, NotFoundError } from "../../utils/errors";
 import { withTenantContext } from "../../utils/tenant-query";
 import type {
   ListNotificationsInput,
@@ -39,6 +36,13 @@ export interface CreateNotificationInput {
   metadata?: Record<string, unknown>;
   expiresAt?: string | null;
   deduplicationKey?: string | null;
+  /**
+   * Certain business workflows own their outbound-channel policy. For example,
+   * a newly assigned training sends an SMS first and uses email only as a
+   * fallback. Keep its inbox notification, but do not queue the independent
+   * preference-driven email delivery as well.
+   */
+  skipEmailDelivery?: boolean;
 }
 
 type NotificationRow = {
@@ -101,11 +105,32 @@ const notificationFields = `
 `;
 
 const categories = new Set([
-  "general", "alert", "escalation", "approval", "task", "project",
-  "leave", "payroll", "training", "invitation", "maintenance",
-  "inventory", "procurement", "finance", "document", "contract",
-  "attendance", "schedule", "discipline", "incident", "security",
-  "poultry", "pigs", "agriculture", "veterinary", "report",
+  "general",
+  "alert",
+  "escalation",
+  "approval",
+  "task",
+  "project",
+  "leave",
+  "payroll",
+  "training",
+  "invitation",
+  "maintenance",
+  "inventory",
+  "procurement",
+  "finance",
+  "document",
+  "contract",
+  "attendance",
+  "schedule",
+  "discipline",
+  "incident",
+  "security",
+  "poultry",
+  "pigs",
+  "agriculture",
+  "veterinary",
+  "report",
 ]);
 
 function mapNotification(row: NotificationRow) {
@@ -117,9 +142,7 @@ function mapNotification(row: NotificationRow) {
     title: row.title,
     message: row.message,
     actionUrl: row.action_url,
-    entity: row.entity_id
-      ? { type: row.entity_type, id: row.entity_id }
-      : null,
+    entity: row.entity_id ? { type: row.entity_type, id: row.entity_id } : null,
     metadata: row.metadata ?? {},
     isRead: row.is_read,
     readAt: row.read_at,
@@ -129,7 +152,11 @@ function mapNotification(row: NotificationRow) {
       ? { id: row.province_id, name: row.province_name }
       : null,
     actor: row.actor_user_id
-      ? { userId: row.actor_user_id, fullName: row.actor_name, email: row.actor_email }
+      ? {
+          userId: row.actor_user_id,
+          fullName: row.actor_name,
+          email: row.actor_email,
+        }
       : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -137,7 +164,9 @@ function mapNotification(row: NotificationRow) {
   };
 }
 
-function severityFor(priority: NotificationPriority): "info" | "warning" | "critical" {
+function severityFor(
+  priority: NotificationPriority,
+): "info" | "warning" | "critical" {
   if (priority === "urgent") return "critical";
   if (priority === "high") return "warning";
   return "info";
@@ -153,9 +182,12 @@ function minimumSeverityAllows(
 
 function assertRelativeActionUrl(value: string | null | undefined): void {
   if (value && (!value.startsWith("/") || value.startsWith("//")))
-    throw new BadRequestError("Notification action must be a safe app-relative path", {
-      field: "actionUrl",
-    });
+    throw new BadRequestError(
+      "Notification action must be a safe app-relative path",
+      {
+        field: "actionUrl",
+      },
+    );
 }
 
 async function recipientFor(
@@ -172,10 +204,7 @@ async function recipientFor(
        JOIN users u ON u.id=m.user_id
       WHERE m.organization_id=$1 AND m.status='active'
         AND (${input.recipientMemberId ? "m.id=$2" : "m.user_id=$2"})`,
-    [
-      input.organizationId,
-      input.recipientMemberId ?? input.recipientUserId,
-    ],
+    [input.organizationId, input.recipientMemberId ?? input.recipientUserId],
   );
   return result.rows[0] ?? null;
 }
@@ -255,7 +284,7 @@ async function emailEnabledForCategory(
   const preference = result.rows[0];
   return Boolean(
     preference?.email &&
-      minimumSeverityAllows(preference.min_email_severity, priority),
+    minimumSeverityAllows(preference.min_email_severity, priority),
   );
 }
 
@@ -326,26 +355,63 @@ export async function createNotificationInTransaction(
   // receive an inbox item. The originating workflow remains successful.
   if (!recipient) return null;
   await Promise.all([
-    assertOrganizationRecord(client, input.organizationId, "provinces", input.provinceId, "provinceId"),
-    assertOrganizationRecord(client, input.organizationId, "employees", input.recipientEmployeeId, "recipientEmployeeId"),
-    assertOrganizationRecord(client, input.organizationId, "sites", input.siteId, "siteId"),
+    assertOrganizationRecord(
+      client,
+      input.organizationId,
+      "provinces",
+      input.provinceId,
+      "provinceId",
+    ),
+    assertOrganizationRecord(
+      client,
+      input.organizationId,
+      "employees",
+      input.recipientEmployeeId,
+      "recipientEmployeeId",
+    ),
+    assertOrganizationRecord(
+      client,
+      input.organizationId,
+      "sites",
+      input.siteId,
+      "siteId",
+    ),
   ]);
   const priority = input.priority ?? "normal";
-  const profile = await profilePreferences(client, input.organizationId, recipient.member_id);
+  const profile = await profilePreferences(
+    client,
+    input.organizationId,
+    recipient.member_id,
+  );
   // Urgent safety/compliance notices remain mandatory in the in-app inbox.
   const categoryAllowsInApp = await inAppEnabledForCategory(
-    client, input.organizationId, recipient.member_id, input.category,
-  );
-  if ((!profile.in_app_enabled || !categoryAllowsInApp) && priority !== "urgent") return null;
-  const emailPending = await emailEnabledForCategory(
     client,
     input.organizationId,
     recipient.member_id,
     input.category,
-    priority,
-    profile,
   );
-  const metadata = { ...(input.metadata ?? {}), ...(input.siteId ? { siteId: input.siteId } : {}) };
+  const emailPending = input.skipEmailDelivery
+    ? false
+    : await emailEnabledForCategory(
+        client,
+        input.organizationId,
+        recipient.member_id,
+        input.category,
+        priority,
+        profile,
+      );
+  // E-mail is an independent delivery channel. A person may choose to keep a
+  // quiet in-app inbox while still receiving farm safety alerts by e-mail.
+  if (
+    (!profile.in_app_enabled || !categoryAllowsInApp) &&
+    !emailPending &&
+    priority !== "urgent"
+  )
+    return null;
+  const metadata = {
+    ...(input.metadata ?? {}),
+    ...(input.siteId ? { siteId: input.siteId } : {}),
+  };
   const insert = await client.query<{ id: string }>(
     `INSERT INTO notifications (
        organization_id,province_id,member_id,recipient_user_id,recipient_employee_id,
@@ -398,7 +464,12 @@ export async function createNotificationInTransaction(
   }
   if (!createdId) return null;
   return mapNotification(
-    await notificationRow(client, input.organizationId, recipient.member_id, createdId),
+    await notificationRow(
+      client,
+      input.organizationId,
+      recipient.member_id,
+      createdId,
+    ),
   );
 }
 
@@ -453,20 +524,31 @@ export async function listNotifications(
     if (input.tab === "archived") where.push("n.is_archived");
     else where.push("n.is_archived=false");
     if (input.tab === "unread") where.push("n.is_read=false");
-    if (input.tab === "important") where.push("n.priority IN ('high','urgent')");
+    if (input.tab === "important")
+      where.push("n.priority IN ('high','urgent')");
     if (input.category) add((index) => `n.category=$${index}`, input.category);
     if (input.priority) add((index) => `n.priority=$${index}`, input.priority);
-    if (input.provinceId) add((index) => `n.province_id=$${index}`, input.provinceId);
-    if (input.siteId) add((index) => `n.metadata ->> 'siteId'=$${index}`, input.siteId);
+    if (input.provinceId)
+      add((index) => `n.province_id=$${index}`, input.provinceId);
+    if (input.siteId)
+      add((index) => `n.metadata ->> 'siteId'=$${index}`, input.siteId);
     if (input.search)
       add(
-        (index) => `(n.title ILIKE $${index} OR COALESCE(n.message,'') ILIKE $${index})`,
+        (index) =>
+          `(n.title ILIKE $${index} OR COALESCE(n.message,'') ILIKE $${index})`,
         `%${input.search}%`,
       );
-    if (input.from) add((index) => `n.created_at >= $${index}::date`, input.from);
-    if (input.to) add((index) => `n.created_at < ($${index}::date + interval '1 day')`, input.to);
+    if (input.from)
+      add((index) => `n.created_at >= $${index}::date`, input.from);
+    if (input.to)
+      add(
+        (index) => `n.created_at < ($${index}::date + interval '1 day')`,
+        input.to,
+      );
     values.push(input.limit, input.offset);
-    const result = await client.query<NotificationRow & { total_count: string }>(
+    const result = await client.query<
+      NotificationRow & { total_count: string }
+    >(
       `SELECT ${notificationFields},COUNT(*) OVER() AS total_count
          FROM notifications n
          LEFT JOIN provinces p ON p.organization_id=n.organization_id AND p.id=n.province_id
@@ -507,34 +589,74 @@ async function updateReadState(
   read: boolean,
 ) {
   return withTenantContext(context, async (client) => {
-    const current = await notificationRow(client, context.organizationId, context.memberId, notificationId);
+    const current = await notificationRow(
+      client,
+      context.organizationId,
+      context.memberId,
+      notificationId,
+    );
     await client.query(
       `UPDATE notifications SET is_read=$4,read_at=CASE WHEN $4 THEN COALESCE(read_at,now()) ELSE NULL END
         WHERE organization_id=$1 AND member_id=$2 AND id=$3`,
       [context.organizationId, context.memberId, notificationId, read],
     );
-    await audit(client, context, read ? "read" : "update", notificationId, current.title, {
-      event: read ? "marked_read" : "marked_unread",
-    });
-    return mapNotification(await notificationRow(client, context.organizationId, context.memberId, notificationId));
+    await audit(
+      client,
+      context,
+      read ? "read" : "update",
+      notificationId,
+      current.title,
+      {
+        event: read ? "marked_read" : "marked_unread",
+      },
+    );
+    return mapNotification(
+      await notificationRow(
+        client,
+        context.organizationId,
+        context.memberId,
+        notificationId,
+      ),
+    );
   });
 }
 
-export const markNotificationRead = (context: NotificationContext, notificationId: string) =>
-  updateReadState(context, notificationId, true);
-export const markNotificationUnread = (context: NotificationContext, notificationId: string) =>
-  updateReadState(context, notificationId, false);
+export const markNotificationRead = (
+  context: NotificationContext,
+  notificationId: string,
+) => updateReadState(context, notificationId, true);
+export const markNotificationUnread = (
+  context: NotificationContext,
+  notificationId: string,
+) => updateReadState(context, notificationId, false);
 
-export async function archiveNotification(context: NotificationContext, notificationId: string) {
+export async function archiveNotification(
+  context: NotificationContext,
+  notificationId: string,
+) {
   return withTenantContext(context, async (client) => {
-    const current = await notificationRow(client, context.organizationId, context.memberId, notificationId);
+    const current = await notificationRow(
+      client,
+      context.organizationId,
+      context.memberId,
+      notificationId,
+    );
     await client.query(
       `UPDATE notifications SET is_archived=true,archived_at=COALESCE(archived_at,now())
         WHERE organization_id=$1 AND member_id=$2 AND id=$3`,
       [context.organizationId, context.memberId, notificationId],
     );
-    await audit(client, context, "update", notificationId, current.title, { event: "archived" });
-    return mapNotification(await notificationRow(client, context.organizationId, context.memberId, notificationId));
+    await audit(client, context, "update", notificationId, current.title, {
+      event: "archived",
+    });
+    return mapNotification(
+      await notificationRow(
+        client,
+        context.organizationId,
+        context.memberId,
+        notificationId,
+      ),
+    );
   });
 }
 
@@ -572,14 +694,24 @@ export async function archiveReadNotifications(context: NotificationContext) {
   });
 }
 
-export async function deleteNotification(context: NotificationContext, notificationId: string) {
+export async function deleteNotification(
+  context: NotificationContext,
+  notificationId: string,
+) {
   return withTenantContext(context, async (client) => {
-    const current = await notificationRow(client, context.organizationId, context.memberId, notificationId);
+    const current = await notificationRow(
+      client,
+      context.organizationId,
+      context.memberId,
+      notificationId,
+    );
     await client.query(
       `DELETE FROM notifications WHERE organization_id=$1 AND member_id=$2 AND id=$3`,
       [context.organizationId, context.memberId, notificationId],
     );
-    await audit(client, context, "delete", notificationId, current.title, { event: "deleted" });
+    await audit(client, context, "delete", notificationId, current.title, {
+      event: "deleted",
+    });
   });
 }
 
@@ -596,7 +728,11 @@ const defaultProfile = {
 
 export async function getNotificationPreferences(context: NotificationContext) {
   return withTenantContext(context, async (client) => {
-    const profile = await profilePreferences(client, context.organizationId, context.memberId);
+    const profile = await profilePreferences(
+      client,
+      context.organizationId,
+      context.memberId,
+    );
     const categoryPreferences = await client.query<{
       category: string;
       in_app: boolean;
@@ -633,15 +769,25 @@ export async function updateNotificationPreferences(
   input: UpdateNotificationPreferencesInput,
 ) {
   return withTenantContext(context, async (client) => {
-    const current = await profilePreferences(client, context.organizationId, context.memberId);
+    const current = await profilePreferences(
+      client,
+      context.organizationId,
+      context.memberId,
+    );
     const next = {
       inAppEnabled: input.inAppEnabled ?? current.in_app_enabled,
       emailEnabled: input.emailEnabled ?? current.email_enabled,
       smsEnabled: input.smsEnabled ?? current.sms_enabled,
       pushEnabled: input.pushEnabled ?? current.push_enabled,
       digestFrequency: input.digestFrequency ?? current.digest_frequency,
-      quietHoursStart: input.quietHoursStart === undefined ? current.quiet_hours_start : input.quietHoursStart,
-      quietHoursEnd: input.quietHoursEnd === undefined ? current.quiet_hours_end : input.quietHoursEnd,
+      quietHoursStart:
+        input.quietHoursStart === undefined
+          ? current.quiet_hours_start
+          : input.quietHoursStart,
+      quietHoursEnd:
+        input.quietHoursEnd === undefined
+          ? current.quiet_hours_end
+          : input.quietHoursEnd,
       preferredLanguage: input.preferredLanguage ?? current.preferred_language,
     };
     await client.query(
@@ -653,7 +799,18 @@ export async function updateNotificationPreferences(
          sms_enabled=EXCLUDED.sms_enabled,push_enabled=EXCLUDED.push_enabled,
          digest_frequency=EXCLUDED.digest_frequency,quiet_hours_start=EXCLUDED.quiet_hours_start,
          quiet_hours_end=EXCLUDED.quiet_hours_end,preferred_language=EXCLUDED.preferred_language`,
-      [context.organizationId, context.memberId, next.inAppEnabled, next.emailEnabled, next.smsEnabled, next.pushEnabled, next.digestFrequency, next.quietHoursStart, next.quietHoursEnd, next.preferredLanguage],
+      [
+        context.organizationId,
+        context.memberId,
+        next.inAppEnabled,
+        next.emailEnabled,
+        next.smsEnabled,
+        next.pushEnabled,
+        next.digestFrequency,
+        next.quietHoursStart,
+        next.quietHoursEnd,
+        next.preferredLanguage,
+      ],
     );
     for (const preference of input.categories ?? []) {
       if (!categories.has(preference.category)) continue;
@@ -662,10 +819,19 @@ export async function updateNotificationPreferences(
          VALUES ($1,$2,$3,$4,$5,$6)
          ON CONFLICT (organization_id,member_id,category) DO UPDATE SET
            in_app=EXCLUDED.in_app,email=EXCLUDED.email,min_email_severity=EXCLUDED.min_email_severity`,
-        [context.organizationId, context.memberId, preference.category, preference.inApp, preference.email, preference.minEmailSeverity],
+        [
+          context.organizationId,
+          context.memberId,
+          preference.category,
+          preference.inApp,
+          preference.email,
+          preference.minEmailSeverity,
+        ],
       );
     }
-    await audit(client, context, "update", null, "Notification preferences", { event: "preferences_updated" });
+    await audit(client, context, "update", null, "Notification preferences", {
+      event: "preferences_updated",
+    });
     const categoryPreferences = await client.query<{
       category: string;
       in_app: boolean;
@@ -690,7 +856,9 @@ export async function updateNotificationPreferences(
 
 /** Best-effort queued e-mail delivery. Email failures stay visible on the row
  * and are retried on later scheduler runs (up to three attempts). */
-export async function deliverPendingEmailsForOrganization(organizationId: string) {
+export async function deliverPendingEmailsForOrganization(
+  organizationId: string,
+) {
   return withTenantContext({ organizationId, userId: null }, async (client) => {
     const pending = await client.query<NotificationRow & RecipientRow>(
       `SELECT ${notificationFields},u.email::text,u.full_name
@@ -705,18 +873,31 @@ export async function deliverPendingEmailsForOrganization(organizationId: string
     );
     let delivered = 0;
     for (const item of pending.rows) {
-      const actionUrl = item.action_url ? new URL(item.action_url, env.frontendUrl).toString() : null;
+      const actionUrl = item.action_url
+        ? new URL(item.action_url, env.frontendUrl).toString()
+        : null;
       const result = await sendMail({
         to: item.email,
         subject: item.title,
-        text: [item.title, item.message ?? "", actionUrl ? `Open: ${actionUrl}` : ""].filter(Boolean).join("\n\n"),
+        text: [
+          item.title,
+          item.message ?? "",
+          actionUrl ? `Open: ${actionUrl}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
         html: `<h1>${escapeForHtml(item.title)}</h1><p>${escapeForHtml(item.message ?? "")}</p>${actionUrl ? `<p><a href="${escapeForHtml(actionUrl)}">Open in LiteHubs</a></p>` : ""}`,
       });
       await client.query(
         `UPDATE notifications SET email_status=$3,email_sent_at=CASE WHEN $3='sent' THEN now() ELSE email_sent_at END,
              email_error=$4,delivery_attempts=delivery_attempts+1,last_delivery_attempt_at=now()
           WHERE organization_id=$1 AND id=$2`,
-        [organizationId, item.id, result.sent ? "sent" : "failed", result.reason ?? null],
+        [
+          organizationId,
+          item.id,
+          result.sent ? "sent" : "failed",
+          result.reason ?? null,
+        ],
       );
       if (result.sent) delivered += 1;
     }
@@ -725,10 +906,18 @@ export async function deliverPendingEmailsForOrganization(organizationId: string
 }
 
 function escapeForHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
+  return value.replace(
+    /[&<>"']/g,
+    (character) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
+        character
+      ]!,
+  );
 }
 
-export async function runScheduledNotificationRemindersForOrganization(organizationId: string) {
+export async function runScheduledNotificationRemindersForOrganization(
+  organizationId: string,
+) {
   return withTenantContext({ organizationId, userId: null }, async (client) => {
     const dueTraining = await client.query<{
       assignment_id: string;
@@ -823,7 +1012,7 @@ export async function runScheduledNotificationRemindersForOrganization(organizat
         priority: "high",
         title: "Task deadline approaching",
         message: `${task.title} is due on ${task.due_date}.`,
-        actionUrl: "/tasks",
+        actionUrl: "/my-tasks",
         entityType: "management_project_task",
         entityId: task.id,
         deduplicationKey: `task-due:${task.id}:${task.due_date}`,
@@ -854,7 +1043,7 @@ export async function runScheduledNotificationRemindersForOrganization(organizat
         priority: "urgent",
         title: "Task is overdue",
         message: `${task.title} was due on ${task.due_date}.`,
-        actionUrl: "/tasks",
+        actionUrl: "/my-tasks",
         entityType: "management_project_task",
         entityId: task.id,
         deduplicationKey: `task-overdue:${task.id}:${new Date().toISOString().slice(0, 10)}`,
@@ -875,13 +1064,25 @@ export async function runScheduledNotificationRemindersForOrganization(organizat
       [organizationId],
     );
     for (const work of dueMaintenance.rows) {
-      const input: Omit<CreateNotificationInput, "recipientMemberId" | "recipientUserId"> = {
+      const input: Omit<
+        CreateNotificationInput,
+        "recipientMemberId" | "recipientUserId"
+      > = {
         organizationId,
         provinceId: work.province_id,
-        type: work.due_date < new Date().toISOString().slice(0, 10) ? "maintenance_overdue" : "maintenance_due",
+        type:
+          work.due_date < new Date().toISOString().slice(0, 10)
+            ? "maintenance_overdue"
+            : "maintenance_due",
         category: "maintenance",
-        priority: work.due_date < new Date().toISOString().slice(0, 10) ? "urgent" : "high",
-        title: work.due_date < new Date().toISOString().slice(0, 10) ? "Maintenance is overdue" : "Maintenance is due soon",
+        priority:
+          work.due_date < new Date().toISOString().slice(0, 10)
+            ? "urgent"
+            : "high",
+        title:
+          work.due_date < new Date().toISOString().slice(0, 10)
+            ? "Maintenance is overdue"
+            : "Maintenance is due soon",
         message: work.work_order_number,
         actionUrl: "/maintenance",
         entityType: "maintenance_work_order",
@@ -889,7 +1090,10 @@ export async function runScheduledNotificationRemindersForOrganization(organizat
         deduplicationKey: `maintenance-reminder:${work.id}:${new Date().toISOString().slice(0, 10)}`,
       };
       if (work.assigned_member_id)
-        await createNotificationInTransaction(client, { ...input, recipientMemberId: work.assigned_member_id });
+        await createNotificationInTransaction(client, {
+          ...input,
+          recipientMemberId: work.assigned_member_id,
+        });
       else await notifyOrganizationOwnersInTransaction(client, input);
     }
     return {

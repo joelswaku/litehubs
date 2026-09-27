@@ -2,11 +2,18 @@ import { env } from "../config/env";
 import { logger } from "../config/logger";
 import { getMailTransport, mailFromAddress } from "../config/notifications";
 
+export interface MailAttachment {
+  filename: string;
+  content: Buffer;
+  contentType?: string;
+}
+
 export interface MailMessage {
   to: string;
   subject: string;
   text: string;
   html: string;
+  attachments?: MailAttachment[];
 }
 
 export interface SendResult {
@@ -147,6 +154,7 @@ export async function sendMail(message: MailMessage): Promise<SendResult> {
       subject: message.subject,
       text: message.text,
       html: message.html,
+      attachments: message.attachments,
     });
 
     logger.info(

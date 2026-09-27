@@ -143,18 +143,11 @@ describe("Owner Management", () => {
       dueDate: "2026-09-12",
       status: "in_progress",
       priority: "high",
-      estimatedCost: 4500,
-    });
-    const budget = await post("budget-lines", {
-      projectId,
-      phaseId: phase.body.record.id,
-      category: "Construction",
-      plannedAmount: 12000,
-      currencyCode: "USD",
+      estimatedCost: 6000,
+      budgetCurrencyCode: "USD",
     });
     expect(phase.status).toBe(201);
     expect(task.status).toBe(201);
-    expect(budget.status).toBe(201);
 
     // Task form regression coverage: optional task fields must use NULL rather
     // than empty strings, while valid dates, decimals and progress values save.
@@ -210,7 +203,6 @@ describe("Owner Management", () => {
       taskType: "work",
       code: "survey_payment",
       title: "Pay survey invoice",
-      assignedMemberId: ownerMemberId,
       startDate: "2026-08-28",
       dueDate: "2026-08-29",
       status: "in_progress",
@@ -225,9 +217,6 @@ describe("Owner Management", () => {
     expect(
       Number(workWithProgressAndDecimalCost.body.record.estimatedCost),
     ).toBe(1250.75);
-    expect(workWithProgressAndDecimalCost.body.record.assignedMemberId).toBe(
-      ownerMemberId,
-    );
 
     const editedTask = await owner(
       request(app)
@@ -239,8 +228,7 @@ describe("Owner Management", () => {
         .send({
           title: "Pay approved survey invoice",
           phaseId: phase.body.record.id,
-          assignedMemberId: ownerMemberId,
-          startDate: null,
+              startDate: null,
           dueDate: "2026-09-02",
           status: "in_progress",
           priority: "medium",
@@ -501,12 +489,12 @@ describe("Owner Management", () => {
     });
     const warehouse = await post("warehouses", {
       siteId: site.body.site.id,
-      code: "main_store",
       name: "Main Store",
     });
     expect(supplier.status).toBe(201);
     expect(item.status).toBe(201);
     expect(warehouse.status).toBe(201);
+    expect(warehouse.body.record.code).toMatch(/^entrepot_main_store_[a-z0-9]{6}$/);
 
     const material = await post("materials", {
       projectId,
@@ -527,11 +515,11 @@ describe("Owner Management", () => {
       requestNumber: "PR-00001",
       projectId,
       phaseId: phase.body.record.id,
+      projectTaskId: task.body.record.id,
       supplierId: supplier.body.record.id,
       reason: "Cement needed for the poultry house foundation",
       currencyCode: "USD",
-      status: "submitted",
-      approvalStatus: "pending",
+      status: "draft",
     });
     const requestLine = await post("purchase-request-lines", {
       purchaseRequestId: purchaseRequest.body.record.id,
@@ -546,22 +534,43 @@ describe("Owner Management", () => {
     });
     expect(requestLine.status).toBe(201);
 
-    const approval = await post("approvals", {
-      approvalNumber: "APR-00001",
-      projectId,
-      entityType: "purchase_request",
-      entityId: purchaseRequest.body.record.id,
-      requestType: "purchase_request",
-      requestedAmount: 5000,
-      currencyCode: "USD",
-      requestNotes: "Approve cement purchase",
+    const automaticMaterialRequestLine = await post("purchase-request-lines", {
+      purchaseRequestId: purchaseRequest.body.record.id,
+      description: "Roofing sheets",
+      itemKind: "material",
+      unit: "sheet",
+      requestedQuantity: 20,
+      approvedQuantity: 20,
+      estimatedUnitCost: 15,
     });
+    expect(automaticMaterialRequestLine.status).toBe(201);
+
+    const submittedRequest = await owner(
+      request(app)
+        .patch(
+          base +
+            "/owner-management/purchase-requests/" +
+            purchaseRequest.body.record.id,
+        )
+        .send({ status: "submitted" }),
+    );
+    expect(submittedRequest.status).toBe(200);
+    const approvals = await owner(
+      request(app).get(base + "/owner-management/approvals?projectId=" + projectId),
+    );
+    expect(approvals.status).toBe(200);
+    const approval = approvals.body.records.find(
+      (item: { entityId: string; requestType: string }) =>
+        item.entityId === purchaseRequest.body.record.id &&
+        item.requestType === "purchase_request",
+    );
+    expect(approval).toBeDefined();
     const decision = await owner(
       request(app)
         .post(
           base +
             "/owner-management/approvals/" +
-            approval.body.record.id +
+            approval.id +
             "/decide",
         )
         .send({
@@ -571,6 +580,66 @@ describe("Owner Management", () => {
     );
     expect(decision.status).toBe(200);
     expect(decision.body.approval.status).toBe("approved");
+
+    const returnedToDraft = await owner(
+      request(app)
+        .post(
+          base +
+            "/owner-management/purchase-requests/" +
+            purchaseRequest.body.record.id +
+            "/return-to-draft",
+        )
+        .send({ correctionNote: "Correct the requested quantity." }),
+    );
+    expect(returnedToDraft.status).toBe(200);
+    expect(returnedToDraft.body.record.status).toBe("draft");
+    expect(returnedToDraft.body.record.approvalStatus).toBe("not_requested");
+
+    const correctedLine = await owner(
+      request(app)
+        .patch(
+          base +
+            "/owner-management/purchase-request-lines/" +
+            requestLine.body.record.id,
+        )
+        .send({ notes: "Quantity checked before resubmission." }),
+    );
+    expect(correctedLine.status).toBe(200);
+
+    const resubmittedRequest = await owner(
+      request(app)
+        .patch(
+          base +
+            "/owner-management/purchase-requests/" +
+            purchaseRequest.body.record.id,
+        )
+        .send({ status: "submitted" }),
+    );
+    expect(resubmittedRequest.status).toBe(200);
+    const resubmittedApprovals = await owner(
+      request(app).get(base + "/owner-management/approvals?projectId=" + projectId),
+    );
+    const resubmittedApproval = resubmittedApprovals.body.records.find(
+      (item: { entityId: string; requestType: string; status: string }) =>
+        item.entityId === purchaseRequest.body.record.id &&
+        item.requestType === "purchase_request" &&
+        item.status === "pending",
+    );
+    expect(resubmittedApproval).toBeDefined();
+    const redecision = await owner(
+      request(app)
+        .post(
+          base +
+            "/owner-management/approvals/" +
+            resubmittedApproval.id +
+            "/decide",
+        )
+        .send({
+          decision: "approved",
+          decisionNotes: "Approved after correction.",
+        }),
+    );
+    expect(redecision.status).toBe(200);
 
     const order = await post("purchase-orders", {
       orderNumber: "PO-00001",
@@ -583,37 +652,112 @@ describe("Owner Management", () => {
       status: "sent",
       currencyCode: "USD",
     });
-    const orderLine = await post("purchase-order-lines", {
-      purchaseOrderId: order.body.record.id,
-      purchaseRequestLineId: requestLine.body.record.id,
-      projectMaterialId: material.body.record.id,
-      inventoryItemId: item.body.record.id,
-      description: "Cement",
-      itemKind: "material",
-      unit: "bag",
-      orderedQuantity: 500,
-      unitCost: 10,
-      taxAmount: 0,
+    const duplicateOrder = await post("purchase-orders", {
+      orderNumber: "PO-00001-DUPLICATE",
+      projectId,
+      phaseId: phase.body.record.id,
+      purchaseRequestId: purchaseRequest.body.record.id,
+      supplierId: supplier.body.record.id,
+      warehouseId: warehouse.body.record.id,
+      orderDate: "2026-08-26",
+      status: "draft",
+      currencyCode: "USD",
     });
+    expect(duplicateOrder.status).toBe(409);
+    expect(duplicateOrder.body.error.details.field).toBe("purchaseRequestId");
+    const copiedOrderLines = await owner(
+      request(app).get(
+        base +
+          "/owner-management/purchase-order-lines?purchaseOrderId=" +
+          order.body.record.id,
+      ),
+    );
+    expect(copiedOrderLines.status).toBe(200);
+    expect(copiedOrderLines.body.records).toHaveLength(2);
+    const reopenAfterOrder = await owner(
+      request(app)
+        .post(
+          base +
+            "/owner-management/purchase-requests/" +
+            purchaseRequest.body.record.id +
+            "/return-to-draft",
+        )
+        .send({ correctionNote: "Too late: the order already exists." }),
+    );
+    expect(reopenAfterOrder.status).toBe(409);
+    const automaticMaterialOrderLine = copiedOrderLines.body.records.find(
+      (line: { description: string }) => line.description === "Roofing sheets",
+    );
+    expect(automaticMaterialOrderLine?.projectMaterialId).toBeTruthy();
+    const projectMaterialsAfterOrder = await owner(
+      request(app).get(base + "/owner-management/materials?projectId=" + projectId),
+    );
+    expect(projectMaterialsAfterOrder.status).toBe(200);
+    expect(
+      projectMaterialsAfterOrder.body.records.some(
+        (projectMaterial: { name: string }) => projectMaterial.name === "Roofing sheets",
+      ),
+    ).toBe(true);
+    const orderLine = copiedOrderLines.body.records.find(
+      (line: { description: string }) => line.description === "Cement",
+    );
+    expect(orderLine).toBeDefined();
     const receipt = await post("receipts", {
       receiptNumber: "GRN-00001",
       purchaseOrderId: order.body.record.id,
       projectId,
       warehouseId: warehouse.body.record.id,
       receivedDate: "2026-08-26",
-      status: "received",
+      status: "draft",
     });
-    const receiptLine = await post("receipt-lines", {
+    const copiedReceiptLines = await owner(
+      request(app).get(
+        base + "/owner-management/receipt-lines?receiptId=" + receipt.body.record.id,
+      ),
+    );
+    expect(copiedReceiptLines.status).toBe(200);
+    expect(copiedReceiptLines.body.records).toHaveLength(2);
+    const copiedCementLine = copiedReceiptLines.body.records.find(
+      (line: { description: string }) => line.description === "Cement",
+    );
+    const copiedRoofingLine = copiedReceiptLines.body.records.find(
+      (line: { description: string }) => line.description === "Roofing sheets",
+    );
+    expect(copiedCementLine?.receivedQuantity).toBe(500);
+    const duplicateCopiedLine = await post("receipt-lines", {
       receiptId: receipt.body.record.id,
-      purchaseOrderLineId: orderLine.body.record.id,
-      projectMaterialId: material.body.record.id,
-      inventoryItemId: item.body.record.id,
+      purchaseOrderLineId: copiedCementLine.id,
       receivedQuantity: 350,
-      damagedQuantity: 0,
-      rejectedQuantity: 0,
-      actualUnitCost: 10,
     });
-    expect(receiptLine.status).toBe(201);
+    expect(duplicateCopiedLine.status).toBe(409);
+    expect(copiedRoofingLine?.receivedQuantity).toBe(20);
+    const correctedCementLine = await owner(
+      request(app)
+        .patch(base + "/owner-management/receipt-lines/" + copiedCementLine.id)
+        .send({ receivedQuantity: 350, actualUnitCost: 10 }),
+    );
+    expect(correctedCementLine.status).toBe(200);
+    const rejectedRoofingLine = await owner(
+      request(app)
+        .patch(base + "/owner-management/receipt-lines/" + copiedRoofingLine.id)
+        .send({ damagedQuantity: 20 }),
+    );
+    expect(rejectedRoofingLine.status).toBe(200);
+    const duplicateDraftReceipt = await post("receipts", {
+      purchaseOrderId: order.body.record.id,
+      projectId,
+      warehouseId: warehouse.body.record.id,
+      receivedDate: "2026-08-26",
+      status: "draft",
+    });
+    expect(duplicateDraftReceipt.status).toBe(400);
+    const confirmedReceipt = await owner(
+      request(app)
+        .patch(base + "/owner-management/receipts/" + receipt.body.record.id)
+        .send({ status: "received" }),
+    );
+    expect(confirmedReceipt.status).toBe(200);
+    expect(confirmedReceipt.body.record.status).toBe("received");
 
     const materialUse = await post("material-movements", {
       projectMaterialId: material.body.record.id,
@@ -625,61 +769,171 @@ describe("Owner Management", () => {
     });
     expect(materialUse.status).toBe(201);
 
-    const expense = await post("expenses", {
-      expenseNumber: "EXP-00001",
+    const firstPaymentBody = {
       projectId,
       phaseId: phase.body.record.id,
       provinceId: province.body.province.id,
       siteId: site.body.site.id,
-      supplierId: supplier.body.record.id,
-      purchaseOrderId: order.body.record.id,
       receiptId: receipt.body.record.id,
-      category: "Construction materials",
-      description: "Cement delivered and accepted",
-      amount: 3500,
+      expenseType: "receipt_payment",
+      category: "supplier_payment",
+      description: "First cement settlement",
+      amount: 1400,
       currencyCode: "USD",
       expenseDate: "2026-08-26",
       status: "paid",
+      paymentIdempotencyKey: "cement-settlement-first",
+    };
+    const firstPayment = await post("expenses", firstPaymentBody);
+    expect(firstPayment.status).toBe(201);
+    // A network retry with the same client key returns the first record and
+    // cannot create a second supplier settlement.
+    const retriedPayment = await post("expenses", firstPaymentBody);
+    expect(retriedPayment.status).toBe(201);
+    expect(retriedPayment.body.record.id).toBe(firstPayment.body.record.id);
+
+    const finalPayment = await post("expenses", {
+      ...firstPaymentBody,
+      expenseNumber: "EXP-00002",
+      description: "Final cement settlement",
+      amount: 2100,
+      paymentIdempotencyKey: "cement-settlement-final",
     });
-    expect(expense.status).toBe(201);
+    expect(finalPayment.status).toBe(201);
+    const overPayment = await post("expenses", {
+      ...firstPaymentBody,
+      expenseNumber: "EXP-00003",
+      amount: 1,
+      paymentIdempotencyKey: "cement-settlement-over",
+    });
+    expect(overPayment.status).toBe(400);
+
+    // A separate approved request is required for a durable-asset order.
+    // Create the order as a draft, set its asset metadata, then send it — the
+    // same sequence the Project Control screen uses.
+    const durableRequest = await post("purchase-requests", {
+      requestNumber: "PR-00002",
+      projectId,
+      phaseId: phase.body.record.id,
+      supplierId: supplier.body.record.id,
+      reason: "Generator required for the poultry expansion",
+      currencyCode: "USD",
+      status: "draft",
+    });
+    expect(durableRequest.status).toBe(201);
+    const durableRequestLine = await post("purchase-request-lines", {
+      purchaseRequestId: durableRequest.body.record.id,
+      description: "Generator",
+      itemKind: "asset",
+      unit: "each",
+      requestedQuantity: 2,
+      approvedQuantity: 2,
+      estimatedUnitCost: 5000,
+    });
+    expect(durableRequestLine.status).toBe(201);
+    const submittedDurableRequest = await owner(
+      request(app)
+        .patch(
+          base +
+            "/owner-management/purchase-requests/" +
+            durableRequest.body.record.id,
+        )
+        .send({ status: "submitted" }),
+    );
+    expect(submittedDurableRequest.status).toBe(200);
+    const durableApprovals = await owner(
+      request(app).get(base + "/owner-management/approvals?projectId=" + projectId),
+    );
+    const durableApproval = durableApprovals.body.records.find(
+      (item: { entityId: string; requestType: string; status: string }) =>
+        item.entityId === durableRequest.body.record.id &&
+        item.requestType === "purchase_request" &&
+        item.status === "pending",
+    );
+    expect(durableApproval).toBeDefined();
+    const durableDecision = await owner(
+      request(app)
+        .post(
+          base + "/owner-management/approvals/" + durableApproval.id + "/decide",
+        )
+        .send({ decision: "approved", decisionNotes: "Generator approved." }),
+    );
+    expect(durableDecision.status).toBe(200);
 
     const durableOrder = await post("purchase-orders", {
       orderNumber: "PO-00002",
       projectId,
       phaseId: phase.body.record.id,
+      purchaseRequestId: durableRequest.body.record.id,
       supplierId: supplier.body.record.id,
       warehouseId: warehouse.body.record.id,
       orderDate: "2026-08-26",
-      status: "sent",
+      status: "draft",
       currencyCode: "USD",
     });
-    const durableOrderLine = await post("purchase-order-lines", {
-      purchaseOrderId: durableOrder.body.record.id,
-      description: "Generator",
-      itemKind: "asset",
-      unit: "each",
-      orderedQuantity: 2,
-      unitCost: 5000,
-      assetName: "Generator",
-      assetCategory: "Generator",
-    });
+    expect(durableOrder.status).toBe(201);
+    const durableOrderLines = await owner(
+      request(app).get(
+        base +
+          "/owner-management/purchase-order-lines?purchaseOrderId=" +
+          durableOrder.body.record.id,
+      ),
+    );
+    expect(durableOrderLines.status).toBe(200);
+    const durableOrderLine = durableOrderLines.body.records.find(
+      (line: { purchaseOrderId: string }) =>
+        line.purchaseOrderId === durableOrder.body.record.id,
+    );
+    expect(durableOrderLine).toBeDefined();
+    const configuredDurableLine = await owner(
+      request(app)
+        .patch(
+          base + "/owner-management/purchase-order-lines/" + durableOrderLine.id,
+        )
+        .send({ assetName: "Generator", assetCategory: "Generator" }),
+    );
+    expect(configuredDurableLine.status).toBe(200);
+    const sentDurableOrder = await owner(
+      request(app)
+        .patch(
+          base + "/owner-management/purchase-orders/" + durableOrder.body.record.id,
+        )
+        .send({ status: "sent" }),
+    );
+    expect(sentDurableOrder.status).toBe(200);
+    expect(sentDurableOrder.body.record.status).toBe("sent");
     const durableReceipt = await post("receipts", {
       receiptNumber: "GRN-00002",
       purchaseOrderId: durableOrder.body.record.id,
       projectId,
       warehouseId: warehouse.body.record.id,
       receivedDate: "2026-08-26",
-      status: "received",
+      status: "draft",
     });
-    const durableReceiptLine = await post("receipt-lines", {
-      receiptId: durableReceipt.body.record.id,
-      purchaseOrderLineId: durableOrderLine.body.record.id,
-      receivedQuantity: 2,
-      damagedQuantity: 0,
-      rejectedQuantity: 0,
-      actualUnitCost: 5000,
+    const copiedDurableReceiptLines = await owner(
+      request(app).get(
+        base + "/owner-management/receipt-lines?receiptId=" + durableReceipt.body.record.id,
+      ),
+    );
+    expect(copiedDurableReceiptLines.status).toBe(200);
+    expect(copiedDurableReceiptLines.body.records).toHaveLength(1);
+    expect(copiedDurableReceiptLines.body.records[0].receivedQuantity).toBe(2);
+    const confirmedDurableReceipt = await owner(
+      request(app)
+        .patch(base + "/owner-management/receipts/" + durableReceipt.body.record.id)
+        .send({ status: "received" }),
+    );
+    expect(confirmedDurableReceipt.status).toBe(200);
+    // A fully received order must not accept a second BR. This protects the
+    // selector rule at the API boundary as well as in the browser.
+    const duplicateFullyReceivedOrder = await post("receipts", {
+      purchaseOrderId: durableOrder.body.record.id,
+      projectId,
+      warehouseId: warehouse.body.record.id,
+      receivedDate: "2026-08-27",
+      status: "draft",
     });
-    expect(durableReceiptLine.status).toBe(201);
+    expect(duplicateFullyReceivedOrder.status).toBe(400);
     const receivedAssets = await owner(
       request(app).get(
         base + "/owner-management/assets?projectId=" + projectId,
@@ -810,6 +1064,28 @@ describe("Owner Management", () => {
       name: "Other Project Store",
     });
     expect(otherWarehouse.status).toBe(201);
+    const outsideProvince = await owner(
+      request(app)
+        .post(base + "/provinces")
+        .send({ name: "Outside Project Province", code: "outside_project" }),
+    );
+    expect(outsideProvince.status).toBe(201);
+    const outsideProvinceSite = await owner(
+      request(app)
+        .post(base + "/sites")
+        .send({
+          provinceId: outsideProvince.body.province.id,
+          code: "outside_province_site",
+          name: "Outside Province Site",
+          siteType: "farm",
+        }),
+    );
+    expect(outsideProvinceSite.status).toBe(201);
+    const outsideProvinceWarehouse = await post("warehouses", {
+      siteId: outsideProvinceSite.body.site.id,
+      name: "Outside Province Store",
+    });
+    expect(outsideProvinceWarehouse.status).toBe(201);
     const otherHouse = await owner(
       request(app)
         .post(base + "/poultry/houses")
@@ -844,6 +1120,53 @@ describe("Owner Management", () => {
     });
     expect(outsideProjectSite.status).toBe(400);
     expect(outsideProjectSite.body.error.details.field).toBe("recordId");
+
+    // The project already has a site. Its procurement and material movements
+    // must never be redirected to a warehouse at a different company site,
+    // even when a caller bypasses the browser selector.
+    const crossSiteOrderWarehouse = await owner(
+      request(app)
+        .patch(
+          base +
+            "/owner-management/purchase-orders/" +
+            order.body.record.id,
+        )
+        .send({ warehouseId: otherWarehouse.body.record.id }),
+    );
+    expect(crossSiteOrderWarehouse.status).toBe(400);
+    expect(crossSiteOrderWarehouse.body.error.details.field).toBe("warehouseId");
+    const crossProvinceOrderWarehouse = await owner(
+      request(app)
+        .patch(
+          base +
+            "/owner-management/purchase-orders/" +
+            order.body.record.id,
+        )
+        .send({ warehouseId: outsideProvinceWarehouse.body.record.id }),
+    );
+    expect(crossProvinceOrderWarehouse.status).toBe(400);
+    expect(crossProvinceOrderWarehouse.body.error.details.field).toBe("warehouseId");
+    const crossSiteReceiptWarehouse = await post("receipts", {
+      purchaseOrderId: order.body.record.id,
+      projectId,
+      warehouseId: otherWarehouse.body.record.id,
+      receivedDate: "2026-08-27",
+      status: "draft",
+    });
+    expect(crossSiteReceiptWarehouse.status).toBe(400);
+    expect(crossSiteReceiptWarehouse.body.error.details.field).toBe("warehouseId");
+    const crossSiteMaterialWarehouse = await owner(
+      request(app)
+        .patch(
+          base +
+            "/owner-management/materials/" +
+            material.body.record.id,
+        )
+        .send({ defaultWarehouseId: otherWarehouse.body.record.id }),
+    );
+    expect(crossSiteMaterialWarehouse.status).toBe(400);
+    expect(crossSiteMaterialWarehouse.body.error.details.field).toBe("warehouseId");
+
     const summary = await owner(
       request(app).get(
         base + "/owner-management/projects/" + projectId + "/summary",
@@ -854,7 +1177,21 @@ describe("Owner Management", () => {
     expect(summary.body.project.operationalLinks[0].targetName).toBe(
       "Project broiler flock",
     );
-    expect(Number(summary.body.project.budget.spent)).toBe(3500);
+    expect(Number(summary.body.project.budget.committed)).toBe(1800);
+    expect(Number(summary.body.project.budget.spent)).toBe(13500);
+    expect(Number(summary.body.project.budget.available)).toBe(34700);
+    expect(summary.body.project.taskBudgets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: task.body.record.id,
+          planned: 6000,
+          committed: 1800,
+          spent: 3500,
+          available: 700,
+          status: "attention",
+        }),
+      ]),
+    );
     expect(Number(summary.body.project.materials[0].availableQuantity)).toBe(
       70,
     );

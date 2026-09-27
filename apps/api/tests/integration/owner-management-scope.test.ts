@@ -82,6 +82,8 @@ describe("Owner Management project scope", () => {
             name,
             projectType: "construction",
             provinceId: province.body.province.id,
+            estimatedTotalBudget: 1000,
+            currencyCode: "CDF",
             status: "planning",
           }),
       );
@@ -278,6 +280,23 @@ describe("Owner Management project scope", () => {
       ),
     );
     expect(projectActivity.status).toBe(200);
+    const projectBudgetHistory = await manager(
+      request(app).get(
+        base +
+          "/owner-management/projects/" +
+          assignedProject.body.record.id +
+          "/budget-history",
+      ),
+    );
+    expect(projectBudgetHistory.status).toBe(200);
+    expect(projectBudgetHistory.body.history).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          entityType: "budget_change",
+          entityId: assignedProject.body.record.id,
+        }),
+      ]),
+    );
 
     const managerTask = await manager(
       request(app)
@@ -286,11 +305,30 @@ describe("Owner Management project scope", () => {
           projectId: assignedProject.body.record.id,
           title: "Verify land documents",
           taskType: "work",
+          estimatedCost: 500,
+          budgetCurrencyCode: "CDF",
           status: "not_started",
         }),
     );
     expect(managerTask.status).toBe(201);
     expect(managerTask.body.record.taskType).toBe("work");
+    const budgetHistoryAfterTask = await manager(
+      request(app).get(
+        base +
+          "/owner-management/projects/" +
+          assignedProject.body.record.id +
+          "/budget-history",
+      ),
+    );
+    expect(budgetHistoryAfterTask.status).toBe(200);
+    expect(budgetHistoryAfterTask.body.history).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          entityType: "budget_change",
+          entityId: managerTask.body.record.id,
+        }),
+      ]),
+    );
 
     const landMilestone = await owner(
       request(app)
@@ -502,7 +540,7 @@ describe("Owner Management project scope", () => {
             "/owner-management/project-members/" +
             assignment.body.record.id,
         )
-        .send({ assignmentEndDate: "2026-01-02" }),
+        .send({ assignmentEndDate: "2026-01-02", assignmentRole: "project_manager", isManager: true }),
     );
     expect(endAssignment.status).toBe(200);
     const expiredManagerProjects = await manager(

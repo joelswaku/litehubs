@@ -1,13 +1,23 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ClipboardPlus, Pencil, Plus, Trash2, X } from "lucide-react";
+import { ClipboardPlus, CloudOff, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { Badge, severityVariant } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Textarea } from "@/components/ui/input";
 import { EmptyState, ErrorState, Skeleton } from "@/components/ui/states";
 import { ApiError } from "@/lib/api";
+import { toast } from "sonner";
+import {
+  isNetworkFailure,
+  isOfflinePoultryResource,
+  newOfflinePoultrySyncKey,
+  offlinePoultryRecordCount,
+  queueOfflinePoultryRecord,
+  syncOfflinePoultryRecords,
+} from "@/lib/offline-poultry-records";
+import { ownerManagementApi } from "@/lib/owner-management-api";
 import {
   POULTRY_RESOURCES,
   poultryApi,
@@ -276,6 +286,26 @@ export function PoultryRecordCentre({
   const client = useQueryClient();
   const [resource, setResource] = useState<OperationResource>(initialResource);
   const [editor, setEditor] = useState<Editor>(null);
+  const [isOnline, setIsOnline] = useState(true);
+  const [offlinePending, setOfflinePending] = useState(0);
+  const [syncingOffline, setSyncingOffline] = useState(false);
+
+  useEffect(() => {
+    const updateOfflineState = () => {
+      setIsOnline(navigator.onLine);
+      setOfflinePending(offlinePoultryRecordCount(orgSlug));
+    };
+    updateOfflineState();
+    window.addEventListener("online", updateOfflineState);
+    window.addEventListener("offline", updateOfflineState);
+    window.addEventListener("litehubs:offline-poultry-change", updateOfflineState);
+    return () => {
+      window.removeEventListener("online", updateOfflineState);
+      window.removeEventListener("offline", updateOfflineState);
+      window.removeEventListener("litehubs:offline-poultry-change", updateOfflineState);
+    };
+  }, [orgSlug]);
+
   const list = useQuery({
     queryKey: ["poultry-record-centre", orgSlug, resource],
     queryFn: () =>
@@ -283,7 +313,35 @@ export function PoultryRecordCentre({
     enabled: can(user, `poultry.${resource.replace(/-/g, "_")}.read`),
     select: (data) => data.records,
   });
-  const refresh = () => {
+  const feedStockItems = useQuery({
+    queryKey: ["poultry-record-feed-items", orgSlug],
+    queryFn: () =>
+      ownerManagementApi.list<{ records: RecordItem[] }>(
+        orgSlug,
+        "inventory-items",
+        { limit: 200 },
+      ),
+    enabled: can(user, "inventory.items.read"),
+    select: (data) =>
+      data.records.filter(
+        (stockItem) =>
+          ["kg", "kilogram", "kilogramme", "kilogrammes"].includes(
+            String(stockItem.unit ?? "").trim().toLowerCase(),
+          ) && /feed|aliment/i.test(String(stockItem.category ?? "")),
+      ),
+  });
+  const feedWarehouses = useQuery({
+    queryKey: ["poultry-record-feed-warehouses", orgSlug],
+    queryFn: () =>
+      ownerManagementApi.list<{ records: RecordItem[] }>(
+        orgSlug,
+        "warehouses",
+        { limit: 200 },
+      ),
+    enabled: can(user, "inventory.warehouses.read"),
+    select: (data) =>
+      data.records.filter((warehouse) => warehouse.isActive !== false),
+  });  const refresh = () => {
     client.invalidateQueries({ queryKey: ["poultry"] });
     client.invalidateQueries({ queryKey: ["poultry-record-centre", orgSlug] });
     client.invalidateQueries({ queryKey: ["poultry-overview", orgSlug] });
@@ -295,21 +353,77 @@ export function PoultryRecordCentre({
     onSuccess: (data) => setEditor({ resource, record: data.record }),
   });
   const save = useMutation({
-    mutationFn: ({
+    mutationFn: async ({
       record,
       body,
     }: {
       record?: RecordItem;
       body: Record<string, unknown>;
-    }) =>
-      record
-        ? poultryApi.update(orgSlug, resource, record.id, body)
-        : poultryApi.create(orgSlug, resource, body),
-    onSuccess: () => {
+    }) => {
+      if (record) return poultryApi.update(orgSlug, resource, record.id, body);
+      if (!isOfflinePoultryResource(resource))
+        return poultryApi.create(orgSlug, resource, body);
+
+      // Generate the key before the first request. If the phone loses the reply
+      // after the API committed it, the queued retry returns that same record.
+      const queuedBody = { ...body, offlineSyncKey: newOfflinePoultrySyncKey() };
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        queueOfflinePoultryRecord(orgSlug, resource, queuedBody);
+        return { queuedOffline: true };
+      }
+      try {
+        return await poultryApi.create(orgSlug, resource, queuedBody);
+      } catch (error) {
+        if (!isNetworkFailure(error)) throw error;
+        queueOfflinePoultryRecord(orgSlug, resource, queuedBody);
+        return { queuedOffline: true };
+      }
+    },
+    onSuccess: (result) => {
       setEditor(null);
+      if (
+        result &&
+        typeof result === "object" &&
+        "queuedOffline" in result &&
+        result.queuedOffline === true
+      ) {
+        setOfflinePending(offlinePoultryRecordCount(orgSlug));
+        toast.info(fr ? "Saisie enregistrée sur ce téléphone" : "Record saved on this device", {
+          description: fr
+            ? "Elle sera synchronisée automatiquement dès le retour du réseau."
+            : "It will synchronize automatically when the connection returns.",
+        });
+      }
       refresh();
     },
   });
+  const synchronizeOffline = async () => {
+    if (!navigator.onLine) {
+      toast.error(fr ? "Connexion requise pour synchroniser" : "A connection is required to sync");
+      return;
+    }
+    setSyncingOffline(true);
+    try {
+      const result = await syncOfflinePoultryRecords(orgSlug);
+      setOfflinePending(result.pending);
+      if (result.synced > 0) {
+        refresh();
+        toast.success(
+          fr
+            ? `${result.synced} saisie(s) terrain synchronisée(s)`
+            : `${result.synced} field record(s) synchronized`,
+        );
+      } else if (result.needsAttention > 0) {
+        toast.error(
+          fr
+            ? "Une saisie hors ligne doit être corrigée avant synchronisation"
+            : "An offline record needs correction before it can synchronize",
+        );
+      }
+    } finally {
+      setSyncingOffline(false);
+    }
+  };
   const remove = useMutation({
     mutationFn: (recordId: string) =>
       poultryApi.remove(orgSlug, resource, recordId),
@@ -339,12 +453,33 @@ export function PoultryRecordCentre({
               : "Every operational Poultry record uses the live API, company scope and role permissions. Houses and flock lifecycle stay in Setup."}
           </p>
         </div>
-        {canCreate ? (
-          <Button size="sm" onClick={() => setEditor({ resource })}>
-            <Plus />
-            {fr ? "Nouvel enregistrement" : "New record"}
-          </Button>
-        ) : null}
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {!isOnline ? (
+            <span className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-xs font-semibold text-amber-800 dark:text-amber-200">
+              <CloudOff className="size-3.5" />
+              {fr ? "Hors connexion" : "Offline"}
+            </span>
+          ) : null}
+          {offlinePending > 0 ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              loading={syncingOffline}
+              onClick={() => void synchronizeOffline()}
+            >
+              <RefreshCw />
+              {fr
+                ? `Synchroniser ${offlinePending} saisie(s)`
+                : `Sync ${offlinePending} record(s)`}
+            </Button>
+          ) : null}
+          {canCreate ? (
+            <Button size="sm" onClick={() => setEditor({ resource })}>
+              <Plus />
+              {fr ? "Nouvel enregistrement" : "New record"}
+            </Button>
+          ) : null}
+        </div>
       </div>
       <div className="grid gap-2 border-b border-slate-200/80 bg-slate-50/80 px-5 py-4 dark:border-white/10 dark:bg-white/[0.025] sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 sm:px-6">
         {OPERATIONS.map((item) => (
@@ -439,6 +574,8 @@ export function PoultryRecordCentre({
           item={editor.record}
           flocks={flocks}
           houses={houses}
+          feedItems={feedStockItems.data ?? []}
+          feedWarehouses={feedWarehouses.data ?? []}
           busy={save.isPending}
           onClose={() => setEditor(null)}
           onSubmit={(body) => save.mutate({ record: editor.record, body })}
@@ -544,6 +681,8 @@ function RecordModal({
   item,
   flocks,
   houses,
+  feedItems,
+  feedWarehouses,
   busy,
   fr,
   onClose,
@@ -553,6 +692,8 @@ function RecordModal({
   item?: RecordItem;
   flocks: Flock[];
   houses: House[];
+  feedItems: RecordItem[];
+  feedWarehouses: RecordItem[];
   busy: boolean;
   fr: boolean;
   onClose: () => void;
@@ -594,6 +735,8 @@ function RecordModal({
             item={item}
             flocks={flocks}
             houses={houses}
+            feedItems={feedItems}
+            feedWarehouses={feedWarehouses}
           />
           <div className="mt-6 flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={onClose}>
@@ -613,11 +756,15 @@ function RecordFields({
   item,
   flocks,
   houses,
+  feedItems,
+  feedWarehouses,
 }: {
   resource: OperationResource;
   item?: RecordItem;
   flocks: Flock[];
   houses: House[];
+  feedItems: RecordItem[];
+  feedWarehouses: RecordItem[];
 }) {
   const fr = useLanguage().locale === "fr";
   const label = (value: string) => fieldText(value, fr);
@@ -790,12 +937,54 @@ function RecordFields({
               label="Batch number"
               value={item?.batchNumber}
             />
-            <Text
-              name="inventoryItemId"
-              label="Inventory item ID"
-              value={item?.inventoryItemId}
-              hint="Optional — keeps inventory linkage ready."
-            />
+            {feedItems.length ? (
+              <Field
+                label={
+                  fr
+                    ? "Aliment fabriqué en stock (facultatif)"
+                    : "Stocked manufactured feed (optional)"
+                }
+                htmlFor="record-feed-inventory-item"
+              >
+                <Select
+                  name="inventoryItemId"
+                  value={String(item?.inventoryItemId ?? "")}
+                >
+                  <option value="">
+                    {fr
+                      ? "Relevé seul — ne réduit pas le stock"
+                      : "Record only — do not reduce stock"}
+                  </option>
+                  {feedItems.map((feedItem) => (
+                    <option key={String(feedItem.id)} value={String(feedItem.id)}>
+                      {String(feedItem.name ?? feedItem.code ?? "Aliment")} · {String(feedItem.unit ?? "kg")}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            ) : null}
+            {feedWarehouses.length ? (
+              <Field
+                label={fr ? "Entrepôt de cet aliment" : "Warehouse for this feed"}
+                htmlFor="record-feed-warehouse"
+              >
+                <Select
+                  name="warehouseId"
+                  value={String(item?.warehouseId ?? "")}
+                >
+                  <option value="">
+                    {fr
+                      ? "Choisir seulement pour le stock"
+                      : "Choose only when using stocked feed"}
+                  </option>
+                  {feedWarehouses.map((warehouse) => (
+                    <option key={String(warehouse.id)} value={String(warehouse.id)}>
+                      {String(warehouse.name ?? warehouse.code ?? "Entrepôt")}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            ) : null}
           </>
         ) : null}
         {resource === "water" ? (
@@ -1390,6 +1579,7 @@ function buildBody(
       bagCount: optionalNumber(form, "bagCount"),
       batchNumber: optional(form, "batchNumber"),
       inventoryItemId: optional(form, "inventoryItemId"),
+      warehouseId: optional(form, "warehouseId"),
       notes,
     };
   if (resource === "water")

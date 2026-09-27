@@ -14,14 +14,23 @@ import {
   documentCategoryAssignmentBody,
   documentCategoryCreateBody,
   documentCategoryUpdateBody,
+  equipmentCategoryCreateBody,
+  equipmentCategoryUpdateBody,
+  inventoryMovementHistoryPdfQuery,
   inventoryStockQuery,
+  inventoryStockTransferBody,
+  myTaskUpdateBody,
   ownerManagementDashboardQuery,
   ownerManagementDecisionParams,
   ownerManagementDocumentAccessParams,
   ownerManagementDocumentCategoryParams,
+  ownerManagementEquipmentCategoryParams,
   ownerManagementListQuery,
   ownerManagementRecordParams,
   ownerManagementProjectParams,
+  purchaseRequestReturnToDraftBody,
+  purchaseRequestReturnToDraftParams,
+  procurementDocumentParams,
   ownerManagementResourceParams,
   ownerManagementTaskDocumentParams,
   organizationParams,
@@ -47,6 +56,12 @@ const permissionResource: Record<OwnerManagementResource, string> = {
   "inventory-items": "inventory.items",
   warehouses: "inventory.warehouses",
   "stock-movements": "inventory.movements",
+  "feed-batches": "inventory.items",
+  "feed-batch-inputs": "inventory.items",
+  "nutrition-profiles": "inventory.items",
+  "feed-recipes": "inventory.items",
+  "feed-recipe-lines": "inventory.items",
+  "feed-orders": "inventory.items",
   "purchase-requests": "procurement",
   "purchase-request-lines": "procurement",
   "purchase-orders": "procurement",
@@ -148,12 +163,40 @@ function validateOwnerManagementBody(
 }
 
 ownerManagementRoutes.get(
+  "/organizations/:orgSlug/owner-management/feed-nutrition/overview",
+  ...inOrganization,
+  requirePermission("inventory.items.read"),
+  controller.feedNutritionOverview,
+);
+ownerManagementRoutes.post(
+  "/organizations/:orgSlug/owner-management/feed-nutrition/orders/:recordId/confirm",
+  ...inOrganization,
+  requirePermission("inventory.items.update"),
+  validate({ params: ownerManagementDecisionParams }),
+  controller.confirmFeedOrder,
+);
+ownerManagementRoutes.post(
+  "/organizations/:orgSlug/owner-management/feed-nutrition/orders/:recordId/cancel",
+  ...inOrganization,
+  requirePermission("inventory.items.update"),
+  validate({ params: ownerManagementDecisionParams }),
+  controller.cancelFeedOrder,
+);
+
+ownerManagementRoutes.get(
   "/organizations/:orgSlug/owner-management/dashboard",
   ...inOrganization,
   requireOwner,
   requirePermission("projects.read"),
   validate({ query: ownerManagementDashboardQuery }),
   controller.ownerDashboard,
+);
+
+ownerManagementRoutes.get(
+  "/organizations/:orgSlug/owner-management/projects/analytics",
+  ...inOrganization,
+  requirePermission("projects.read"),
+  controller.projectAnalytics,
 );
 
 ownerManagementRoutes.get(
@@ -165,6 +208,14 @@ ownerManagementRoutes.get(
 );
 
 ownerManagementRoutes.get(
+  "/organizations/:orgSlug/owner-management/projects/:projectId/task-assignees",
+  ...inOrganization,
+  requirePermission("projects.read"),
+  requirePermission("tasks.create"),
+  validate({ params: ownerManagementProjectParams }),
+  controller.listProjectTaskAssignees,
+);
+ownerManagementRoutes.get(
   "/organizations/:orgSlug/owner-management/projects/:projectId/activity",
   ...inOrganization,
   requirePermission("projects.read"),
@@ -172,6 +223,13 @@ ownerManagementRoutes.get(
   controller.projectActivity,
 );
 
+ownerManagementRoutes.get(
+  "/organizations/:orgSlug/owner-management/projects/:projectId/budget-history",
+  ...inOrganization,
+  requirePermission("projects.read"),
+  validate({ params: ownerManagementProjectParams }),
+  controller.projectBudgetHistory,
+);
 ownerManagementRoutes.get(
   "/organizations/:orgSlug/owner-management/projects/:projectId/export.pdf",
   ...inOrganization,
@@ -187,6 +245,52 @@ ownerManagementRoutes.get(
   requirePermission("projects.read"),
   validate({ params: ownerManagementProjectParams }),
   controller.exportProjectWorkbook,
+);
+
+ownerManagementRoutes.get(
+  "/organizations/:orgSlug/owner-management/inventory/stock-issue-form.pdf",
+  ...inOrganization,
+  requirePermission("inventory.movements.create"),
+  controller.exportInventoryStockIssueFormPdf,
+);
+ownerManagementRoutes.get(
+  "/organizations/:orgSlug/owner-management/inventory/stock-transfer-form.pdf",
+  ...inOrganization,
+  requirePermission("inventory.movements.create"),
+  controller.exportInventoryStockTransferFormPdf,
+);
+// The owner can download one controlled, fillable form to share with a requester.
+// Employees complete the first page; the owner completes the approval page.
+ownerManagementRoutes.get(
+  "/organizations/:orgSlug/owner-management/procurement/purchase-request-form.pdf",
+  ...inOrganization,
+  requireOwner,
+  requirePermission("procurement.read"),
+  controller.exportPurchaseRequestFormPdf,
+);
+ownerManagementRoutes.get(
+  "/organizations/:orgSlug/owner-management/procurement/purchase-order-form.pdf",
+  ...inOrganization,
+  requireOwner,
+  requirePermission("procurement.read"),
+  controller.exportPurchaseOrderFormPdf,
+);
+ownerManagementRoutes.get(
+  "/organizations/:orgSlug/owner-management/procurement/receipt-form.pdf",
+  ...inOrganization,
+  requireOwner,
+  requirePermission("procurement.read"),
+  controller.exportReceiptFormPdf,
+);
+// Controlled operational documents: only the company owner can download the
+// official request, purchase-order, and receipt PDF for this organization.
+ownerManagementRoutes.get(
+  "/organizations/:orgSlug/owner-management/procurement/:documentType/:recordId/export.pdf",
+  ...inOrganization,
+  requireOwner,
+  requirePermission("procurement.read"),
+  validate({ params: procurementDocumentParams }),
+  controller.exportProcurementPdf,
 );
 
 ownerManagementRoutes.get(
@@ -258,6 +362,42 @@ ownerManagementRoutes.delete(
   controller.archiveDocumentCategory,
 );
 ownerManagementRoutes.get(
+  "/organizations/:orgSlug/owner-management/equipment-categories",
+  ...inOrganization,
+  requirePermission("equipment.read"),
+  controller.listEquipmentCategories,
+);
+
+ownerManagementRoutes.post(
+  "/organizations/:orgSlug/owner-management/equipment-categories",
+  ...inOrganization,
+  requireOwner,
+  requirePermission("equipment.create"),
+  validate({ body: equipmentCategoryCreateBody }),
+  controller.createEquipmentCategory,
+);
+
+ownerManagementRoutes.patch(
+  "/organizations/:orgSlug/owner-management/equipment-categories/:categoryId",
+  ...inOrganization,
+  requireOwner,
+  requirePermission("equipment.update"),
+  validate({
+    params: ownerManagementEquipmentCategoryParams,
+    body: equipmentCategoryUpdateBody,
+  }),
+  controller.updateEquipmentCategory,
+);
+
+ownerManagementRoutes.delete(
+  "/organizations/:orgSlug/owner-management/equipment-categories/:categoryId",
+  ...inOrganization,
+  requireOwner,
+  requirePermission("equipment.update"),
+  validate({ params: ownerManagementEquipmentCategoryParams }),
+  controller.archiveEquipmentCategory,
+);
+ownerManagementRoutes.get(
   "/organizations/:orgSlug/owner-management/tasks/:taskId/documents",
   ...inOrganization,
   requirePermission("tasks.read"),
@@ -275,6 +415,17 @@ ownerManagementRoutes.put(
     body: taskDocumentLinksBody,
   }),
   controller.replaceTaskDocuments,
+);
+ownerManagementRoutes.post(
+  "/organizations/:orgSlug/owner-management/purchase-requests/:recordId/return-to-draft",
+  ...inOrganization,
+  requireOwner,
+  requirePermission("procurement.update"),
+  validate({
+    params: purchaseRequestReturnToDraftParams,
+    body: purchaseRequestReturnToDraftBody,
+  }),
+  controller.returnPurchaseRequestToDraft,
 );
 ownerManagementRoutes.post(
   "/organizations/:orgSlug/owner-management/approvals/:recordId/decide",
@@ -301,11 +452,42 @@ ownerManagementRoutes.post(
 );
 
 ownerManagementRoutes.get(
+  "/organizations/:orgSlug/owner-management/inventory-stock/movements/export.pdf",
+  ...inOrganization,
+  requirePermission("inventory.movements.read"),
+  validate({ query: inventoryMovementHistoryPdfQuery }),
+  controller.exportInventoryMovementHistoryPdf,
+);
+ownerManagementRoutes.post(
+  "/organizations/:orgSlug/owner-management/inventory-transfers",
+  ...inOrganization,
+  requirePermission("inventory.movements.create"),
+  validate({ body: inventoryStockTransferBody }),
+  controller.transferInventoryStock,
+);
+ownerManagementRoutes.get(
   "/organizations/:orgSlug/owner-management/inventory-stock",
   ...inOrganization,
   requirePermission("inventory.stock.read"),
   validate({ query: inventoryStockQuery }),
   controller.listInventoryStockBalances,
+);
+// This private queue is intentionally permissionless at the route layer: the
+// service hard-limits it to req.membership.memberId. It lets an employee act on
+// assigned work without granting project, team or province-wide task access.
+ownerManagementRoutes.get(
+  "/organizations/:orgSlug/my-tasks",
+  ...inOrganization,
+  controller.listMyAssignedTasks,
+);
+ownerManagementRoutes.patch(
+  "/organizations/:orgSlug/my-tasks/:taskId",
+  ...inOrganization,
+  validate({
+    params: ownerManagementTaskDocumentParams,
+    body: myTaskUpdateBody,
+  }),
+  controller.updateMyAssignedTask,
 );
 ownerManagementRoutes.get(
   "/organizations/:orgSlug/owner-management/:resource",

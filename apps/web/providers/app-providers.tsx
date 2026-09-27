@@ -5,6 +5,9 @@ import { NuqsAdapter } from "nuqs/adapters/next/app";
 import { Toaster } from "sonner";
 import { LanguageProvider } from "./language-provider";
 import { QueryProvider } from "./query-provider";
+import { OfflinePoultrySync } from "./offline-poultry-sync";
+import { OfflinePigSync } from "./offline-pig-sync";
+import { PwaSupport } from "./pwa-support";
 
 /** Shared browser providers. Language sits outside the UI so every screen,
  * including login, navigation and dashboards, uses the same preference. */
@@ -19,6 +22,9 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
       <LanguageProvider>
         <NuqsAdapter>
           <QueryProvider>
+            <OfflinePoultrySync />
+            <OfflinePigSync />
+            <PwaSupport />
             {children}
             <Toaster
               position="bottom-right"

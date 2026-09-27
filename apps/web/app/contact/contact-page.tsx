@@ -15,6 +15,7 @@ import { BrandMark } from "@/components/brand/brand-mark";
 import { PublicMarketingAnalytics, trackMarketingEvent } from "@/components/analytics/public-marketing-analytics";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/input";
+import { PhoneInput } from "@/components/ui/phone-input";
 import { ApiError, post } from "@/lib/api";
 import { useLanguage } from "@/providers/language-provider";
 
@@ -264,12 +265,11 @@ export function ContactPage() {
                   />
                 </Field>
                 <Field label={text.phone} htmlFor="contact-phone">
-                  <Input
+                  <PhoneInput
                     id="contact-phone"
                     name="phone"
-                    type="tel"
-                    autoComplete="tel"
                     maxLength={40}
+                    fr={locale === "fr"}
                   />
                 </Field>
                 <Field label={text.company} htmlFor="contact-company">

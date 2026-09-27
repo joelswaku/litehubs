@@ -1,7 +1,10 @@
 import crypto from "node:crypto";
 import type { PoolClient } from "pg";
 import { env } from "../../config/env";
-import { sendTeamInvitationEmail } from "../../services/notification.service";
+import {
+  sendSms,
+  sendTeamInvitationEmail,
+} from "../../services/notification.service";
 import {
   BadRequestError,
   ConflictError,
@@ -1333,6 +1336,7 @@ export async function createInvitation(
     id: string;
     employeeId: string | null;
     email: string;
+    phone: string | null;
     roleCodes: string[];
     provinceIds: string[];
   };
@@ -1355,13 +1359,15 @@ export async function createInvitation(
       );
 
       let employeeId: string | null = null;
+      let employeePhone: string | null = null;
       if (input.employeeId) {
         const employee = await client.query<{
           id: string;
           member_id: string | null;
           employment_status: string;
+          phone: string | null;
         }>(
-          `SELECT id, member_id, employment_status
+          `SELECT id, member_id, employment_status, phone
              FROM employees
             WHERE organization_id = $1 AND id = $2
             FOR UPDATE`,
@@ -1376,7 +1382,22 @@ export async function createInvitation(
           throw new BadRequestError(
             "LiteHubs access cannot be assigned to a terminated employee",
           );
+        if (
+          input.deliveryMethod !== "email" &&
+          !employeeRow.phone?.trim()
+        ) {
+          throw new BadRequestError(
+            "Add a phone number to this employee before sending access by SMS",
+          );
+        }
         employeeId = employeeRow.id;
+        employeePhone = employeeRow.phone;
+      }
+
+      if (input.deliveryMethod !== "email" && !input.employeeId) {
+        throw new BadRequestError(
+          "Choose an employee profile before sending access by SMS",
+        );
       }
 
       const created = await client.query<{
@@ -1417,6 +1438,7 @@ export async function createInvitation(
         id: row.id,
         employeeId: row.employee_id,
         email: row.email,
+        phone: employeePhone ?? null,
         roleCodes: roles.map((role) => role.code).sort(),
         provinceIds: input.provinceIds,
       };
@@ -1429,14 +1451,26 @@ export async function createInvitation(
   }
 
   const acceptUrl = `${env.frontendUrl}/accept-invitation?token=${rawToken}`;
-  const delivery = env.isTest
-    ? { sent: false, reason: "email_skipped_in_test" }
-    : await sendTeamInvitationEmail(
-        invitation.email,
-        context.organizationId,
-        acceptUrl,
-        INVITATION_TTL_DAYS,
-      );
+  const shouldSendEmail = input.deliveryMethod !== "sms";
+  const shouldSendSms = input.deliveryMethod !== "email";
+  const [emailDelivery, smsDelivery] = await Promise.all([
+    shouldSendEmail
+      ? env.isTest
+        ? Promise.resolve({ sent: false, reason: "email_skipped_in_test" })
+        : sendTeamInvitationEmail(
+            invitation.email,
+            context.organizationId,
+            acceptUrl,
+            INVITATION_TTL_DAYS,
+          )
+      : Promise.resolve({ sent: false, reason: "email_not_selected" }),
+    shouldSendSms
+      ? sendSms({
+          to: invitation.phone!,
+          content: `LiteHubs · Votre accès Congo Omega est prêt. Créez votre mot de passe dans les ${INVITATION_TTL_DAYS} jours : ${acceptUrl}`,
+        })
+      : Promise.resolve({ sent: false, reason: "sms_not_selected" }),
+  ]);
 
   return {
     invitation: {
@@ -1447,7 +1481,9 @@ export async function createInvitation(
       provinceIds: invitation.provinceIds,
       expiresAt,
     },
-    emailDelivery: delivery,
+    deliveryMethod: input.deliveryMethod,
+    emailDelivery,
+    smsDelivery,
     // A local Postman user needs a link while SMTP is deliberately unavailable.
     ...(env.isProduction ? {} : { acceptUrl }),
   };

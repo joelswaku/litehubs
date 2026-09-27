@@ -16,7 +16,9 @@ build/
 
 # Logs and temporary files
 *.log
+tmp/
 apps/tmp/
+*.corrupt-backup
 
 # Private uploaded documents and generated PDFs
 apps/api/storage/

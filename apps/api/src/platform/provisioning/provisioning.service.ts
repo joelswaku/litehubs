@@ -249,6 +249,19 @@ export async function provisionOrganizationIn(
     );
     const ownerMemberId = member.rows[0]!.id;
 
+    // Keep a small, clear document library for every new company. Additional
+    // folders are created only by the owner when the company actually needs them.
+    await client.query(
+      `INSERT INTO management_document_categories
+         (organization_id, code, name, description, sort_order, is_active, visibility, created_by_member_id)
+       VALUES
+         ($1, 'general', 'General', 'Documents that do not need a specialised folder.', 10, true, 'company', $2),
+         ($1, 'photo', 'Photo evidence', 'Photos from the field, site or delivery.', 20, true, 'company', $2),
+         ($1, 'task_evidence', 'Task Evidence', 'Evidence submitted from assigned work tasks.', 30, true, 'company', $2)
+       ON CONFLICT DO NOTHING`,
+      [organizationId, ownerMemberId],
+    );
+
     await client.query(
       `INSERT INTO member_roles (organization_id, member_id, role_id)
        SELECT $1, $2, r.id

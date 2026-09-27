@@ -37,6 +37,7 @@ import { Field, Input, Textarea } from "@/components/ui/input";
 import { EmptyState, ErrorState, Skeleton } from "@/components/ui/states";
 import { ApiError, get, orgApiUrl, orgUrl } from "@/lib/api";
 import { poultryApi } from "@/lib/poultry-api";
+import { ownerManagementApi } from "@/lib/owner-management-api";
 import { can } from "@/lib/permissions";
 import { formatBusinessDay, formatPercent, formatQuantity } from "@/lib/utils";
 import { useLanguage } from "@/providers/language-provider";
@@ -524,6 +525,18 @@ export function PoultryArea({ orgSlug }: { orgSlug: string }) {
     enabled: can(user, "sites.read"),
     select: (data) => data.provinces,
   });
+  const feedStockItems = useQuery({
+    queryKey: ["poultry-feed-stock-items", orgSlug],
+    queryFn: () => ownerManagementApi.list<{ records: Row[] }>(orgSlug, "inventory-items", { limit: 200 }),
+    enabled: can(user, "inventory.items.read"),
+    select: (data) => data.records.filter((item) => ["kg", "kilogram", "kilogramme", "kilogrammes"].includes(String(item.unit ?? "").trim().toLowerCase()) && /feed|aliment/i.test(String(item.category ?? ""))),
+  });
+  const feedWarehouses = useQuery({
+    queryKey: ["poultry-feed-warehouses", orgSlug],
+    queryFn: () => ownerManagementApi.list<{ records: Row[] }>(orgSlug, "warehouses", { limit: 200 }),
+    enabled: can(user, "inventory.warehouses.read"),
+    select: (data) => data.records.filter((item) => item.isActive !== false),
+  });
   const employees = useQuery({
     queryKey: ["poultry-work-employees", orgSlug],
     queryFn: () => get<{ employees: Employee[] }>(orgUrl(orgSlug, "employees")),
@@ -719,6 +732,8 @@ export function PoultryArea({ orgSlug }: { orgSlug: string }) {
         quantityKg: n("quantityKg"),
         bagCount: n("bagCount"),
         batchNumber: String(form.get("batchNumber") ?? "").trim() || null,
+        inventoryItemId: String(form.get("inventoryItemId") ?? "").trim() || null,
+        warehouseId: String(form.get("warehouseId") ?? "").trim() || null,
         notes,
       };
     else if (entry === "water")
@@ -1153,6 +1168,8 @@ export function PoultryArea({ orgSlug }: { orgSlug: string }) {
                 change={setEntry}
                 date={reportDate}
                 flocks={flocks}
+                feedItems={feedStockItems.data ?? []}
+                feedWarehouses={feedWarehouses.data ?? []}
                 submit={submit}
                 cancel={() => setEntryOpen(false)}
                 loading={save.isPending}
@@ -2660,6 +2677,8 @@ function EntryForm({
   change,
   date,
   flocks,
+  feedItems,
+  feedWarehouses,
   submit,
   cancel,
   loading,
@@ -2672,6 +2691,8 @@ function EntryForm({
   ) => void;
   date: string;
   flocks: Flock[];
+  feedItems: Row[];
+  feedWarehouses: Row[];
   submit: (event: FormEvent<HTMLFormElement>) => void;
   cancel: () => void;
   loading: boolean;
@@ -2789,6 +2810,22 @@ function EntryForm({
             label={tr("Feed name", "Nom aliment")}
             required
           />
+          {feedItems.length ? (
+            <Field label={tr("Stocked manufactured feed (optional)", "Aliment fabrique en stock (facultatif)")} htmlFor="inventoryItemId">
+              <select name="inventoryItemId" className="h-9 w-full rounded-md border border-border-strong bg-surface-1 px-3 text-sm text-ink">
+                <option value="">{tr("Record only — do not reduce stock", "Releve seul — ne reduit pas le stock")}</option>
+                {feedItems.map((item) => <option key={item.id} value={item.id}>{String(item.name ?? item.code)} · {String(item.unit ?? "kg")}</option>)}
+              </select>
+            </Field>
+          ) : null}
+          {feedWarehouses.length ? (
+            <Field label={tr("Warehouse for this feed", "Entrepot de cet aliment")} htmlFor="warehouseId">
+              <select name="warehouseId" className="h-9 w-full rounded-md border border-border-strong bg-surface-1 px-3 text-sm text-ink">
+                <option value="">{tr("Choose only when using stocked feed", "Choisir seulement pour le stock")}</option>
+                {feedWarehouses.filter((warehouse) => !selectedFlock?.site?.id || String(warehouse.siteId ?? "") === selectedFlock.site.id).map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{String(warehouse.name ?? warehouse.code)}</option>)}
+              </select>
+            </Field>
+          ) : null}
           <SelectField
             name="feedStage"
             label={tr("Feed stage", "Phase aliment")}
