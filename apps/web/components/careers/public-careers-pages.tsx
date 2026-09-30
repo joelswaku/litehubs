@@ -20,7 +20,7 @@ import {
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { CardContent } from "@/components/ui/card";
 import { Field, Input, Textarea } from "@/components/ui/input";
 import { PhoneInput } from "@/components/ui/phone-input";
 import { EmptyState, ErrorState, SkeletonCard } from "@/components/ui/states";
@@ -32,6 +32,7 @@ const publicUrl = (org: string, rest: string) =>
   `/public/organizations/${org}/careers/${rest}`;
 const cleanTitle = (value: unknown) =>
   String(value ?? "").replace(/^\s*:\s*/, "");
+const candidateContactEmail = "contact@congoomega.com";
 const displayDate = (value: string | null | undefined, fr: boolean) =>
   value
     ? new Date(value).toLocaleDateString(fr ? "fr-FR" : "en-US", {
@@ -407,9 +408,15 @@ function ApplicationReceived({ fr }: { fr: boolean }) {
       <p className="mx-auto mt-3 max-w-lg text-sm leading-6 text-ink-secondary">
         {label(
           fr,
-          "Une confirmation a été envoyée à votre adresse e-mail. L’équipe de recrutement examinera votre candidature de manière confidentielle et vous contactera si votre profil correspond au poste.",
-          "A confirmation has been sent to your email address. The recruitment team will review your application confidentially and contact you if your profile fits the role.",
+          "Une confirmation a été envoyée par e-mail et par SMS. L’équipe de recrutement examinera votre candidature de manière confidentielle et vous contactera si votre profil correspond au poste ou si des documents complémentaires sont nécessaires.",
+          "A confirmation has been sent by email and SMS. The recruitment team will review your application confidentially and contact you if your profile fits the role or if further documents are needed.",
         )}
+      </p>
+      <p className="mx-auto mt-3 max-w-lg text-sm leading-6 text-ink-secondary">
+        {label(fr, "Une question ? Écrivez à ", "Questions? Email ")}
+        <a className="font-semibold text-brand underline underline-offset-2" href={`mailto:${candidateContactEmail}`}>
+          {candidateContactEmail}
+        </a>
       </p>
     </div>
   );
@@ -714,9 +721,13 @@ function ApplicationForm({
         <p className="text-center text-[11px] leading-5 text-ink-secondary">
           {label(
             fr,
-            "Vous recevrez une réponse uniquement si votre profil correspond aux besoins du poste.",
-            "You will receive a response only if your profile matches the role requirements.",
+            "Vous recevrez une réponse si votre profil correspond aux besoins du poste ou si des documents complémentaires sont nécessaires.",
+            "You will receive a response if your profile matches the role requirements or if further documents are needed.",
           )}
+          {" "}
+          <a className="font-semibold text-brand underline underline-offset-2" href={`mailto:${candidateContactEmail}`}>
+            {candidateContactEmail}
+          </a>
         </p>
       </form>
     </aside>

@@ -22,54 +22,76 @@ export const lmsLessonParams = orgParams.extend({ lessonId: id });
 export const lmsBlockParams = orgParams.extend({ blockId: id });
 export const lmsAssignmentParams = orgParams.extend({ assignmentId: id });
 
-export const createProfessionalCourseSchema = z.object({
-  code,
-  name: text(160),
-  summary: nullableText(600),
-  description: nullableText(8000),
-  category: z.enum([
-    "general",
-    "safety",
-    "biosecurity",
-    "technical",
-    "compliance",
-    "induction",
-    "management",
-  ]),
-  learningObjectives: z.array(text(500)).max(30).default([]),
-  estimatedDurationMinutes: z.coerce
-    .number()
-    .int()
-    .min(1)
-    .max(10080)
-    .nullable()
-    .optional(),
-  difficulty: z
-    .enum(["foundation", "intermediate", "advanced"])
-    .default("foundation"),
-  languages: z
-    .array(z.enum(["fr", "en"]))
-    .min(1)
-    .max(2)
-    .default(["fr"]),
-  instructorUserId: id.nullable().optional(),
-  tags: z.array(text(80)).max(30).default([]),
-  isMandatory: z.boolean().default(false),
-  validityMonths: z.coerce.number().int().min(1).max(600).nullable().optional(),
-  completionMode: z
-    .enum(["automatic", "manager_validation"])
-    .default("manager_validation"),
-  renewalMonths: z.coerce.number().int().min(1).max(600).nullable().optional(),
-  renewalRequired: z.boolean().default(false),
-  autoAssignNewEmployees: z.boolean().default(false),
-  defaultDueDays: z.coerce
-    .number()
-    .int()
-    .min(1)
-    .max(3650)
-    .nullable()
-    .optional(),
-});
+export const createProfessionalCourseSchema = z
+  .object({
+    code,
+    name: text(160),
+    summary: nullableText(600),
+    description: nullableText(8000),
+    category: z.enum([
+      "general",
+      "safety",
+      "biosecurity",
+      "technical",
+      "compliance",
+      "induction",
+      "management",
+    ]),
+    learningObjectives: z.array(text(500)).max(30).default([]),
+    estimatedDurationMinutes: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(10080)
+      .nullable()
+      .optional(),
+    difficulty: z
+      .enum(["foundation", "intermediate", "advanced"])
+      .default("foundation"),
+    languages: z
+      .array(z.enum(["fr", "en"]))
+      .min(1)
+      .max(2)
+      .default(["fr"]),
+    instructorUserId: id.nullable().optional(),
+    tags: z.array(text(80)).max(30).default([]),
+    isMandatory: z.boolean().default(false),
+    validityMonths: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(600)
+      .nullable()
+      .optional(),
+    completionMode: z
+      .enum(["automatic", "manager_validation"])
+      .default("manager_validation"),
+    renewalMonths: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(600)
+      .nullable()
+      .optional(),
+    renewalRequired: z.boolean().default(false),
+    autoAssignNewEmployees: z.boolean().default(false),
+    defaultDueDays: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(3650)
+      .nullable()
+      .optional(),
+  })
+  .superRefine((input, context) => {
+    if (input.renewalRequired && !input.renewalMonths) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["renewalMonths"],
+        message: "Choose a renewal interval when renewal is required",
+      });
+    }
+  });
 
 export const createModuleSchema = z.object({
   versionId: id,

@@ -388,6 +388,32 @@ export async function findActiveUserIdByEmail(
   return result.rows[0]?.id;
 }
 
+/**
+ * A phone belongs to an employee dossier, never directly to the public users
+ * table.  Match only digits so +243 898… and 243898… identify the same secure
+ * contact without exposing that contact to the caller.
+ */
+export async function findActiveUserForPasswordResetByPhone(
+  phoneDigits: string,
+): Promise<{ id: string; phone: string } | undefined> {
+  const result = await query<{ id: string; phone: string }>(
+    `SELECT u.id, MIN(e.phone) AS phone
+       FROM users u
+       JOIN organization_members member ON member.user_id=u.id
+       JOIN employees e
+         ON e.organization_id=member.organization_id AND e.member_id=member.id
+      WHERE u.status='active'
+        AND e.employment_status <> 'terminated'
+        AND regexp_replace(COALESCE(e.phone,''),'[^0-9]','','g')=$1
+      GROUP BY u.id
+      LIMIT 2`,
+    [phoneDigits],
+  );
+  // A shared number must not reset an arbitrary person's account. The generic
+  // answer remains the same, but the owner can correct the employee contacts.
+  return result.rows.length === 1 ? result.rows[0] : undefined;
+}
+
 export async function insertPasswordResetToken(input: {
   userId: string;
   tokenHash: string;

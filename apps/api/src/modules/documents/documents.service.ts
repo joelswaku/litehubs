@@ -23,6 +23,7 @@ export interface DocumentsContext {
   memberId: string;
   isOwner: boolean;
 }
+type DocumentDataScope = "organization" | "province" | "project" | "self";
 function map(row: Row): Row {
   return Object.fromEntries(
     Object.entries(row).map(([key, value]) => [
@@ -45,6 +46,65 @@ async function scopedProvinces(client: PoolClient, context: DocumentsContext) {
     [context.organizationId, context.memberId],
   );
   return provinces.rows.map((row) => row.province_id);
+}
+
+/**
+ * A project manager may hold ordinary operational roles as well.  Project
+ * documents are nevertheless an explicit owner-controlled assignment: access
+ * to one project must never become access to every project in that province.
+ */
+async function hasActiveProjectManagerAssignment(
+  client: PoolClient,
+  context: DocumentsContext,
+  projectId: string,
+): Promise<boolean> {
+  if (context.isOwner) return true;
+  const result = await client.query(
+    `SELECT 1
+       FROM management_project_members
+      WHERE organization_id = $1
+        AND project_id = $2
+        AND member_id = $3
+        AND is_manager = true
+        AND assignment_start_date <= current_date
+        AND COALESCE(assignment_end_date, 'infinity'::date) >= current_date
+      LIMIT 1`,
+    [context.organizationId, projectId, context.memberId],
+  );
+  return Boolean(result.rowCount);
+}
+
+async function documentDataScope(
+  client: PoolClient,
+  context: DocumentsContext,
+): Promise<DocumentDataScope> {
+  if (context.isOwner) return "organization";
+  const result = await client.query<{ data_scope: DocumentDataScope }>(
+    `SELECT DISTINCT r.data_scope
+       FROM member_roles mr
+       JOIN roles r
+         ON r.organization_id = mr.organization_id AND r.id = mr.role_id
+      WHERE mr.organization_id = $1 AND mr.member_id = $2`,
+    [context.organizationId, context.memberId],
+  );
+  const scopes = new Set(result.rows.map((row) => row.data_scope));
+  if (scopes.has("organization")) return "organization";
+  if (scopes.has("province")) return "province";
+  if (scopes.has("project")) return "project";
+  return "self";
+}
+
+async function assertProjectDocumentScope(
+  client: PoolClient,
+  context: DocumentsContext,
+  subjectTable: string | null | undefined,
+  subjectId: string | null | undefined,
+) {
+  if (context.isOwner || subjectTable !== "projects" || !subjectId) return;
+  if (await hasActiveProjectManagerAssignment(client, context, subjectId))
+    return;
+  // Use NotFound so a person cannot discover another project's files or IDs.
+  throw new NotFoundError("Document not found");
 }
 async function assertProvince(
   client: PoolClient,
@@ -111,6 +171,7 @@ async function assertSubject(
     throw new BadRequestError("Choose a record in this company", {
       field: "subjectId",
     });
+  await assertProjectDocumentScope(client, context, subjectTable, subjectId);
 }
 async function rowFor(
   client: PoolClient,
@@ -129,6 +190,12 @@ async function rowFor(
   if (!row) throw new NotFoundError("Document not found");
   if (row.is_confidential && !context.isOwner)
     throw new NotFoundError("Document not found");
+  await assertProjectDocumentScope(
+    client,
+    context,
+    typeof row.subject_table === "string" ? row.subject_table : null,
+    typeof row.subject_id === "string" ? row.subject_id : null,
+  );
   const provinces = await scopedProvinces(client, context);
   if (
     provinces &&
@@ -143,6 +210,7 @@ export async function listDocuments(
   query: DocumentQuery,
 ) {
   return withTenantContext(context, async (client) => {
+    const scope = await documentDataScope(client, context);
     const provinces = await scopedProvinces(client, context);
     const params: unknown[] = [context.organizationId];
     const where = ["d.organization_id=$1"];
@@ -163,10 +231,44 @@ export async function listDocuments(
       where.push(
         "d.expires_on IS NOT NULL AND d.expires_on <= current_date + 30",
       );
-    if (provinces) {
+    if (!context.isOwner && scope === "project") {
+      // A project-scoped manager sees only files linked to a project they
+      // actively manage.  Unlinked company files use the newer policy-aware
+      // library and must not leak through this legacy index.
+      params.push(context.memberId);
+      where.push(
+        `d.subject_table = 'projects' AND EXISTS (
+           SELECT 1
+             FROM management_project_members pm
+            WHERE pm.organization_id = d.organization_id
+              AND pm.project_id = d.subject_id
+              AND pm.member_id = $${params.length}
+              AND pm.is_manager = true
+              AND pm.assignment_start_date <= current_date
+              AND COALESCE(pm.assignment_end_date, 'infinity'::date) >= current_date
+         )`,
+      );
+    } else if (provinces) {
       params.push(provinces);
       where.push(
         `(d.province_id IS NULL OR d.province_id=ANY($${params.length}::uuid[]))`,
+      );
+    }
+    if (!context.isOwner && scope !== "project") {
+      // Project files stay private to their explicitly assigned manager even
+      // when that manager also holds a broader provincial role.
+      params.push(context.memberId);
+      where.push(
+        `(d.subject_table IS DISTINCT FROM 'projects' OR EXISTS (
+           SELECT 1
+             FROM management_project_members pm
+            WHERE pm.organization_id = d.organization_id
+              AND pm.project_id = d.subject_id
+              AND pm.member_id = $${params.length}
+              AND pm.is_manager = true
+              AND pm.assignment_start_date <= current_date
+              AND COALESCE(pm.assignment_end_date, 'infinity'::date) >= current_date
+         ))`,
       );
     }
     const result = await client.query<Row>(

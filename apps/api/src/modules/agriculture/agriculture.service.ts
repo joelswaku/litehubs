@@ -18,7 +18,7 @@ export interface AgricultureContext {
   isOwner: boolean;
 }
 
-type Scope = "organization" | "province" | "self";
+type Scope = "organization" | "province" | "site" | "self";
 type EmployeeAgricultureLocation = { siteId: string };
 
 /** Self-scoped field workers may work only at their active employee work site. */
@@ -47,6 +47,17 @@ async function assertOwnEmployeeAgricultureSite(
   const employee = await ownEmployeeAgricultureLocation(client, context);
   if (!employee || employee.siteId !== siteId)
     throw new NotFoundError("Agriculture record not found");
+}
+
+async function assertEmployeeAgricultureSiteScope(
+  client: PoolClient,
+  context: AgricultureContext,
+  siteId: string,
+): Promise<void> {
+  const scope = await scopeOf(client, context);
+  if (scope === "site" || scope === "self") {
+    await assertOwnEmployeeAgricultureSite(client, context, siteId);
+  }
 }
 type Row = Record<string, unknown>;
 type Input = Record<string, unknown>;
@@ -430,8 +441,9 @@ async function scopeOf(
   const result = await client.query<{
     organization_scope: boolean;
     province_scope: boolean;
+    site_scope: boolean;
   }>(
-    "SELECT EXISTS (SELECT 1 FROM member_roles mr JOIN roles r ON r.organization_id = mr.organization_id AND r.id = mr.role_id WHERE mr.organization_id = $1 AND mr.member_id = $2 AND r.data_scope = 'organization') AS organization_scope, EXISTS (SELECT 1 FROM member_roles mr JOIN roles r ON r.organization_id = mr.organization_id AND r.id = mr.role_id WHERE mr.organization_id = $1 AND mr.member_id = $2 AND r.data_scope = 'province') AS province_scope",
+    "SELECT EXISTS (SELECT 1 FROM member_roles mr JOIN roles r ON r.organization_id = mr.organization_id AND r.id = mr.role_id WHERE mr.organization_id = $1 AND mr.member_id = $2 AND r.data_scope = 'organization') AS organization_scope, EXISTS (SELECT 1 FROM member_roles mr JOIN roles r ON r.organization_id = mr.organization_id AND r.id = mr.role_id WHERE mr.organization_id = $1 AND mr.member_id = $2 AND r.data_scope = 'province') AS province_scope, EXISTS (SELECT 1 FROM member_roles mr JOIN roles r ON r.organization_id = mr.organization_id AND r.id = mr.role_id WHERE mr.organization_id = $1 AND mr.member_id = $2 AND r.data_scope = 'site') AS site_scope",
     [context.organizationId, context.memberId],
   );
   return result.rows[0]?.organization_scope
@@ -497,10 +509,14 @@ async function rawRecord(
   const row = result.rows[0];
   if (!row) throw new NotFoundError("Agriculture record not found");
   const scope = await scopeOf(client, context);
-  if (scope === "self") {
+  if (scope === "self" || scope === "site") {
     if (config.provinceColumn)
       await assertOwnEmployeeAgricultureSite(client, context, String(row.site_id));
-    if (config.recorded && String(row.recorded_by_user_id ?? "") !== context.userId)
+    if (
+      scope === "self" &&
+      config.recorded &&
+      String(row.recorded_by_user_id ?? "") !== context.userId
+    )
       throw new NotFoundError("Agriculture record not found");
   } else if (config.provinceColumn) {
     await assertProvince(client, context, String(row.province_id));

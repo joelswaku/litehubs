@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { db, transaction } from "../../config/database";
+import { withTenantContext } from "../../utils/tenant-query";
 import {
   provisionOrganizationIn,
   type OrganizationAddress,
@@ -11,8 +12,10 @@ import { logger } from "../../config/logger";
 import {
   sendPasswordChangedEmail,
   sendPasswordResetEmail,
+  sendPasswordResetSms,
   sendWelcomeEmail,
 } from "../../services/notification.service";
+import { normalizePhone } from "../../utils/phone";
 import {
   AppError,
   ConflictError,
@@ -61,6 +64,75 @@ function fingerprint(rawToken: string): string {
 
 function generateOpaqueToken(): string {
   return crypto.randomBytes(48).toString("base64url");
+}
+
+/**
+ * Authentication changes happen before a workspace route is selected, so they
+ * cannot rely on the ordinary business-table audit triggers. Record a compact
+ * tenant copy for each active workspace instead. Audit delivery must never
+ * lock a legitimate person out when a database is temporarily unavailable.
+ */
+async function auditAuthenticationEvent(
+  user: AuthenticatedUser,
+  action: "login" | "login_failed" | "password_change",
+  context: RequestContext,
+  details: Record<string, unknown> = {},
+): Promise<void> {
+  const memberships = user.memberships.filter(
+    (membership) => membership.status === "active",
+  );
+  await Promise.all(
+    memberships.map(async (membership) => {
+      try {
+        await withTenantContext(
+          {
+            organizationId: membership.organizationId,
+            userId: user.id,
+            memberId: membership.memberId,
+          },
+          async (client) => {
+            await client.query(
+              `INSERT INTO audit_log
+                 (organization_id,user_id,member_id,actor_email,actor_name,action,entity_table,entity_id,entity_label,changes,ip_address,user_agent,route,severity)
+               VALUES ($1,$2,$3,$4,$5,$6,'users',$2,$5,$7::jsonb,$8,$9,$10,$11)`,
+              [
+                membership.organizationId,
+                user.id,
+                membership.memberId,
+                user.email,
+                user.fullName,
+                action,
+                JSON.stringify({ event: "authentication", ...details }),
+                context.ipAddress,
+                context.userAgent,
+                action === "password_change" ? "/auth/password" : "/auth/login",
+                action === "login_failed" ? "warning" : "notice",
+              ],
+            );
+          },
+        );
+      } catch (error) {
+        logger.error(
+          {
+            err: error,
+            userId: user.id,
+            organizationId: membership.organizationId,
+          },
+          "Authentication audit was not written",
+        );
+      }
+    }),
+  );
+}
+
+async function auditAuthenticationByUserId(
+  userId: string,
+  action: "login_failed" | "password_change",
+  context: RequestContext,
+  details?: Record<string, unknown>,
+): Promise<void> {
+  const user = await repository.findAuthenticatedUserById(userId);
+  if (user) await auditAuthenticationEvent(user, action, context, details);
 }
 
 /**
@@ -349,6 +421,9 @@ export async function login(
   }
 
   if (candidate.locked_until && candidate.locked_until > new Date()) {
+    await auditAuthenticationByUserId(candidate.id, "login_failed", context, {
+      outcome: "account_locked",
+    });
     throw new AppError(
       "Too many failed attempts. This account is temporarily locked.",
       423,
@@ -368,6 +443,10 @@ export async function login(
       { userId: candidate.id, attempts, locked: lockedUntil !== null },
       "Failed login",
     );
+    await auditAuthenticationByUserId(candidate.id, "login_failed", context, {
+      outcome: lockedUntil ? "account_locked" : "invalid_password",
+      attempts,
+    });
     throw new UnauthorizedError("Invalid email or password");
   }
 
@@ -380,6 +459,9 @@ export async function login(
   await repository.recordSuccessfulLogin(user.id);
   await activateDefaultOrganization(user);
   const tokens = await mintTokens(user, context);
+  await auditAuthenticationEvent(user, "login", context, {
+    outcome: "success",
+  });
 
   logger.info(
     {
@@ -528,16 +610,38 @@ export async function getCurrentUser(
 }
 
 /**
- * Always resolves, whether or not the email is registered — the response must
- * not reveal which addresses have accounts.
+ * Always resolves, whether or not the selected contact is registered — the
+ * response must not reveal which e-mail addresses or phone numbers have
+ * accounts.
  */
 export async function requestPasswordReset(
-  email: string,
+  identifier: string,
   context: RequestContext,
+  deliveryMethod: "email" | "sms" = "email",
 ): Promise<void> {
-  const userId = await repository.findActiveUserIdByEmail(email);
-  if (!userId) {
-    logger.info({ email }, "Password reset requested for unknown email");
+  const contact =
+    deliveryMethod === "email"
+      ? await repository.findActiveUserIdByEmail(
+          identifier.trim().toLowerCase(),
+        )
+      : await repository.findActiveUserForPasswordResetByPhone(
+          normalizePhone(identifier).replace(/\D/g, ""),
+        );
+  const userId = typeof contact === "string" ? contact : contact?.id;
+  const destination =
+    deliveryMethod === "email"
+      ? identifier.trim().toLowerCase()
+      : contact && typeof contact !== "string"
+        ? contact.phone
+        : null;
+
+  if (!userId || !destination) {
+    // Do not log the submitted contact. It is private and logging it would
+    // make an otherwise enumeration-safe flow needlessly sensitive.
+    logger.info(
+      { deliveryMethod },
+      "Password reset requested for unknown account",
+    );
     return;
   }
 
@@ -551,18 +655,25 @@ export async function requestPasswordReset(
 
   const resetUrl = `${env.frontendUrl}/reset-password?token=${rawToken}`;
 
-  const result = await sendPasswordResetEmail(
-    email,
-    resetUrl,
-    RESET_TOKEN_TTL_SECONDS / 60,
-  );
+  const result =
+    deliveryMethod === "sms"
+      ? await sendPasswordResetSms(
+          destination,
+          resetUrl,
+          RESET_TOKEN_TTL_SECONDS / 60,
+        )
+      : await sendPasswordResetEmail(
+          destination,
+          resetUrl,
+          RESET_TOKEN_TTL_SECONDS / 60,
+        );
 
   // Delivery failure is logged, never surfaced — the response must look the
   // same whether or not the address is registered.
   if (!result.sent) {
     logger.warn(
       { userId, reason: result.reason },
-      "Password reset email was not delivered",
+      "Password reset link was not delivered",
     );
     if (!env.isProduction) {
       logger.info({ userId, resetUrl }, "Reset link (development fallback)");
@@ -598,6 +709,12 @@ export async function resetPassword(
     // Confirmation goes out only once the reset is committed.
     const email = await repository.findUserEmail(userId);
     if (email) await sendPasswordChangedEmail(email);
+    await auditAuthenticationByUserId(
+      userId,
+      "password_change",
+      { ipAddress: null, userAgent: null },
+      { method: "reset_link" },
+    );
   });
 }
 
@@ -616,6 +733,12 @@ export async function changePassword(
   });
 
   logger.info({ userId }, "Password changed");
+  await auditAuthenticationByUserId(
+    userId,
+    "password_change",
+    { ipAddress: null, userAgent: null },
+    { method: "authenticated_change" },
+  );
 
   // Notify after the change is committed; a mail failure must not undo it.
   await sendPasswordChangedEmail(credentials.email);
@@ -653,7 +776,11 @@ async function notifyActivatedEmployeeAboutContracts(
   organizationId: string,
   userId: string,
 ) {
-  const linkedEmployee = await client.query<{ id: string; member_id: string; province_id: string | null }>(
+  const linkedEmployee = await client.query<{
+    id: string;
+    member_id: string;
+    province_id: string | null;
+  }>(
     `SELECT e.id,e.member_id,e.province_id
        FROM employees e
        JOIN organization_members m ON m.id=e.member_id AND m.organization_id=e.organization_id
@@ -663,7 +790,13 @@ async function notifyActivatedEmployeeAboutContracts(
   );
   const employee = linkedEmployee.rows[0];
   if (!employee) return;
-  const awaitingContracts = await client.query<{ id: string; title: string; reference: string; province_id: string | null; version_id: string }>(
+  const awaitingContracts = await client.query<{
+    id: string;
+    title: string;
+    reference: string;
+    province_id: string | null;
+    version_id: string;
+  }>(
     `SELECT c.id,c.title,c.reference,c.province_id,v.id AS version_id
        FROM contracts c
        JOIN LATERAL (
@@ -754,7 +887,11 @@ export async function acceptInvitation(
     }
 
     // A contract may have been sent before this employee activated their access.
-    await notifyActivatedEmployeeAboutContracts(client, accepted.rows[0]!.organization_id, userId);
+    await notifyActivatedEmployeeAboutContracts(
+      client,
+      accepted.rows[0]!.organization_id,
+      userId,
+    );
 
     await client.query("COMMIT");
   } catch (error) {
@@ -822,7 +959,9 @@ export async function acceptExistingInvitation(
       [tokenHash, signedInUser.email.toLowerCase()],
     );
     if (!invitation.rowCount)
-      throw new UnauthorizedError("This invitation is invalid, expired, already used, or belongs to a different email address");
+      throw new UnauthorizedError(
+        "This invitation is invalid, expired, already used, or belongs to a different email address",
+      );
     const existingMembership = await client.query<{ id: string }>(
       `SELECT id FROM organization_members
         WHERE organization_id=$1 AND user_id=$2 AND status='active'
@@ -834,16 +973,25 @@ export async function acceptExistingInvitation(
         "This LiteHubs account already belongs to this company. Use a different work email for the employee, or link the employee profile from Team and access.",
         { reason: "account_already_in_company" },
       );
-    const accepted = await client.query<{ organization_id: string; organization_slug: string }>(
+    const accepted = await client.query<{
+      organization_id: string;
+      organization_slug: string;
+    }>(
       `SELECT accepted_organization_id AS organization_id,
               accepted_organization_slug AS organization_slug
          FROM accept_organization_invitation($1, $2, $3::citext)`,
       [tokenHash, signedInUser.id, signedInUser.email.toLowerCase()],
     );
     if (!accepted.rowCount)
-      throw new UnauthorizedError("This invitation is invalid, expired, already used, or belongs to a different email address");
+      throw new UnauthorizedError(
+        "This invitation is invalid, expired, already used, or belongs to a different email address",
+      );
     acceptedOrganizationId = accepted.rows[0]!.organization_id;
-    await notifyActivatedEmployeeAboutContracts(client, acceptedOrganizationId, signedInUser.id);
+    await notifyActivatedEmployeeAboutContracts(
+      client,
+      acceptedOrganizationId,
+      signedInUser.id,
+    );
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});
@@ -854,9 +1002,16 @@ export async function acceptExistingInvitation(
 
   const user = await repository.findAuthenticatedUserById(signedInUser.id);
   if (!user)
-    throw new AppError("The invitation was accepted but the account could not be loaded", 500, "INVITATION_ACCEPTANCE_INCOMPLETE");
+    throw new AppError(
+      "The invitation was accepted but the account could not be loaded",
+      500,
+      "INVITATION_ACCEPTANCE_INCOMPLETE",
+    );
   await activateOrganization(user, acceptedOrganizationId);
   const tokens = await mintTokens(user, context);
-  logger.info({ userId: user.id, organizationId: acceptedOrganizationId }, "Existing LiteHubs account joined an organization");
+  logger.info(
+    { userId: user.id, organizationId: acceptedOrganizationId },
+    "Existing LiteHubs account joined an organization",
+  );
   return { user, ...tokens };
 }

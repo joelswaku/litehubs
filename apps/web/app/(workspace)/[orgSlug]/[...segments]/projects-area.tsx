@@ -25,6 +25,8 @@ import {
   ClipboardCheck,
   ClipboardList,
   Clock3,
+  CalendarDays,
+  Calculator,
   Download,
   FileImage,
   FileText,
@@ -69,10 +71,22 @@ import { useLanguage } from "@/providers/language-provider";
 import { useSessionUser } from "@/stores/session-store";
 
 type Row = Record<string, unknown> & { id: string };
+type BenefitTargets = {
+  targetProductionQuantity?: number | string | null;
+  targetProductionUnit?: string | null;
+  targetProductionPeriod?: string | null;
+  targetSalesAmount?: number | string | null;
+  targetMarginPercent?: number | string | null;
+  targetMortalityPercent?: number | string | null;
+  targetUnitCost?: number | string | null;
+};
 type Tab =
   | "overview"
   | "planning"
+  | "timeline"
   | "tasks"
+  | "risks"
+  | "quality"
   | "finance"
   | "procurement"
   | "resources"
@@ -89,6 +103,12 @@ type Project = Row & {
   currencyCode?: string | null;
   progressPercent?: number | string | null;
   responsibleMemberId?: string | null;
+  benefitOwnerMemberId?: string | null;
+  benefitOwnerName?: string | null;
+  operationalStartDate?: string | null;
+  benefitReviewDate?: string | null;
+  lifecycleStage?: string | null;
+  benefitTargets?: BenefitTargets | null;
 };
 /**
  * The project summary as the API nests it.
@@ -132,6 +152,7 @@ type Summary = Project & {
   productionProfitability?: {
     currencyCode: string;
     linkedFlockCount: number | string;
+    costBreakdown?: Record<string, number | string>;
     operationalCost: number | string;
     declaredFlockPurchaseCost: number | string;
     revenue: number | string;
@@ -143,13 +164,67 @@ type Summary = Project & {
     eggsSold: number | string;
     birdsSold: number | string;
     costPerEggProduced: number | string;
+    costPerBirdSold?: number | string;
     revenuePerEggSold: number | string;
-    flocks?: Row[];
+    flocks?: Array<
+      Row & {
+        costBreakdown?: Record<string, number | string>;
+        operationalCost?: number | string;
+        revenue?: number | string;
+        cashReceived?: number | string;
+        outstandingRevenue?: number | string;
+        profit?: number | string;
+        marginPercent?: number | string;
+        eggsProduced?: number | string;
+        eggsSold?: number | string;
+        birdsSold?: number | string;
+        costPerEggProduced?: number | string;
+        costPerBirdSold?: number | string;
+      }
+    >;
   } | null;
   nextActions?: Row[];
   calculatedProgressPercent?: number | string;
   openTasks?: number | string;
   overdueTasks?: number | string;
+};
+type ProjectDecisionSimulation = {
+  currencyCode: string;
+  isProjection: boolean;
+  assumptions: {
+    eggPriceChangePercent: number;
+    feedCostChangePercent: number;
+    mortalityPercent: number;
+    saleDelayDays: number;
+    budgetChangePercent: number;
+  };
+  baseline: {
+    revenue: number;
+    operationalCost: number;
+    operatingResult: number;
+    plannedBudget: number;
+    roiPercent: number | null;
+  };
+  impacts: {
+    eggPriceRevenueChange: number;
+    feedCostChange: number;
+    mortalityRevenueLoss: number;
+    budgetChange: number;
+    saleDelayDays: number;
+  };
+  scenario: {
+    revenue: number;
+    operationalCost: number;
+    operatingResult: number;
+    investment: number;
+    roiPercent: number | null;
+    paybackDays: number | null;
+    breakEvenRevenue: number;
+    breakEvenPricePerEgg: number | null;
+    unpaidRevenue: number;
+    cashArrivalDelayDays: number;
+  };
+  method: { observedDays: number; eggRevenue: number; message: string };
 };
 type Place = {
   id: string;
@@ -186,7 +261,10 @@ const PROCUREMENT_UNIT_OPTIONS: ProcurementUnitOption[] = [
 const tabIcon: Record<Tab, typeof LayoutDashboard> = {
   overview: LayoutDashboard,
   planning: Target,
+  timeline: CalendarDays,
   tasks: ListChecks,
+  risks: AlertTriangle,
+  quality: ClipboardCheck,
   finance: Wallet,
   procurement: ShoppingCart,
   resources: Boxes,
@@ -251,6 +329,9 @@ type EditorKind =
   | "phase-dependency"
   | "task"
   | "task-dependency"
+  | "risk"
+  | "quality-check"
+  | "closeout"
   | "member"
   | "material"
   | "movement"
@@ -271,7 +352,13 @@ type EditorKind =
   | "work-order"
   | "maintenance-part"
   | "operational-link";
-type Editor = { kind: EditorKind; record?: Row; requestId?: string; orderId?: string; receiptId?: string } | null;
+type Editor = {
+  kind: EditorKind;
+  record?: Row;
+  requestId?: string;
+  orderId?: string;
+  receiptId?: string;
+} | null;
 const EditorFormErrorsContext = createContext<Record<string, string>>({});
 
 const OPERATIONAL_TARGETS = {
@@ -326,11 +413,31 @@ const OPERATIONAL_TARGETS = {
 } as const;
 
 const OPERATIONAL_LINK_TYPES = [
-  { value: "created_by_project", english: "Created by this project", french: "Créé grâce à ce projet" },
-  { value: "acquired_for_project", english: "Acquired for this project", french: "Acquis pour ce projet" },
-  { value: "built_for_project", english: "Built for this project", french: "Construit pour ce projet" },
-  { value: "assigned_to_project", english: "Assigned to this project", french: "Affecté à ce projet" },
-  { value: "land_acquisition", english: "Land acquired by this project", french: "Terrain acquis par ce projet" },
+  {
+    value: "created_by_project",
+    english: "Created by this project",
+    french: "Créé grâce à ce projet",
+  },
+  {
+    value: "acquired_for_project",
+    english: "Acquired for this project",
+    french: "Acquis pour ce projet",
+  },
+  {
+    value: "built_for_project",
+    english: "Built for this project",
+    french: "Construit pour ce projet",
+  },
+  {
+    value: "assigned_to_project",
+    english: "Assigned to this project",
+    french: "Affecté à ce projet",
+  },
+  {
+    value: "land_acquisition",
+    english: "Land acquired by this project",
+    french: "Terrain acquis par ce projet",
+  },
 ] as const;
 
 type OperationalTargetKind = keyof typeof OPERATIONAL_TARGETS;
@@ -399,6 +506,17 @@ const RELATED: Array<{
   },
   { resource: "tasks", permission: "tasks.read", projectFilter: true },
   { resource: "task-dependencies", permission: "tasks.read" },
+  { resource: "risks", permission: "projects.read", projectFilter: true },
+  {
+    resource: "quality-checks",
+    permission: "procurement.read",
+    projectFilter: true,
+  },
+  {
+    resource: "project-closeouts",
+    permission: "projects.read",
+    projectFilter: true,
+  },
   {
     resource: "budget-lines",
     permission: "projects.read",
@@ -456,7 +574,10 @@ const tabLabel = (fr: boolean, value: Tab) =>
   ({
     overview: label(fr, "Overview", "Vue d’ensemble"),
     planning: label(fr, "Planning", "Planification"),
+    timeline: label(fr, "Visual plan", "Planning visuel"),
     tasks: label(fr, "Tasks", "Tâches"),
+    risks: label(fr, "Risks & decisions", "Risques & décisions"),
+    quality: label(fr, "Quality & close-out", "Qualité & clôture"),
     finance: label(fr, "Finance", "Finance"),
     procurement: label(fr, "Procurement", "Achats"),
     resources: label(fr, "Resources", "Ressources"),
@@ -617,6 +738,8 @@ export function ProjectsArea({ orgSlug }: { orgSlug: string }) {
   const [categoryManagerOpen, setCategoryManagerOpen] = useState(false);
   const [taskDetail, setTaskDetail] = useState<Row | null>(null);
   const [previewDocument, setPreviewDocument] = useState<Row | null>(null);
+  const [simulationOpen, setSimulationOpen] = useState(false);
+  const [projectGovernanceOpen, setProjectGovernanceOpen] = useState(false);
   const [confirmation, setConfirmation] = useState<ConfirmationRequest | null>(
     null,
   );
@@ -678,6 +801,56 @@ export function ProjectsArea({ orgSlug }: { orgSlug: string }) {
       enabled: Boolean(activeId) && canRead(source.permission),
     })),
   });
+  // The visual plan reads the same scoped records as the project workspace.
+  // We fetch the wider visible portfolio only for the owner: this is what lets
+  // a livestock milestone wait for a building phase in another project without
+  // exposing another manager's project plan.
+  const planningBoardEnabled =
+    Boolean(activeId) &&
+    ownerOnly &&
+    (tab === "timeline" ||
+      editor?.kind === "phase-dependency" ||
+      editor?.kind === "task-dependency");
+  const portfolioPhases = useQuery({
+    queryKey: ["project-planning-phases", orgSlug],
+    queryFn: () =>
+      ownerManagementApi.list<{ records: Row[] }>(orgSlug, "phases", {
+        limit: 200,
+      }),
+    enabled: planningBoardEnabled && canRead("projects.read"),
+    select: (data) => data.records,
+  });
+  const portfolioTasks = useQuery({
+    queryKey: ["project-planning-tasks", orgSlug],
+    queryFn: () =>
+      ownerManagementApi.list<{ records: Row[] }>(orgSlug, "tasks", {
+        limit: 200,
+      }),
+    enabled: planningBoardEnabled && canRead("tasks.read"),
+    select: (data) => data.records,
+  });
+  const portfolioPhaseDependencies = useQuery({
+    queryKey: ["project-planning-phase-dependencies", orgSlug],
+    queryFn: () =>
+      ownerManagementApi.list<{ records: Row[] }>(
+        orgSlug,
+        "phase-dependencies",
+        { limit: 200 },
+      ),
+    enabled: planningBoardEnabled && canRead("projects.read"),
+    select: (data) => data.records,
+  });
+  const portfolioTaskDependencies = useQuery({
+    queryKey: ["project-planning-task-dependencies", orgSlug],
+    queryFn: () =>
+      ownerManagementApi.list<{ records: Row[] }>(
+        orgSlug,
+        "task-dependencies",
+        { limit: 200 },
+      ),
+    enabled: planningBoardEnabled && canRead("tasks.read"),
+    select: (data) => data.records,
+  });
   const connectedError = RELATED.map((source, index) => ({
     source,
     error: related[index]?.error,
@@ -720,13 +893,13 @@ export function ProjectsArea({ orgSlug }: { orgSlug: string }) {
     if (resource === "phase-dependencies")
       return rows.filter(
         (record) =>
-          phaseIds.has(String(record.phaseId)) &&
+          phaseIds.has(String(record.phaseId)) ||
           phaseIds.has(String(record.dependsOnPhaseId)),
       );
     if (resource === "task-dependencies")
       return rows.filter(
         (record) =>
-          taskIds.has(String(record.taskId)) &&
+          taskIds.has(String(record.taskId)) ||
           taskIds.has(String(record.dependsOnTaskId)),
       );
     if (resource === "material-movements")
@@ -779,7 +952,10 @@ export function ProjectsArea({ orgSlug }: { orgSlug: string }) {
   const employees = useQuery({
     queryKey: ["project-employees", orgSlug],
     queryFn: () => get<{ employees: Employee[] }>(orgUrl(orgSlug, "employees")),
-    enabled: canRead("employees.read"),
+    // Project Managers assign operational work through the project-scoped
+    // task-assignee endpoint above.  The unrestricted HR directory is needed
+    // here only for owner-only project-governance controls.
+    enabled: ownerOnly && canRead("employees.read"),
     select: (data) => data.employees,
   });
   const accessRoles = useQuery({
@@ -899,7 +1075,9 @@ export function ProjectsArea({ orgSlug }: { orgSlug: string }) {
     void client.invalidateQueries({ queryKey: ["project-summary", orgSlug] });
     void client.invalidateQueries({ queryKey: ["project-record", orgSlug] });
     void client.invalidateQueries({ queryKey: ["project-activity", orgSlug] });
-    void client.invalidateQueries({ queryKey: ["project-budget-history", orgSlug] });
+    void client.invalidateQueries({
+      queryKey: ["project-budget-history", orgSlug],
+    });
     void client.invalidateQueries({
       queryKey: ["project-record", orgSlug, activeId, "documents"],
     });
@@ -961,15 +1139,21 @@ export function ProjectsArea({ orgSlug }: { orgSlug: string }) {
       record,
       body,
       taskDocuments,
+      taskEvidence,
       expenseEvidence,
       assetPhoto,
+      qualityBeforePhoto,
+      qualityAfterPhoto,
     }: {
       resource: OwnerManagementResource;
       record?: Row;
       body: ManagementBody;
       taskDocuments?: { documentIds: string[] };
+      taskEvidence?: File;
       expenseEvidence?: File;
       assetPhoto?: File;
+      qualityBeforePhoto?: File;
+      qualityAfterPhoto?: File;
     }) => {
       const result = record
         ? await ownerManagementApi.update<{ record: Row }>(
@@ -992,14 +1176,37 @@ export function ProjectsArea({ orgSlug }: { orgSlug: string }) {
           taskDocuments.documentIds,
         );
       }
+      if (resource === "tasks" && taskEvidence) {
+        const taskId = String(record?.id ?? result.record?.id ?? "");
+        if (!taskId) throw new Error("The saved task has no identifier");
+        const evidenceForm = new FormData();
+        evidenceForm.set("file", taskEvidence);
+        const taskTitle =
+          String(result.record?.title ?? body.title ?? "Task").trim() || "Task";
+        evidenceForm.set("title", `${taskTitle.slice(0, 170)} · evidence`);
+        await api.post(
+          orgApiUrl(orgSlug, `task-evidence/${taskId}`),
+          evidenceForm,
+          {
+            headers: { "Content-Type": "multipart/form-data" },
+          },
+        );
+        await client.invalidateQueries({
+          queryKey: ["task-documents", orgSlug, taskId],
+        });
+      }
       if (resource === "expenses" && expenseEvidence) {
         const expenseId = String(record?.id ?? result.record?.id ?? "");
         if (!expenseId) throw new Error("The saved expense has no identifier");
         const uploadForm = new FormData();
         uploadForm.set("file", expenseEvidence);
-        await api.post(orgApiUrl(orgSlug, `expense-evidence/${expenseId}`), uploadForm, {
-          headers: { "Content-Type": "multipart/form-data" },
-        });
+        await api.post(
+          orgApiUrl(orgSlug, `expense-evidence/${expenseId}`),
+          uploadForm,
+          {
+            headers: { "Content-Type": "multipart/form-data" },
+          },
+        );
       }
       if (resource === "assets" && assetPhoto) {
         const assetId = String(record?.id ?? result.record?.id ?? "");
@@ -1015,7 +1222,9 @@ export function ProjectsArea({ orgSlug }: { orgSlug: string }) {
         );
         photoForm.set(
           "altText",
-          String(result.record?.name ?? body.name ?? body.assetNumber ?? "Equipment"),
+          String(
+            result.record?.name ?? body.name ?? body.assetNumber ?? "Equipment",
+          ),
         );
         photoForm.set("imageType", "equipment_photo");
         await api.post(
@@ -1032,6 +1241,62 @@ export function ProjectsArea({ orgSlug }: { orgSlug: string }) {
             )
             .map((image) => api.delete(orgUrl(orgSlug, `images/${image.id}`))),
         );
+      }
+      if (
+        resource === "quality-checks" &&
+        (qualityBeforePhoto || qualityAfterPhoto)
+      ) {
+        const qualityId = String(record?.id ?? result.record?.id ?? "");
+        if (!qualityId)
+          throw new Error("The saved quality check has no identifier");
+        const uploadQualityPhoto = async (
+          file: File,
+          stage: "before" | "after",
+        ) => {
+          const form = new FormData();
+          form.set("file", file);
+          form.set(
+            "title",
+            `${String(result.record?.checkNumber ?? body.checkNumber ?? "QC")} · ${stage === "before" ? "before inspection" : "after inspection"}`,
+          );
+          form.set(
+            "altText",
+            stage === "before"
+              ? "Quality check before inspection"
+              : "Quality check after inspection",
+          );
+          form.set("imageType", `quality_${stage}`);
+          const uploaded = await api.post<{ image: Row }>(
+            orgUrl(
+              orgSlug,
+              `images/owner-management/projects/${String(activeId)}`,
+            ),
+            form,
+            { headers: { "Content-Type": "multipart/form-data" } },
+          );
+          return uploaded.data.image;
+        };
+        const [before, after] = await Promise.all([
+          qualityBeforePhoto
+            ? uploadQualityPhoto(qualityBeforePhoto, "before")
+            : Promise.resolve(undefined),
+          qualityAfterPhoto
+            ? uploadQualityPhoto(qualityAfterPhoto, "after")
+            : Promise.resolve(undefined),
+        ]);
+        const links: ManagementBody = {
+          ...(before?.id ? { beforePhotoDocumentId: String(before.id) } : {}),
+          ...(after?.id ? { afterPhotoDocumentId: String(after.id) } : {}),
+        };
+        if (Object.keys(links).length) {
+          const patched = await ownerManagementApi.update<{ record: Row }>(
+            orgSlug,
+            "quality-checks",
+            qualityId,
+            links,
+          );
+          result.record = patched.record;
+        }
       }
       return result;
     },
@@ -1086,7 +1351,8 @@ export function ProjectsArea({ orgSlug }: { orgSlug: string }) {
               ),
       });
     },
-  });  const upload = useMutation({
+  });
+  const upload = useMutation({
     mutationFn: async (input: {
       file: File;
       title: string;
@@ -1335,13 +1601,32 @@ export function ProjectsArea({ orgSlug }: { orgSlug: string }) {
                   {label(fr, "Créer un projet", "Create project")}
                 </Button>
               ) : null}
+              <Button
+                variant="ghost"
+                className="border border-white/25 bg-white/10 text-white hover:bg-white/20 hover:text-white"
+                onClick={() => setProjectGovernanceOpen(true)}
+              >
+                <ClipboardList className="size-4" />
+                {label(fr, "Règlement des projets", "Project rules")}
+              </Button>
               <Link
                 href={`/${orgSlug}/project-analytics`}
                 className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-white/25 bg-white/10 px-4 text-sm font-semibold text-white transition hover:bg-white/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
               >
                 <BarChart3 className="size-4" />
                 {label(fr, "Analyse globale", "Global analytics")}
-              </Link>              <span className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-black/10 px-3 py-2 text-xs text-emerald-50/90">
+              </Link>
+              {activeId ? (
+                <Button
+                  variant="ghost"
+                  className="border border-white/25 bg-white/10 text-white hover:bg-white/20 hover:text-white"
+                  onClick={() => setProjectId(null)}
+                >
+                  <BarChart3 className="size-4" />
+                  {label(fr, "Vue portefeuille", "Portfolio view")}
+                </Button>
+              ) : null}
+              <span className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-black/10 px-3 py-2 text-xs text-emerald-50/90">
                 <ShieldCheck className="size-4" />
                 {ownerOnly
                   ? label(fr, "Contrôle propriétaire", "Owner controls")
@@ -1443,7 +1728,10 @@ export function ProjectsArea({ orgSlug }: { orgSlug: string }) {
                   [
                     "overview",
                     "planning",
+                    "timeline",
                     "tasks",
+                    "risks",
+                    "quality",
                     "finance",
                     "procurement",
                     "resources",
@@ -1498,6 +1786,17 @@ export function ProjectsArea({ orgSlug }: { orgSlug: string }) {
                     documentCategories={documentCategories.data ?? []}
                     activity={activity.data ?? []}
                     budgetChanges={budgetHistory.data ?? []}
+                    portfolioProjects={projects.data ?? []}
+                    portfolioPhases={portfolioPhases.data ?? records("phases")}
+                    portfolioTasks={portfolioTasks.data ?? records("tasks")}
+                    portfolioPhaseDependencies={
+                      portfolioPhaseDependencies.data ??
+                      records("phase-dependencies")
+                    }
+                    portfolioTaskDependencies={
+                      portfolioTaskDependencies.data ??
+                      records("task-dependencies")
+                    }
                     fr={fr}
                     locale={locale}
                     canWrite={canWrite}
@@ -1561,6 +1860,7 @@ export function ProjectsArea({ orgSlug }: { orgSlug: string }) {
                         body: { status: "draft" },
                       })
                     }
+                    onOpenSimulation={() => setSimulationOpen(true)}
                     setEditor={setEditor}
                     onConfigureDocument={setAccessDocument}
                     onManageDocumentCategories={() =>
@@ -1571,7 +1871,11 @@ export function ProjectsArea({ orgSlug }: { orgSlug: string }) {
                       setConfirmation({
                         title: locking
                           ? label(fr, "Lock folder", "Verrouiller le dossier")
-                          : label(fr, "Unlock folder", "Déverrouiller le dossier"),
+                          : label(
+                              fr,
+                              "Unlock folder",
+                              "Déverrouiller le dossier",
+                            ),
                         description: locking
                           ? label(
                               fr,
@@ -1643,7 +1947,14 @@ export function ProjectsArea({ orgSlug }: { orgSlug: string }) {
               )}
             </>
           ) : (
-            <ProjectAnalyticsArea orgSlug={orgSlug} embedded />
+            <ProjectAnalyticsArea
+              orgSlug={orgSlug}
+              embedded
+              onSelectProject={(id) => {
+                setProjectId(id);
+                setTab("overview");
+              }}
+            />
           )}
         </div>
       </section>
@@ -1667,6 +1978,15 @@ export function ProjectsArea({ orgSlug }: { orgSlug: string }) {
           onPreview={setPreviewDocument}
         />
       ) : null}
+      {simulationOpen && selected ? (
+        <ProjectDecisionSimulationDialog
+          orgSlug={orgSlug}
+          project={selected}
+          fr={fr}
+          locale={locale}
+          onClose={() => setSimulationOpen(false)}
+        />
+      ) : null}
       {previewDocument ? (
         <ProjectDocumentPreviewDialog
           orgSlug={orgSlug}
@@ -1684,6 +2004,12 @@ export function ProjectsArea({ orgSlug }: { orgSlug: string }) {
           }
         />
       ) : null}{" "}
+      {projectGovernanceOpen ? (
+        <ProjectGovernanceDialog
+          fr={fr}
+          onClose={() => setProjectGovernanceOpen(false)}
+        />
+      ) : null}
       {confirmation ? (
         <ConfirmDialog
           request={confirmation}
@@ -1702,6 +2028,9 @@ export function ProjectsArea({ orgSlug }: { orgSlug: string }) {
           project={selected}
           phases={records("phases")}
           tasks={records("tasks")}
+          portfolioProjects={projects.data ?? []}
+          portfolioPhases={portfolioPhases.data ?? records("phases")}
+          portfolioTasks={portfolioTasks.data ?? records("tasks")}
           budgets={records("budget-lines")}
           documents={records("documents")}
           materials={records("materials")}
@@ -1727,7 +2056,16 @@ export function ProjectsArea({ orgSlug }: { orgSlug: string }) {
           isOwner={ownerOnly}
           working={save.isPending}
           onClose={() => setEditor(null)}
-          onSave={(resource, body, taskDocuments, expenseEvidence, assetPhoto) =>
+          onSave={(
+            resource,
+            body,
+            taskDocuments,
+            expenseEvidence,
+            assetPhoto,
+            taskEvidence,
+            qualityBeforePhoto,
+            qualityAfterPhoto,
+          ) =>
             save
               .mutateAsync({
                 resource,
@@ -1736,12 +2074,153 @@ export function ProjectsArea({ orgSlug }: { orgSlug: string }) {
                 taskDocuments,
                 expenseEvidence,
                 assetPhoto,
+                taskEvidence,
+                qualityBeforePhoto,
+                qualityAfterPhoto,
               })
               .then(() => undefined)
           }
         />
       ) : null}
     </main>
+  );
+}
+
+function ProjectGovernanceDialog({
+  fr,
+  onClose,
+}: {
+  fr: boolean;
+  onClose: () => void;
+}) {
+  const rules = [
+    {
+      title: label(fr, "Gouvernance", "Governance"),
+      text: label(
+        fr,
+        "Seul le propriétaire crée, valide le budget principal, clôture ou annule un projet.",
+        "Only the owner creates a project, approves its main budget, closes or cancels it.",
+      ),
+    },
+    {
+      title: label(fr, "Fiche obligatoire", "Required project record"),
+      text: label(
+        fr,
+        "Chaque projet doit avoir un objectif mesurable, un site, une province, un responsable, un budget principal et une étape de cycle claire.",
+        "Every project needs a measurable objective, site, province, responsible manager, main budget and clear lifecycle stage.",
+      ),
+    },
+    {
+      title: label(fr, "Accès par rôle", "Role-based access"),
+      text: label(
+        fr,
+        "Le Project Manager ne gère que les projets qui lui sont attribués. Il ne valide ni le budget principal ni ses propres demandes.",
+        "A Project Manager manages only assigned projects and cannot approve the main budget or their own requests.",
+      ),
+    },
+    {
+      title: label(fr, "Budget et dépenses", "Budget and costs"),
+      text: label(
+        fr,
+        "Le budget du projet est unique. Toute dépense est liée à une tâche lorsque possible ; les dépenses sans tâche restent visibles comme non affectées.",
+        "Each project has one budget. Costs are linked to a task where possible; costs without a task remain visible as unassigned.",
+      ),
+    },
+    {
+      title: label(fr, "Achats et réceptions", "Procurement and receiving"),
+      text: label(
+        fr,
+        "La chaîne contrôlée est : demande → approbation → bon de commande → réception → stock ou ressource. Un paiement fournisseur ne compte jamais une seconde fois.",
+        "The controlled chain is: request → approval → purchase order → receipt → stock or resource. A supplier payment is never counted twice.",
+      ),
+    },
+    {
+      title: label(fr, "Qualité et preuves", "Quality and evidence"),
+      text: label(
+        fr,
+        "Chaque réception indique les quantités acceptées, endommagées, refusées ou retournées et peut contenir photos, factures et bons de livraison.",
+        "Every receipt records accepted, damaged, rejected or returned quantities and may contain photos, invoices and delivery notes.",
+      ),
+    },
+    {
+      title: label(fr, "Passage à l’exploitation", "Transition to operations"),
+      text: label(
+        fr,
+        "Les actifs, animaux, matériaux et aliments restent uniques dans l’entreprise. Après mise en service, le projet suit production, ventes, encaissements et bénéfice/perte.",
+        "Assets, animals, materials and feed remain unique in the company. After commissioning, the project follows production, sales, collections and profit/loss.",
+      ),
+    },
+    {
+      title: label(fr, "Clôture et traçabilité", "Close-out and traceability"),
+      text: label(
+        fr,
+        "La clôture exige les tâches importantes terminées, les réceptions contrôlées, les preuves classées et l’évaluation du résultat attendu. Les décisions et changements sont audités.",
+        "Close-out requires key tasks completed, receipts controlled, evidence filed and the expected result assessed. Decisions and changes are audited.",
+      ),
+    },
+  ];
+  return (
+    <div
+      className="fixed inset-0 z-[80] overflow-y-auto bg-ink/50 p-3 backdrop-blur-sm sm:p-6"
+      role="dialog"
+      aria-modal="true"
+      aria-label={label(fr, "Project management rules", "Règlement de gestion des projets")}
+    >
+      <section className="mx-auto my-3 w-full max-w-4xl overflow-hidden rounded-2xl border border-border bg-surface-1 shadow-2xl sm:my-8">
+        <header className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-border bg-surface-1/95 px-5 py-4 backdrop-blur sm:px-6">
+          <div className="min-w-0">
+            <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[.14em] text-brand">
+              <ShieldCheck className="size-4" />
+              Congo Omega · LiteHubs
+            </p>
+            <h2 className="mt-1 text-xl font-semibold text-ink">
+              {label(fr, "Règlement de gestion des projets", "Project management rules")}
+            </h2>
+            <p className="mt-1 max-w-2xl text-sm leading-6 text-ink-secondary">
+              {label(
+                fr,
+                "Le cadre interne à respecter avant, pendant et après chaque investissement.",
+                "The internal framework to follow before, during and after every investment.",
+              )}
+            </p>
+          </div>
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="ghost"
+            onClick={onClose}
+            aria-label={label(fr, "Fermer", "Close")}
+          >
+            <X />
+          </Button>
+        </header>
+        <div className="grid gap-3 p-5 sm:grid-cols-2 sm:p-6">
+          {rules.map((rule, index) => (
+            <article
+              key={rule.title}
+              className="rounded-xl border border-border bg-surface-2 p-4"
+            >
+              <div className="flex gap-3">
+                <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-brand/10 text-xs font-bold text-brand">
+                  {index + 1}
+                </span>
+                <div>
+                  <h3 className="text-sm font-semibold text-ink">{rule.title}</h3>
+                  <p className="mt-1.5 text-sm leading-6 text-ink-secondary">
+                    {rule.text}
+                  </p>
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
+        <footer className="flex justify-end border-t border-border bg-surface-2 px-5 py-4 sm:px-6">
+          <Button type="button" onClick={onClose}>
+            {label(fr, "J’ai compris", "I understand")}
+          </Button>
+        </footer>
+      </section>
+    </div>
   );
 }
 
@@ -1914,6 +2393,26 @@ const projectStatusLabel = (value: unknown, fr: boolean) => {
   const item = labels[String(value)];
   return item ? (fr ? item[1] : item[0]) : titleCase(value);
 };
+const investmentLifecycleLabel = (value: unknown, fr: boolean) => {
+  const labels: Record<string, [string, string]> = {
+    investment: ["Investment", "Investissement"],
+    commissioning: ["Commissioning", "Mise en service"],
+    operating: ["Operating", "Exploitation"],
+    closed: ["Closed", "Clôturé"],
+  };
+  const item = labels[String(value ?? "investment")];
+  return item ? (fr ? item[1] : item[0]) : titleCase(value ?? "investment");
+};
+const investmentLifecycleVariant = (value: unknown) => {
+  const stage = String(value ?? "investment");
+  return stage === "operating"
+    ? ("good" as const)
+    : stage === "commissioning"
+      ? ("info" as const)
+      : stage === "closed"
+        ? ("neutral" as const)
+        : ("warning" as const);
+};
 const projectPriorityLabel = (value: unknown, fr: boolean) => {
   const labels: Record<string, [string, string]> = {
     low: ["Low", "Faible"],
@@ -1947,13 +2446,20 @@ function ProjectHeader({
   const latestBudgetAdjustment = budgetChanges.flatMap((event) => {
     if (String(event.entityType) !== "budget_change") return [];
     try {
-      const change = JSON.parse(String(event.status ?? "")) as Record<string, unknown>;
+      const change = JSON.parse(String(event.status ?? "")) as Record<
+        string,
+        unknown
+      >;
       const before = Number(change.before ?? 0);
       const after = Number(change.after ?? 0);
-      return String(change.scope) === "project" && Number.isFinite(before) && Number.isFinite(after)
+      return String(change.scope) === "project" &&
+        Number.isFinite(before) &&
+        Number.isFinite(after)
         ? [{ before, after }]
         : [];
-    } catch { return []; }
+    } catch {
+      return [];
+    }
   })[0];
   return (
     <section className="relative overflow-hidden rounded-[26px] border border-[#173754] bg-[radial-gradient(circle_at_92%_8%,rgba(70,197,166,.25),transparent_23%),linear-gradient(135deg,#0b213d_0%,#104360_62%,#135950_100%)] p-5 text-white shadow-[0_24px_52px_-30px_rgba(8,31,58,.85)] sm:p-6">
@@ -1966,6 +2472,16 @@ function ProjectHeader({
             </span>
             <Badge variant={statusVariant(project.status)}>
               {projectStatusLabel(project.status, fr)}
+            </Badge>
+            <Badge
+              variant={investmentLifecycleVariant(
+                summary?.lifecycleStage ?? project.lifecycleStage,
+              )}
+            >
+              {investmentLifecycleLabel(
+                summary?.lifecycleStage ?? project.lifecycleStage,
+                fr,
+              )}
             </Badge>
             <Badge
               variant={
@@ -2049,7 +2565,24 @@ function ProjectHeader({
         <Metric
           label={label(fr, "Planned budget", "Budget prévu")}
           value={money(summary?.budget?.planned, project.currencyCode, locale)}
-          hint={latestBudgetAdjustment ? <>{label(fr, "Last adjustment", "Dernier ajustement")} · {money(latestBudgetAdjustment.before, project.currencyCode, locale)} → {money(latestBudgetAdjustment.after, project.currencyCode, locale)}</> : undefined}
+          hint={
+            latestBudgetAdjustment ? (
+              <>
+                {label(fr, "Last adjustment", "Dernier ajustement")} ·{" "}
+                {money(
+                  latestBudgetAdjustment.before,
+                  project.currencyCode,
+                  locale,
+                )}{" "}
+                →{" "}
+                {money(
+                  latestBudgetAdjustment.after,
+                  project.currencyCode,
+                  locale,
+                )}
+              </>
+            ) : undefined
+          }
           icon={Wallet}
           inverse
         />
@@ -2084,6 +2617,1846 @@ function ProjectHeader({
   );
 }
 
+function InvestmentProfilePanel({
+  project,
+  summary,
+  fr,
+  locale,
+  onEdit,
+}: {
+  project: Project;
+  summary?: Summary;
+  fr: boolean;
+  locale: string;
+  onEdit?: () => void;
+}) {
+  const profile = summary ?? project;
+  const targets = profile.benefitTargets ?? {};
+  const productionQuantity = targets.targetProductionQuantity;
+  const hasProduction =
+    productionQuantity != null && Number.isFinite(Number(productionQuantity));
+  const kpis = [
+    hasProduction
+      ? {
+          label: label(fr, "Production target", "Production cible"),
+          value: `${number(productionQuantity).toLocaleString(locale)} ${String(targets.targetProductionUnit ?? "").trim()} / ${
+            (
+              {
+                daily: label(fr, "day", "jour"),
+                weekly: label(fr, "week", "semaine"),
+                monthly: label(fr, "month", "mois"),
+                cycle: label(fr, "cycle", "cycle"),
+              } as Record<string, string>
+            )[String(targets.targetProductionPeriod)] ?? "—"
+          }`,
+        }
+      : null,
+    targets.targetSalesAmount != null &&
+    Number.isFinite(Number(targets.targetSalesAmount))
+      ? {
+          label: label(fr, "Sales target", "Ventes cibles"),
+          value: money(targets.targetSalesAmount, profile.currencyCode, locale),
+        }
+      : null,
+    targets.targetMarginPercent != null &&
+    Number.isFinite(Number(targets.targetMarginPercent))
+      ? {
+          label: label(fr, "Target margin", "Marge cible"),
+          value: `${number(targets.targetMarginPercent).toLocaleString(locale)}%`,
+        }
+      : null,
+    targets.targetMortalityPercent != null &&
+    Number.isFinite(Number(targets.targetMortalityPercent))
+      ? {
+          label: label(fr, "Maximum mortality", "Mortalité maximale"),
+          value: `${number(targets.targetMortalityPercent).toLocaleString(locale)}%`,
+        }
+      : null,
+    targets.targetUnitCost != null &&
+    Number.isFinite(Number(targets.targetUnitCost))
+      ? {
+          label: label(fr, "Target unit cost", "Coût unitaire cible"),
+          value: money(targets.targetUnitCost, profile.currencyCode, locale),
+        }
+      : null,
+  ].filter((item): item is { label: string; value: string } => item !== null);
+
+  return (
+    <Panel
+      title={label(fr, "Investment profile", "Fiche d’investissement")}
+      subtitle={label(
+        fr,
+        "Keep the intended result and its owner visible from investment through operations.",
+        "Gardez le résultat attendu et sa responsabilité visibles de l’investissement à l’exploitation.",
+      )}
+      action={
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Badge variant={investmentLifecycleVariant(profile.lifecycleStage)}>
+            {investmentLifecycleLabel(profile.lifecycleStage, fr)}
+          </Badge>
+          {onEdit ? (
+            <Button size="sm" variant="secondary" onClick={onEdit}>
+              <Pencil className="size-3.5" />
+              {label(fr, "Edit profile", "Modifier la fiche")}
+            </Button>
+          ) : null}
+        </div>
+      }
+    >
+      <div className="rounded-xl border border-brand/20 bg-brand-subtle/35 p-4">
+        <p className="text-xs font-semibold uppercase tracking-[.1em] text-brand">
+          {label(fr, "Expected outcome", "Objectif attendu")}
+        </p>
+        <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-ink">
+          {String(
+            profile.expectedOutcome ??
+              label(
+                fr,
+                "Add a measurable outcome, for example 10,000 eggs each month or a 500-bird house.",
+                "Ajoutez un résultat mesurable, par exemple 10 000 œufs par mois ou un bâtiment de 500 poules.",
+              ),
+          )}
+        </p>
+      </div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Info
+          label={label(fr, "Lifecycle stage", "Étape du cycle")}
+          value={investmentLifecycleLabel(profile.lifecycleStage, fr)}
+        />
+        <Info
+          label={label(fr, "Operational start", "Démarrage opérationnel")}
+          value={date(profile.operationalStartDate, locale)}
+        />
+        <Info
+          label={label(fr, "Benefit owner", "Responsable des bénéfices")}
+          value={String(profile.benefitOwnerName ?? "—")}
+        />
+        <Info
+          label={label(fr, "Benefit review", "Revue des bénéfices")}
+          value={date(profile.benefitReviewDate, locale)}
+        />
+      </div>
+      {profile.fundingSource ? (
+        <div className="mt-3">
+          <Info
+            label={label(fr, "Funding source", "Source de financement")}
+            value={String(profile.fundingSource)}
+          />
+        </div>
+      ) : null}
+      <div className="mt-5 border-t border-border pt-4">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <p className="text-sm font-semibold text-ink">
+            {label(fr, "Target indicators", "Indicateurs cibles")}
+          </p>
+          <p className="text-xs text-ink-muted">
+            {label(
+              fr,
+              "Compared with actual operations and sales after commissioning.",
+              "Comparés aux opérations et ventes réelles après la mise en service.",
+            )}
+          </p>
+        </div>
+        {kpis.length ? (
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            {kpis.map((kpi) => (
+              <div
+                key={kpi.label}
+                className="rounded-xl border border-border bg-surface-2/70 px-3 py-3"
+              >
+                <p className="text-xs text-ink-muted">{kpi.label}</p>
+                <p className="mt-1 text-sm font-semibold tabular-nums text-ink">
+                  {kpi.value}
+                </p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-3 text-sm text-ink-secondary">
+            {label(
+              fr,
+              "No target indicators yet. Add them from Edit to compare the investment with real production, sales and margin.",
+              "Aucun indicateur cible pour le moment. Ajoutez-les avec Modifier afin de comparer l’investissement à la production, aux ventes et à la marge réelles.",
+            )}
+          </p>
+        )}
+      </div>
+    </Panel>
+  );
+}
+
+function ProjectRiskRegister({
+  rows,
+  fr,
+  locale,
+  canCreate,
+  canEdit,
+  onAdd,
+  onEdit,
+}: {
+  rows: Row[];
+  fr: boolean;
+  locale: string;
+  canCreate: boolean;
+  canEdit: boolean;
+  onAdd: () => void;
+  onEdit: (record: Row) => void;
+}) {
+  const today = new Date().toISOString().slice(0, 10);
+  const open = rows.filter((row) => String(row.status) !== "closed");
+  const triggered = rows.filter((row) => String(row.status) === "triggered");
+  const overdue = open.filter(
+    (row) => String(row.reviewDate ?? "").slice(0, 10) < today,
+  );
+  const decided = rows.filter((row) => String(row.decision) !== "pending");
+  const categoryLabel = (value: unknown) => {
+    const labels: Record<string, [string, string]> = {
+      disease: ["Disease", "Maladie"],
+      supplier_delay: ["Supplier delay", "Retard fournisseur"],
+      commodity_price: ["Commodity price", "Hausse du maïs / prix"],
+      water: ["Water", "Manque d’eau"],
+      theft: ["Theft", "Vol"],
+      permit: ["Permit", "Permis"],
+      weather: ["Weather", "Météo"],
+      other: ["Other", "Autre"],
+    };
+    const choice = labels[String(value)] ?? [
+      titleCase(value),
+      titleCase(value),
+    ];
+    return fr ? choice[1] : choice[0];
+  };
+  const statusLabel = (value: unknown) => {
+    const labels: Record<string, [string, string]> = {
+      open: ["Open", "Ouvert"],
+      monitoring: ["Monitoring", "Surveillance"],
+      triggered: ["Triggered", "Déclenché"],
+      mitigating: ["Mitigating", "En traitement"],
+      accepted: ["Accepted", "Accepté"],
+      closed: ["Closed", "Clôturé"],
+    };
+    const choice = labels[String(value)] ?? [
+      titleCase(value),
+      titleCase(value),
+    ];
+    return fr ? choice[1] : choice[0];
+  };
+  const decisionLabel = (value: unknown) => {
+    const labels: Record<string, [string, string]> = {
+      pending: ["No decision yet", "Aucune décision"],
+      monitor: ["Monitor", "Surveiller"],
+      mitigate: ["Mitigate", "Réduire le risque"],
+      avoid: ["Avoid", "Éviter"],
+      transfer: ["Transfer", "Transférer"],
+      accept: ["Accept", "Accepter"],
+      escalate: ["Escalate", "Escalader"],
+    };
+    const choice = labels[String(value)] ?? [
+      titleCase(value),
+      titleCase(value),
+    ];
+    return fr ? choice[1] : choice[0];
+  };
+  const severity = (row: Row) => {
+    const probability =
+      { low: 1, medium: 2, high: 3 }[String(row.probability)] ?? 2;
+    const impact =
+      { low: 1, medium: 2, high: 3, critical: 4 }[String(row.impact)] ?? 2;
+    const score = probability * impact;
+    if (score >= 9)
+      return { label: label(fr, "High", "Élevé"), variant: "serious" as const };
+    if (score >= 4)
+      return {
+        label: label(fr, "Attention", "Attention"),
+        variant: "warning" as const,
+      };
+    return {
+      label: label(fr, "Controlled", "Maîtrisé"),
+      variant: "info" as const,
+    };
+  };
+  const statusVariantFor = (row: Row) =>
+    String(row.status) === "triggered"
+      ? ("critical" as const)
+      : String(row.status) === "closed"
+        ? ("good" as const)
+        : String(row.status) === "mitigating"
+          ? ("info" as const)
+          : ("warning" as const);
+
+  return (
+    <section className="mt-5 space-y-5">
+      <Panel
+        title={label(fr, "Risks & decisions", "Risques & décisions")}
+        subtitle={label(
+          fr,
+          "Give every risk or issue a responsible person, a measurable trigger, an action and a dated decision.",
+          "Donnez à chaque risque ou problème un responsable, un déclencheur mesurable, une action et une décision datée.",
+        )}
+        icon={AlertTriangle}
+        action={
+          canCreate ? (
+            <Button size="sm" onClick={onAdd}>
+              <Plus />
+              {label(fr, "Add risk", "Ajouter un risque")}
+            </Button>
+          ) : undefined
+        }
+      >
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {[
+            [
+              label(fr, "Open register", "Registre ouvert"),
+              open.length,
+              "bg-brand/10 text-brand",
+            ],
+            [
+              label(fr, "Triggered", "Déclenchés"),
+              triggered.length,
+              "bg-critical/10 text-critical",
+            ],
+            [
+              label(fr, "Review overdue", "Revue en retard"),
+              overdue.length,
+              "bg-warning/15 text-ink",
+            ],
+            [
+              label(fr, "Decisions recorded", "Décisions tracées"),
+              decided.length,
+              "bg-good/10 text-good-ink dark:text-good",
+            ],
+          ].map(([title, value, tone]) => (
+            <div key={String(title)} className={`rounded-xl px-4 py-3 ${tone}`}>
+              <p className="text-xs font-medium">{title}</p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums">
+                {String(value)}
+              </p>
+            </div>
+          ))}
+        </div>
+      </Panel>
+
+      {rows.length ? (
+        <div className="grid gap-4 xl:grid-cols-2">
+          {rows.map((risk) => {
+            const due =
+              String(risk.status) !== "closed" &&
+              String(risk.reviewDate ?? "").slice(0, 10) < today;
+            const level = severity(risk);
+            return (
+              <article
+                key={risk.id}
+                className={`rounded-2xl border bg-surface-1 shadow-[0_15px_32px_-28px_rgba(15,38,63,.7)] ${String(risk.status) === "triggered" ? "border-critical/45" : due ? "border-warning/55" : "border-border"}`}
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border/70 bg-surface-2/45 px-5 py-4">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-xs font-semibold tracking-[.08em] text-ink-muted">
+                        {String(risk.code ?? "RSK")}
+                      </p>
+                      <Badge variant="outline">
+                        {categoryLabel(risk.category)}
+                      </Badge>
+                      <Badge variant={level.variant}>{level.label}</Badge>
+                    </div>
+                    <h3 className="mt-2 text-base font-semibold text-ink">
+                      {String(risk.title ?? "—")}
+                    </h3>
+                    {risk.description ? (
+                      <p className="mt-1 line-clamp-2 text-sm leading-6 text-ink-secondary">
+                        {String(risk.description)}
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant={statusVariantFor(risk)}>
+                      {statusLabel(risk.status)}
+                    </Badge>
+                    {canEdit ? (
+                      <Button
+                        size="icon-sm"
+                        variant="ghost"
+                        onClick={() => onEdit(risk)}
+                        aria-label={label(
+                          fr,
+                          "Edit risk",
+                          "Modifier le risque",
+                        )}
+                      >
+                        <Pencil />
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="grid gap-3 p-5 sm:grid-cols-2">
+                  <div className="rounded-xl bg-surface-2 p-3">
+                    <p className="text-xs font-medium text-ink-muted">
+                      {label(fr, "Responsible", "Responsable")}
+                    </p>
+                    <p className="mt-1 flex items-center gap-1.5 text-sm font-semibold text-ink">
+                      <Users className="size-3.5 text-brand" />
+                      {String(risk.ownerName ?? "—")}
+                    </p>
+                    <p className="mt-2 text-xs text-ink-secondary">
+                      {label(fr, "Probability", "Probabilité")} ·{" "}
+                      {titleCase(risk.probability)} &nbsp;{" "}
+                      {label(fr, "Impact", "Impact")} · {titleCase(risk.impact)}
+                    </p>
+                  </div>
+                  <div
+                    className={`rounded-xl p-3 ${due ? "bg-warning/15" : "bg-surface-2"}`}
+                  >
+                    <p className="text-xs font-medium text-ink-muted">
+                      {label(fr, "Review deadline", "Échéance de revue")}
+                    </p>
+                    <p className="mt-1 flex items-center gap-1.5 text-sm font-semibold text-ink">
+                      <Clock3 className="size-3.5 text-brand" />
+                      {date(risk.reviewDate, locale)}
+                    </p>
+                    {due ? (
+                      <p className="mt-2 text-xs font-semibold text-ink">
+                        {label(
+                          fr,
+                          "Review required now",
+                          "Revue requise maintenant",
+                        )}
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="rounded-xl border border-border bg-surface-1 p-3 sm:col-span-2">
+                    <p className="text-xs font-medium text-ink-muted">
+                      {label(
+                        fr,
+                        "Trigger and alert threshold",
+                        "Déclencheur et seuil d’alerte",
+                      )}
+                    </p>
+                    <p className="mt-1 text-sm font-medium text-ink">
+                      {String(risk.triggerCondition ?? "—")}
+                    </p>
+                    <p className="mt-1 text-xs text-ink-secondary">
+                      {String(risk.alertThreshold ?? "—")}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-border bg-surface-1 p-3 sm:col-span-2">
+                    <p className="text-xs font-medium text-ink-muted">
+                      {label(fr, "Preventive action", "Action de prévention")}
+                    </p>
+                    <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-ink">
+                      {String(risk.preventionAction ?? "—")}
+                    </p>
+                    {risk.contingencyAction ? (
+                      <p className="mt-2 text-xs leading-5 text-ink-secondary">
+                        <span className="font-semibold text-ink">
+                          {label(fr, "If triggered: ", "Si déclenché : ")}
+                        </span>
+                        {String(risk.contingencyAction)}
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="rounded-xl border border-brand/20 bg-brand-subtle/30 p-3 sm:col-span-2">
+                    <p className="flex items-center gap-1.5 text-xs font-medium text-ink-muted">
+                      <ShieldCheck className="size-3.5 text-brand" />
+                      {label(fr, "Decision", "Décision")}
+                    </p>
+                    <p className="mt-1 text-sm font-semibold text-ink">
+                      {decisionLabel(risk.decision)}
+                    </p>
+                    {risk.decisionTaken ? (
+                      <p className="mt-1 text-sm text-ink">
+                        {String(risk.decisionTaken)}
+                      </p>
+                    ) : null}
+                    {risk.decisionJustification ? (
+                      <p className="mt-1 text-xs leading-5 text-ink-secondary">
+                        {String(risk.decisionJustification)}
+                        {risk.decidedByName
+                          ? ` · ${String(risk.decidedByName)}`
+                          : ""}
+                        {risk.decidedAt
+                          ? ` · ${date(risk.decidedAt, locale)}`
+                          : ""}
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      ) : (
+        <Panel
+          title={label(fr, "No risk recorded", "Aucun risque enregistré")}
+          subtitle={label(
+            fr,
+            "Start with the risks that could delay, cost or stop this project.",
+            "Commencez par les risques pouvant retarder, coûter ou arrêter ce projet.",
+          )}
+          icon={ShieldCheck}
+          action={
+            canCreate ? (
+              <Button size="sm" onClick={onAdd}>
+                <Plus />
+                {label(fr, "Add risk", "Ajouter un risque")}
+              </Button>
+            ) : undefined
+          }
+        >
+          <p className="text-sm leading-6 text-ink-secondary">
+            {label(
+              fr,
+              "For example: disease, a supplier delay, water shortage, permit or weather risk. Each entry must name the person responsible and the preventive action.",
+              "Par exemple : maladie, retard fournisseur, manque d’eau, permis ou météo. Chaque entrée doit nommer le responsable et l’action de prévention.",
+            )}
+          </p>
+        </Panel>
+      )}
+    </section>
+  );
+}
+
+function ProjectQualityCloseout({
+  project,
+  checks,
+  closeout,
+  receipts,
+  receiptLines,
+  assets,
+  documents,
+  fr,
+  locale,
+  canCreateCheck,
+  canEditCheck,
+  canClose,
+  onAddCheck,
+  onEditCheck,
+  onPrepareCloseout,
+}: {
+  project: Project;
+  checks: Row[];
+  closeout: Row | null;
+  receipts: Row[];
+  receiptLines: Row[];
+  assets: Row[];
+  documents: Row[];
+  fr: boolean;
+  locale: string;
+  canCreateCheck: boolean;
+  canEditCheck: boolean;
+  canClose: boolean;
+  onAddCheck: () => void;
+  onEditCheck: (record: Row) => void;
+  onPrepareCloseout: () => void;
+}) {
+  const documentNames = new Map(
+    documents.map((document) => [
+      String(document.id),
+      String(document.title ?? "—"),
+    ]),
+  );
+  const checksByReceipt = new Map(
+    checks
+      .filter((check) => check.receiptId)
+      .map((check) => [String(check.receiptId), check]),
+  );
+  const checksByAsset = new Map(
+    checks
+      .filter((check) => check.assetId)
+      .map((check) => [String(check.assetId), check]),
+  );
+  const receptionRows = receipts.filter((receipt) =>
+    ["received", "verified"].includes(String(receipt.status)),
+  );
+  const pendingChecks = receptionRows.filter((receipt) => {
+    const status = String(
+      checksByReceipt.get(String(receipt.id))?.qualityStatus ?? "pending",
+    );
+    return !["accepted", "accepted_with_observations"].includes(status);
+  });
+  const commissioningPending = checks.filter(
+    (check) =>
+      String(check.commissioningStatus) === "pending" ||
+      (check.assetId && String(check.commissioningStatus) !== "validated"),
+  );
+  const qualityStatusLabel = (value: unknown) => {
+    const labels: Record<string, [string, string]> = {
+      pending: ["Pending", "À contrôler"],
+      accepted: ["Accepted", "Acceptée"],
+      accepted_with_observations: [
+        "Accepted with observations",
+        "Acceptée avec réserves",
+      ],
+      rejected: ["Rejected", "Refusée"],
+      returned: ["Returned", "Retournée"],
+    };
+    const item = labels[String(value ?? "pending")] ?? [
+      titleCase(value),
+      titleCase(value),
+    ];
+    return fr ? item[1] : item[0];
+  };
+  const commissioningLabel = (value: unknown) => {
+    const labels: Record<string, [string, string]> = {
+      not_required: ["Not required", "Non requise"],
+      pending: ["Pending", "En attente"],
+      validated: ["Validated", "Validée"],
+      failed: ["Failed", "Échouée"],
+    };
+    const item = labels[String(value ?? "not_required")] ?? [
+      titleCase(value),
+      titleCase(value),
+    ];
+    return fr ? item[1] : item[0];
+  };
+  const closeoutComplete = String(closeout?.status ?? "") === "completed";
+  const receiptTotals = (receiptId: string) =>
+    receiptLines
+      .filter((line) => String(line.receiptId) === receiptId)
+      .reduce(
+        (total, line) => ({
+          received: total.received + number(line.receivedQuantity),
+          damaged: total.damaged + number(line.damagedQuantity),
+          rejected: total.rejected + number(line.rejectedQuantity),
+        }),
+        { received: 0, damaged: 0, rejected: 0 },
+      );
+
+  return (
+    <section className="mt-5 space-y-5">
+      <Panel
+        title={label(
+          fr,
+          "Quality, handover & close-out",
+          "Qualité, réception & clôture",
+        )}
+        subtitle={label(
+          fr,
+          "A receipt remains the quantity and budget record. This controlled layer proves its quality, warranty, commissioning and project handover.",
+          "La réception reste la source des quantités et du budget. Cette couche contrôlée prouve sa qualité, sa garantie, sa mise en service et la remise du projet.",
+        )}
+        icon={ClipboardCheck}
+        action={
+          canCreateCheck ? (
+            <Button size="sm" onClick={onAddCheck}>
+              <Plus />
+              {label(fr, "Quality check", "Contrôle qualité")}
+            </Button>
+          ) : undefined
+        }
+      >
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {[
+            [
+              label(fr, "Receipts to inspect", "Réceptions à contrôler"),
+              pendingChecks.length,
+              "bg-warning/15 text-ink",
+            ],
+            [
+              label(fr, "Checks accepted", "Contrôles acceptés"),
+              checks.filter((check) =>
+                ["accepted", "accepted_with_observations"].includes(
+                  String(check.qualityStatus),
+                ),
+              ).length,
+              "bg-good/10 text-good-ink dark:text-good",
+            ],
+            [
+              label(
+                fr,
+                "Commissioning to validate",
+                "Mises en service à valider",
+              ),
+              commissioningPending.length,
+              "bg-brand/10 text-brand",
+            ],
+            [
+              label(fr, "Project close-out", "Clôture du projet"),
+              closeoutComplete
+                ? label(fr, "Completed", "Terminée")
+                : label(fr, "To prepare", "À préparer"),
+              closeoutComplete
+                ? "bg-good/10 text-good-ink dark:text-good"
+                : "bg-surface-2 text-ink",
+            ],
+          ].map(([title, value, tone]) => (
+            <div key={String(title)} className={`rounded-xl px-4 py-3 ${tone}`}>
+              <p className="text-xs font-medium">{String(title)}</p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums">
+                {String(value)}
+              </p>
+            </div>
+          ))}
+        </div>
+      </Panel>
+
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,.8fr)]">
+        <Panel
+          title={label(
+            fr,
+            "Reception quality checks",
+            "Contrôles de réception",
+          )}
+          subtitle={label(
+            fr,
+            "Check quantity, condition, documents, photos and supplier warranty before the final verification.",
+            "Contrôlez quantité, état, documents, photos et garantie fournisseur avant la vérification finale.",
+          )}
+          icon={PackageCheck}
+        >
+          {receptionRows.length ? (
+            <div className="max-h-[34rem] space-y-3 overflow-y-auto pr-1">
+              {receptionRows.map((receipt) => {
+                const check = checksByReceipt.get(String(receipt.id));
+                const totals = receiptTotals(String(receipt.id));
+                const accepted = Math.max(
+                  0,
+                  totals.received - totals.damaged - totals.rejected,
+                );
+                const qualityStatus = String(check?.qualityStatus ?? "pending");
+                return (
+                  <article
+                    key={receipt.id}
+                    className="rounded-2xl border border-border bg-surface-1 p-4 shadow-[0_14px_30px_-28px_rgba(15,38,63,.7)]"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-semibold text-ink">
+                            {String(receipt.receiptNumber ?? "BR")}
+                          </p>
+                          <Badge variant={statusVariant(qualityStatus)}>
+                            {qualityStatusLabel(qualityStatus)}
+                          </Badge>
+                          <Badge variant={statusVariant(receipt.status)}>
+                            {titleCase(receipt.status)}
+                          </Badge>
+                        </div>
+                        <p className="mt-1 text-xs text-ink-secondary">
+                          {label(fr, "Received", "Réception")} ·{" "}
+                          {date(receipt.receivedDate, locale)}
+                        </p>
+                      </div>
+                      {canEditCheck && check ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => onEditCheck(check)}
+                        >
+                          <Pencil />
+                          {label(fr, "Review", "Contrôler")}
+                        </Button>
+                      ) : canCreateCheck && !check ? (
+                        <Button size="sm" variant="ghost" onClick={onAddCheck}>
+                          <ClipboardCheck />
+                          {label(fr, "Inspect", "Contrôler")}
+                        </Button>
+                      ) : null}
+                    </div>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-4">
+                      {[
+                        [
+                          label(fr, "Received", "Reçu"),
+                          totals.received,
+                          "bg-brand/10 text-brand",
+                        ],
+                        [
+                          label(fr, "Accepted", "Accepté"),
+                          accepted,
+                          "bg-good/10 text-good-ink dark:text-good",
+                        ],
+                        [
+                          label(fr, "Damaged", "Endommagé"),
+                          totals.damaged,
+                          "bg-warning/15 text-ink",
+                        ],
+                        [
+                          label(fr, "Rejected", "Refusé"),
+                          totals.rejected,
+                          "bg-critical/10 text-critical",
+                        ],
+                      ].map(([name, value, tone]) => (
+                        <div
+                          key={String(name)}
+                          className={`rounded-lg px-3 py-2 ${tone}`}
+                        >
+                          <p className="text-[11px] font-medium">
+                            {String(name)}
+                          </p>
+                          <p className="mt-1 text-sm font-semibold tabular-nums">
+                            {number(value)}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                    {check ? (
+                      <div className="mt-3 grid gap-2 text-xs text-ink-secondary sm:grid-cols-2">
+                        <p>
+                          {label(fr, "Checklist", "Checklist")} ·{" "}
+                          {
+                            [
+                              check.quantityMatches,
+                              check.conditionAccepted,
+                              check.documentsComplete,
+                            ].filter(Boolean).length
+                          }
+                          /3
+                        </p>
+                        <p>
+                          {label(fr, "Commissioning", "Mise en service")} ·{" "}
+                          <span className="font-semibold text-ink">
+                            {commissioningLabel(check.commissioningStatus)}
+                          </span>
+                        </p>
+                        {check.returnedQuantity ? (
+                          <p>
+                            {label(fr, "Declared return", "Retour déclaré")} ·{" "}
+                            {number(check.returnedQuantity)}
+                          </p>
+                        ) : null}
+                        {check.warrantyExpiresOn ? (
+                          <p>
+                            {label(
+                              fr,
+                              "Supplier warranty until",
+                              "Garantie fournisseur jusqu’au",
+                            )}{" "}
+                            · {date(check.warrantyExpiresOn, locale)}
+                          </p>
+                        ) : null}
+                        {check.beforePhotoDocumentId ||
+                        check.afterPhotoDocumentId ? (
+                          <p className="sm:col-span-2">
+                            {label(fr, "Evidence", "Preuves")} ·{" "}
+                            {[
+                              check.beforePhotoDocumentId
+                                ? `${label(fr, "Before", "Avant")} : ${documentNames.get(String(check.beforePhotoDocumentId)) ?? "—"}`
+                                : null,
+                              check.afterPhotoDocumentId
+                                ? `${label(fr, "After", "Après")} : ${documentNames.get(String(check.afterPhotoDocumentId)) ?? "—"}`
+                                : null,
+                            ]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <p className="mt-3 rounded-lg bg-warning/10 px-3 py-2 text-xs text-ink">
+                        {label(
+                          fr,
+                          "Quality control is still required before final verification.",
+                          "Le contrôle qualité reste requis avant la vérification finale.",
+                        )}
+                      </p>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <EmptyState
+              title={label(
+                fr,
+                "No confirmed receipt",
+                "Aucune réception confirmée",
+              )}
+              description={label(
+                fr,
+                "Confirm a supplier delivery first; its quality check will then be available here.",
+                "Confirmez d’abord une livraison fournisseur ; son contrôle qualité sera ensuite disponible ici.",
+              )}
+              icon={PackageCheck}
+            />
+          )}
+        </Panel>
+
+        <div className="space-y-5">
+          <Panel
+            title={label(
+              fr,
+              "Equipment commissioning",
+              "Mise en service des équipements",
+            )}
+            subtitle={label(
+              fr,
+              "A durable asset is only handed over after its functional and safety checks are recorded.",
+              "Un actif durable est remis seulement après l’enregistrement de ses contrôles fonctionnel et sécurité.",
+            )}
+            icon={Settings2}
+          >
+            {assets.length ? (
+              <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
+                {assets.map((asset) => {
+                  const check = checksByAsset.get(String(asset.id));
+                  return (
+                    <div
+                      key={asset.id}
+                      className="rounded-xl border border-border bg-surface-2/55 px-3 py-2.5"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="min-w-0 truncate text-sm font-semibold text-ink">
+                          {String(asset.name ?? asset.assetNumber ?? "—")}
+                        </p>
+                        <Badge
+                          variant={
+                            check?.commissioningStatus === "validated"
+                              ? "good"
+                              : "warning"
+                          }
+                        >
+                          {commissioningLabel(
+                            check?.commissioningStatus ?? "pending",
+                          )}
+                        </Badge>
+                      </div>
+                      <p className="mt-1 text-xs text-ink-secondary">
+                        {asset.warrantyExpiresOn
+                          ? `${label(fr, "Warranty", "Garantie")} · ${date(asset.warrantyExpiresOn, locale)}`
+                          : label(
+                              fr,
+                              "No supplier warranty recorded",
+                              "Aucune garantie fournisseur enregistrée",
+                            )}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-sm leading-6 text-ink-secondary">
+                {label(
+                  fr,
+                  "No durable equipment is linked to this project yet.",
+                  "Aucun équipement durable n’est encore lié à ce projet.",
+                )}
+              </p>
+            )}
+          </Panel>
+
+          <Panel
+            title={label(
+              fr,
+              "Project close-out report",
+              "Procès-verbal de clôture",
+            )}
+            subtitle={label(
+              fr,
+              "The owner records the achieved result, commissioning decision, handover and lessons learned. Completing it closes the investment lifecycle.",
+              "Le propriétaire enregistre le résultat atteint, la décision de mise en service, la remise et les leçons apprises. Sa finalisation clôture le cycle de l’investissement.",
+            )}
+            icon={ShieldCheck}
+            action={
+              canClose && !closeoutComplete ? (
+                <Button size="sm" onClick={onPrepareCloseout}>
+                  <ClipboardCheck />
+                  {closeout
+                    ? label(fr, "Complete report", "Finaliser le PV")
+                    : label(fr, "Prepare report", "Préparer le PV")}
+                </Button>
+              ) : undefined
+            }
+          >
+            {closeoutComplete && closeout ? (
+              <div className="space-y-3 rounded-xl border border-good/30 bg-good/10 p-4">
+                <Badge variant="good">
+                  {label(
+                    fr,
+                    "Project formally closed",
+                    "Projet formellement clôturé",
+                  )}
+                </Badge>
+                <p className="text-sm font-semibold text-ink">
+                  {closeout.expectedOutcomeAchieved
+                    ? label(
+                        fr,
+                        "Expected outcome achieved",
+                        "Résultat attendu atteint",
+                      )
+                    : label(
+                        fr,
+                        "Expected outcome not fully achieved",
+                        "Résultat attendu non entièrement atteint",
+                      )}
+                </p>
+                <p className="text-sm leading-6 text-ink-secondary">
+                  {String(closeout.achievementSummary ?? "—")}
+                </p>
+                <div className="border-t border-good/25 pt-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                    {label(fr, "Lessons learned", "Leçons apprises")}
+                  </p>
+                  <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-ink">
+                    {String(closeout.lessonsLearned ?? "—")}
+                  </p>
+                </div>
+                <p className="text-xs text-ink-secondary">
+                  {label(fr, "Closed", "Clôturé")} ·{" "}
+                  {date(closeout.completedAt, locale)}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-sm leading-6 text-ink-secondary">
+                  {label(
+                    fr,
+                    "Do not close work only because it is marked complete. Use this report to confirm the expected result and preserve what the team learned.",
+                    "Ne clôturez pas le travail uniquement parce qu’il est marqué terminé. Utilisez ce PV pour confirmer le résultat attendu et conserver ce que l’équipe a appris.",
+                  )}
+                </p>
+                {closeout ? (
+                  <Badge variant="warning">
+                    {label(fr, "Draft report", "PV en brouillon")}
+                  </Badge>
+                ) : null}
+              </div>
+            )}
+          </Panel>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+type ScheduleKind = "phase" | "task" | "milestone";
+type ScheduleNode = {
+  id: string;
+  kind: ScheduleKind;
+  title: string;
+  projectId: string;
+  projectName: string;
+  start: string | null;
+  end: string | null;
+  status: string;
+  assignedMemberId: string | null;
+  assignedMemberName: string | null;
+  external: boolean;
+};
+type ScheduleEdge = {
+  from: string;
+  to: string;
+  crossProject: boolean;
+  dependencyType: string;
+};
+
+const scheduleDate = (...values: unknown[]) =>
+  values
+    .map((value) => String(value ?? "").slice(0, 10))
+    .find((value) => /^\d{4}-\d{2}-\d{2}$/.test(value)) ?? null;
+const scheduleDay = (value: string | null) => {
+  if (!value) return null;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year ?? 0, (month ?? 1) - 1, day ?? 0));
+  return date.toISOString().slice(0, 10) === value ? date.getTime() : null;
+};
+const scheduleDays = (start: number, end: number) =>
+  Math.max(1, Math.round((end - start) / 86_400_000) + 1);
+const scheduleFinished = (status: unknown) =>
+  ["completed", "cancelled"].includes(String(status));
+
+/**
+ * Longest-path slack over the existing acyclic dependency graph. A zero-slack
+ * row is critical: a delay there pushes the calculated finish of the plan.
+ */
+function criticalScheduleNodes(nodes: ScheduleNode[], edges: ScheduleEdge[]) {
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const outgoing = new Map<string, string[]>();
+  const indegree = new Map(nodes.map((node) => [node.id, 0]));
+  for (const edge of edges) {
+    if (!byId.has(edge.from) || !byId.has(edge.to)) continue;
+    outgoing.set(edge.from, [...(outgoing.get(edge.from) ?? []), edge.to]);
+    indegree.set(edge.to, (indegree.get(edge.to) ?? 0) + 1);
+  }
+  const queue = nodes
+    .filter((node) => (indegree.get(node.id) ?? 0) === 0)
+    .map((node) => node.id);
+  const order: string[] = [];
+  while (queue.length) {
+    const id = queue.shift()!;
+    order.push(id);
+    for (const next of outgoing.get(id) ?? []) {
+      const remaining = (indegree.get(next) ?? 1) - 1;
+      indegree.set(next, remaining);
+      if (remaining === 0) queue.push(next);
+    }
+  }
+  // The API rejects cycles. This defensive fallback keeps a legacy bad record
+  // from crashing the planning screen.
+  for (const node of nodes) if (!order.includes(node.id)) order.push(node.id);
+
+  const duration = (node: ScheduleNode) => {
+    const start = scheduleDay(node.start);
+    const end = scheduleDay(node.end);
+    return start !== null && end !== null ? scheduleDays(start, end) : 1;
+  };
+  const early = new Map(nodes.map((node) => [node.id, 0]));
+  for (const id of order) {
+    for (const next of outgoing.get(id) ?? []) {
+      const edge = edges.find((item) => item.from === id && item.to === next);
+      const sourceDuration = duration(byId.get(id)!);
+      const targetDuration = duration(byId.get(next)!);
+      const sourceStart = early.get(id) ?? 0;
+      const candidate =
+        edge?.dependencyType === "start_to_start"
+          ? sourceStart
+          : edge?.dependencyType === "finish_to_finish"
+            ? sourceStart + sourceDuration - targetDuration
+            : edge?.dependencyType === "start_to_finish"
+              ? sourceStart - targetDuration
+              : sourceStart + sourceDuration;
+      early.set(next, Math.max(early.get(next) ?? 0, candidate));
+    }
+  }
+  const finish = Math.max(
+    0,
+    ...nodes.map((node) => (early.get(node.id) ?? 0) + duration(node)),
+  );
+  const latest = new Map(
+    nodes.map((node) => [node.id, finish - duration(node)]),
+  );
+  for (const id of [...order].reverse()) {
+    const successors = outgoing.get(id) ?? [];
+    if (!successors.length) continue;
+    latest.set(
+      id,
+      Math.min(
+        ...successors.map((next) => {
+          const edge = edges.find(
+            (item) => item.from === id && item.to === next,
+          );
+          const targetDuration = duration(byId.get(next)!);
+          const sourceDuration = duration(byId.get(id)!);
+          const targetStart = latest.get(next) ?? finish;
+          if (edge?.dependencyType === "start_to_start") return targetStart;
+          if (edge?.dependencyType === "finish_to_finish")
+            return targetStart + targetDuration - sourceDuration;
+          if (edge?.dependencyType === "start_to_finish")
+            return targetStart + targetDuration;
+          return targetStart - sourceDuration;
+        }),
+      ),
+    );
+  }
+  return new Set(
+    nodes
+      .filter(
+        (node) =>
+          Math.abs((early.get(node.id) ?? 0) - (latest.get(node.id) ?? 0)) <
+          0.001,
+      )
+      .map((node) => node.id),
+  );
+}
+
+function ProjectVisualPlanning({
+  project,
+  phases,
+  tasks,
+  portfolioProjects,
+  portfolioPhases,
+  portfolioTasks,
+  phaseDependencies,
+  taskDependencies,
+  fr,
+  locale,
+  onOpenTask,
+}: {
+  project: Project;
+  phases: Row[];
+  tasks: Row[];
+  portfolioProjects: Project[];
+  portfolioPhases: Row[];
+  portfolioTasks: Row[];
+  phaseDependencies: Row[];
+  taskDependencies: Row[];
+  fr: boolean;
+  locale: string;
+  onOpenTask: (task: Row) => void;
+}) {
+  const [windowSize, setWindowSize] = useState<
+    "project" | "90" | "180" | "365"
+  >("project");
+  const today = new Date().toISOString().slice(0, 10);
+  const projectNames = useMemo(
+    () =>
+      new Map(portfolioProjects.map((item) => [String(item.id), item.name])),
+    [portfolioProjects],
+  );
+  const phaseById = useMemo(
+    () => new Map(portfolioPhases.map((item) => [String(item.id), item])),
+    [portfolioPhases],
+  );
+  const taskById = useMemo(
+    () => new Map(portfolioTasks.map((item) => [String(item.id), item])),
+    [portfolioTasks],
+  );
+  const ownPhaseIds = useMemo(
+    () => new Set(phases.map((item) => String(item.id))),
+    [phases],
+  );
+  const ownTaskIds = useMemo(
+    () => new Set(tasks.map((item) => String(item.id))),
+    [tasks],
+  );
+  const relevantPhaseDependencies = useMemo(
+    () =>
+      phaseDependencies.filter(
+        (edge) =>
+          ownPhaseIds.has(String(edge.phaseId)) ||
+          ownPhaseIds.has(String(edge.dependsOnPhaseId)),
+      ),
+    [ownPhaseIds, phaseDependencies],
+  );
+  const relevantTaskDependencies = useMemo(
+    () =>
+      taskDependencies.filter(
+        (edge) =>
+          ownTaskIds.has(String(edge.taskId)) ||
+          ownTaskIds.has(String(edge.dependsOnTaskId)),
+      ),
+    [ownTaskIds, taskDependencies],
+  );
+  const externalPhaseIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const edge of relevantPhaseDependencies) {
+      const waiting = String(edge.phaseId);
+      const prerequisite = String(edge.dependsOnPhaseId);
+      if (!ownPhaseIds.has(waiting)) ids.add(waiting);
+      if (!ownPhaseIds.has(prerequisite)) ids.add(prerequisite);
+    }
+    return ids;
+  }, [ownPhaseIds, relevantPhaseDependencies]);
+  const externalTaskIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const edge of relevantTaskDependencies) {
+      const waiting = String(edge.taskId);
+      const prerequisite = String(edge.dependsOnTaskId);
+      if (!ownTaskIds.has(waiting)) ids.add(waiting);
+      if (!ownTaskIds.has(prerequisite)) ids.add(prerequisite);
+    }
+    return ids;
+  }, [ownTaskIds, relevantTaskDependencies]);
+
+  const nodes = useMemo(() => {
+    const result: ScheduleNode[] = [];
+    const add = (row: Row, kind: ScheduleKind, external: boolean) => {
+      const projectId = String(row.projectId ?? project.id);
+      const isMilestone = kind === "milestone";
+      result.push({
+        id: `${kind}:${String(row.id)}`,
+        kind,
+        title: String(row.name ?? row.title ?? row.code ?? "—"),
+        projectId,
+        projectName: projectNames.get(projectId) ?? project.name,
+        start: scheduleDate(row.actualStartDate, row.startDate, row.createdAt),
+        end: scheduleDate(
+          row.completedDate,
+          isMilestone
+            ? (row.dueDate ?? row.startDate)
+            : (row.targetEndDate ?? row.dueDate),
+          row.startDate,
+        ),
+        status: String(row.status ?? "not_started"),
+        assignedMemberId:
+          (row.responsibleMemberId ?? row.assignedMemberId)
+            ? String(row.responsibleMemberId ?? row.assignedMemberId)
+            : null,
+        assignedMemberName:
+          (row.responsibleMemberName ?? row.assignedMemberName)
+            ? String(row.responsibleMemberName ?? row.assignedMemberName)
+            : null,
+        external,
+      });
+    };
+    phases.forEach((row) => add(row, "phase", false));
+    tasks.forEach((row) =>
+      add(row, row.taskType === "milestone" ? "milestone" : "task", false),
+    );
+    for (const id of externalPhaseIds) {
+      const row = phaseById.get(id);
+      if (row) add(row, "phase", true);
+    }
+    for (const id of externalTaskIds) {
+      const row = taskById.get(id);
+      if (row)
+        add(row, row.taskType === "milestone" ? "milestone" : "task", true);
+    }
+    return result;
+  }, [
+    externalPhaseIds,
+    externalTaskIds,
+    phaseById,
+    phases,
+    project.id,
+    project.name,
+    projectNames,
+    taskById,
+    tasks,
+  ]);
+  const nodeIdFor = (kind: "phase" | "task", rawId: unknown) => {
+    const row =
+      kind === "phase"
+        ? phaseById.get(String(rawId))
+        : taskById.get(String(rawId));
+    if (kind === "phase") return `phase:${String(rawId)}`;
+    return `${row?.taskType === "milestone" ? "milestone" : "task"}:${String(rawId)}`;
+  };
+  const edges = useMemo<ScheduleEdge[]>(
+    () => [
+      ...relevantPhaseDependencies.map((edge) => {
+        const prerequisite = phaseById.get(String(edge.dependsOnPhaseId));
+        const waiting = phaseById.get(String(edge.phaseId));
+        return {
+          from: nodeIdFor("phase", edge.dependsOnPhaseId),
+          to: nodeIdFor("phase", edge.phaseId),
+          crossProject:
+            String(prerequisite?.projectId ?? "") !==
+            String(waiting?.projectId ?? ""),
+          dependencyType: String(edge.dependencyType ?? "finish_to_start"),
+        };
+      }),
+      ...relevantTaskDependencies.map((edge) => {
+        const prerequisite = taskById.get(String(edge.dependsOnTaskId));
+        const waiting = taskById.get(String(edge.taskId));
+        return {
+          from: nodeIdFor("task", edge.dependsOnTaskId),
+          to: nodeIdFor("task", edge.taskId),
+          crossProject:
+            String(prerequisite?.projectId ?? "") !==
+            String(waiting?.projectId ?? ""),
+          dependencyType: String(edge.dependencyType ?? "finish_to_start"),
+        };
+      }),
+    ],
+    [phaseById, relevantPhaseDependencies, relevantTaskDependencies, taskById],
+  );
+  const criticalIds = useMemo(
+    () => criticalScheduleNodes(nodes, edges),
+    [edges, nodes],
+  );
+  const datedNodes = nodes.filter(
+    (node) =>
+      scheduleDay(node.start) !== null && scheduleDay(node.end) !== null,
+  );
+  const unplanned = nodes.filter(
+    (node) =>
+      scheduleDay(node.start) === null || scheduleDay(node.end) === null,
+  );
+  const todayMs = scheduleDay(today)!;
+  const projectStart = scheduleDay(scheduleDate(project.startDate));
+  const projectEnd = scheduleDay(
+    scheduleDate(project.revisedCompletionDate, project.targetCompletionDate),
+  );
+  const datedStart = Math.min(
+    ...[
+      ...datedNodes.map((node) => scheduleDay(node.start)!),
+      projectStart ?? todayMs,
+    ],
+  );
+  const datedEnd = Math.max(
+    ...[
+      ...datedNodes.map((node) => scheduleDay(node.end)!),
+      projectEnd ?? todayMs + 89 * 86_400_000,
+    ],
+  );
+  const horizon = useMemo(() => {
+    if (windowSize === "project")
+      return {
+        start: datedStart,
+        end: Math.max(datedEnd, datedStart + 30 * 86_400_000),
+      };
+    const days = Number(windowSize);
+    return {
+      start: todayMs - 7 * 86_400_000,
+      end: todayMs + (days - 1) * 86_400_000,
+    };
+  }, [datedEnd, datedStart, todayMs, windowSize]);
+  const monthTicks = useMemo(() => {
+    const cursor = new Date(horizon.start);
+    cursor.setUTCDate(1);
+    if (cursor.getTime() < horizon.start)
+      cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+    const ticks: Array<{ label: string; left: number }> = [];
+    while (cursor.getTime() <= horizon.end) {
+      ticks.push({
+        label: new Intl.DateTimeFormat(locale, {
+          month: "short",
+          year: "numeric",
+        }).format(cursor),
+        left:
+          ((cursor.getTime() - horizon.start) /
+            (horizon.end - horizon.start || 1)) *
+          100,
+      });
+      cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+    }
+    return ticks;
+  }, [horizon.end, horizon.start, locale]);
+  const visibleNodes = datedNodes.filter((node) => {
+    const start = scheduleDay(node.start)!;
+    const end = scheduleDay(node.end)!;
+    return end >= horizon.start && start <= horizon.end;
+  });
+  const overdue = nodes.filter(
+    (node) =>
+      !scheduleFinished(node.status) &&
+      (scheduleDay(node.end) ?? Infinity) < todayMs,
+  );
+  const crossProjectEdges = edges.filter((edge) => edge.crossProject);
+  const ownAssignees = new Set(
+    tasks.map((task) => String(task.assignedMemberId ?? "")).filter(Boolean),
+  );
+  const workload = useMemo(() => {
+    const byMember = new Map<string, ScheduleNode[]>();
+    for (const task of portfolioTasks) {
+      const memberId = String(task.assignedMemberId ?? "");
+      if (
+        !memberId ||
+        !ownAssignees.has(memberId) ||
+        scheduleFinished(task.status)
+      )
+        continue;
+      const node: ScheduleNode = {
+        id: `task:${task.id}`,
+        kind: task.taskType === "milestone" ? "milestone" : "task",
+        title: String(task.title ?? task.code ?? "—"),
+        projectId: String(task.projectId ?? ""),
+        projectName: String(
+          task.projectName ??
+            projectNames.get(String(task.projectId ?? "")) ??
+            "—",
+        ),
+        start: scheduleDate(task.startDate),
+        end: scheduleDate(task.dueDate, task.startDate),
+        status: String(task.status ?? "not_started"),
+        assignedMemberId: memberId,
+        assignedMemberName: task.assignedMemberName
+          ? String(task.assignedMemberName)
+          : null,
+        external: String(task.projectId ?? "") !== String(project.id),
+      };
+      byMember.set(memberId, [...(byMember.get(memberId) ?? []), node]);
+    }
+    return [...byMember.entries()]
+      .map(([memberId, assigned]) => {
+        const scheduled = assigned.filter(
+          (node) =>
+            scheduleDay(node.start) !== null && scheduleDay(node.end) !== null,
+        );
+        let conflicts = 0;
+        for (let left = 0; left < scheduled.length; left += 1)
+          for (let right = left + 1; right < scheduled.length; right += 1)
+            if (
+              scheduleDay(scheduled[left]!.start)! <=
+                scheduleDay(scheduled[right]!.end)! &&
+              scheduleDay(scheduled[right]!.start)! <=
+                scheduleDay(scheduled[left]!.end)!
+            )
+              conflicts += 1;
+        return {
+          memberId,
+          name:
+            assigned.find((node) => node.assignedMemberName)
+              ?.assignedMemberName ??
+            label(fr, "Assigned employee", "Employé affecté"),
+          taskCount: assigned.length,
+          scheduledCount: scheduled.length,
+          unplannedCount: assigned.length - scheduled.length,
+          conflicts,
+          externalCount: assigned.filter((node) => node.external).length,
+        };
+      })
+      .sort(
+        (left, right) =>
+          right.conflicts - left.conflicts || right.taskCount - left.taskCount,
+      );
+  }, [fr, ownAssignees, portfolioTasks, project.id, projectNames]);
+  const conflictCount = workload.reduce(
+    (total, item) => total + item.conflicts,
+    0,
+  );
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+
+  const kindLabel = (kind: ScheduleKind) =>
+    kind === "phase"
+      ? label(fr, "Phase", "Phase")
+      : kind === "milestone"
+        ? label(fr, "Milestone", "Jalon")
+        : label(fr, "Task", "Tâche");
+  const dateRange = (node: ScheduleNode) =>
+    node.start && node.end
+      ? `${date(node.start, locale)} — ${date(node.end, locale)}`
+      : label(fr, "Date to plan", "Date à planifier");
+
+  return (
+    <section className="mt-5 space-y-5">
+      <Panel
+        title={label(
+          fr,
+          "Visual plan and team capacity",
+          "Planning visuel et capacité d’équipe",
+        )}
+        subtitle={label(
+          fr,
+          "One timeline for phases, work, milestones and the dependencies that can change the project finish date.",
+          "Une seule ligne de temps pour les phases, travaux, jalons et dépendances qui peuvent déplacer la fin du projet.",
+        )}
+        icon={CalendarDays}
+      >
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          {[
+            [
+              label(fr, "Critical path", "Chemin critique"),
+              criticalIds.size,
+              "serious",
+            ],
+            [
+              label(fr, "Overdue", "En retard"),
+              overdue.length,
+              overdue.length ? "serious" : "good",
+            ],
+            [
+              label(fr, "Team conflicts", "Conflits d’équipe"),
+              conflictCount,
+              conflictCount ? "warning" : "good",
+            ],
+            [
+              label(fr, "Cross-project links", "Liens entre projets"),
+              crossProjectEdges.length,
+              crossProjectEdges.length ? "info" : "neutral",
+            ],
+            [
+              label(fr, "Needs dates", "À planifier"),
+              unplanned.length,
+              unplanned.length ? "warning" : "good",
+            ],
+          ].map(([name, value, tone]) => (
+            <div
+              key={String(name)}
+              className="rounded-xl border border-border bg-surface-2/70 p-3"
+            >
+              <p className="text-xs font-medium text-ink-secondary">{name}</p>
+              <Badge
+                className="mt-2"
+                variant={
+                  tone as "serious" | "warning" | "info" | "neutral" | "good"
+                }
+              >
+                {String(value)}
+              </Badge>
+            </div>
+          ))}
+        </div>
+      </Panel>
+
+      <section className="overflow-hidden rounded-2xl border border-border bg-surface-1 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3 sm:px-5">
+          <div>
+            <h3 className="text-sm font-semibold text-ink">
+              {label(fr, "Project calendar", "Calendrier du projet")}
+            </h3>
+            <p className="mt-1 text-xs leading-5 text-ink-secondary">
+              {label(
+                fr,
+                "Red marks critical work. A dashed bar belongs to a connected project.",
+                "Le rouge marque le travail critique. Une barre en pointillé appartient à un projet relié.",
+              )}
+            </p>
+          </div>
+          <div className="flex rounded-xl bg-surface-2 p-1">
+            {(["project", "90", "180", "365"] as const).map((choice) => (
+              <button
+                key={choice}
+                type="button"
+                onClick={() => setWindowSize(choice)}
+                className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold transition ${windowSize === choice ? "bg-brand text-brand-ink shadow-sm" : "text-ink-secondary hover:text-ink"}`}
+              >
+                {choice === "project"
+                  ? label(fr, "Project", "Projet")
+                  : `${choice} ${label(fr, "days", "jours")}`}
+              </button>
+            ))}
+          </div>
+        </div>
+        {visibleNodes.length ? (
+          <div className="overflow-x-auto">
+            <div className="min-w-[900px]">
+              <div className="grid grid-cols-[19rem_minmax(0,1fr)] border-b border-border bg-surface-2/70 text-[11px] font-semibold uppercase tracking-[.08em] text-ink-muted">
+                <div className="px-4 py-3">
+                  {label(fr, "Work item", "Élément de travail")}
+                </div>
+                <div className="relative h-10 overflow-hidden border-l border-border">
+                  {monthTicks.map((tick) => (
+                    <span
+                      key={`${tick.label}-${tick.left}`}
+                      style={{
+                        left: `${Math.max(0, Math.min(95, tick.left))}%`,
+                      }}
+                      className="absolute top-3 whitespace-nowrap"
+                    >
+                      {tick.label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              {visibleNodes.map((node) => {
+                const start = scheduleDay(node.start)!;
+                const end = scheduleDay(node.end)!;
+                const left =
+                  ((Math.max(start, horizon.start) - horizon.start) /
+                    (horizon.end - horizon.start || 1)) *
+                  100;
+                const width = Math.max(
+                  1.2,
+                  ((Math.min(end, horizon.end) -
+                    Math.max(start, horizon.start) +
+                    86_400_000) /
+                    (horizon.end - horizon.start + 86_400_000)) *
+                    100,
+                );
+                const critical = criticalIds.has(node.id);
+                const isOverdue =
+                  !scheduleFinished(node.status) && end < todayMs;
+                const color = critical
+                  ? "bg-rose-600"
+                  : isOverdue
+                    ? "bg-amber-500"
+                    : node.kind === "phase"
+                      ? "bg-brand"
+                      : node.kind === "milestone"
+                        ? "bg-violet-600"
+                        : "bg-sky-600";
+                return (
+                  <div
+                    key={node.id}
+                    className="grid grid-cols-[19rem_minmax(0,1fr)] border-b border-border last:border-b-0"
+                  >
+                    <div className="min-w-0 px-4 py-3">
+                      <div className="flex items-start gap-2">
+                        <span
+                          className={`mt-0.5 grid size-5 shrink-0 place-items-center rounded-md text-[10px] font-bold text-white ${node.kind === "phase" ? "bg-brand" : node.kind === "milestone" ? "bg-violet-600" : "bg-sky-600"}`}
+                        >
+                          {node.kind === "phase"
+                            ? "P"
+                            : node.kind === "milestone"
+                              ? "J"
+                              : "T"}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-ink">
+                            {node.title}
+                          </p>
+                          <p className="mt-1 truncate text-xs text-ink-secondary">
+                            {kindLabel(node.kind)} ·{" "}
+                            {node.external ? node.projectName : dateRange(node)}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="relative h-14 border-l border-border bg-[linear-gradient(90deg,transparent_calc(100%_-_1px),var(--border)_calc(100%_-_1px))] bg-[size:8.333%_100%]">
+                      <span
+                        title={`${node.title} · ${dateRange(node)}`}
+                        style={{ left: `${left}%`, width: `${width}%` }}
+                        className={`absolute top-4 h-6 min-w-2 rounded-md ${color} ${node.external ? "border border-dashed border-white/90 opacity-80" : ""} ${critical ? "shadow-[0_0_0_2px_rgba(225,29,72,.2)]" : ""}`}
+                      />
+                      {todayMs >= horizon.start && todayMs <= horizon.end ? (
+                        <span
+                          style={{
+                            left: `${((todayMs - horizon.start) / (horizon.end - horizon.start || 1)) * 100}%`,
+                          }}
+                          className="absolute inset-y-0 w-px bg-rose-500/75"
+                        />
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
+          <div className="p-5">
+            <EmptyState
+              title={label(
+                fr,
+                "No dated item yet",
+                "Aucun élément daté pour le moment",
+              )}
+              description={label(
+                fr,
+                "Add start and finish dates to phases or tasks to build the calendar.",
+                "Ajoutez une date de début et de fin aux phases ou tâches pour construire le calendrier.",
+              )}
+              icon={CalendarDays}
+            />
+          </div>
+        )}
+      </section>
+
+      <div className="grid gap-5 xl:grid-cols-2">
+        <Panel
+          title={label(fr, "Team capacity", "Capacité de l’équipe")}
+          subtitle={label(
+            fr,
+            "Conflicts are calculated when the same person has overlapping dated tasks, including work in connected projects you can see.",
+            "Les conflits sont calculés lorsqu’une même personne a des tâches datées qui se chevauchent, y compris dans les projets reliés que vous pouvez voir.",
+          )}
+          icon={Users}
+        >
+          {workload.length ? (
+            <div className="max-h-[26rem] space-y-2 overflow-y-auto pr-1">
+              {workload.map((member) => (
+                <div
+                  key={member.memberId}
+                  className={`rounded-xl border p-3 ${member.conflicts ? "border-warning/40 bg-warning/8" : "border-border bg-surface-2/60"}`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-ink">
+                        {member.name}
+                      </p>
+                      <p className="mt-1 text-xs text-ink-secondary">
+                        {member.taskCount}{" "}
+                        {label(fr, "open task(s)", "tâche(s) ouverte(s)")} ·{" "}
+                        {member.scheduledCount}{" "}
+                        {label(fr, "scheduled", "planifiée(s)")}
+                        {member.externalCount
+                          ? ` · ${member.externalCount} ${label(fr, "in another project", "dans un autre projet")}`
+                          : ""}
+                      </p>
+                    </div>
+                    <Badge variant={member.conflicts ? "warning" : "good"}>
+                      {member.conflicts
+                        ? `${member.conflicts} ${label(fr, "overlap(s)", "chevauchement(s)")}`
+                        : label(fr, "Available", "Disponible")}
+                    </Badge>
+                  </div>
+                  {member.unplannedCount ? (
+                    <p className="mt-2 text-xs text-warning">
+                      {member.unplannedCount}{" "}
+                      {label(
+                        fr,
+                        "task(s) still need dates.",
+                        "tâche(s) doivent encore être datées.",
+                      )}
+                    </p>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              title={label(fr, "No assigned work", "Aucun travail affecté")}
+              description={label(
+                fr,
+                "Assign people to project tasks to see their capacity and scheduling conflicts.",
+                "Affectez des personnes aux tâches du projet pour voir leur capacité et les conflits de planning.",
+              )}
+              icon={Users}
+            />
+          )}
+        </Panel>
+        <Panel
+          title={label(fr, "Dependencies to watch", "Dépendances à surveiller")}
+          subtitle={label(
+            fr,
+            "A prerequisite blocks the next item until it is completed. Cross-project links remain visible here.",
+            "Un préalable bloque l’élément suivant jusqu’à sa fin. Les liens entre projets restent visibles ici.",
+          )}
+          icon={Target}
+        >
+          {edges.length ? (
+            <div className="max-h-[26rem] space-y-2 overflow-y-auto pr-1">
+              {edges.map((edge) => {
+                const prerequisite = nodeById.get(edge.from);
+                const waiting = nodeById.get(edge.to);
+                const blocked =
+                  prerequisite && !scheduleFinished(prerequisite.status);
+                return (
+                  <div
+                    key={`${edge.from}-${edge.to}`}
+                    className={`rounded-xl border p-3 ${blocked ? "border-warning/40 bg-warning/8" : "border-border bg-surface-2/60"}`}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-semibold text-ink">
+                        {waiting?.title ?? "—"}
+                      </p>
+                      <Badge variant={blocked ? "warning" : "good"}>
+                        {blocked
+                          ? label(fr, "Waiting", "En attente")
+                          : label(fr, "Released", "Libérée")}
+                      </Badge>
+                    </div>
+                    <p className="mt-1 text-xs leading-5 text-ink-secondary">
+                      {label(fr, "Waits for", "Attend")} ·{" "}
+                      <span className="font-medium text-ink">
+                        {prerequisite?.title ?? "—"}
+                      </span>
+                      {edge.crossProject && prerequisite
+                        ? ` · ${prerequisite.projectName}`
+                        : ""}
+                    </p>
+                    {edge.crossProject ? (
+                      <p className="mt-2 text-xs font-medium text-brand">
+                        {label(
+                          fr,
+                          "Dependency between projects",
+                          "Dépendance entre projets",
+                        )}
+                      </p>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <EmptyState
+              title={label(fr, "No dependency", "Aucune dépendance")}
+              description={label(
+                fr,
+                "Link phases or tasks when work must follow a controlled order.",
+                "Liez les phases ou tâches lorsque le travail doit respecter un ordre contrôlé.",
+              )}
+              icon={Target}
+            />
+          )}
+        </Panel>
+      </div>
+
+      {unplanned.length ? (
+        <Panel
+          title={label(fr, "Items awaiting dates", "Éléments à dater")}
+          subtitle={label(
+            fr,
+            "These items are real work, but are not drawn on the calendar until their dates are defined.",
+            "Ces éléments sont réels, mais n’apparaissent pas sur le calendrier tant que leurs dates ne sont pas définies.",
+          )}
+          icon={Clock3}
+        >
+          <div className="flex max-h-44 flex-wrap gap-2 overflow-y-auto">
+            {unplanned.map((node) => (
+              <button
+                key={node.id}
+                type="button"
+                onClick={() => {
+                  const task = taskById.get(
+                    node.id.replace(/^(task|milestone):/, ""),
+                  );
+                  if (task) onOpenTask(task);
+                }}
+                className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-left text-xs font-medium text-ink transition hover:border-brand hover:bg-brand-subtle"
+              >
+                <span>{node.title}</span>
+                <span className="ml-2 text-ink-muted">
+                  {kindLabel(node.kind)}
+                </span>
+              </button>
+            ))}
+          </div>
+        </Panel>
+      ) : null}
+    </section>
+  );
+}
+
 function ProjectContent({
   tab,
   orgSlug,
@@ -2095,6 +4468,11 @@ function ProjectContent({
   documentCategories,
   activity,
   budgetChanges,
+  portfolioProjects,
+  portfolioPhases,
+  portfolioTasks,
+  portfolioPhaseDependencies,
+  portfolioTaskDependencies,
   fr,
   locale,
   canWrite,
@@ -2108,6 +4486,7 @@ function ProjectContent({
   onVerifyReceipt,
   onCancelReceipt,
   onReopenReceipt,
+  onOpenSimulation,
   setEditor,
   onConfigureDocument,
   onManageDocumentCategories,
@@ -2132,6 +4511,11 @@ function ProjectContent({
   documentCategories: DocumentCategory[];
   activity: Row[];
   budgetChanges: Row[];
+  portfolioProjects: Project[];
+  portfolioPhases: Row[];
+  portfolioTasks: Row[];
+  portfolioPhaseDependencies: Row[];
+  portfolioTaskDependencies: Row[];
   fr: boolean;
   locale: string;
   canWrite: (permission: string) => boolean;
@@ -2145,6 +4529,7 @@ function ProjectContent({
   onVerifyReceipt: (receipt: Row) => void;
   onCancelReceipt: (receipt: Row) => void;
   onReopenReceipt: (receipt: Row) => void;
+  onOpenSimulation: () => void;
   setEditor: (editor: Editor) => void;
   onConfigureDocument: (document: Row) => void;
   onManageDocumentCategories: () => void;
@@ -2171,6 +4556,9 @@ function ProjectContent({
     phaseDependencies = records("phase-dependencies"),
     tasks = records("tasks"),
     taskDependencies = records("task-dependencies"),
+    risks = records("risks"),
+    qualityChecks = records("quality-checks"),
+    closeouts = records("project-closeouts"),
     members = records("project-members"),
     budgets = records("budget-lines"),
     materials = records("materials"),
@@ -2202,6 +4590,24 @@ function ProjectContent({
     ...phase,
     actualSpent: phaseCosts.get(String(phase.id))?.actualSpent ?? 0,
     committedAmount: phaseCosts.get(String(phase.id))?.committedAmount ?? 0,
+  }));
+  const planningProjectNames = new Map(
+    portfolioProjects.map((portfolioProject) => [
+      String(portfolioProject.id),
+      portfolioProject.name,
+    ]),
+  );
+  const phaseDependencySources = portfolioPhases.map((phase) => ({
+    ...phase,
+    projectName:
+      planningProjectNames.get(String(phase.projectId ?? "")) ?? null,
+  }));
+  const taskDependencySources = portfolioTasks.map((task) => ({
+    ...task,
+    projectName:
+      task.projectName ??
+      planningProjectNames.get(String(task.projectId ?? "")) ??
+      null,
   }));
   const today = new Date().toISOString().slice(0, 10);
   const [taskView, setTaskView] = useState<
@@ -2236,6 +4642,17 @@ function ProjectContent({
     return (
       <section className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(310px,.8fr)]">
         <div className="space-y-5">
+          <InvestmentProfilePanel
+            project={project}
+            summary={summary}
+            fr={fr}
+            locale={locale}
+            onEdit={
+              canControl("projects.update")
+                ? () => setEditor({ kind: "project", record: project })
+                : undefined
+            }
+          />
           <Panel
             title={label(
               fr,
@@ -2280,22 +4697,6 @@ function ProjectContent({
                 value={`${number(summary?.calculatedProgressPercent).toFixed(0)}%`}
               />
             </div>
-            {project.expectedOutcome || project.fundingSource ? (
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                {project.expectedOutcome ? (
-                  <Info
-                    label={label(fr, "Expected outcome", "Résultat attendu")}
-                    value={String(project.expectedOutcome)}
-                  />
-                ) : null}
-                {project.fundingSource ? (
-                  <Info
-                    label={label(fr, "Funding source", "Source de financement")}
-                    value={String(project.fundingSource)}
-                  />
-                ) : null}
-              </div>
-            ) : null}
           </Panel>
           <Panel
             title={label(fr, "Next actions", "Prochaines actions")}
@@ -2337,7 +4738,8 @@ function ProjectContent({
                       {task.assignedMemberName ? (
                         <p className="mt-1 flex items-center gap-1.5 text-xs font-medium text-brand">
                           <Users className="size-3.5" />
-                          {label(fr, "Assigned to", "Affectée à")} {String(task.assignedMemberName)}
+                          {label(fr, "Assigned to", "Affectée à")}{" "}
+                          {String(task.assignedMemberName)}
                         </p>
                       ) : null}
                       {task.blockedReason ? (
@@ -2438,7 +4840,11 @@ function ProjectContent({
                 value={`${number(summary?.calculatedProgressPercent).toFixed(0)}%`}
               />
               <Info
-                label={label(fr, "Task estimates reserved", "Estimations de tâches réservées")}
+                label={label(
+                  fr,
+                  "Task estimates reserved",
+                  "Estimations de tâches réservées",
+                )}
                 value={money(
                   summary?.budget?.taskEstimateReserve,
                   project.currencyCode,
@@ -2529,12 +4935,12 @@ function ProjectContent({
             "Une phase doit attendre que sa phase préalable soit terminée.",
           )}
           rows={phaseDependencies}
-          sources={phases}
+          sources={phaseDependencySources}
           sourceField="phaseId"
           dependencyField="dependsOnPhaseId"
           fr={fr}
           onAdd={
-            canControl("projects.create") && phases.length > 1
+            canControl("projects.create") && phases.length > 0
               ? () => setEditor({ kind: "phase-dependency" })
               : undefined
           }
@@ -2610,6 +5016,23 @@ function ProjectContent({
       </section>
     );
 
+  if (tab === "timeline")
+    return (
+      <ProjectVisualPlanning
+        project={project}
+        phases={phases}
+        tasks={tasks}
+        portfolioProjects={portfolioProjects}
+        portfolioPhases={portfolioPhases}
+        portfolioTasks={portfolioTasks}
+        phaseDependencies={portfolioPhaseDependencies}
+        taskDependencies={portfolioTaskDependencies}
+        fr={fr}
+        locale={locale}
+        onOpenTask={onOpenTask}
+      />
+    );
+
   if (tab === "tasks")
     return (
       <section className="mt-5 space-y-5">
@@ -2644,12 +5067,14 @@ function ProjectContent({
             "Les tâches liées restent des tâches LiteHubs normales ; seul leur ordre d’exécution est protégé ici.",
           )}
           rows={taskDependencies}
-          sources={tasks}
+          sources={taskDependencySources}
           sourceField="taskId"
           dependencyField="dependsOnTaskId"
           fr={fr}
           onAdd={
-            canWrite("tasks.create") && tasks.length > 1
+            canWrite("tasks.create") &&
+            (tasks.length > 1 ||
+              (canControl("projects.read") && tasks.length > 0))
               ? () => setEditor({ kind: "task-dependency" })
               : undefined
           }
@@ -2689,6 +5114,40 @@ function ProjectContent({
         />
       </section>
     );
+  if (tab === "risks")
+    return (
+      <ProjectRiskRegister
+        rows={risks}
+        fr={fr}
+        locale={locale}
+        canCreate={canWrite("projects.create")}
+        canEdit={canWrite("projects.update")}
+        onAdd={() => setEditor({ kind: "risk" })}
+        onEdit={(record) => setEditor({ kind: "risk", record })}
+      />
+    );
+  if (tab === "quality")
+    return (
+      <ProjectQualityCloseout
+        project={project}
+        checks={qualityChecks}
+        closeout={closeouts[0] ?? null}
+        receipts={receipts}
+        receiptLines={receiptLines}
+        assets={assets}
+        documents={documents}
+        fr={fr}
+        locale={locale}
+        canCreateCheck={canWrite("procurement.create")}
+        canEditCheck={canWrite("procurement.update")}
+        canClose={canControl("projects.update")}
+        onAddCheck={() => setEditor({ kind: "quality-check" })}
+        onEditCheck={(record) => setEditor({ kind: "quality-check", record })}
+        onPrepareCloseout={() =>
+          setEditor({ kind: "closeout", record: closeouts[0] })
+        }
+      />
+    );
   if (tab === "procurement")
     return (
       <section className="mt-5 space-y-5">
@@ -2707,12 +5166,12 @@ function ProjectContent({
             relatedRows={requestLines}
             relatedKey="purchaseRequestId"
             relatedLabel={label(fr, "Requested items", "Articles demandés")}
-            onEditRelatedRow={canWrite("procurement.update") ? (record) => setEditor({ kind: "request-line", record }) : undefined}
-            fields={[
-              "status",
-              "requiredDate",
-              "reason",
-            ]}
+            onEditRelatedRow={
+              canWrite("procurement.update")
+                ? (record) => setEditor({ kind: "request-line", record })
+                : undefined
+            }
+            fields={["status", "requiredDate", "reason"]}
             fr={fr}
             icon={ClipboardCheck}
             onAdd={
@@ -2730,22 +5189,33 @@ function ProjectContent({
               canControl("procurement.update")
                 ? (request) =>
                     onConfirmAction({
-                      title: label(fr, "Return request to draft", "Retourner la demande en brouillon"),
+                      title: label(
+                        fr,
+                        "Return request to draft",
+                        "Retourner la demande en brouillon",
+                      ),
                       description: label(
                         fr,
                         "This closes the current approval and lets the requester correct the request and its items. It is only possible before a purchase order exists. Continue?",
                         "Cette action ferme l’approbation actuelle et permet au demandeur de corriger la demande et ses articles. Elle est possible uniquement avant la création d’un bon de commande. Continuer ?",
                       ),
-                      confirmLabel: label(fr, "Return to draft", "Retourner en brouillon"),
+                      confirmLabel: label(
+                        fr,
+                        "Return to draft",
+                        "Retourner en brouillon",
+                      ),
                       tone: "danger",
                       onConfirm: () => onReturnPurchaseRequest(request),
                     })
                 : undefined
             }
             canReturnRow={(request) =>
-              ["submitted", "approved", "partially_approved", "rejected"].includes(
-                String(request.status),
-              ) &&
+              [
+                "submitted",
+                "approved",
+                "partially_approved",
+                "rejected",
+              ].includes(String(request.status)) &&
               !orders.some(
                 (order) =>
                   String(order.purchaseRequestId ?? "") === String(request.id),
@@ -2755,7 +5225,11 @@ function ProjectContent({
               canWrite("procurement.update")
                 ? (record) =>
                     onConfirmAction({
-                      title: label(fr, "Submit purchase request", "Soumettre la demande"),
+                      title: label(
+                        fr,
+                        "Submit purchase request",
+                        "Soumettre la demande",
+                      ),
                       description: label(
                         fr,
                         "Once submitted, this request and its items can no longer be changed. Continue?",
@@ -2804,11 +5278,7 @@ function ProjectContent({
                     setEditor({ kind: "order-line", orderId: String(order.id) })
                 : undefined
             }
-            fields={[
-              "status",
-              "expectedDeliveryDate",
-              "supplierReference",
-            ]}
+            fields={["status", "expectedDeliveryDate", "supplierReference"]}
             fr={fr}
             icon={ShoppingCart}
             onAdd={
@@ -2820,13 +5290,21 @@ function ProjectContent({
               canWrite("procurement.update")
                 ? (order) =>
                     onConfirmAction({
-                      title: label(fr, "Send purchase order", "Envoyer le bon de commande"),
+                      title: label(
+                        fr,
+                        "Send purchase order",
+                        "Envoyer le bon de commande",
+                      ),
                       description: label(
                         fr,
                         "This marks the order as sent and commits its total to the project budget. Download its PDF to share it with the supplier. Continue?",
                         "Le bon sera marqué comme envoyé et son total sera engagé dans le budget du projet. Téléchargez ensuite son PDF pour le transmettre au fournisseur. Continuer ?",
                       ),
-                      confirmLabel: label(fr, "Send to supplier", "Envoyer au fournisseur"),
+                      confirmLabel: label(
+                        fr,
+                        "Send to supplier",
+                        "Envoyer au fournisseur",
+                      ),
                       tone: "primary",
                       onConfirm: () => onSendPurchaseOrder(order),
                     })
@@ -2842,7 +5320,11 @@ function ProjectContent({
               canControl("procurement.update")
                 ? (order) =>
                     onConfirmAction({
-                      title: label(fr, "Cancel purchase order", "Annuler le bon de commande"),
+                      title: label(
+                        fr,
+                        "Cancel purchase order",
+                        "Annuler le bon de commande",
+                      ),
                       description: label(
                         fr,
                         "This cancels the supplier order and releases its committed budget. The original PDF remains in the audit history. A corrected order can then be created from the approved request. Continue?",
@@ -2861,7 +5343,11 @@ function ProjectContent({
                   String(receipt.purchaseOrderId ?? "") === String(order.id),
               )
             }
-            submitLabel={label(fr, "Send to supplier", "Envoyer au fournisseur")}
+            submitLabel={label(
+              fr,
+              "Send to supplier",
+              "Envoyer au fournisseur",
+            )}
           />
           <ProcurementRecordsPanel
             title={label(fr, "Receiving", "Réceptions")}
@@ -2874,11 +5360,7 @@ function ProjectContent({
               "Les quantités commandées et livrées restent séparées.",
             )}
             rows={receipts}
-            fields={[
-              "status",
-              "receivedDate",
-              "deliveryNoteNumber",
-            ]}
+            fields={["status", "receivedDate", "deliveryNoteNumber"]}
             fr={fr}
             icon={ReceiptText}
             onAdd={
@@ -2898,65 +5380,103 @@ function ProjectContent({
               canWrite("procurement.update")
                 ? (receipt) =>
                     onConfirmAction({
-                      title: label(fr, "Confirm receipt", "Confirmer la réception"),
+                      title: label(
+                        fr,
+                        "Confirm receipt",
+                        "Confirmer la réception",
+                      ),
                       description: label(
                         fr,
                         "Confirm that the received items have been checked. This updates the project budget immediately.",
                         "Confirmez que les articles reçus ont été vérifiés. Le budget du projet sera mis à jour immédiatement.",
                       ),
-                      confirmLabel: label(fr, "Confirm receipt", "Confirmer la réception"),
+                      confirmLabel: label(
+                        fr,
+                        "Confirm receipt",
+                        "Confirmer la réception",
+                      ),
                       tone: "primary",
                       onConfirm: () => onConfirmReceipt(receipt),
                     })
                 : undefined
             }
             canSubmitRow={(receipt) =>
-  ["draft", "cancelled"].includes(String(receipt.status)) &&
-  receiptLines.some((line) => String(line.receiptId ?? "") === String(receipt.id))
-}
-onAddItem={
-  canWrite("procurement.create")
-    ? (receipt) => setEditor({ kind: "receipt-line", receiptId: String(receipt.id) })
-    : undefined
-}
-canAddItemRow={(receipt) => !receiptLines.some((line) => String(line.receiptId ?? "") === String(receipt.id))}
-addItemLabel={label(fr, "Add a missing item", "Ajouter un article manquant")}
-onEditRelatedRow={
-  canWrite("procurement.update")
-    ? (record) => setEditor({ kind: "receipt-line", record })
-    : undefined
-}
-onReturnToDraft={
-  canControl("projects.create")
-    ? (receipt) =>
-        onConfirmAction({
-          title: label(fr, "Reopen receipt as draft", "Réouvrir la réception en brouillon"),
-          description: label(
-            fr,
-            "Use this only to add or correct received items before confirming this same receipt again. Its budget and stock impact remain reversed until confirmation.",
-            "Utilisez cette action seulement pour ajouter ou corriger les articles reçus avant de confirmer à nouveau cette même réception. Son impact sur le budget et le stock reste annulé jusqu’à la confirmation.",
-          ),
-          confirmLabel: label(fr, "Reopen as draft", "Réouvrir en brouillon"),
-          tone: "primary",
-          onConfirm: () => onReopenReceipt(receipt),
-        })
-    : undefined
-}
-canReturnRow={(receipt) => String(receipt.status) === "cancelled"}
-relatedRows={receiptLines}
-relatedKey="receiptId"
-relatedLabel={label(fr, "Received items", "Articles reçus")}
+              ["draft", "cancelled"].includes(String(receipt.status)) &&
+              receiptLines.some(
+                (line) => String(line.receiptId ?? "") === String(receipt.id),
+              )
+            }
+            onAddItem={
+              canWrite("procurement.create")
+                ? (receipt) =>
+                    setEditor({
+                      kind: "receipt-line",
+                      receiptId: String(receipt.id),
+                    })
+                : undefined
+            }
+            canAddItemRow={(receipt) =>
+              !receiptLines.some(
+                (line) => String(line.receiptId ?? "") === String(receipt.id),
+              )
+            }
+            addItemLabel={label(
+              fr,
+              "Add a missing item",
+              "Ajouter un article manquant",
+            )}
+            onEditRelatedRow={
+              canWrite("procurement.update")
+                ? (record) => setEditor({ kind: "receipt-line", record })
+                : undefined
+            }
+            onReturnToDraft={
+              canControl("projects.create")
+                ? (receipt) =>
+                    onConfirmAction({
+                      title: label(
+                        fr,
+                        "Reopen receipt as draft",
+                        "Réouvrir la réception en brouillon",
+                      ),
+                      description: label(
+                        fr,
+                        "Use this only to add or correct received items before confirming this same receipt again. Its budget and stock impact remain reversed until confirmation.",
+                        "Utilisez cette action seulement pour ajouter ou corriger les articles reçus avant de confirmer à nouveau cette même réception. Son impact sur le budget et le stock reste annulé jusqu’à la confirmation.",
+                      ),
+                      confirmLabel: label(
+                        fr,
+                        "Reopen as draft",
+                        "Réouvrir en brouillon",
+                      ),
+                      tone: "primary",
+                      onConfirm: () => onReopenReceipt(receipt),
+                    })
+                : undefined
+            }
+            canReturnRow={(receipt) => String(receipt.status) === "cancelled"}
+            relatedRows={receiptLines}
+            relatedKey="receiptId"
+            relatedLabel={label(fr, "Received items", "Articles reçus")}
             onReject={
               canWrite("procurement.update")
                 ? (receipt) =>
                     onConfirmAction({
-                      title: label(fr, "Reject delivery", "Refuser la livraison"),
+                      title: label(
+                        fr,
+                        "Reject delivery",
+                        "Refuser la livraison",
+                      ),
                       description: label(
                         fr,
                         "Use this when the supplier delivery is not accepted. The receipt is closed and no project budget is spent.",
                         "Utilisez cette action lorsque la livraison du fournisseur n’est pas acceptée. La réception est clôturée et aucun montant n’est dépensé sur le budget du projet.",
                       ),
-                      confirmLabel: label(fr, "Reject delivery", "Refuser la livraison"),
+                      confirmLabel: label(
+                        fr,
+                        "Reject delivery",
+                        "Refuser la livraison",
+                      ),
                       tone: "danger",
                       onConfirm: () => onRejectReceipt(receipt),
                     })
@@ -2967,13 +5487,21 @@ relatedLabel={label(fr, "Received items", "Articles reçus")}
               canWrite("procurement.update")
                 ? (receipt) =>
                     onConfirmAction({
-                      title: label(fr, "Verify receipt", "Vérifier la réception"),
+                      title: label(
+                        fr,
+                        "Verify receipt",
+                        "Vérifier la réception",
+                      ),
                       description: label(
                         fr,
                         "Confirm the final physical and document check. This does not create a second budget impact.",
                         "Confirmez le contrôle physique et documentaire final. Cette vérification ne crée pas un second impact budgétaire.",
                       ),
-                      confirmLabel: label(fr, "Verify receipt", "Vérifier la réception"),
+                      confirmLabel: label(
+                        fr,
+                        "Verify receipt",
+                        "Vérifier la réception",
+                      ),
                       tone: "primary",
                       onConfirm: () => onVerifyReceipt(receipt),
                     })
@@ -2984,19 +5512,29 @@ relatedLabel={label(fr, "Received items", "Articles reçus")}
               canControl("projects.create")
                 ? (receipt) =>
                     onConfirmAction({
-                      title: label(fr, "Cancel receipt / supplier return", "Annuler la réception / retour fournisseur"),
+                      title: label(
+                        fr,
+                        "Cancel receipt / supplier return",
+                        "Annuler la réception / retour fournisseur",
+                      ),
                       description: label(
                         fr,
                         "Use this only when the full confirmed delivery has been returned. It reverses this receipt from stock and the project budget, then reopens the purchase order. It is blocked after supplier payment, stock consumption, or durable-asset registration.",
                         "Utilisez cette action seulement lorsque toute la livraison confirmée a été retournée. Elle retire cette réception du stock et du budget du projet, puis rouvre le bon de commande. Elle est bloquée après un paiement fournisseur, une consommation du stock ou l’enregistrement d’une immobilisation.",
                       ),
-                      confirmLabel: label(fr, "Cancel and return", "Annuler et retourner"),
+                      confirmLabel: label(
+                        fr,
+                        "Cancel and return",
+                        "Annuler et retourner",
+                      ),
                       tone: "danger",
                       onConfirm: () => onCancelReceipt(receipt),
                     })
                 : undefined
             }
-            canCancelRow={(receipt) => ["received", "verified"].includes(String(receipt.status))}
+            canCancelRow={(receipt) =>
+              ["received", "verified"].includes(String(receipt.status))
+            }
             rejectLabel={label(fr, "Reject delivery", "Refuser la livraison")}
             verifyLabel={label(fr, "Verify receipt", "Vérifier la réception")}
             cancelLabel={label(fr, "Cancel / return", "Annuler / retourner")}
@@ -3012,11 +5550,7 @@ relatedLabel={label(fr, "Received items", "Articles reçus")}
               "Quantités demandées pour ce projet.",
             )}
             rows={requestLines}
-            fields={[
-              "description",
-              "requestedQuantity",
-              "unit",
-            ]}
+            fields={["description", "requestedQuantity", "unit"]}
             fr={fr}
             icon={ClipboardCheck}
           />
@@ -3116,7 +5650,9 @@ relatedLabel={label(fr, "Received items", "Articles reçus")}
             "Creation, milestones, tasks, purchasing, receiving, expenses, assets, documents and approvals are shown from their live records.",
             "Création, jalons, tâches, achats, réceptions, dépenses, actifs, documents et approbations sont affichés depuis leurs enregistrements réels.",
           )}
-          rows={activity.filter((event) => String(event.entityType) !== "budget_change")}
+          rows={activity.filter(
+            (event) => String(event.entityType) !== "budget_change",
+          )}
           fields={[
             "occurredAt",
             "eventType",
@@ -3136,16 +5672,26 @@ relatedLabel={label(fr, "Received items", "Articles reçus")}
     const budgetHistoryRows = budgetChanges;
     const latestProjectBudgetChange = budgetHistoryRows.flatMap((event) => {
       try {
-        const parsed = JSON.parse(String(event.status ?? "")) as Record<string, unknown>;
+        const parsed = JSON.parse(String(event.status ?? "")) as Record<
+          string,
+          unknown
+        >;
         const before = Number(parsed.before ?? 0);
         const after = Number(parsed.after ?? 0);
-        return String(parsed.scope) === "project" && Number.isFinite(before) && Number.isFinite(after)
+        return String(parsed.scope) === "project" &&
+          Number.isFinite(before) &&
+          Number.isFinite(after)
           ? [{ before, after, actorName: String(event.actorName ?? "").trim() }]
           : [];
-      } catch { return []; }
+      } catch {
+        return [];
+      }
     })[0];
     const budgetStatus = (status: string) => {
-      const copy: Record<string, [string, string, "good" | "warning" | "critical" | "neutral"]> = {
+      const copy: Record<
+        string,
+        [string, string, "good" | "warning" | "critical" | "neutral"]
+      > = {
         not_budgeted: ["Not budgeted", "Non budgétée", "neutral"],
         within_budget: ["Within budget", "Dans le budget", "good"],
         attention: ["Attention", "Attention", "warning"],
@@ -3159,36 +5705,124 @@ relatedLabel={label(fr, "Received items", "Articles reçus")}
       <section className="mt-5 space-y-5">
         <Panel
           icon={Landmark}
-          title={label(fr, "Project budget control", "Contrôle du budget du projet")}
-          subtitle={label(fr, "The project budget is the only budget. Task budgets only assign part of it to real work.", "Le budget du projet est le seul budget. Les budgets des tâches n’en affectent qu’une partie à des travaux réels.")}
+          title={label(
+            fr,
+            "Project budget control",
+            "Contrôle du budget du projet",
+          )}
+          subtitle={label(
+            fr,
+            "The project budget is the only budget. Task budgets only assign part of it to real work.",
+            "Le budget du projet est le seul budget. Les budgets des tâches n’en affectent qu’une partie à des travaux réels.",
+          )}
+          action={
+            canControl("projects.update") ? (
+              <Button size="sm" onClick={onOpenSimulation}>
+                <Calculator />
+                {label(fr, "Simulate", "Simuler")}
+              </Button>
+            ) : undefined
+          }
         >
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {([
-              [label(fr, "Budget planned", "Budget prévu"), summary?.budget?.planned, "text-ink", latestProjectBudgetChange],
-              [label(fr, "Assigned to tasks", "Budget affecté aux tâches"), summary?.budget?.allocated, "text-brand", null],
-              [label(fr, "Not assigned", "Budget non affecté"), summary?.budget?.unallocated, "text-ink-secondary", null],
-              [label(fr, "Committed", "Engagé"), summary?.budget?.committed, "text-amber-700", null],
-              [label(fr, "Spent", "Dépensé"), summary?.budget?.spent, "text-rose-700", null],
-              [label(fr, "Available", "Disponible"), summary?.budget?.available, number(summary?.budget?.available) < 0 ? "text-rose-700" : "text-emerald-700", null],
-            ] as Array<[string, unknown, string, { before: number; after: number; actorName: string } | null]>).map(([title, value, tone, adjustment]) => (
-              <div key={String(title)} className="rounded-xl border border-border bg-surface-2/55 px-4 py-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[.11em] text-ink-muted">{title}</p>
-                <p className={`mt-1 text-xl font-semibold ${tone}`}>{money(value, project.currencyCode, locale)}</p>
-                {adjustment && typeof adjustment === "object" && "before" in adjustment ? (
+            {(
+              [
+                [
+                  label(fr, "Budget planned", "Budget prévu"),
+                  summary?.budget?.planned,
+                  "text-ink",
+                  latestProjectBudgetChange,
+                ],
+                [
+                  label(fr, "Assigned to tasks", "Budget affecté aux tâches"),
+                  summary?.budget?.allocated,
+                  "text-brand",
+                  null,
+                ],
+                [
+                  label(fr, "Not assigned", "Budget non affecté"),
+                  summary?.budget?.unallocated,
+                  "text-ink-secondary",
+                  null,
+                ],
+                [
+                  label(fr, "Committed", "Engagé"),
+                  summary?.budget?.committed,
+                  "text-amber-700",
+                  null,
+                ],
+                [
+                  label(fr, "Spent", "Dépensé"),
+                  summary?.budget?.spent,
+                  "text-rose-700",
+                  null,
+                ],
+                [
+                  label(fr, "Available", "Disponible"),
+                  summary?.budget?.available,
+                  number(summary?.budget?.available) < 0
+                    ? "text-rose-700"
+                    : "text-emerald-700",
+                  null,
+                ],
+              ] as Array<
+                [
+                  string,
+                  unknown,
+                  string,
+                  { before: number; after: number; actorName: string } | null,
+                ]
+              >
+            ).map(([title, value, tone, adjustment]) => (
+              <div
+                key={String(title)}
+                className="rounded-xl border border-border bg-surface-2/55 px-4 py-3"
+              >
+                <p className="text-[11px] font-semibold uppercase tracking-[.11em] text-ink-muted">
+                  {title}
+                </p>
+                <p className={`mt-1 text-xl font-semibold ${tone}`}>
+                  {money(value, project.currencyCode, locale)}
+                </p>
+                {adjustment &&
+                typeof adjustment === "object" &&
+                "before" in adjustment ? (
                   <p className="mt-2 border-t border-border/70 pt-2 text-[11px] leading-4 text-ink-secondary">
-                    {label(fr, "Last adjustment", "Dernier ajustement")} · {money(adjustment.before, project.currencyCode, locale)} → {money(adjustment.after, project.currencyCode, locale)}
-                    {adjustment.actorName ? ` · ${label(fr, "by", "par")} ${adjustment.actorName}` : ""}
+                    {label(fr, "Last adjustment", "Dernier ajustement")} ·{" "}
+                    {money(adjustment.before, project.currencyCode, locale)} →{" "}
+                    {money(adjustment.after, project.currencyCode, locale)}
+                    {adjustment.actorName
+                      ? ` · ${label(fr, "by", "par")} ${adjustment.actorName}`
+                      : ""}
                   </p>
                 ) : null}
               </div>
             ))}
           </div>
           {number(summary?.budget?.utilizationPercent) >= 100 ? (
-            <p className="mt-4 rounded-xl border border-critical/35 bg-critical/10 px-3 py-2 text-sm font-medium text-critical">{label(fr, "Budget limit reached. New financial operations require an owner justification.", "Limite budgétaire atteinte. Les nouvelles opérations financières exigent une justification du propriétaire.")}</p>
+            <p className="mt-4 rounded-xl border border-critical/35 bg-critical/10 px-3 py-2 text-sm font-medium text-critical">
+              {label(
+                fr,
+                "Budget limit reached. New financial operations require an owner justification.",
+                "Limite budgétaire atteinte. Les nouvelles opérations financières exigent une justification du propriétaire.",
+              )}
+            </p>
           ) : number(summary?.budget?.utilizationPercent) >= 90 ? (
-            <p className="mt-4 rounded-xl border border-warning/35 bg-warning/10 px-3 py-2 text-sm font-medium text-warning-foreground">{label(fr, "Over 90% of the project budget is used.", "Plus de 90 % du budget du projet est utilisé.")}</p>
+            <p className="mt-4 rounded-xl border border-warning/35 bg-warning/10 px-3 py-2 text-sm font-medium text-warning-foreground">
+              {label(
+                fr,
+                "Over 90% of the project budget is used.",
+                "Plus de 90 % du budget du projet est utilisé.",
+              )}
+            </p>
           ) : number(summary?.budget?.utilizationPercent) >= 80 ? (
-            <p className="mt-4 rounded-xl border border-warning/30 bg-warning/5 px-3 py-2 text-sm text-ink-secondary">{label(fr, "Over 80% of the project budget is used. Monitor upcoming operations.", "Plus de 80 % du budget du projet est utilisé. Surveillez les prochaines opérations.")}</p>
+            <p className="mt-4 rounded-xl border border-warning/30 bg-warning/5 px-3 py-2 text-sm text-ink-secondary">
+              {label(
+                fr,
+                "Over 80% of the project budget is used. Monitor upcoming operations.",
+                "Plus de 80 % du budget du projet est utilisé. Surveillez les prochaines opérations.",
+              )}
+            </p>
           ) : null}
         </Panel>
         {summary?.productionProfitability ? (
@@ -3206,50 +5840,228 @@ relatedLabel={label(fr, "Received items", "Articles reçus")}
         />
         <Panel
           title={label(fr, "Budget by task", "Budget par tâche")}
-          subtitle={label(fr, "Edit a project task to set its optional budget. No separate budget line is created.", "Modifiez une tâche du projet pour définir son budget facultatif. Aucune ligne budgétaire séparée n’est créée.")}
+          subtitle={label(
+            fr,
+            "Edit a project task to set its optional budget. No separate budget line is created.",
+            "Modifiez une tâche du projet pour définir son budget facultatif. Aucune ligne budgétaire séparée n’est créée.",
+          )}
         >
           {taskBudgets.length ? (
             <div className="overflow-x-auto rounded-xl border border-border">
               <table className="min-w-[860px] w-full text-left text-sm">
                 <thead className="bg-surface-2 text-xs uppercase tracking-[.08em] text-ink-muted">
-                  <tr>{[label(fr, "Phase", "Phase"), label(fr, "Task", "Tâche"), label(fr, "Planned", "Prévu"), label(fr, "Committed", "Engagé"), label(fr, "Spent", "Dépensé"), label(fr, "Available", "Disponible"), label(fr, "Usage", "Utilisation"), label(fr, "Status", "Statut")].map((heading) => <th key={heading} className="px-4 py-3 font-semibold">{heading}</th>)}</tr>
+                  <tr>
+                    {[
+                      label(fr, "Phase", "Phase"),
+                      label(fr, "Task", "Tâche"),
+                      label(fr, "Planned", "Prévu"),
+                      label(fr, "Committed", "Engagé"),
+                      label(fr, "Spent", "Dépensé"),
+                      label(fr, "Available", "Disponible"),
+                      label(fr, "Usage", "Utilisation"),
+                      label(fr, "Status", "Statut"),
+                    ].map((heading) => (
+                      <th key={heading} className="px-4 py-3 font-semibold">
+                        {heading}
+                      </th>
+                    ))}
+                  </tr>
                 </thead>
                 <tbody className="divide-y divide-border bg-surface-1">
                   {taskBudgets.map((task) => (
-                    <tr key={task.id} className="align-top hover:bg-surface-2/60">
-                      <td className="px-4 py-3 text-ink-secondary">{task.phaseName || "—"}</td>
-                      <td className="px-4 py-3 font-medium text-ink">{task.title}</td>
-                      <td className="px-4 py-3 tabular-nums">{money(task.planned, task.currencyCode ?? project.currencyCode, locale)}</td>
-                      <td className="px-4 py-3 tabular-nums text-amber-700">{money(task.committed, task.currencyCode ?? project.currencyCode, locale)}</td>
-                      <td className="px-4 py-3 tabular-nums text-rose-700">{money(task.spent, task.currencyCode ?? project.currencyCode, locale)}</td>
-                      <td className={`px-4 py-3 tabular-nums ${number(task.available) < 0 ? "text-critical" : "text-emerald-700"}`}>{money(task.available, task.currencyCode ?? project.currencyCode, locale)}</td>
-                      <td className="px-4 py-3 tabular-nums">{number(task.utilizationPercent).toFixed(0)}%</td>
+                    <tr
+                      key={task.id}
+                      className="align-top hover:bg-surface-2/60"
+                    >
+                      <td className="px-4 py-3 text-ink-secondary">
+                        {task.phaseName || "—"}
+                      </td>
+                      <td className="px-4 py-3 font-medium text-ink">
+                        {task.title}
+                      </td>
+                      <td className="px-4 py-3 tabular-nums">
+                        {money(
+                          task.planned,
+                          task.currencyCode ?? project.currencyCode,
+                          locale,
+                        )}
+                      </td>
+                      <td className="px-4 py-3 tabular-nums text-amber-700">
+                        {money(
+                          task.committed,
+                          task.currencyCode ?? project.currencyCode,
+                          locale,
+                        )}
+                      </td>
+                      <td className="px-4 py-3 tabular-nums text-rose-700">
+                        {money(
+                          task.spent,
+                          task.currencyCode ?? project.currencyCode,
+                          locale,
+                        )}
+                      </td>
+                      <td
+                        className={`px-4 py-3 tabular-nums ${number(task.available) < 0 ? "text-critical" : "text-emerald-700"}`}
+                      >
+                        {money(
+                          task.available,
+                          task.currencyCode ?? project.currencyCode,
+                          locale,
+                        )}
+                      </td>
+                      <td className="px-4 py-3 tabular-nums">
+                        {number(task.utilizationPercent).toFixed(0)}%
+                      </td>
                       <td className="px-4 py-3">{budgetStatus(task.status)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          ) : <EmptyState icon={Landmark} title={label(fr, "No task budget yet", "Aucun budget de tâche")} description={label(fr, "Create or edit a work task, then enter its optional budget.", "Créez ou modifiez une tâche de travail, puis saisissez son budget facultatif.")} />}
+          ) : (
+            <EmptyState
+              icon={Landmark}
+              title={label(fr, "No task budget yet", "Aucun budget de tâche")}
+              description={label(
+                fr,
+                "Create or edit a work task, then enter its optional budget.",
+                "Créez ou modifiez une tâche de travail, puis saisissez son budget facultatif.",
+              )}
+            />
+          )}
         </Panel>
         <div className="grid gap-5 xl:grid-cols-2">
-          <Panel title={label(fr, "Unassigned spending", "Dépenses non affectées")} subtitle={label(fr, "Operations without a task still reduce the main project budget and remain visible here.", "Les opérations sans tâche réduisent quand même le budget principal et restent visibles ici.")}>
+          <Panel
+            title={label(fr, "Unassigned spending", "Dépenses non affectées")}
+            subtitle={label(
+              fr,
+              "Operations without a task still reduce the main project budget and remain visible here.",
+              "Les opérations sans tâche réduisent quand même le budget principal et restent visibles ici.",
+            )}
+          >
             <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-xl border border-border bg-surface-2/55 p-4"><p className="text-xs font-semibold uppercase tracking-[.1em] text-ink-muted">{label(fr, "Committed", "Engagé")}</p><p className="mt-1 text-lg font-semibold text-amber-700">{money(summary?.budget?.unassignedCommitted, project.currencyCode, locale)}</p></div>
-              <div className="rounded-xl border border-border bg-surface-2/55 p-4"><p className="text-xs font-semibold uppercase tracking-[.1em] text-ink-muted">{label(fr, "Spent", "Dépensé")}</p><p className="mt-1 text-lg font-semibold text-rose-700">{money(summary?.budget?.unassignedSpent, project.currencyCode, locale)}</p></div>
+              <div className="rounded-xl border border-border bg-surface-2/55 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[.1em] text-ink-muted">
+                  {label(fr, "Committed", "Engagé")}
+                </p>
+                <p className="mt-1 text-lg font-semibold text-amber-700">
+                  {money(
+                    summary?.budget?.unassignedCommitted,
+                    project.currencyCode,
+                    locale,
+                  )}
+                </p>
+              </div>
+              <div className="rounded-xl border border-border bg-surface-2/55 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[.1em] text-ink-muted">
+                  {label(fr, "Spent", "Dépensé")}
+                </p>
+                <p className="mt-1 text-lg font-semibold text-rose-700">
+                  {money(
+                    summary?.budget?.unassignedSpent,
+                    project.currencyCode,
+                    locale,
+                  )}
+                </p>
+              </div>
             </div>
           </Panel>
-          <Panel title={label(fr, "Accounting rule", "Règle comptable")} subtitle={label(fr, "The same amount is counted once only.", "Un même montant n’est compté qu’une seule fois.")}>
+          <Panel
+            title={label(fr, "Accounting rule", "Règle comptable")}
+            subtitle={label(
+              fr,
+              "The same amount is counted once only.",
+              "Un même montant n’est compté qu’une seule fois.",
+            )}
+          >
             <ul className="space-y-2 text-sm leading-6 text-ink-secondary">
-              <li>{label(fr, "Drafts and purchase requests have no budget impact.", "Les brouillons et demandes d’achat n’ont aucun impact budgétaire.")}</li>
-              <li>{label(fr, "An approved purchase order is committed; an accepted receipt moves that amount to spent.", "Un bon de commande approuvé est engagé ; une réception acceptée transfère ce montant en dépensé.")}</li>
-              <li>{label(fr, "A payment linked to an accepted receipt is recorded without a second budget impact.", "Un paiement lié à une réception acceptée est enregistré sans second impact budgétaire.")}</li>
+              <li>
+                {label(
+                  fr,
+                  "Drafts and purchase requests have no budget impact.",
+                  "Les brouillons et demandes d’achat n’ont aucun impact budgétaire.",
+                )}
+              </li>
+              <li>
+                {label(
+                  fr,
+                  "An approved purchase order is committed; an accepted receipt moves that amount to spent.",
+                  "Un bon de commande approuvé est engagé ; une réception acceptée transfère ce montant en dépensé.",
+                )}
+              </li>
+              <li>
+                {label(
+                  fr,
+                  "A payment linked to an accepted receipt is recorded without a second budget impact.",
+                  "Un paiement lié à une réception acceptée est enregistré sans second impact budgétaire.",
+                )}
+              </li>
             </ul>
           </Panel>
         </div>
         <div className="grid gap-5 xl:grid-cols-2">
-          <RecordsPanel title={label(fr, "Direct expenses & supplier payments", "Dépenses directes et paiements fournisseurs")} subtitle={label(fr, "Direct costs need approval. Supplier payments linked to a confirmed receipt remain neutral in the budget.", "Les coûts directs nécessitent une approbation. Les paiements fournisseur liés à une réception confirmée restent neutres dans le budget.")} rows={expenses} fields={["expenseNumber", "category", "amount", "status", "expenseDate"]} fr={fr} icon={Wallet} onAdd={canWrite("finance.expenses.create") ? () => setEditor({ kind: "expense" }) : undefined} onEdit={canWrite("finance.expenses.update") ? (record) => setEditor({ kind: "expense", record }) : undefined} />
-          <RecordsPanel title={label(fr, "Approvals", "Approbations")} subtitle={label(fr, "Financial decisions remain traceable in the approval queue.", "Les décisions financières restent traçables dans la file d’approbation.")} rows={approvals} fields={["approvalNumber", "requestType", "requestedAmount", "status", "requestedAt"]} fr={fr} icon={ShieldCheck} footer={<Link href={`/${orgSlug}/approvals`} className="text-xs font-semibold text-brand hover:underline">{label(fr, "Open approval queue", "Ouvrir la file d’approbation")}</Link>} />
+          <RecordsPanel
+            title={label(
+              fr,
+              "Direct expenses & supplier payments",
+              "Dépenses directes et paiements fournisseurs",
+            )}
+            subtitle={label(
+              fr,
+              "Direct costs need approval. Supplier payments linked to a confirmed receipt remain neutral in the budget.",
+              "Les coûts directs nécessitent une approbation. Les paiements fournisseur liés à une réception confirmée restent neutres dans le budget.",
+            )}
+            rows={expenses}
+            fields={[
+              "expenseNumber",
+              "category",
+              "amount",
+              "status",
+              "expenseDate",
+            ]}
+            fr={fr}
+            icon={Wallet}
+            onAdd={
+              canWrite("finance.expenses.create")
+                ? () => setEditor({ kind: "expense" })
+                : undefined
+            }
+            onEdit={
+              canWrite("finance.expenses.update")
+                ? (record) => setEditor({ kind: "expense", record })
+                : undefined
+            }
+          />
+          <RecordsPanel
+            title={label(fr, "Approvals", "Approbations")}
+            subtitle={label(
+              fr,
+              "Financial decisions remain traceable in the approval queue.",
+              "Les décisions financières restent traçables dans la file d’approbation.",
+            )}
+            rows={approvals}
+            fields={[
+              "approvalNumber",
+              "requestType",
+              "requestedAmount",
+              "status",
+              "requestedAt",
+            ]}
+            fr={fr}
+            icon={ShieldCheck}
+            footer={
+              <Link
+                href={`/${orgSlug}/approvals`}
+                className="text-xs font-semibold text-brand hover:underline"
+              >
+                {label(
+                  fr,
+                  "Open approval queue",
+                  "Ouvrir la file d’approbation",
+                )}
+              </Link>
+            }
+          />
         </div>
       </section>
     );
@@ -3366,26 +6178,43 @@ relatedLabel={label(fr, "Received items", "Articles reçus")}
                     </div>
                     <div className="flex flex-wrap justify-end gap-2">
                       <span className="rounded-lg border border-border bg-surface-1 px-2.5 py-1 text-xs font-medium text-ink-secondary">
-                        {label(fr, "Planned", "Prévu")} · {number(item.plannedQuantity)} {String(item.unit ?? "")}
+                        {label(fr, "Planned", "Prévu")} ·{" "}
+                        {number(item.plannedQuantity)} {String(item.unit ?? "")}
                       </span>
                       <span className="rounded-lg border border-border bg-surface-1 px-2.5 py-1 text-xs font-medium text-ink-secondary">
                         {Number(item.receivedQuantity ?? 0) > 0
                           ? item.inventoryItemId
                             ? label(fr, "Stock linked", "Stock relié")
-                            : label(fr, "Stock link pending", "Liaison stock en attente")
+                            : label(
+                                fr,
+                                "Stock link pending",
+                                "Liaison stock en attente",
+                              )
                           : label(fr, "Not received yet", "Pas encore reçu")}
                       </span>
                     </div>
                   </div>
                   <dl className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
                     {[
-                      [label(fr, "Ordered", "Commandé"), item.purchasedQuantity],
+                      [
+                        label(fr, "Ordered", "Commandé"),
+                        item.purchasedQuantity,
+                      ],
                       [label(fr, "Received", "Reçu"), item.receivedQuantity],
                       [label(fr, "Used", "Utilisé"), item.usedQuantity],
-                      [label(fr, "Available", "Disponible"), item.availableQuantity ?? item.available],
-                      [label(fr, "Still needed", "À commander"), item.stillNeeded],
+                      [
+                        label(fr, "Available", "Disponible"),
+                        item.availableQuantity ?? item.available,
+                      ],
+                      [
+                        label(fr, "Still needed", "À commander"),
+                        item.stillNeeded,
+                      ],
                     ].map(([metricLabel, value]) => (
-                      <div key={String(metricLabel)} className="rounded-lg border border-border/80 bg-surface-1 px-2.5 py-2">
+                      <div
+                        key={String(metricLabel)}
+                        className="rounded-lg border border-border/80 bg-surface-1 px-2.5 py-2"
+                      >
                         <dt className="text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-muted">
                           {String(metricLabel)}
                         </dt>
@@ -3443,13 +6272,12 @@ relatedLabel={label(fr, "Received items", "Articles reçus")}
           relatedRows={requestLines}
           relatedKey="purchaseRequestId"
           relatedLabel={label(fr, "Requested items", "Articles demandés")}
-          onEditRelatedRow={canWrite("procurement.update") ? (record) => setEditor({ kind: "request-line", record }) : undefined}
-          fields={[
-            "requestNumber",
-            "status",
-            "requiredDate",
-            "reason",
-          ]}
+          onEditRelatedRow={
+            canWrite("procurement.update")
+              ? (record) => setEditor({ kind: "request-line", record })
+              : undefined
+          }
+          fields={["requestNumber", "status", "requiredDate", "reason"]}
           fr={fr}
           icon={ClipboardCheck}
           onAdd={
@@ -3467,7 +6295,11 @@ relatedLabel={label(fr, "Received items", "Articles reçus")}
             canWrite("procurement.update")
               ? (record) =>
                   onConfirmAction({
-                    title: label(fr, "Submit purchase request", "Soumettre la demande"),
+                    title: label(
+                      fr,
+                      "Submit purchase request",
+                      "Soumettre la demande",
+                    ),
                     description: label(
                       fr,
                       "Once submitted, this request and its items can no longer be changed. Continue?",
@@ -3481,16 +6313,16 @@ relatedLabel={label(fr, "Received items", "Articles reçus")}
           }
           submitLabel={label(fr, "Submit", "Soumettre")}
           editLabel={label(fr, "Edit or submit", "Modifier ou soumettre")}
-            onAddItem={
-              canWrite("procurement.create")
-                ? (request) =>
-                    setEditor({
-                      kind: "request-line",
-                      requestId: String(request.id),
-                    })
-                : undefined
-            }
-          />
+          onAddItem={
+            canWrite("procurement.create")
+              ? (request) =>
+                  setEditor({
+                    kind: "request-line",
+                    requestId: String(request.id),
+                  })
+              : undefined
+          }
+        />
         <ProcurementRecordsPanel
           title={label(fr, "Purchase orders", "Bons de commande")}
           orgSlug={orgSlug}
@@ -3533,13 +6365,21 @@ relatedLabel={label(fr, "Received items", "Articles reçus")}
             canWrite("procurement.update")
               ? (order) =>
                   onConfirmAction({
-                    title: label(fr, "Send purchase order", "Envoyer le bon de commande"),
+                    title: label(
+                      fr,
+                      "Send purchase order",
+                      "Envoyer le bon de commande",
+                    ),
                     description: label(
                       fr,
                       "This marks the order as sent and commits its total to the project budget. Download its PDF to share it with the supplier. Continue?",
                       "Le bon sera marqué comme envoyé et son total sera engagé dans le budget du projet. Téléchargez ensuite son PDF pour le transmettre au fournisseur. Continuer ?",
                     ),
-                    confirmLabel: label(fr, "Send to supplier", "Envoyer au fournisseur"),
+                    confirmLabel: label(
+                      fr,
+                      "Send to supplier",
+                      "Envoyer au fournisseur",
+                    ),
                     tone: "primary",
                     onConfirm: () => onSendPurchaseOrder(order),
                   })
@@ -3555,7 +6395,11 @@ relatedLabel={label(fr, "Received items", "Articles reçus")}
             canControl("procurement.update")
               ? (order) =>
                   onConfirmAction({
-                    title: label(fr, "Cancel purchase order", "Annuler le bon de commande"),
+                    title: label(
+                      fr,
+                      "Cancel purchase order",
+                      "Annuler le bon de commande",
+                    ),
                     description: label(
                       fr,
                       "This cancels the supplier order and releases its committed budget. The original PDF remains in the audit history. A corrected order can then be created from the approved request. Continue?",
@@ -3600,121 +6444,169 @@ relatedLabel={label(fr, "Received items", "Articles reçus")}
               ? () => setEditor({ kind: "receipt" })
               : undefined
           }
-            onEdit={
-              canWrite("procurement.update")
-                ? (receipt) => setEditor({ kind: "receipt", record: receipt })
-                : undefined
-            }
-            canEditRow={(receipt) => String(receipt.status) === "draft"}
-            editLabel={label(fr, "Edit receipt", "Modifier la réception")}
+          onEdit={
+            canWrite("procurement.update")
+              ? (receipt) => setEditor({ kind: "receipt", record: receipt })
+              : undefined
+          }
+          canEditRow={(receipt) => String(receipt.status) === "draft"}
+          editLabel={label(fr, "Edit receipt", "Modifier la réception")}
 
-            onSubmit={
-              canWrite("procurement.update")
-                ? (receipt) =>
-                    onConfirmAction({
-                      title: label(fr, "Confirm receipt", "Confirmer la réception"),
-                      description: label(
-                        fr,
-                        "Confirm that the received items have been checked. This updates the project budget immediately.",
-                        "Confirmez que les articles reçus ont été vérifiés. Le budget du projet sera mis à jour immédiatement.",
-                      ),
-                      confirmLabel: label(fr, "Confirm receipt", "Confirmer la réception"),
-                      tone: "primary",
-                      onConfirm: () => onConfirmReceipt(receipt),
-                    })
-                : undefined
-            }
-            canSubmitRow={(receipt) =>
-  ["draft", "cancelled"].includes(String(receipt.status)) &&
-  receiptLines.some((line) => String(line.receiptId ?? "") === String(receipt.id))
-}
-onAddItem={
-  canWrite("procurement.create")
-    ? (receipt) => setEditor({ kind: "receipt-line", receiptId: String(receipt.id) })
-    : undefined
-}
-canAddItemRow={(receipt) => !receiptLines.some((line) => String(line.receiptId ?? "") === String(receipt.id))}
-addItemLabel={label(fr, "Add a missing item", "Ajouter un article manquant")}
-onEditRelatedRow={
-  canWrite("procurement.update")
-    ? (record) => setEditor({ kind: "receipt-line", record })
-    : undefined
-}
-onReturnToDraft={
-  canControl("projects.create")
-    ? (receipt) =>
-        onConfirmAction({
-          title: label(fr, "Reopen receipt as draft", "Réouvrir la réception en brouillon"),
-          description: label(
+          onSubmit={
+            canWrite("procurement.update")
+              ? (receipt) =>
+                  onConfirmAction({
+                    title: label(
+                      fr,
+                      "Confirm receipt",
+                      "Confirmer la réception",
+                    ),
+                    description: label(
+                      fr,
+                      "Confirm that the received items have been checked. This updates the project budget immediately.",
+                      "Confirmez que les articles reçus ont été vérifiés. Le budget du projet sera mis à jour immédiatement.",
+                    ),
+                    confirmLabel: label(
+                      fr,
+                      "Confirm receipt",
+                      "Confirmer la réception",
+                    ),
+                    tone: "primary",
+                    onConfirm: () => onConfirmReceipt(receipt),
+                  })
+              : undefined
+          }
+          canSubmitRow={(receipt) =>
+            ["draft", "cancelled"].includes(String(receipt.status)) &&
+            receiptLines.some(
+              (line) => String(line.receiptId ?? "") === String(receipt.id),
+            )
+          }
+          onAddItem={
+            canWrite("procurement.create")
+              ? (receipt) =>
+                  setEditor({
+                    kind: "receipt-line",
+                    receiptId: String(receipt.id),
+                  })
+              : undefined
+          }
+          canAddItemRow={(receipt) =>
+            !receiptLines.some(
+              (line) => String(line.receiptId ?? "") === String(receipt.id),
+            )
+          }
+          addItemLabel={label(
             fr,
-            "Use this only to add or correct received items before confirming this same receipt again. Its budget and stock impact remain reversed until confirmation.",
-            "Utilisez cette action seulement pour ajouter ou corriger les articles reçus avant de confirmer à nouveau cette même réception. Son impact sur le budget et le stock reste annulé jusqu’à la confirmation.",
-          ),
-          confirmLabel: label(fr, "Reopen as draft", "Réouvrir en brouillon"),
-          tone: "primary",
-          onConfirm: () => onReopenReceipt(receipt),
-        })
-    : undefined
-}
-canReturnRow={(receipt) => String(receipt.status) === "cancelled"}
-relatedRows={receiptLines}
-relatedKey="receiptId"
-relatedLabel={label(fr, "Received items", "Articles reçus")}
-            onReject={
-              canWrite("procurement.update")
-                ? (receipt) =>
-                    onConfirmAction({
-                      title: label(fr, "Reject delivery", "Refuser la livraison"),
-                      description: label(
-                        fr,
-                        "Use this when the supplier delivery is not accepted. The receipt is closed and no project budget is spent.",
-                        "Utilisez cette action lorsque la livraison du fournisseur n’est pas acceptée. La réception est clôturée et aucun montant n’est dépensé sur le budget du projet.",
-                      ),
-                      confirmLabel: label(fr, "Reject delivery", "Refuser la livraison"),
-                      tone: "danger",
-                      onConfirm: () => onRejectReceipt(receipt),
-                    })
-                : undefined
-            }
-            canRejectRow={(receipt) => String(receipt.status) === "draft"}
-            onVerify={
-              canWrite("procurement.update")
-                ? (receipt) =>
-                    onConfirmAction({
-                      title: label(fr, "Verify receipt", "Vérifier la réception"),
-                      description: label(
-                        fr,
-                        "Confirm the final physical and document check. This does not create a second budget impact.",
-                        "Confirmez le contrôle physique et documentaire final. Cette vérification ne crée pas un second impact budgétaire.",
-                      ),
-                      confirmLabel: label(fr, "Verify receipt", "Vérifier la réception"),
-                      tone: "primary",
-                      onConfirm: () => onVerifyReceipt(receipt),
-                    })
-                : undefined
-            }
-            canVerifyRow={(receipt) => String(receipt.status) === "received"}
-            onCancel={
-              canControl("projects.create")
-                ? (receipt) =>
-                    onConfirmAction({
-                      title: label(fr, "Cancel receipt / supplier return", "Annuler la réception / retour fournisseur"),
-                      description: label(
-                        fr,
-                        "Use this only when the full confirmed delivery has been returned. It reverses this receipt from stock and the project budget, then reopens the purchase order. It is blocked after supplier payment, stock consumption, or durable-asset registration.",
-                        "Utilisez cette action seulement lorsque toute la livraison confirmée a été retournée. Elle retire cette réception du stock et du budget du projet, puis rouvre le bon de commande. Elle est bloquée après un paiement fournisseur, une consommation du stock ou l’enregistrement d’une immobilisation.",
-                      ),
-                      confirmLabel: label(fr, "Cancel and return", "Annuler et retourner"),
-                      tone: "danger",
-                      onConfirm: () => onCancelReceipt(receipt),
-                    })
-                : undefined
-            }
-            canCancelRow={(receipt) => ["received", "verified"].includes(String(receipt.status))}
-            rejectLabel={label(fr, "Reject delivery", "Refuser la livraison")}
-            verifyLabel={label(fr, "Verify receipt", "Vérifier la réception")}
-            cancelLabel={label(fr, "Cancel / return", "Annuler / retourner")}
-            submitLabel={label(fr, "Confirm receipt", "Confirmer la réception")}
+            "Add a missing item",
+            "Ajouter un article manquant",
+          )}
+          onEditRelatedRow={
+            canWrite("procurement.update")
+              ? (record) => setEditor({ kind: "receipt-line", record })
+              : undefined
+          }
+          onReturnToDraft={
+            canControl("projects.create")
+              ? (receipt) =>
+                  onConfirmAction({
+                    title: label(
+                      fr,
+                      "Reopen receipt as draft",
+                      "Réouvrir la réception en brouillon",
+                    ),
+                    description: label(
+                      fr,
+                      "Use this only to add or correct received items before confirming this same receipt again. Its budget and stock impact remain reversed until confirmation.",
+                      "Utilisez cette action seulement pour ajouter ou corriger les articles reçus avant de confirmer à nouveau cette même réception. Son impact sur le budget et le stock reste annulé jusqu’à la confirmation.",
+                    ),
+                    confirmLabel: label(
+                      fr,
+                      "Reopen as draft",
+                      "Réouvrir en brouillon",
+                    ),
+                    tone: "primary",
+                    onConfirm: () => onReopenReceipt(receipt),
+                  })
+              : undefined
+          }
+          canReturnRow={(receipt) => String(receipt.status) === "cancelled"}
+          relatedRows={receiptLines}
+          relatedKey="receiptId"
+          relatedLabel={label(fr, "Received items", "Articles reçus")}
+          onReject={
+            canWrite("procurement.update")
+              ? (receipt) =>
+                  onConfirmAction({
+                    title: label(fr, "Reject delivery", "Refuser la livraison"),
+                    description: label(
+                      fr,
+                      "Use this when the supplier delivery is not accepted. The receipt is closed and no project budget is spent.",
+                      "Utilisez cette action lorsque la livraison du fournisseur n’est pas acceptée. La réception est clôturée et aucun montant n’est dépensé sur le budget du projet.",
+                    ),
+                    confirmLabel: label(
+                      fr,
+                      "Reject delivery",
+                      "Refuser la livraison",
+                    ),
+                    tone: "danger",
+                    onConfirm: () => onRejectReceipt(receipt),
+                  })
+              : undefined
+          }
+          canRejectRow={(receipt) => String(receipt.status) === "draft"}
+          onVerify={
+            canWrite("procurement.update")
+              ? (receipt) =>
+                  onConfirmAction({
+                    title: label(fr, "Verify receipt", "Vérifier la réception"),
+                    description: label(
+                      fr,
+                      "Confirm the final physical and document check. This does not create a second budget impact.",
+                      "Confirmez le contrôle physique et documentaire final. Cette vérification ne crée pas un second impact budgétaire.",
+                    ),
+                    confirmLabel: label(
+                      fr,
+                      "Verify receipt",
+                      "Vérifier la réception",
+                    ),
+                    tone: "primary",
+                    onConfirm: () => onVerifyReceipt(receipt),
+                  })
+              : undefined
+          }
+          canVerifyRow={(receipt) => String(receipt.status) === "received"}
+          onCancel={
+            canControl("projects.create")
+              ? (receipt) =>
+                  onConfirmAction({
+                    title: label(
+                      fr,
+                      "Cancel receipt / supplier return",
+                      "Annuler la réception / retour fournisseur",
+                    ),
+                    description: label(
+                      fr,
+                      "Use this only when the full confirmed delivery has been returned. It reverses this receipt from stock and the project budget, then reopens the purchase order. It is blocked after supplier payment, stock consumption, or durable-asset registration.",
+                      "Utilisez cette action seulement lorsque toute la livraison confirmée a été retournée. Elle retire cette réception du stock et du budget du projet, puis rouvre le bon de commande. Elle est bloquée après un paiement fournisseur, une consommation du stock ou l’enregistrement d’une immobilisation.",
+                    ),
+                    confirmLabel: label(
+                      fr,
+                      "Cancel and return",
+                      "Annuler et retourner",
+                    ),
+                    tone: "danger",
+                    onConfirm: () => onCancelReceipt(receipt),
+                  })
+              : undefined
+          }
+          canCancelRow={(receipt) =>
+            ["received", "verified"].includes(String(receipt.status))
+          }
+          rejectLabel={label(fr, "Reject delivery", "Refuser la livraison")}
+          verifyLabel={label(fr, "Verify receipt", "Vérifier la réception")}
+          cancelLabel={label(fr, "Cancel / return", "Annuler / retourner")}
+          submitLabel={label(fr, "Confirm receipt", "Confirmer la réception")}
         />
       </div>
       <div className="grid gap-5 xl:grid-cols-3">
@@ -3726,11 +6618,7 @@ relatedLabel={label(fr, "Received items", "Articles reçus")}
             "Quantités et coût estimé demandés pour ce projet.",
           )}
           rows={requestLines}
-          fields={[
-            "description",
-            "requestedQuantity",
-            "unit",
-          ]}
+          fields={["description", "requestedQuantity", "unit"]}
           fr={fr}
           icon={ClipboardCheck}
         />
@@ -4045,6 +6933,9 @@ function EditorDialog({
   project,
   phases,
   tasks,
+  portfolioProjects,
+  portfolioPhases,
+  portfolioTasks,
   budgets,
   documents,
   materials,
@@ -4077,6 +6968,9 @@ function EditorDialog({
   project: Project | null;
   phases: Row[];
   tasks: Row[];
+  portfolioProjects: Project[];
+  portfolioPhases: Row[];
+  portfolioTasks: Row[];
   budgets: Row[];
   documents: Row[];
   materials: Row[];
@@ -4108,13 +7002,24 @@ function EditorDialog({
     taskDocuments?: { documentIds: string[] },
     expenseEvidence?: File,
     assetPhoto?: File,
+    taskEvidence?: File,
+    qualityBeforePhoto?: File,
+    qualityAfterPhoto?: File,
   ) => Promise<void>;
 }) {
   const editing = editor.record;
   const getValue = (key: string) => {
     if (key === "receiptId" && editor.receiptId) return editor.receiptId;
     return editing?.[key] == null ? "" : String(editing[key]);
-  };  const projectId = project?.id ?? "";
+  };
+  const getBenefitTarget = (key: keyof BenefitTargets) => {
+    const targets = editing?.benefitTargets;
+    if (!targets || typeof targets !== "object" || Array.isArray(targets))
+      return "";
+    const value = (targets as BenefitTargets)[key];
+    return value == null ? "" : String(value);
+  };
+  const projectId = project?.id ?? "";
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -4138,6 +7043,25 @@ function EditorDialog({
         startDate: optional(form, "startDate"),
         targetCompletionDate: optional(form, "targetCompletionDate"),
         revisedCompletionDate: optional(form, "revisedCompletionDate"),
+        operationalStartDate: optional(form, "operationalStartDate"),
+        benefitReviewDate: optional(form, "benefitReviewDate"),
+        benefitOwnerMemberId: optional(form, "benefitOwnerMemberId"),
+        lifecycleStage: String(form.get("lifecycleStage") ?? "investment"),
+        benefitTargets: {
+          targetProductionQuantity: optionalNumber(
+            form,
+            "targetProductionQuantity",
+          ),
+          targetProductionUnit: optional(form, "targetProductionUnit"),
+          targetProductionPeriod: optional(form, "targetProductionPeriod"),
+          targetSalesAmount: optionalNumber(form, "targetSalesAmount"),
+          targetMarginPercent: optionalNumber(form, "targetMarginPercent"),
+          targetMortalityPercent: optionalNumber(
+            form,
+            "targetMortalityPercent",
+          ),
+          targetUnitCost: optionalNumber(form, "targetUnitCost"),
+        },
         fundingSource: optional(form, "fundingSource"),
         expectedOutcome: optional(form, "expectedOutcome"),
         approvalRequired: form.get("approvalRequired") === "on",
@@ -4207,6 +7131,70 @@ function EditorDialog({
         blockedReason: nullableValue(form, "blockedReason"),
         notes: nullableValue(form, "notes"),
       };
+    } else if (editor.kind === "risk") {
+      resource = "risks";
+      body = {
+        projectId,
+        recordType: String(form.get("recordType") ?? "risk"),
+        category: String(form.get("category") ?? "other"),
+        title: String(form.get("title") ?? "").trim(),
+        description: nullableValue(form, "description"),
+        probability: String(form.get("probability") ?? "medium"),
+        impact: String(form.get("impact") ?? "medium"),
+        ownerMemberId: String(form.get("ownerMemberId") ?? "").trim(),
+        triggerCondition: String(form.get("triggerCondition") ?? "").trim(),
+        alertThreshold: String(form.get("alertThreshold") ?? "").trim(),
+        preventionAction: String(form.get("preventionAction") ?? "").trim(),
+        contingencyAction: nullableValue(form, "contingencyAction"),
+        reviewDate: String(form.get("reviewDate") ?? "").trim(),
+        status: String(form.get("status") ?? "open"),
+        decision: String(form.get("decision") ?? "pending"),
+        decisionTaken: nullableValue(form, "decisionTaken"),
+        decisionJustification: nullableValue(form, "decisionJustification"),
+        notes: nullableValue(form, "notes"),
+      };
+    } else if (editor.kind === "quality-check") {
+      resource = "quality-checks";
+      body = {
+        projectId,
+        receiptId: nullableValue(form, "receiptId"),
+        assetId: nullableValue(form, "assetId"),
+        qualityStatus: String(form.get("qualityStatus") ?? "pending"),
+        quantityMatches: form.get("quantityMatches") === "on",
+        conditionAccepted: form.get("conditionAccepted") === "on",
+        documentsComplete: form.get("documentsComplete") === "on",
+        functionalTestPassed: form.get("functionalTestPassed") === "on",
+        safetyCheckPassed: form.get("safetyCheckPassed") === "on",
+        returnedQuantity: optionalNumber(form, "returnedQuantity") ?? 0,
+        returnReason: nullableValue(form, "returnReason"),
+        warrantyProvider: nullableValue(form, "warrantyProvider"),
+        warrantyReference: nullableValue(form, "warrantyReference"),
+        warrantyExpiresOn: nullableValue(form, "warrantyExpiresOn"),
+        beforePhotoDocumentId: nullableValue(form, "beforePhotoDocumentId"),
+        afterPhotoDocumentId: nullableValue(form, "afterPhotoDocumentId"),
+        commissioningStatus: String(
+          form.get("commissioningStatus") ?? "not_required",
+        ),
+        commissioningNotes: nullableValue(form, "commissioningNotes"),
+        notes: nullableValue(form, "notes"),
+      };
+    } else if (editor.kind === "closeout") {
+      resource = "project-closeouts";
+      const achieved = String(form.get("expectedOutcomeAchieved") ?? "");
+      body = {
+        projectId,
+        status: String(form.get("status") ?? "draft"),
+        expectedOutcomeAchieved:
+          achieved === "yes" ? true : achieved === "no" ? false : null,
+        achievementSummary: nullableValue(form, "achievementSummary"),
+        actualOutcome: nullableValue(form, "actualOutcome"),
+        lessonsLearned: nullableValue(form, "lessonsLearned"),
+        handoverMemberId: nullableValue(form, "handoverMemberId"),
+        commissioningValidated: form.get("commissioningValidated") === "on",
+        commissioningSummary: nullableValue(form, "commissioningSummary"),
+        closeoutDocumentId: nullableValue(form, "closeoutDocumentId"),
+        notes: nullableValue(form, "notes"),
+      };
     } else if (editor.kind === "member") {
       resource = "project-members";
       body = {
@@ -4268,7 +7256,7 @@ function EditorDialog({
         phaseId,
         projectTaskId: optional(form, "projectTaskId"),
         requestedByMemberId: optional(form, "requestedByMemberId"),
-        supplierId: optional(form, "supplierId"),        // The server owns the request date and approval state. The requester
+        supplierId: optional(form, "supplierId"), // The server owns the request date and approval state. The requester
         // may only save a draft or submit it; an owner decides in Approvals.
         requiredDate: optional(form, "requiredDate"),
         priority: String(form.get("priority") ?? "medium"),
@@ -4369,7 +7357,10 @@ function EditorDialog({
         projectId,
         phaseId,
         projectTaskId: optional(form, "projectTaskId"),
-        receiptId: expenseType === "receipt_payment" ? optional(form, "receiptId") : null,
+        receiptId:
+          expenseType === "receipt_payment"
+            ? optional(form, "receiptId")
+            : null,
         provinceId: project?.provinceId,
         siteId: siteId ?? project?.siteId,
         title: optional(form, "title"),
@@ -4748,6 +7739,12 @@ function EditorDialog({
             .filter(Boolean),
         }
       : undefined;
+    const taskEvidenceValue =
+      editor.kind === "task" ? form.get("taskEvidence") : null;
+    const taskEvidence =
+      taskEvidenceValue instanceof File && taskEvidenceValue.size > 0
+        ? taskEvidenceValue
+        : undefined;
     const expenseEvidenceValue =
       editor.kind === "expense" ? form.get("expenseEvidence") : null;
     const expenseEvidence =
@@ -4760,7 +7757,29 @@ function EditorDialog({
       assetPhotoValue instanceof File && assetPhotoValue.size > 0
         ? assetPhotoValue
         : undefined;
-    void onSave(resource, body, taskDocuments, expenseEvidence, assetPhoto).catch((error: unknown) => {
+    const qualityBeforePhotoValue =
+      editor.kind === "quality-check" ? form.get("qualityBeforePhoto") : null;
+    const qualityBeforePhoto =
+      qualityBeforePhotoValue instanceof File &&
+      qualityBeforePhotoValue.size > 0
+        ? qualityBeforePhotoValue
+        : undefined;
+    const qualityAfterPhotoValue =
+      editor.kind === "quality-check" ? form.get("qualityAfterPhoto") : null;
+    const qualityAfterPhoto =
+      qualityAfterPhotoValue instanceof File && qualityAfterPhotoValue.size > 0
+        ? qualityAfterPhotoValue
+        : undefined;
+    void onSave(
+      resource,
+      body,
+      taskDocuments,
+      expenseEvidence,
+      assetPhoto,
+      taskEvidence,
+      qualityBeforePhoto,
+      qualityAfterPhoto,
+    ).catch((error: unknown) => {
       if (process.env.NODE_ENV !== "production")
         console.warn("Project task save rejected", {
           resource,
@@ -4807,6 +7826,9 @@ function EditorDialog({
     "phase-dependency": label(fr, "Phase dependency", "Dépendance de phase"),
     task: label(fr, "Project task", "Tâche du projet"),
     "task-dependency": label(fr, "Task dependency", "Dépendance de tâche"),
+    risk: label(fr, "Risk or issue", "Risque ou problème"),
+    "quality-check": label(fr, "Quality check", "Contrôle qualité"),
+    closeout: label(fr, "Project close-out report", "Procès-verbal de clôture"),
     member: label(fr, "Project manager", "Manager du projet"),
     "operational-link": label(
       fr,
@@ -4877,11 +7899,15 @@ function EditorDialog({
               kind={editor.kind}
               orgSlug={orgSlug}
               getValue={getValue}
+              getBenefitTarget={getBenefitTarget}
               isEditing={Boolean(editing)}
               fr={fr}
               project={project}
               phases={phases}
               tasks={tasks}
+              portfolioProjects={portfolioProjects}
+              portfolioPhases={portfolioPhases}
+              portfolioTasks={portfolioTasks}
               budgets={budgets}
               documents={documents}
               materials={materials}
@@ -4917,7 +7943,11 @@ function EditorDialog({
               {editing
                 ? label(fr, "Save changes", "Enregistrer les modifications")
                 : editor.kind === "receipt"
-                  ? label(fr, "Create receipt and copy items", "Créer la réception et reprendre les articles")
+                  ? label(
+                      fr,
+                      "Create receipt and copy items",
+                      "Créer la réception et reprendre les articles",
+                    )
                   : label(fr, "Create", "Créer")}
             </Button>
           </div>
@@ -4931,11 +7961,15 @@ function EditorFields({
   kind,
   orgSlug,
   getValue,
+  getBenefitTarget,
   isEditing,
   fr,
   project,
   phases,
   tasks,
+  portfolioProjects,
+  portfolioPhases,
+  portfolioTasks,
   budgets,
   documents,
   materials,
@@ -4965,11 +7999,15 @@ function EditorFields({
   kind: EditorKind;
   orgSlug: string;
   getValue: (key: string) => string;
+  getBenefitTarget: (key: keyof BenefitTargets) => string;
   isEditing: boolean;
   fr: boolean;
   project: Project | null;
   phases: Row[];
   tasks: Row[];
+  portfolioProjects: Project[];
+  portfolioPhases: Row[];
+  portfolioTasks: Row[];
   budgets: Row[];
   documents: Row[];
   materials: Row[];
@@ -5005,13 +8043,15 @@ function EditorFields({
   const [taskProgress, setTaskProgress] = useState(
     getValue("progressPercent") || "0",
   );
+  const [riskDecision, setRiskDecision] = useState(
+    getValue("decision") || "pending",
+  );
   const [selectedOrderId, setSelectedOrderId] = useState(
     () => getValue("purchaseOrderId") || preselectedOrderId || "",
   );
   const [selectedRequestLineId, setSelectedRequestLineId] = useState("");
-  const [selectedReceiptLineReceiptId, setSelectedReceiptLineReceiptId] = useState(
-    () => getValue("receiptId") || preselectedReceiptId || "",
-  );
+  const [selectedReceiptLineReceiptId, setSelectedReceiptLineReceiptId] =
+    useState(() => getValue("receiptId") || preselectedReceiptId || "");
   const [selectedReceiptOrderLineId, setSelectedReceiptOrderLineId] = useState(
     () => getValue("purchaseOrderLineId") || "",
   );
@@ -5026,28 +8066,34 @@ function EditorFields({
   );
   const [expenseTypeValue, setExpenseTypeValue] = useState(() => {
     const stored = getValue("expenseType");
-    return stored || (getValue("receiptId") ? "receipt_payment" : "direct_expense");
+    return (
+      stored || (getValue("receiptId") ? "receipt_payment" : "direct_expense")
+    );
   });
-  const [selectedPaymentReceiptId, setSelectedPaymentReceiptId] = useState(
-    () => getValue("receiptId"),
+  const [selectedPaymentReceiptId, setSelectedPaymentReceiptId] = useState(() =>
+    getValue("receiptId"),
   );
-  const [receiptPaymentMode, setReceiptPaymentMode] = useState<"full" | "partial">(
-    "full",
+  const [receiptPaymentMode, setReceiptPaymentMode] = useState<
+    "full" | "partial"
+  >("full");
+  const [receiptPaymentTitle, setReceiptPaymentTitle] = useState(() =>
+    getValue("title"),
   );
-  const [receiptPaymentTitle, setReceiptPaymentTitle] = useState(
-    () => getValue("title"),
-  );
-  const [receiptPaymentAmount, setReceiptPaymentAmount] = useState(
-    () => getValue("amount"),
+  const [receiptPaymentAmount, setReceiptPaymentAmount] = useState(() =>
+    getValue("amount"),
   );
   const [receiptPaymentCurrency, setReceiptPaymentCurrency] = useState(
     () => getValue("currencyCode") || project?.currencyCode || "CDF",
   );
   const [receiptPaymentDate, setReceiptPaymentDate] = useState(
-    () => dateValue(getValue("expenseDate")) || new Date().toISOString().slice(0, 10),
+    () =>
+      dateValue(getValue("expenseDate")) ||
+      new Date().toISOString().slice(0, 10),
   );
   const [paymentIdempotencyKey] = useState(
-    () => globalThis.crypto?.randomUUID?.() ?? `payment-${Date.now()}-${Math.random()}`,
+    () =>
+      globalThis.crypto?.randomUUID?.() ??
+      `payment-${Date.now()}-${Math.random()}`,
   );
   const currentUser = useSessionUser();
   const existingOperationalTarget = `${getValue("moduleCode")}:${getValue("resourceCode")}`;
@@ -5217,12 +8263,12 @@ function EditorFields({
     : [];
   const selectedRequestLine = editingOrderLine
     ? null
-    : requestLinesForSelectedOrder.find(
-          (line) => String(line.id) === String(selectedRequestLineId),
-        ) ??
+    : (requestLinesForSelectedOrder.find(
+        (line) => String(line.id) === String(selectedRequestLineId),
+      ) ??
       (requestLinesForSelectedOrder.length === 1
         ? requestLinesForSelectedOrder[0]
-        : null);
+        : null));
   const orderLinePrefillKey = `${activeOrderId || "new"}-${selectedRequestLine?.id || "manual"}`;
   const prefilledOrderLineValue = (field: string, fallback = "") =>
     String(selectedRequestLine?.[field] ?? fallback ?? "");
@@ -5282,7 +8328,11 @@ function EditorFields({
           list={supportsCustomUnit ? unitListId : undefined}
           placeholder={
             supportsCustomUnit
-              ? label(fr, "Choose or enter a unit", "Choisissez ou saisissez une unité")
+              ? label(
+                  fr,
+                  "Choose or enter a unit",
+                  "Choisissez ou saisissez une unité",
+                )
               : undefined
           }
           defaultValue={
@@ -5312,20 +8362,29 @@ function EditorFields({
         ? "planning"
         : kind === "phase" || kind === "task"
           ? "not_started"
-          : kind === "request" ||
-              kind === "order" ||
-              kind === "receipt" ||
-              kind === "expense"
-            ? "draft"
-            : kind === "asset"
-              ? "available"
-              : kind === "work-order"
-                ? "reported"
-                : "";
+          : kind === "risk"
+            ? "open"
+            : kind === "closeout"
+              ? "draft"
+              : kind === "request" ||
+                  kind === "order" ||
+                  kind === "receipt" ||
+                  kind === "expense"
+                ? "draft"
+                : kind === "asset"
+                  ? "available"
+                  : kind === "work-order"
+                    ? "reported"
+                    : "";
     const defaults: Record<string, string> = {
       projectType: "other",
       priority: "medium",
       taskType: "work",
+      recordType: "risk",
+      category: "other",
+      probability: "medium",
+      impact: "medium",
+      decision: "pending",
       currencyCode: project?.currencyCode ?? "CDF",
       approvalStatus: "not_requested",
       itemKind: "material",
@@ -5333,8 +8392,14 @@ function EditorFields({
       condition: "good",
       maintenanceType: "preventive",
       status,
+      qualityStatus: "pending",
+      commissioningStatus: "not_required",
     };
-    if (kind === "request-line" && name === "purchaseRequestId" && preselectedRequestId)
+    if (
+      kind === "request-line" &&
+      name === "purchaseRequestId" &&
+      preselectedRequestId
+    )
       return preselectedRequestId;
     return getValue(name) || defaults[name] || "";
   };
@@ -5389,11 +8454,12 @@ function EditorFields({
         </select>
         {!visibleOptions.length ? (
           <p className="mt-1 text-xs text-ink-muted">
-            {emptyHint ?? label(
-              fr,
-              "Create the record in its workspace area, then reopen this selector.",
-              "Créez l’enregistrement dans son espace, puis rouvrez cette liste.",
-            )}
+            {emptyHint ??
+              label(
+                fr,
+                "Create the record in its workspace area, then reopen this selector.",
+                "Créez l’enregistrement dans son espace, puis rouvrez cette liste.",
+              )}
           </p>
         ) : null}
       </Field>
@@ -5417,6 +8483,37 @@ function EditorFields({
       true,
     );
   const phaseOptions = relationalOptions(phases, ["name", "code"]);
+  const projectNames = new Map(
+    portfolioProjects.map((portfolioProject) => [
+      String(portfolioProject.id),
+      portfolioProject.name,
+    ]),
+  );
+  const dependencyOptions = (rows: Row[], fields: string[]): SelectOption[] => {
+    const seen = new Set<string>();
+    return rows.flatMap((row) => {
+      const value = String(row.id ?? "").trim();
+      const name = fields
+        .map((field) => String(row[field] ?? "").trim())
+        .find(Boolean);
+      if (!value || !name || seen.has(value)) return [];
+      seen.add(value);
+      const projectName = projectNames.get(String(row.projectId ?? ""));
+      return [
+        {
+          value,
+          text:
+            projectName && String(row.projectId) !== String(project?.id)
+              ? `${name} · ${projectName}`
+              : name,
+        },
+      ];
+    });
+  };
+  const prerequisitePhaseOptions = dependencyOptions(
+    isOwner ? portfolioPhases : phases,
+    ["name", "code"],
+  );
   const taskOptions = relationalOptions(
     tasks.filter((row) => row.taskType !== "milestone"),
     ["title", "taskCode", "code"],
@@ -5426,6 +8523,10 @@ function EditorFields({
     "taskCode",
     "code",
   ]);
+  const prerequisiteTaskOptions = dependencyOptions(
+    isOwner ? portfolioTasks : tasks,
+    ["title", "taskCode", "code"],
+  );
   const phaseSelect = () => (
     <Field
       label={label(fr, "Project phase", "Phase du projet")}
@@ -5480,6 +8581,16 @@ function EditorFields({
     "assetNumber",
     "code",
   ]);
+  const qualityReceiptOptions = relationalOptions(
+    receipts.filter((receipt) =>
+      ["received", "verified"].includes(String(receipt.status)),
+    ),
+    ["receiptNumber"],
+  );
+  const projectDocumentOptions = relationalOptions(projectDocuments, [
+    "title",
+    "fileName",
+  ]);
   const supplierOptions = relationalOptions(suppliers, [
     "name",
     "companyName",
@@ -5519,7 +8630,9 @@ function EditorFields({
       .filter(Boolean),
   );
   const editingOrderRequestId =
-    kind === "order" && isEditing ? String(getValue("purchaseRequestId") || "") : "";
+    kind === "order" && isEditing
+      ? String(getValue("purchaseRequestId") || "")
+      : "";
   const availableApprovedRequests = requests.filter(
     (request) =>
       ["approved", "partially_approved"].includes(
@@ -5528,10 +8641,9 @@ function EditorFields({
       (String(request.id) === editingOrderRequestId ||
         !activeOrderRequestIds.has(String(request.id))),
   );
-  const approvedRequestOptions = relationalOptions(
-    availableApprovedRequests,
-    ["requestNumber"],
-  );
+  const approvedRequestOptions = relationalOptions(availableApprovedRequests, [
+    "requestNumber",
+  ]);
   const selectedOrderRequest = availableApprovedRequests.find(
     (request) => String(request.id) === String(selectedOrderRequestId),
   );
@@ -5539,13 +8651,19 @@ function EditorFields({
     if (kind !== "order" || isEditing || !selectedOrderRequest) return;
     setSelectedOrderSupplierId(String(selectedOrderRequest.supplierId ?? ""));
     setSelectedOrderCurrencyCode(
-      String(selectedOrderRequest.currencyCode ?? project?.currencyCode ?? "CDF"),
+      String(
+        selectedOrderRequest.currencyCode ?? project?.currencyCode ?? "CDF",
+      ),
     );
   }, [kind, isEditing, project?.currencyCode, selectedOrderRequest]);
   const requestLineOptions = relationalOptions(requestLines, ["description"]);
   const orderOptions = relationalOptions(orders, ["orderNumber"]);
-  const receiptOrderId = String(getValue("purchaseOrderId") || preselectedOrderId || "");
-  const receiptById = new Map(receipts.map((receipt) => [String(receipt.id), receipt]));
+  const receiptOrderId = String(
+    getValue("purchaseOrderId") || preselectedOrderId || "",
+  );
+  const receiptById = new Map(
+    receipts.map((receipt) => [String(receipt.id), receipt]),
+  );
   const draftReceiptOrderIds = new Set(
     receipts
       .filter((receipt) => String(receipt.status) === "draft")
@@ -5559,7 +8677,8 @@ function EditorFields({
     if (!orderId) continue;
     orderedQuantityByOrder.set(
       orderId,
-      (orderedQuantityByOrder.get(orderId) ?? 0) + number(orderLine.orderedQuantity),
+      (orderedQuantityByOrder.get(orderId) ?? 0) +
+        number(orderLine.orderedQuantity),
     );
   }
   for (const receiptLine of receiptLines) {
@@ -5599,7 +8718,9 @@ function EditorFields({
   );
   const orderLineOptions = relationalOptions(orderLines, ["description"]);
   const receiptOptions = relationalOptions(
-    receipts.filter((receipt) => ["received", "verified"].includes(String(receipt.status))),
+    receipts.filter((receipt) =>
+      ["received", "verified"].includes(String(receipt.status)),
+    ),
     ["receiptNumber"],
   );
   const receiptLineOptions = relationalOptions(
@@ -5607,7 +8728,10 @@ function EditorFields({
     ["receiptNumber"],
   );
   const activeReceiptLineReceiptId =
-    selectedReceiptLineReceiptId || getValue("receiptId") || preselectedReceiptId || "";
+    selectedReceiptLineReceiptId ||
+    getValue("receiptId") ||
+    preselectedReceiptId ||
+    "";
   const activeReceiptLineReceipt = receipts.find(
     (receipt) => String(receipt.id) === String(activeReceiptLineReceiptId),
   );
@@ -5624,15 +8748,19 @@ function EditorFields({
       const quantity = number(line.orderedQuantity).toLocaleString(
         fr ? "fr-FR" : "en-US",
       );
-      return [{
-        value,
-        text: `${description} · ${quantity} ${String(line.unit ?? "")}`.trim(),
-      }];
+      return [
+        {
+          value,
+          text: `${description} · ${quantity} ${String(line.unit ?? "")}`.trim(),
+        },
+      ];
     });
   const activeReceiptOrderLineId =
     selectedReceiptOrderLineId ||
     getValue("purchaseOrderLineId") ||
-    (receiptOrderLineOptions.length === 1 ? receiptOrderLineOptions[0]?.value ?? "" : "");
+    (receiptOrderLineOptions.length === 1
+      ? (receiptOrderLineOptions[0]?.value ?? "")
+      : "");
   const activeReceiptOrderLine = orderLines.find(
     (line) => String(line.id) === String(activeReceiptOrderLineId),
   );
@@ -5643,8 +8771,7 @@ function EditorFields({
   );
   const linkedReceiptInventoryItem = inventoryItems.find(
     (item) =>
-      String(item.id) ===
-      String(activeReceiptOrderLine?.inventoryItemId ?? ""),
+      String(item.id) === String(activeReceiptOrderLine?.inventoryItemId ?? ""),
   );
   const confirmedQuantityForReceiptOrderLine = receiptLines
     .filter((line) => {
@@ -5712,7 +8839,9 @@ function EditorFields({
     const supplier = suppliers.find(
       (row) => String(row.id) === String(order?.supplierId ?? ""),
     );
-    const currency = String(order?.currencyCode ?? project?.currencyCode ?? "CDF");
+    const currency = String(
+      order?.currencyCode ?? project?.currencyCode ?? "CDF",
+    );
     const receiptNumber = String(receipt?.receiptNumber ?? "");
     const orderNumber = String(order?.orderNumber ?? "");
     const title = [
@@ -5733,7 +8862,9 @@ function EditorFields({
       title,
     };
   };
-  const selectedReceiptPayment = receiptPaymentDetails(selectedPaymentReceiptId);
+  const selectedReceiptPayment = receiptPaymentDetails(
+    selectedPaymentReceiptId,
+  );
   const applyReceiptPaymentDefaults = (receiptId: string) => {
     setSelectedPaymentReceiptId(receiptId);
     setReceiptPaymentMode("full");
@@ -5848,7 +8979,11 @@ function EditorFields({
         )}
         {select(
           "responsibleMemberId",
-          label(fr, "Responsible manager (project access)", "Manager responsable (accès projet)"),
+          label(
+            fr,
+            "Responsible manager (project access)",
+            "Manager responsable (accès projet)",
+          ),
           memberOptions,
         )}
         {input(
@@ -5869,6 +9004,233 @@ function EditorFields({
           false,
           "date",
         )}
+        <div className="md:col-span-2 rounded-2xl border border-brand/20 bg-brand-subtle/30 p-4">
+          <div>
+            <p className="text-sm font-semibold text-ink">
+              {label(fr, "Investment profile", "Fiche d’investissement")}
+            </p>
+            <p className="mt-1 text-xs leading-5 text-ink-secondary">
+              {label(
+                fr,
+                "Keep the investment accountable through commissioning and real operations. These targets do not change the main project budget.",
+                "Gardez l’investissement responsable jusqu’à la mise en service et l’exploitation réelle. Ces cibles ne modifient pas le budget principal du projet.",
+              )}
+            </p>
+          </div>
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <Field
+              label={label(fr, "Lifecycle stage", "Étape du cycle")}
+              htmlFor="lifecycleStage"
+            >
+              <select
+                id="lifecycleStage"
+                name="lifecycleStage"
+                defaultValue={getValue("lifecycleStage") || "investment"}
+                className="h-9 w-full rounded-md border border-border-strong bg-surface-1 px-3 text-sm text-ink"
+              >
+                {[
+                  ["investment", label(fr, "Investment", "Investissement")],
+                  [
+                    "commissioning",
+                    label(fr, "Commissioning", "Mise en service"),
+                  ],
+                  ["operating", label(fr, "Operating", "Exploitation")],
+                  [
+                    "closed",
+                    label(
+                      fr,
+                      "Closed — complete the close-out report",
+                      "Clôturé — finalisez le PV de clôture",
+                    ),
+                  ],
+                ].map(([value, text]) => (
+                  <option
+                    key={value}
+                    value={value}
+                    disabled={value === "closed"}
+                  >
+                    {text}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs leading-5 text-ink-muted">
+                {label(
+                  fr,
+                  "Closing is controlled from Quality & close-out after the formal report is completed.",
+                  "La clôture est contrôlée depuis Qualité & clôture une fois le procès-verbal finalisé.",
+                )}
+              </p>
+            </Field>
+            {select(
+              "benefitOwnerMemberId",
+              label(fr, "Benefit owner", "Responsable des bénéfices"),
+              memberOptions,
+            )}
+            <Field
+              label={label(fr, "Operational start", "Démarrage opérationnel")}
+              htmlFor="operationalStartDate"
+            >
+              <Input
+                id="operationalStartDate"
+                name="operationalStartDate"
+                type="date"
+                defaultValue={dateValue(getValue("operationalStartDate"))}
+              />
+            </Field>
+            <Field
+              label={label(fr, "Benefit review", "Revue des bénéfices")}
+              htmlFor="benefitReviewDate"
+            >
+              <Input
+                id="benefitReviewDate"
+                name="benefitReviewDate"
+                type="date"
+                defaultValue={dateValue(getValue("benefitReviewDate"))}
+              />
+            </Field>
+            <Field
+              label={label(fr, "Expected outcome", "Objectif attendu")}
+              htmlFor="expectedOutcome"
+              className="md:col-span-2"
+            >
+              <Textarea
+                id="expectedOutcome"
+                name="expectedOutcome"
+                defaultValue={getValue("expectedOutcome")}
+                placeholder={label(
+                  fr,
+                  "Example: produce 10,000 eggs each month after commissioning.",
+                  "Exemple : produire 10 000 œufs par mois après la mise en service.",
+                )}
+              />
+            </Field>
+          </div>
+          <div className="mt-4 border-t border-brand/15 pt-4">
+            <p className="text-sm font-semibold text-ink">
+              {label(fr, "Target indicators", "Indicateurs cibles")}
+            </p>
+            <p className="mt-1 text-xs text-ink-secondary">
+              {label(
+                fr,
+                "Used as the operational baseline after the investment is commissioned.",
+                "Utilisés comme référence opérationnelle après la mise en service de l’investissement.",
+              )}
+            </p>
+            <div className="mt-3 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              <Field
+                label={label(fr, "Production target", "Production cible")}
+                htmlFor="targetProductionQuantity"
+              >
+                <Input
+                  id="targetProductionQuantity"
+                  name="targetProductionQuantity"
+                  type="number"
+                  min="0"
+                  step="0.001"
+                  defaultValue={getBenefitTarget("targetProductionQuantity")}
+                />
+              </Field>
+              <Field
+                label={label(fr, "Production unit", "Unité de production")}
+                htmlFor="targetProductionUnit"
+              >
+                <Input
+                  id="targetProductionUnit"
+                  name="targetProductionUnit"
+                  defaultValue={getBenefitTarget("targetProductionUnit")}
+                  placeholder={label(
+                    fr,
+                    "eggs, kg, birds…",
+                    "œufs, kg, poules…",
+                  )}
+                />
+              </Field>
+              <Field
+                label={label(fr, "Target period", "Période cible")}
+                htmlFor="targetProductionPeriod"
+              >
+                <select
+                  id="targetProductionPeriod"
+                  name="targetProductionPeriod"
+                  defaultValue={getBenefitTarget("targetProductionPeriod")}
+                  className="h-9 w-full rounded-md border border-border-strong bg-surface-1 px-3 text-sm text-ink"
+                >
+                  <option value="">{label(fr, "Choose", "Choisir")}</option>
+                  <option value="daily">
+                    {label(fr, "Daily", "Quotidienne")}
+                  </option>
+                  <option value="weekly">
+                    {label(fr, "Weekly", "Hebdomadaire")}
+                  </option>
+                  <option value="monthly">
+                    {label(fr, "Monthly", "Mensuelle")}
+                  </option>
+                  <option value="cycle">
+                    {label(fr, "Per cycle", "Par cycle")}
+                  </option>
+                </select>
+              </Field>
+              <Field
+                label={label(fr, "Sales target", "Ventes cibles")}
+                htmlFor="targetSalesAmount"
+              >
+                <Input
+                  id="targetSalesAmount"
+                  name="targetSalesAmount"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  defaultValue={getBenefitTarget("targetSalesAmount")}
+                />
+              </Field>
+              <Field
+                label={label(fr, "Target margin (%)", "Marge cible (%)")}
+                htmlFor="targetMarginPercent"
+              >
+                <Input
+                  id="targetMarginPercent"
+                  name="targetMarginPercent"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  defaultValue={getBenefitTarget("targetMarginPercent")}
+                />
+              </Field>
+              <Field
+                label={label(
+                  fr,
+                  "Maximum mortality (%)",
+                  "Mortalité maximale (%)",
+                )}
+                htmlFor="targetMortalityPercent"
+              >
+                <Input
+                  id="targetMortalityPercent"
+                  name="targetMortalityPercent"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  defaultValue={getBenefitTarget("targetMortalityPercent")}
+                />
+              </Field>
+              <Field
+                label={label(fr, "Target unit cost", "Coût unitaire cible")}
+                htmlFor="targetUnitCost"
+              >
+                <Input
+                  id="targetUnitCost"
+                  name="targetUnitCost"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  defaultValue={getBenefitTarget("targetUnitCost")}
+                />
+              </Field>
+            </div>
+          </div>
+        </div>
         {select(
           "status",
           label(fr, "Status", "Statut"),
@@ -5916,17 +9278,6 @@ function EditorFields({
             "Approbation requise avant exécution",
           )}
         </label>
-        <Field
-          label={label(fr, "Expected outcome", "Résultat attendu")}
-          htmlFor="expectedOutcome"
-          className="md:col-span-2"
-        >
-          <Textarea
-            id="expectedOutcome"
-            name="expectedOutcome"
-            defaultValue={getValue("expectedOutcome")}
-          />
-        </Field>
         <Field
           label={label(fr, "Description", "Description")}
           htmlFor="description"
@@ -6082,7 +9433,7 @@ function EditorFields({
         {select(
           "dependsOnPhaseId",
           label(fr, "Required prior phase", "Phase préalable requise"),
-          phaseOptions,
+          prerequisitePhaseOptions,
           true,
         )}
         {select(
@@ -6103,8 +9454,12 @@ function EditorFields({
         <p className="md:col-span-2 text-xs leading-5 text-ink-secondary">
           {label(
             fr,
-            "The waiting phase cannot begin or finish until its prerequisite is completed.",
-            "La phase en attente ne peut pas commencer ni se terminer avant la fin de sa phase préalable.",
+            isOwner
+              ? "Choose a phase in this project that waits. Its prerequisite may come from another project you control."
+              : "The waiting phase cannot begin or finish until its prerequisite is completed.",
+            isOwner
+              ? "Choisissez la phase de ce projet qui attend. Sa phase préalable peut venir d’un autre projet que vous contrôlez."
+              : "La phase en attente ne peut pas commencer ni se terminer avant la fin de sa phase préalable.",
           )}
         </p>
       </>
@@ -6129,7 +9484,7 @@ function EditorFields({
             "Required prior work or milestone",
             "Travail ou jalon préalable requis",
           ),
-          dependencyTaskOptions,
+          prerequisiteTaskOptions,
           true,
         )}
         {select(
@@ -6150,8 +9505,12 @@ function EditorFields({
         <p className="md:col-span-2 text-xs leading-5 text-ink-secondary">
           {label(
             fr,
-            "The waiting task cannot begin or finish until its prerequisite is completed.",
-            "La tâche en attente ne peut pas commencer ni se terminer avant la fin de sa tâche préalable.",
+            isOwner
+              ? "Choose work in this project that waits. A prerequisite from another project is allowed only for the workspace owner."
+              : "The waiting task cannot begin or finish until its prerequisite is completed.",
+            isOwner
+              ? "Choisissez le travail de ce projet qui attend. Un préalable d’un autre projet est autorisé uniquement pour le propriétaire de l’espace."
+              : "La tâche en attente ne peut pas commencer ni se terminer avant la fin de sa tâche préalable.",
           )}
         </p>
       </>
@@ -6309,18 +9668,78 @@ function EditorFields({
         </Field>
         {taskType === "work" ? (
           <>
-            {input("estimatedCost", label(fr, "Task budget", "Budget estimé de la tâche"), false, "number")}
-            <Field label={label(fr, "Budget currency", "Devise du budget")} htmlFor="budgetCurrencyCode" hint={label(fr, "The task budget uses the project currency.", "Le budget de la tâche utilise la devise du projet.")}>
-              <select id="budgetCurrencyCode" name="budgetCurrencyCode" defaultValue={getValue("budgetCurrencyCode") || project?.currencyCode || "CDF"} className="h-9 w-full rounded-md border border-border-strong bg-surface-1 px-3 text-sm text-ink">
-                {["CDF", "USD", "EUR"].map((currencyCode) => <option key={currencyCode} value={currencyCode}>{currencyCode}</option>)}
+            {input(
+              "estimatedCost",
+              label(fr, "Task budget", "Budget estimé de la tâche"),
+              false,
+              "number",
+            )}
+            <Field
+              label={label(fr, "Budget currency", "Devise du budget")}
+              htmlFor="budgetCurrencyCode"
+              hint={label(
+                fr,
+                "The task budget uses the project currency.",
+                "Le budget de la tâche utilise la devise du projet.",
+              )}
+            >
+              <select
+                id="budgetCurrencyCode"
+                name="budgetCurrencyCode"
+                defaultValue={
+                  getValue("budgetCurrencyCode") ||
+                  project?.currencyCode ||
+                  "CDF"
+                }
+                className="h-9 w-full rounded-md border border-border-strong bg-surface-1 px-3 text-sm text-ink"
+              >
+                {["CDF", "USD", "EUR"].map((currencyCode) => (
+                  <option key={currencyCode} value={currencyCode}>
+                    {currencyCode}
+                  </option>
+                ))}
               </select>
             </Field>
-            <p className="self-end pb-2 text-xs leading-5 text-ink-secondary">{label(fr, "This amount allocates part of the one project budget. Orders, accepted receipts and direct expenses update its committed and spent amounts automatically.", "Ce montant affecte une partie du budget unique du projet. Les commandes, réceptions acceptées et dépenses directes mettent automatiquement à jour ses montants engagés et dépensés.")}</p>
-            {isOwner ? <Field label={label(fr, "Owner budget override justification", "Justification propriétaire de dépassement")} htmlFor="budgetOverrideReason" className="md:col-span-2" hint={label(fr, "Required only if total task budgets exceed the main project budget. The justification is retained in the audit trail.", "Requise seulement si les budgets des tâches dépassent le budget principal. La justification est conservée dans la piste d’audit.")}><Textarea id="budgetOverrideReason" name="budgetOverrideReason" defaultValue={getValue("budgetOverrideReason")} /></Field> : null}
+            <p className="self-end pb-2 text-xs leading-5 text-ink-secondary">
+              {label(
+                fr,
+                "This amount allocates part of the one project budget. Orders, accepted receipts and direct expenses update its committed and spent amounts automatically.",
+                "Ce montant affecte une partie du budget unique du projet. Les commandes, réceptions acceptées et dépenses directes mettent automatiquement à jour ses montants engagés et dépensés.",
+              )}
+            </p>
+            {isOwner ? (
+              <Field
+                label={label(
+                  fr,
+                  "Owner budget override justification",
+                  "Justification propriétaire de dépassement",
+                )}
+                htmlFor="budgetOverrideReason"
+                className="md:col-span-2"
+                hint={label(
+                  fr,
+                  "Required only if total task budgets exceed the main project budget. The justification is retained in the audit trail.",
+                  "Requise seulement si les budgets des tâches dépassent le budget principal. La justification est conservée dans la piste d’audit.",
+                )}
+              >
+                <Textarea
+                  id="budgetOverrideReason"
+                  name="budgetOverrideReason"
+                  defaultValue={getValue("budgetOverrideReason")}
+                />
+              </Field>
+            ) : null}
           </>
         ) : (
-          <p className="self-end pb-2 text-xs leading-5 text-ink-secondary">{label(fr, "A milestone is a checkpoint. It is not assigned as Daily Work and cannot receive purchase or expense costs.", "Un jalon est un point de contrôle. Il n’est pas affecté comme travail quotidien et ne reçoit pas de coûts d’achat ou de dépense.")}</p>
-        )}        <Field
+          <p className="self-end pb-2 text-xs leading-5 text-ink-secondary">
+            {label(
+              fr,
+              "A milestone is a checkpoint. It is not assigned as Daily Work and cannot receive purchase or expense costs.",
+              "Un jalon est un point de contrôle. Il n’est pas affecté comme travail quotidien et ne reçoit pas de coûts d’achat ou de dépense.",
+            )}
+          </p>
+        )}{" "}
+        <Field
           label={label(fr, "Blocked by / reason", "Blocage / raison")}
           htmlFor="blockedReason"
           className="md:col-span-2"
@@ -6365,6 +9784,26 @@ function EditorFields({
                 )}
               </p>
             </div>
+            <Field
+              label={label(
+                fr,
+                "Add a document directly",
+                "Ajouter un document directement",
+              )}
+              htmlFor="taskEvidence"
+              hint={label(
+                fr,
+                "PDF or image. It is saved once in the project documents and linked automatically to this task when you save.",
+                "PDF ou image. Il est enregistré une seule fois dans les Documents du projet et lié automatiquement à cette tâche lorsque vous enregistrez.",
+              )}
+            >
+              <Input
+                id="taskEvidence"
+                name="taskEvidence"
+                type="file"
+                accept="application/pdf,image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif"
+              />
+            </Field>
             {selectedTaskDocumentIds.map((documentId) => (
               <input
                 key={documentId}
@@ -6531,6 +9970,722 @@ function EditorFields({
         </Field>
       </>
     );
+  if (kind === "risk")
+    return (
+      <>
+        <div className="md:col-span-2 rounded-xl border border-brand/20 bg-brand-subtle/30 p-4 text-sm leading-6 text-ink-secondary">
+          {label(
+            fr,
+            "A risk is anticipated; an issue has already happened. In both cases, name the accountable person, measurable trigger and preventive action before it becomes a project delay or loss.",
+            "Un risque est anticipé ; un problème est déjà arrivé. Dans les deux cas, nommez le responsable, le déclencheur mesurable et l’action de prévention avant qu’il ne cause un retard ou une perte.",
+          )}
+        </div>
+        {select(
+          "recordType",
+          label(fr, "Record type", "Type d’enregistrement"),
+          [
+            {
+              value: "risk",
+              text: label(fr, "Risk — not occurred", "Risque — non réalisé"),
+            },
+            {
+              value: "issue",
+              text: label(
+                fr,
+                "Issue — already occurred",
+                "Problème — déjà réalisé",
+              ),
+            },
+          ],
+          true,
+        )}
+        {select(
+          "category",
+          label(fr, "Risk category", "Catégorie de risque"),
+          (
+            [
+              ["disease", "Disease", "Maladie"],
+              ["supplier_delay", "Supplier delay", "Retard fournisseur"],
+              [
+                "commodity_price",
+                "Commodity price increase",
+                "Hausse du maïs / prix",
+              ],
+              ["water", "Water shortage", "Manque d’eau"],
+              ["theft", "Theft", "Vol"],
+              ["permit", "Permit", "Permis"],
+              ["weather", "Weather", "Météo"],
+              ["other", "Other", "Autre"],
+            ] as Array<[string, string, string]>
+          ).map(([value, english, french]) => ({
+            value,
+            text: fr ? french : english,
+          })),
+          true,
+        )}
+        <Field
+          label={label(fr, "Risk or issue", "Risque ou problème")}
+          htmlFor="title"
+          required
+          className="md:col-span-2"
+          error={fieldError("title")}
+        >
+          <Input
+            id="title"
+            name="title"
+            required
+            invalid={Boolean(fieldError("title"))}
+            defaultValue={getValue("title")}
+            placeholder={label(
+              fr,
+              "Example: delay in delivery of feed ingredients",
+              "Exemple : retard de livraison des ingrédients d’aliment",
+            )}
+          />
+        </Field>
+        {select(
+          "probability",
+          label(fr, "Probability", "Probabilité"),
+          ["low", "medium", "high"].map((value) => ({
+            value,
+            text: titleCase(value),
+          })),
+          true,
+        )}
+        {select(
+          "impact",
+          label(fr, "Impact", "Impact"),
+          ["low", "medium", "high", "critical"].map((value) => ({
+            value,
+            text: titleCase(value),
+          })),
+          true,
+        )}
+        {select(
+          "ownerMemberId",
+          label(fr, "Responsible person", "Responsable"),
+          memberOptions,
+          true,
+          label(
+            fr,
+            "No active company member is available",
+            "Aucun membre actif de l’entreprise n’est disponible",
+          ),
+        )}
+        {input(
+          "reviewDate",
+          label(fr, "Review due date", "Échéance de revue"),
+          true,
+          "date",
+        )}
+        <Field
+          label={label(fr, "Trigger condition", "Déclencheur")}
+          htmlFor="triggerCondition"
+          required
+          error={fieldError("triggerCondition")}
+        >
+          <Textarea
+            id="triggerCondition"
+            name="triggerCondition"
+            required
+            invalid={Boolean(fieldError("triggerCondition"))}
+            defaultValue={getValue("triggerCondition")}
+            placeholder={label(
+              fr,
+              "What will show that this risk is happening?",
+              "Qu’est-ce qui montrera que ce risque se réalise ?",
+            )}
+          />
+        </Field>
+        <Field
+          label={label(fr, "Alert threshold", "Seuil d’alerte")}
+          htmlFor="alertThreshold"
+          required
+          error={fieldError("alertThreshold")}
+        >
+          <Textarea
+            id="alertThreshold"
+            name="alertThreshold"
+            required
+            invalid={Boolean(fieldError("alertThreshold"))}
+            defaultValue={getValue("alertThreshold")}
+            placeholder={label(
+              fr,
+              "Example: price rises more than 10% or delivery is 3 days late",
+              "Exemple : prix en hausse de plus de 10 % ou livraison en retard de 3 jours",
+            )}
+          />
+        </Field>
+        <Field
+          label={label(fr, "Preventive action", "Action de prévention")}
+          htmlFor="preventionAction"
+          required
+          className="md:col-span-2"
+          error={fieldError("preventionAction")}
+        >
+          <Textarea
+            id="preventionAction"
+            name="preventionAction"
+            required
+            invalid={Boolean(fieldError("preventionAction"))}
+            defaultValue={getValue("preventionAction")}
+            placeholder={label(
+              fr,
+              "The action taken before the threshold is reached",
+              "L’action menée avant que le seuil ne soit atteint",
+            )}
+          />
+        </Field>
+        <Field
+          label={label(
+            fr,
+            "Contingency action",
+            "Action si le risque se réalise",
+          )}
+          htmlFor="contingencyAction"
+          className="md:col-span-2"
+        >
+          <Textarea
+            id="contingencyAction"
+            name="contingencyAction"
+            defaultValue={getValue("contingencyAction")}
+            placeholder={label(
+              fr,
+              "Optional: what to do if the risk is triggered",
+              "Facultatif : que faire si le risque se réalise",
+            )}
+          />
+        </Field>
+        {select(
+          "status",
+          label(fr, "Register status", "Statut du registre"),
+          (
+            [
+              ["open", "Open", "Ouvert"],
+              ["monitoring", "Monitoring", "Surveillance"],
+              ["triggered", "Triggered", "Déclenché"],
+              ["mitigating", "Mitigating", "En traitement"],
+              ["accepted", "Accepted", "Accepté"],
+              ["closed", "Closed", "Clôturé"],
+            ] as Array<[string, string, string]>
+          ).map(([value, english, french]) => ({
+            value,
+            text: fr ? french : english,
+          })),
+          true,
+        )}
+        <Field
+          label={label(fr, "Decision", "Décision")}
+          htmlFor="decision"
+          required
+          error={fieldError("decision")}
+        >
+          <select
+            id="decision"
+            name="decision"
+            required
+            value={riskDecision}
+            onChange={(event) => setRiskDecision(event.target.value)}
+            className={`h-9 w-full rounded-md border bg-surface-1 px-3 text-sm text-ink ${fieldError("decision") ? "border-critical" : "border-border-strong"}`}
+          >
+            {[
+              ["pending", "No decision yet", "Aucune décision"],
+              ["monitor", "Monitor", "Surveiller"],
+              ["mitigate", "Mitigate", "Réduire le risque"],
+              ["avoid", "Avoid", "Éviter"],
+              ["transfer", "Transfer", "Transférer"],
+              ["accept", "Accept", "Accepter"],
+              ["escalate", "Escalate", "Escalader"],
+            ].map(([value, english, french]) => (
+              <option key={value} value={value}>
+                {fr ? french : english}
+              </option>
+            ))}
+          </select>
+        </Field>
+        {riskDecision !== "pending" ? (
+          <>
+            <Field
+              label={label(fr, "Decision taken", "Décision prise")}
+              htmlFor="decisionTaken"
+              required
+              error={fieldError("decisionTaken")}
+            >
+              <Input
+                id="decisionTaken"
+                name="decisionTaken"
+                required
+                invalid={Boolean(fieldError("decisionTaken"))}
+                defaultValue={getValue("decisionTaken")}
+              />
+            </Field>
+            <Field
+              label={label(
+                fr,
+                "Decision justification",
+                "Justification de la décision",
+              )}
+              htmlFor="decisionJustification"
+              required
+              className="md:col-span-2"
+              error={fieldError("decisionJustification")}
+            >
+              <Textarea
+                id="decisionJustification"
+                name="decisionJustification"
+                required
+                invalid={Boolean(fieldError("decisionJustification"))}
+                defaultValue={getValue("decisionJustification")}
+              />
+              <p className="mt-1 text-xs text-ink-muted">
+                {label(
+                  fr,
+                  "The decision maker and time are recorded automatically.",
+                  "La personne ayant décidé et l’heure sont enregistrées automatiquement.",
+                )}
+              </p>
+            </Field>
+          </>
+        ) : null}
+        <Field
+          label={label(fr, "Description / notes", "Description / notes")}
+          htmlFor="description"
+          className="md:col-span-2"
+        >
+          <Textarea
+            id="description"
+            name="description"
+            defaultValue={getValue("description")}
+          />
+        </Field>
+        <Field
+          label={label(fr, "Internal notes", "Notes internes")}
+          htmlFor="notes"
+          className="md:col-span-2"
+        >
+          <Textarea id="notes" name="notes" defaultValue={getValue("notes")} />
+        </Field>
+      </>
+    );
+  if (kind === "quality-check")
+    return (
+      <>
+        <div className="md:col-span-2 rounded-xl border border-brand/20 bg-brand-subtle/30 p-4 text-sm leading-6 text-ink-secondary">
+          {label(
+            fr,
+            "This check adds quality evidence to a confirmed receipt or an equipment asset. It never enters a second quantity or budget movement.",
+            "Ce contrôle ajoute une preuve qualité à une réception confirmée ou à un équipement. Il ne crée jamais une deuxième quantité ni un deuxième mouvement budgétaire.",
+          )}
+        </div>
+        {select(
+          "receiptId",
+          label(fr, "Confirmed receipt", "Réception confirmée"),
+          qualityReceiptOptions,
+          false,
+          label(
+            fr,
+            "No confirmed receipt available",
+            "Aucune réception confirmée disponible",
+          ),
+          label(
+            fr,
+            "Confirm a BR first, then complete its quality check here.",
+            "Confirmez d’abord un BR, puis effectuez ici son contrôle qualité.",
+          ),
+        )}
+        {select(
+          "assetId",
+          label(fr, "Equipment asset", "Équipement"),
+          assetOptions,
+          false,
+          label(
+            fr,
+            "No project equipment available",
+            "Aucun équipement du projet disponible",
+          ),
+          label(
+            fr,
+            "A durable asset can be inspected after it has been received into the project.",
+            "Un équipement durable peut être contrôlé après sa réception dans le projet.",
+          ),
+        )}
+        <p className="md:col-span-2 text-xs leading-5 text-ink-secondary">
+          {label(
+            fr,
+            "Choose the receipt, the equipment, or both when the delivery created a durable asset.",
+            "Choisissez la réception, l’équipement, ou les deux lorsque la livraison a créé un actif durable.",
+          )}
+        </p>
+        {select(
+          "qualityStatus",
+          label(fr, "Quality decision", "Décision qualité"),
+          (
+            [
+              ["pending", "Pending inspection", "En attente de contrôle"],
+              ["accepted", "Accepted", "Acceptée"],
+              [
+                "accepted_with_observations",
+                "Accepted with observations",
+                "Acceptée avec réserves",
+              ],
+              ["rejected", "Rejected", "Refusée"],
+              ["returned", "Returned", "Retournée"],
+            ] as Array<[string, string, string]>
+          ).map(([value, english, french]) => ({
+            value,
+            text: fr ? french : english,
+          })),
+          true,
+        )}
+        {select(
+          "commissioningStatus",
+          label(fr, "Commissioning", "Mise en service"),
+          (
+            [
+              ["not_required", "Not required", "Non requise"],
+              ["pending", "Pending", "En attente"],
+              ["validated", "Validated", "Validée"],
+              ["failed", "Failed", "Échouée"],
+            ] as Array<[string, string, string]>
+          ).map(([value, english, french]) => ({
+            value,
+            text: fr ? french : english,
+          })),
+          true,
+        )}
+        <section className="grid gap-3 rounded-xl border border-border bg-surface-2 p-4 md:col-span-2 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <h3 className="text-sm font-semibold text-ink">
+              {label(fr, "Reception checklist", "Checklist de réception")}
+            </h3>
+            <p className="mt-1 text-xs leading-5 text-ink-secondary">
+              {label(
+                fr,
+                "An accepted reception requires the first three checks. Commissioning validation also requires functional and safety checks.",
+                "Une réception acceptée exige les trois premiers contrôles. La mise en service validée exige aussi les contrôles fonctionnel et sécurité.",
+              )}
+            </p>
+          </div>
+          {(
+            [
+              [
+                "quantityMatches",
+                "Quantity matches the delivery note and order",
+                "La quantité correspond au bon de livraison et à la commande",
+              ],
+              [
+                "conditionAccepted",
+                "Condition, packaging and specification are acceptable",
+                "L’état, l’emballage et la spécification sont acceptables",
+              ],
+              [
+                "documentsComplete",
+                "Supplier documents, invoice or delivery note are complete",
+                "Les documents fournisseur, facture ou bon de livraison sont complets",
+              ],
+              [
+                "functionalTestPassed",
+                "Functional test passed",
+                "Le test de fonctionnement est réussi",
+              ],
+              [
+                "safetyCheckPassed",
+                "Safety check passed",
+                "Le contrôle de sécurité est réussi",
+              ],
+            ] as Array<[string, string, string]>
+          ).map(([name, english, french]) => (
+            <label
+              key={name}
+              className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-surface-1 p-3 text-sm text-ink hover:bg-surface-2"
+            >
+              <input
+                type="checkbox"
+                name={name}
+                defaultChecked={getValue(name) === "true"}
+                className="mt-0.5 size-4 accent-brand"
+              />
+              <span>{fr ? french : english}</span>
+            </label>
+          ))}
+        </section>
+        {input(
+          "returnedQuantity",
+          label(
+            fr,
+            "Quantity returned to supplier",
+            "Quantité retournée au fournisseur",
+          ),
+          false,
+          "number",
+        )}
+        <Field
+          label={label(
+            fr,
+            "Reason for return / observation",
+            "Motif du retour / réserve",
+          )}
+          htmlFor="returnReason"
+        >
+          <Textarea
+            id="returnReason"
+            name="returnReason"
+            defaultValue={getValue("returnReason")}
+          />
+        </Field>
+        <Field
+          label={label(fr, "Supplier warranty", "Garantie fournisseur")}
+          htmlFor="warrantyProvider"
+        >
+          <Input
+            id="warrantyProvider"
+            name="warrantyProvider"
+            defaultValue={getValue("warrantyProvider")}
+            placeholder={label(
+              fr,
+              "Supplier or warranty company",
+              "Fournisseur ou société de garantie",
+            )}
+          />
+        </Field>
+        {input(
+          "warrantyReference",
+          label(fr, "Warranty reference", "Référence de garantie"),
+        )}
+        {input(
+          "warrantyExpiresOn",
+          label(fr, "Warranty expiry", "Fin de garantie"),
+          false,
+          "date",
+        )}
+        <Field
+          label={label(fr, "Before photo", "Photo avant")}
+          htmlFor="qualityBeforePhoto"
+          hint={label(
+            fr,
+            "Optional image saved privately in this project's Documents and linked to this check.",
+            "Image facultative enregistrée en privé dans les Documents du projet et liée à ce contrôle.",
+          )}
+        >
+          <Input
+            id="qualityBeforePhoto"
+            name="qualityBeforePhoto"
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif"
+          />
+        </Field>
+        <Field
+          label={label(fr, "After photo", "Photo après")}
+          htmlFor="qualityAfterPhoto"
+          hint={label(
+            fr,
+            "Optional image saved privately in this project's Documents and linked to this check.",
+            "Image facultative enregistrée en privé dans les Documents du projet et liée à ce contrôle.",
+          )}
+        >
+          <Input
+            id="qualityAfterPhoto"
+            name="qualityAfterPhoto"
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif"
+          />
+        </Field>
+        {select(
+          "beforePhotoDocumentId",
+          label(fr, "Existing before evidence", "Preuve avant existante"),
+          projectDocumentOptions,
+        )}
+        {select(
+          "afterPhotoDocumentId",
+          label(fr, "Existing after evidence", "Preuve après existante"),
+          projectDocumentOptions,
+        )}
+        <Field
+          label={label(fr, "Commissioning notes", "Notes de mise en service")}
+          htmlFor="commissioningNotes"
+          className="md:col-span-2"
+        >
+          <Textarea
+            id="commissioningNotes"
+            name="commissioningNotes"
+            defaultValue={getValue("commissioningNotes")}
+            placeholder={label(
+              fr,
+              "Functional result, safety finding, handover condition…",
+              "Résultat fonctionnel, constat de sécurité, condition de remise…",
+            )}
+          />
+        </Field>
+        <Field
+          label={label(fr, "Quality notes", "Notes qualité")}
+          htmlFor="notes"
+          className="md:col-span-2"
+        >
+          <Textarea id="notes" name="notes" defaultValue={getValue("notes")} />
+        </Field>
+      </>
+    );
+  if (kind === "closeout")
+    return (
+      <>
+        <div className="md:col-span-2 rounded-xl border border-brand/20 bg-brand-subtle/30 p-4 text-sm leading-6 text-ink-secondary">
+          {label(
+            fr,
+            "This is the formal project close-out report. Completing it closes the investment lifecycle and preserves the decision for audit and future projects.",
+            "Il s’agit du procès-verbal formel de clôture. Sa finalisation clôture le cycle de l’investissement et conserve la décision pour l’audit et les futurs projets.",
+          )}
+        </div>
+        {select(
+          "status",
+          label(fr, "Report status", "Statut du procès-verbal"),
+          [
+            {
+              value: "draft",
+              text: label(
+                fr,
+                "Draft — keep working",
+                "Brouillon — continuer le travail",
+              ),
+            },
+            {
+              value: "completed",
+              text: label(
+                fr,
+                "Complete and close project",
+                "Finaliser et clôturer le projet",
+              ),
+            },
+          ],
+          true,
+        )}
+        {select(
+          "expectedOutcomeAchieved",
+          label(
+            fr,
+            "Was the expected result achieved?",
+            "Le résultat attendu est-il atteint ?",
+          ),
+          [
+            { value: "yes", text: label(fr, "Yes, achieved", "Oui, atteint") },
+            {
+              value: "no",
+              text: label(
+                fr,
+                "No, not fully achieved",
+                "Non, pas entièrement atteint",
+              ),
+            },
+          ],
+          false,
+        )}
+        <Field
+          label={label(fr, "Achieved result", "Résultat atteint")}
+          htmlFor="achievementSummary"
+          className="md:col-span-2"
+          error={fieldError("achievementSummary")}
+        >
+          <Textarea
+            id="achievementSummary"
+            name="achievementSummary"
+            defaultValue={getValue("achievementSummary")}
+            placeholder={String(
+              project?.expectedOutcome ??
+                label(
+                  fr,
+                  "Describe the measured result and evidence.",
+                  "Décrivez le résultat mesuré et les preuves.",
+                ),
+            )}
+          />
+        </Field>
+        <Field
+          label={label(
+            fr,
+            "Actual operational outcome",
+            "Résultat opérationnel réel",
+          )}
+          htmlFor="actualOutcome"
+          className="md:col-span-2"
+        >
+          <Textarea
+            id="actualOutcome"
+            name="actualOutcome"
+            defaultValue={getValue("actualOutcome")}
+            placeholder={label(
+              fr,
+              "Production, sales, quality or delivery outcome after handover.",
+              "Résultat de production, vente, qualité ou livraison après remise.",
+            )}
+          />
+        </Field>
+        <Field
+          label={label(fr, "What did we learn?", "Qu’avons-nous appris ?")}
+          htmlFor="lessonsLearned"
+          className="md:col-span-2"
+          error={fieldError("lessonsLearned")}
+        >
+          <Textarea
+            id="lessonsLearned"
+            name="lessonsLearned"
+            defaultValue={getValue("lessonsLearned")}
+            placeholder={label(
+              fr,
+              "What should be repeated, changed or avoided next time?",
+              "Que faut-il répéter, changer ou éviter la prochaine fois ?",
+            )}
+          />
+        </Field>
+        {select(
+          "handoverMemberId",
+          label(
+            fr,
+            "Person responsible after handover",
+            "Responsable après remise",
+          ),
+          memberOptions,
+        )}
+        <label className="flex items-center gap-3 self-end rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-sm text-ink">
+          <input
+            type="checkbox"
+            name="commissioningValidated"
+            defaultChecked={getValue("commissioningValidated") === "true"}
+            className="size-4 accent-brand"
+          />
+          {label(
+            fr,
+            "Operational commissioning is validated",
+            "La mise en service opérationnelle est validée",
+          )}
+        </label>
+        {select(
+          "closeoutDocumentId",
+          label(fr, "Signed report or evidence", "PV signé ou justificatif"),
+          projectDocumentOptions,
+        )}
+        <Field
+          label={label(
+            fr,
+            "Commissioning summary",
+            "Synthèse de mise en service",
+          )}
+          htmlFor="commissioningSummary"
+          className="md:col-span-2"
+        >
+          <Textarea
+            id="commissioningSummary"
+            name="commissioningSummary"
+            defaultValue={getValue("commissioningSummary")}
+          />
+        </Field>
+        <Field
+          label={label(fr, "Close-out notes", "Notes de clôture")}
+          htmlFor="notes"
+          className="md:col-span-2"
+        >
+          <Textarea id="notes" name="notes" defaultValue={getValue("notes")} />
+        </Field>
+      </>
+    );
   if (kind === "member")
     return (
       <>
@@ -6607,20 +10762,42 @@ function EditorFields({
               </option>
             ))}
           </select>
-        </Field>        {operationalTargetKind === "pigs:groups" ? (
+        </Field>{" "}
+        {operationalTargetKind === "pigs:groups" ? (
           <div className="md:col-span-2 rounded-xl border border-emerald-500/25 bg-emerald-500/[0.08] px-3 py-3 text-sm leading-5 text-ink-secondary">
-            <span className="font-semibold text-ink">{label(fr, "Lot de porcs", "Pig batch")}</span>{" · "}
-            {label(fr, "À choisir pour l’engraissement et la vente au kilo (poids vivant).", "Choose for fattening and sales by kilogram (live weight).")}
+            <span className="font-semibold text-ink">
+              {label(fr, "Lot de porcs", "Pig batch")}
+            </span>
+            {" · "}
+            {label(
+              fr,
+              "À choisir pour l’engraissement et la vente au kilo (poids vivant).",
+              "Choose for fattening and sales by kilogram (live weight).",
+            )}
           </div>
         ) : operationalTargetKind === "pigs:animals" ? (
           <div className="md:col-span-2 rounded-xl border border-sky-500/25 bg-sky-500/[0.08] px-3 py-3 text-sm leading-5 text-ink-secondary">
-            <span className="font-semibold text-ink">{label(fr, "Porc individuel", "Individual pig")}</span>{" · "}
-            {label(fr, "À choisir pour une truie, un verrat ou un porc vendu à l’unité.", "Choose for a sow, boar, or a pig sold individually.")}
+            <span className="font-semibold text-ink">
+              {label(fr, "Porc individuel", "Individual pig")}
+            </span>
+            {" · "}
+            {label(
+              fr,
+              "À choisir pour une truie, un verrat ou un porc vendu à l’unité.",
+              "Choose for a sow, boar, or a pig sold individually.",
+            )}
           </div>
         ) : operationalTargetKind === "pigs:pens" ? (
           <div className="md:col-span-2 rounded-xl border border-amber-500/25 bg-amber-500/[0.08] px-3 py-3 text-sm leading-5 text-ink-secondary">
-            <span className="font-semibold text-ink">{label(fr, "Enclos porcin", "Pig pen")}</span>{" · "}
-            {label(fr, "À choisir uniquement si le projet a construit, rénové ou équipé l’enclos.", "Choose only when the project built, renovated, or equipped the pen.")}
+            <span className="font-semibold text-ink">
+              {label(fr, "Enclos porcin", "Pig pen")}
+            </span>
+            {" · "}
+            {label(
+              fr,
+              "À choisir uniquement si le projet a construit, rénové ou équipé l’enclos.",
+              "Choose only when the project built, renovated, or equipped the pen.",
+            )}
           </div>
         ) : null}
         <Field
@@ -6730,7 +10907,11 @@ function EditorFields({
         </Field>
         {select(
           "linkType",
-          label(fr, "How this record relates to the project", "Lien avec le projet"),
+          label(
+            fr,
+            "How this record relates to the project",
+            "Lien avec le projet",
+          ),
           OPERATIONAL_LINK_TYPES.map((link) => ({
             value: link.value,
             text: fr ? link.french : link.english,
@@ -6860,7 +11041,11 @@ function EditorFields({
           </p>
           <p className="mt-1 text-ink-secondary">
             {linkedReceiptMaterial
-              ? String(linkedReceiptMaterial.name ?? linkedReceiptMaterial.code ?? "—")
+              ? String(
+                  linkedReceiptMaterial.name ??
+                    linkedReceiptMaterial.code ??
+                    "—",
+                )
               : label(
                   fr,
                   "No project material is linked to this ordered item.",
@@ -6879,7 +11064,11 @@ function EditorFields({
           </p>
           <p className="mt-1 text-ink-secondary">
             {linkedReceiptInventoryItem
-              ? String(linkedReceiptInventoryItem.name ?? linkedReceiptInventoryItem.sku ?? "—")
+              ? String(
+                  linkedReceiptInventoryItem.name ??
+                    linkedReceiptInventoryItem.sku ??
+                    "—",
+                )
               : label(
                   fr,
                   "No inventory item is linked to this ordered item.",
@@ -6984,7 +11173,11 @@ function EditorFields({
         )}
         <div className="rounded-xl border border-border bg-surface-2/60 px-3 py-2.5 text-sm md:col-span-2">
           <p className="font-semibold text-ink">
-            {label(fr, "Draft purchase request", "Demande d’achat en brouillon")}
+            {label(
+              fr,
+              "Draft purchase request",
+              "Demande d’achat en brouillon",
+            )}
           </p>
           <p className="mt-1 text-xs leading-5 text-ink-secondary">
             {label(
@@ -7025,7 +11218,8 @@ function EditorFields({
       value: String(line.id),
       text: `${String(line.description ?? "—")} · ${number(line.requestedQuantity).toLocaleString(fr ? "fr-FR" : "en-US")} ${String(line.unit ?? "")}`.trim(),
     }));
-    const inputKey = (field: string) => `order-line-${field}-${orderLinePrefillKey}`;
+    const inputKey = (field: string) =>
+      `order-line-${field}-${orderLinePrefillKey}`;
     const sourceValue = (field: string, fallback = "") =>
       editingOrderLine
         ? getValue(field)
@@ -7037,7 +11231,12 @@ function EditorFields({
       value: string,
       required = false,
     ) => (
-      <Field label={title} htmlFor={name} required={required} error={fieldError(name)}>
+      <Field
+        label={title}
+        htmlFor={name}
+        required={required}
+        error={fieldError(name)}
+      >
         <select
           key={inputKey(name)}
           id={name}
@@ -7047,7 +11246,9 @@ function EditorFields({
           aria-invalid={Boolean(fieldError(name))}
           className={`h-9 w-full rounded-md border bg-surface-1 px-3 text-sm text-ink ${fieldError(name) ? "border-critical" : "border-border-strong"}`}
         >
-          <option value="">{required ? label(fr, "Select", "Sélectionner") : "—"}</option>
+          <option value="">
+            {required ? label(fr, "Select", "Sélectionner") : "—"}
+          </option>
           {options.map((option) => (
             <option key={option.value} value={option.value}>
               {option.text}
@@ -7091,7 +11292,11 @@ function EditorFields({
             list={supportsCustomUnit ? unitListId : undefined}
             placeholder={
               supportsCustomUnit
-                ? label(fr, "Choose or enter a unit", "Choisissez ou saisissez une unité")
+                ? label(
+                    fr,
+                    "Choose or enter a unit",
+                    "Choisissez ou saisissez une unité",
+                  )
                 : undefined
             }
             defaultValue={value}
@@ -7131,7 +11336,11 @@ function EditorFields({
             <option value="" disabled={visibleOrderOptions.length === 0}>
               {visibleOrderOptions.length
                 ? label(fr, "Select", "Sélectionner")
-                : label(fr, "No purchase orders available", "Aucun bon de commande disponible")}
+                : label(
+                    fr,
+                    "No purchase orders available",
+                    "Aucun bon de commande disponible",
+                  )}
             </option>
             {visibleOrderOptions.map((option) => (
               <option key={option.value} value={option.value}>
@@ -7142,7 +11351,11 @@ function EditorFields({
         </Field>
         {requestLinesForSelectedOrder.length > 1 && !editingOrderLine ? (
           <Field
-            label={label(fr, "Requested item to copy", "Article demandé à reprendre")}
+            label={label(
+              fr,
+              "Requested item to copy",
+              "Article demandé à reprendre",
+            )}
             htmlFor="sourceRequestLineId"
             required
             hint={label(
@@ -7171,7 +11384,11 @@ function EditorFields({
         {selectedRequestLine ? (
           <div className="rounded-xl border border-brand/25 bg-brand/[0.045] px-3 py-2.5 text-sm text-ink-secondary md:col-span-2">
             <span className="font-semibold text-brand">
-              {label(fr, "Copied from approved request", "Repris depuis la demande approuvée")}
+              {label(
+                fr,
+                "Copied from approved request",
+                "Repris depuis la demande approuvée",
+              )}
             </span>
             <span className="ml-2">
               {label(
@@ -7260,7 +11477,8 @@ function EditorFields({
         </Field>
       </>
     );
-  }  if (kind === "order")
+  }
+  if (kind === "order")
     return (
       <>
         <div className="rounded-xl border border-brand/20 bg-brand/5 px-3 py-3 text-sm md:col-span-2">
@@ -7295,7 +11513,9 @@ function EditorFields({
               if (!isEditing) {
                 setSelectedOrderSupplierId(String(request?.supplierId ?? ""));
                 setSelectedOrderCurrencyCode(
-                  String(request?.currencyCode ?? project?.currencyCode ?? "CDF"),
+                  String(
+                    request?.currencyCode ?? project?.currencyCode ?? "CDF",
+                  ),
                 );
               }
             }}
@@ -7305,7 +11525,11 @@ function EditorFields({
             <option value="" disabled={approvedRequestOptions.length === 0}>
               {approvedRequestOptions.length
                 ? label(fr, "Select", "Sélectionner")
-                : label(fr, "No approved purchase request available", "Aucune demande approuvée disponible")}
+                : label(
+                    fr,
+                    "No approved purchase request available",
+                    "Aucune demande approuvée disponible",
+                  )}
             </option>
             {approvedRequestOptions.map((option) => (
               <option key={option.value} value={option.value}>
@@ -7320,15 +11544,50 @@ function EditorFields({
           </p>
           {selectedOrderRequest ? (
             <div className="mt-1.5 grid gap-1.5 text-xs leading-5 text-ink-secondary sm:grid-cols-2">
-              <p>{label(fr, "Need", "Besoin")} · {String(selectedOrderRequest.reason ?? "—")}</p>
-              <p>{label(fr, "Required by", "Nécessaire le")} · {date(selectedOrderRequest.requiredDate, fr ? "fr-FR" : "en-US")}</p>
-              <p>{label(fr, "Supplier", "Fournisseur")} · {String(suppliers.find((supplier) => String(supplier.id) === String(selectedOrderRequest.supplierId ?? ""))?.name ?? label(fr, "To choose", "À choisir"))}</p>
-              <p>{label(fr, "Currency", "Devise")} · {String(selectedOrderRequest.currencyCode ?? project?.currencyCode ?? "CDF")}</p>
-              <p className="sm:col-span-2">{label(fr, "Its approved items will be copied automatically into this draft purchase order. You can correct the draft before sending it.", "Ses articles approuvés seront copiés automatiquement dans ce bon en brouillon. Vous pourrez corriger le brouillon avant l’envoi.")}</p>
+              <p>
+                {label(fr, "Need", "Besoin")} ·{" "}
+                {String(selectedOrderRequest.reason ?? "—")}
+              </p>
+              <p>
+                {label(fr, "Required by", "Nécessaire le")} ·{" "}
+                {date(
+                  selectedOrderRequest.requiredDate,
+                  fr ? "fr-FR" : "en-US",
+                )}
+              </p>
+              <p>
+                {label(fr, "Supplier", "Fournisseur")} ·{" "}
+                {String(
+                  suppliers.find(
+                    (supplier) =>
+                      String(supplier.id) ===
+                      String(selectedOrderRequest.supplierId ?? ""),
+                  )?.name ?? label(fr, "To choose", "À choisir"),
+                )}
+              </p>
+              <p>
+                {label(fr, "Currency", "Devise")} ·{" "}
+                {String(
+                  selectedOrderRequest.currencyCode ??
+                    project?.currencyCode ??
+                    "CDF",
+                )}
+              </p>
+              <p className="sm:col-span-2">
+                {label(
+                  fr,
+                  "Its approved items will be copied automatically into this draft purchase order. You can correct the draft before sending it.",
+                  "Ses articles approuvés seront copiés automatiquement dans ce bon en brouillon. Vous pourrez corriger le brouillon avant l’envoi.",
+                )}
+              </p>
             </div>
           ) : (
             <p className="mt-1 text-xs leading-5 text-ink-secondary">
-              {label(fr, "Select an approved request to recover its context and items.", "Sélectionnez une demande approuvée pour reprendre son contexte et ses articles.")}
+              {label(
+                fr,
+                "Select an approved request to recover its context and items.",
+                "Sélectionnez une demande approuvée pour reprendre son contexte et ses articles.",
+              )}
             </p>
           )}
         </div>
@@ -7350,7 +11609,11 @@ function EditorFields({
             <option value="" disabled={supplierOptions.length === 0}>
               {supplierOptions.length
                 ? label(fr, "Select", "Sélectionner")
-                : label(fr, "No supplier available", "Aucun fournisseur disponible")}
+                : label(
+                    fr,
+                    "No supplier available",
+                    "Aucun fournisseur disponible",
+                  )}
             </option>
             {supplierOptions.map((option) => (
               <option key={option.value} value={option.value}>
@@ -7378,14 +11641,28 @@ function EditorFields({
         )}
         {getValue("id") ? (
           <div className="rounded-xl border border-border bg-surface-2/60 px-3 py-2.5 md:col-span-2">
-            <p className="text-xs font-semibold text-ink">{label(fr, "Order status", "Statut du bon de commande")}</p>
-            <p className="mt-0.5 text-sm font-medium text-ink">{titleCase(getValue("status") || "draft")}</p>
-            <p className="mt-1 text-xs leading-5 text-ink-secondary">{label(fr, "This status is updated from accepted receipt items. It cannot be set manually.", "Ce statut évolue automatiquement à partir des articles réceptionnés et acceptés. Il ne se modifie pas manuellement.")}</p>
+            <p className="text-xs font-semibold text-ink">
+              {label(fr, "Order status", "Statut du bon de commande")}
+            </p>
+            <p className="mt-0.5 text-sm font-medium text-ink">
+              {titleCase(getValue("status") || "draft")}
+            </p>
+            <p className="mt-1 text-xs leading-5 text-ink-secondary">
+              {label(
+                fr,
+                "This status is updated from accepted receipt items. It cannot be set manually.",
+                "Ce statut évolue automatiquement à partir des articles réceptionnés et acceptés. Il ne se modifie pas manuellement.",
+              )}
+            </p>
           </div>
         ) : (
           <div className="rounded-xl border border-border bg-surface-2/60 px-3 py-2.5 text-sm md:col-span-2">
             <p className="font-semibold text-ink">
-              {label(fr, "Draft purchase order", "Bon de commande en brouillon")}
+              {label(
+                fr,
+                "Draft purchase order",
+                "Bon de commande en brouillon",
+              )}
             </p>
             <p className="mt-1 text-xs leading-5 text-ink-secondary">
               {label(
@@ -7407,12 +11684,18 @@ function EditorFields({
             name="currencyCode"
             required
             value={selectedOrderCurrencyCode}
-            onChange={(event) => setSelectedOrderCurrencyCode(event.target.value)}
+            onChange={(event) =>
+              setSelectedOrderCurrencyCode(event.target.value)
+            }
             aria-invalid={Boolean(fieldError("currencyCode"))}
             className={`h-9 w-full rounded-md border bg-surface-1 px-3 text-sm text-ink ${fieldError("currencyCode") ? "border-critical" : "border-border-strong"}`}
           >
-            <option value="CDF">CDF — {fr ? "Franc congolais" : "Congolese franc"}</option>
-            <option value="USD">USD — {fr ? "Dollar américain" : "US dollar"}</option>
+            <option value="CDF">
+              CDF — {fr ? "Franc congolais" : "Congolese franc"}
+            </option>
+            <option value="USD">
+              USD — {fr ? "Dollar américain" : "US dollar"}
+            </option>
             <option value="EUR">EUR — Euro</option>
           </select>
         </Field>
@@ -7431,7 +11714,29 @@ function EditorFields({
             defaultValue={getValue("deliveryAddress")}
           />
         </Field>
-        {isOwner ? <Field label={label(fr, "Owner budget override justification", "Justification propriétaire de dépassement")} htmlFor="budgetOverrideReason" className="md:col-span-2" hint={label(fr, "Required only for an operation that exceeds the remaining project or task budget.", "Requise seulement pour une opération qui dépasse le budget disponible du projet ou de la tâche.")}><Textarea id="budgetOverrideReason" name="budgetOverrideReason" defaultValue={getValue("budgetOverrideReason")} /></Field> : null}        <Field
+        {isOwner ? (
+          <Field
+            label={label(
+              fr,
+              "Owner budget override justification",
+              "Justification propriétaire de dépassement",
+            )}
+            htmlFor="budgetOverrideReason"
+            className="md:col-span-2"
+            hint={label(
+              fr,
+              "Required only for an operation that exceeds the remaining project or task budget.",
+              "Requise seulement pour une opération qui dépasse le budget disponible du projet ou de la tâche.",
+            )}
+          >
+            <Textarea
+              id="budgetOverrideReason"
+              name="budgetOverrideReason"
+              defaultValue={getValue("budgetOverrideReason")}
+            />
+          </Field>
+        ) : null}{" "}
+        <Field
           label={label(fr, "Notes", "Notes")}
           htmlFor="notes"
           className="md:col-span-2"
@@ -7445,7 +11750,11 @@ function EditorFields({
       <>
         {preselectedReceiptId || isEditing ? (
           <>
-            <input type="hidden" name="receiptId" value={preselectedReceiptId} />
+            <input
+              type="hidden"
+              name="receiptId"
+              value={preselectedReceiptId}
+            />
             <div className="md:col-span-2 rounded-xl border border-brand/20 bg-brand/[0.04] px-3 py-2.5 text-sm text-ink-secondary">
               <span className="font-semibold text-brand">
                 {label(fr, "Receiving on", "Réception concernée")}
@@ -7484,7 +11793,11 @@ function EditorFields({
               <option value="" disabled={receiptLineOptions.length === 0}>
                 {receiptLineOptions.length
                   ? label(fr, "Select", "Sélectionner")
-                  : label(fr, "No draft receipts available", "Aucune réception en brouillon disponible")}
+                  : label(
+                      fr,
+                      "No draft receipts available",
+                      "Aucune réception en brouillon disponible",
+                    )}
               </option>
               {receiptLineOptions.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -7526,15 +11839,25 @@ function EditorFields({
             name="purchaseOrderLineId"
             required
             value={activeReceiptOrderLineId}
-            onChange={(event) => setSelectedReceiptOrderLineId(event.target.value)}
-            disabled={isEditing || !activeReceiptLineReceipt || receiptOrderLineOptions.length === 0}
+            onChange={(event) =>
+              setSelectedReceiptOrderLineId(event.target.value)
+            }
+            disabled={
+              isEditing ||
+              !activeReceiptLineReceipt ||
+              receiptOrderLineOptions.length === 0
+            }
             aria-invalid={Boolean(fieldError("purchaseOrderLineId"))}
             className={`h-9 w-full rounded-md border bg-surface-1 px-3 text-sm text-ink disabled:cursor-not-allowed disabled:opacity-60 ${fieldError("purchaseOrderLineId") ? "border-critical" : "border-border-strong"}`}
           >
             <option value="" disabled={receiptOrderLineOptions.length === 0}>
               {receiptOrderLineOptions.length
                 ? label(fr, "Select", "Sélectionner")
-                : label(fr, "No ordered items for this receipt", "Aucun article commandé pour cette réception")}
+                : label(
+                    fr,
+                    "No ordered items for this receipt",
+                    "Aucun article commandé pour cette réception",
+                  )}
             </option>
             {receiptOrderLineOptions.map((option) => (
               <option key={option.value} value={option.value}>
@@ -7550,13 +11873,25 @@ function EditorFields({
             </p>
             <div className="mt-2 grid gap-2 text-ink-secondary sm:grid-cols-3">
               <p>
-                {label(fr, "Ordered", "Commandé")} · {number(activeReceiptOrderLine.orderedQuantity).toLocaleString(fr ? "fr-FR" : "en-US")} {String(activeReceiptOrderLine.unit ?? "")}
+                {label(fr, "Ordered", "Commandé")} ·{" "}
+                {number(activeReceiptOrderLine.orderedQuantity).toLocaleString(
+                  fr ? "fr-FR" : "en-US",
+                )}{" "}
+                {String(activeReceiptOrderLine.unit ?? "")}
               </p>
               <p>
-                {label(fr, "Already received", "Déjà reçu")} · {confirmedQuantityForReceiptOrderLine.toLocaleString(fr ? "fr-FR" : "en-US")} {String(activeReceiptOrderLine.unit ?? "")}
+                {label(fr, "Already received", "Déjà reçu")} ·{" "}
+                {confirmedQuantityForReceiptOrderLine.toLocaleString(
+                  fr ? "fr-FR" : "en-US",
+                )}{" "}
+                {String(activeReceiptOrderLine.unit ?? "")}
               </p>
               <p className="font-medium text-ink">
-                {label(fr, "Still expected", "Reste à recevoir")} · {remainingQuantityForReceiptOrderLine.toLocaleString(fr ? "fr-FR" : "en-US")} {String(activeReceiptOrderLine.unit ?? "")}
+                {label(fr, "Still expected", "Reste à recevoir")} ·{" "}
+                {remainingQuantityForReceiptOrderLine.toLocaleString(
+                  fr ? "fr-FR" : "en-US",
+                )}{" "}
+                {String(activeReceiptOrderLine.unit ?? "")}
               </p>
             </div>
           </div>
@@ -7572,7 +11907,11 @@ function EditorFields({
           </p>
           <p className="mt-1 text-ink-secondary">
             {linkedReceiptMaterial
-              ? String(linkedReceiptMaterial.name ?? linkedReceiptMaterial.code ?? "—")
+              ? String(
+                  linkedReceiptMaterial.name ??
+                    linkedReceiptMaterial.code ??
+                    "—",
+                )
               : label(
                   fr,
                   "No project material is linked to this ordered item.",
@@ -7591,7 +11930,11 @@ function EditorFields({
           </p>
           <p className="mt-1 text-ink-secondary">
             {linkedReceiptInventoryItem
-              ? String(linkedReceiptInventoryItem.name ?? linkedReceiptInventoryItem.sku ?? "—")
+              ? String(
+                  linkedReceiptInventoryItem.name ??
+                    linkedReceiptInventoryItem.sku ??
+                    "—",
+                )
               : label(
                   fr,
                   "No inventory item is linked to this ordered item.",
@@ -7653,8 +11996,16 @@ function EditorFields({
     return (
       <>
         <div className="md:col-span-2 rounded-xl border border-brand/20 bg-brand/[0.04] px-3 py-2.5 text-sm text-ink-secondary">
-          <span className="font-semibold text-brand">{label(fr, "Automatic reference", "Référence automatique")}</span>
-          <span className="ml-2">{label(fr, "The next BR number is assigned when this receipt is saved.", "Le prochain numéro BR est attribué lors de l’enregistrement de cette réception.")}</span>
+          <span className="font-semibold text-brand">
+            {label(fr, "Automatic reference", "Référence automatique")}
+          </span>
+          <span className="ml-2">
+            {label(
+              fr,
+              "The next BR number is assigned when this receipt is saved.",
+              "Le prochain numéro BR est attribué lors de l’enregistrement de cette réception.",
+            )}
+          </span>
         </div>
         {isEditing ? (
           <>
@@ -7717,11 +12068,41 @@ function EditorFields({
         )}
         {!isEditing ? (
           <div className="md:col-span-2 rounded-xl border border-border bg-surface-2/55 px-3 py-2.5 text-sm leading-6 text-ink-secondary">
-            <span className="font-semibold text-ink">{label(fr, "Draft BR", "BR en brouillon")}</span>
-            <span className="ml-2">{label(fr, "The remaining ordered items are copied automatically from the selected purchase order. Correct only a quantity, damage, rejection, or actual cost that differs, then confirm the receipt from its card.", "Les articles restant à recevoir du bon sélectionné sont repris automatiquement. Corrigez seulement une quantité, un dommage, un refus ou le coût réel qui diffère, puis confirmez la réception depuis sa carte.")}</span>
+            <span className="font-semibold text-ink">
+              {label(fr, "Draft BR", "BR en brouillon")}
+            </span>
+            <span className="ml-2">
+              {label(
+                fr,
+                "The remaining ordered items are copied automatically from the selected purchase order. Correct only a quantity, damage, rejection, or actual cost that differs, then confirm the receipt from its card.",
+                "Les articles restant à recevoir du bon sélectionné sont repris automatiquement. Corrigez seulement une quantité, un dommage, un refus ou le coût réel qui diffère, puis confirmez la réception depuis sa carte.",
+              )}
+            </span>
           </div>
         ) : null}
-        {isOwner ? <Field label={label(fr, "Owner budget override justification", "Justification propriétaire de dépassement")} htmlFor="budgetOverrideReason" className="md:col-span-2" hint={label(fr, "Required only for an operation that exceeds the remaining project or task budget.", "Requise seulement pour une opération qui dépasse le budget disponible du projet ou de la tâche.")}><Textarea id="budgetOverrideReason" name="budgetOverrideReason" defaultValue={getValue("budgetOverrideReason")} /></Field> : null}        <Field
+        {isOwner ? (
+          <Field
+            label={label(
+              fr,
+              "Owner budget override justification",
+              "Justification propriétaire de dépassement",
+            )}
+            htmlFor="budgetOverrideReason"
+            className="md:col-span-2"
+            hint={label(
+              fr,
+              "Required only for an operation that exceeds the remaining project or task budget.",
+              "Requise seulement pour une opération qui dépasse le budget disponible du projet ou de la tâche.",
+            )}
+          >
+            <Textarea
+              id="budgetOverrideReason"
+              name="budgetOverrideReason"
+              defaultValue={getValue("budgetOverrideReason")}
+            />
+          </Field>
+        ) : null}{" "}
+        <Field
           label={label(fr, "Notes", "Notes")}
           htmlFor="notes"
           className="md:col-span-2"
@@ -7752,7 +12133,11 @@ function EditorFields({
           </p>
         </div>
         <Field
-          label={label(fr, "What do you want to record?", "Que voulez-vous enregistrer ?")}
+          label={label(
+            fr,
+            "What do you want to record?",
+            "Que voulez-vous enregistrer ?",
+          )}
           htmlFor="expenseType"
           className="md:col-span-2"
           error={fieldError("expenseType")}
@@ -7765,10 +12150,18 @@ function EditorFields({
             className="h-10 w-full rounded-lg border border-border-strong bg-surface-1 px-3 text-sm text-ink"
           >
             <option value="direct_expense">
-              {label(fr, "New expense without a BR", "Nouvelle dépense sans BR")}
+              {label(
+                fr,
+                "New expense without a BR",
+                "Nouvelle dépense sans BR",
+              )}
             </option>
             <option value="receipt_payment">
-              {label(fr, "Pay an accepted delivery (BR)", "Régler une livraison reçue (BR)")}
+              {label(
+                fr,
+                "Pay an accepted delivery (BR)",
+                "Régler une livraison reçue (BR)",
+              )}
             </option>
           </select>
           <p className="mt-1.5 text-xs leading-5 text-ink-secondary">
@@ -7788,24 +12181,91 @@ function EditorFields({
         {expenseTypeValue === "direct_expense" ? (
           <>
             {phaseSelect()}
-            {select("projectTaskId", label(fr, "Linked task", "Tâche liée"), taskOptions)}
-            {select("supplierId", label(fr, "Beneficiary / supplier", "Bénéficiaire / fournisseur"), supplierOptions, false)}
-            {input("beneficiaryName", label(fr, "Beneficiary if not listed", "Bénéficiaire si absent de la liste"))}
-            <Field label={label(fr, "Expense category", "Catégorie de dépense")} htmlFor="category" error={fieldError("category")}>
-              <select id="category" name="category" defaultValue={getValue("category")} required className="h-9 w-full rounded-md border border-border-strong bg-surface-1 px-3 text-sm text-ink">
-                <option value="" disabled>{label(fr, "Choose a category", "Choisissez une catégorie")}</option>
+            {select(
+              "projectTaskId",
+              label(fr, "Linked task", "Tâche liée"),
+              taskOptions,
+            )}
+            {select(
+              "supplierId",
+              label(fr, "Beneficiary / supplier", "Bénéficiaire / fournisseur"),
+              supplierOptions,
+              false,
+            )}
+            {input(
+              "beneficiaryName",
+              label(
+                fr,
+                "Beneficiary if not listed",
+                "Bénéficiaire si absent de la liste",
+              ),
+            )}
+            <Field
+              label={label(fr, "Expense category", "Catégorie de dépense")}
+              htmlFor="category"
+              error={fieldError("category")}
+            >
+              <select
+                id="category"
+                name="category"
+                defaultValue={getValue("category")}
+                required
+                className="h-9 w-full rounded-md border border-border-strong bg-surface-1 px-3 text-sm text-ink"
+              >
+                <option value="" disabled>
+                  {label(fr, "Choose a category", "Choisissez une catégorie")}
+                </option>
                 {[
-                  ["transport", "Transport"], ["fuel", "Fuel / energy"], ["utilities", "Utilities"],
-                  ["administrative", "Administrative"], ["maintenance", "Maintenance"], ["taxes", "Taxes / permits"],
-                  ["cash_purchase", "Cash purchase"], ["emergency", "Emergency"], ["other", "Other"],
-                ].map(([value, english]) => <option key={value} value={value}>{fr ? ({ transport: "Transport", fuel: "Carburant / énergie", utilities: "Services", administrative: "Administratif", maintenance: "Maintenance", taxes: "Taxes / permis", cash_purchase: "Achat comptant", emergency: "Urgence", other: "Autre" } as Record<string, string>)[value ?? ""] : english}</option>)}
+                  ["animals", "Animal purchase"],
+                  ["feed", "Feed / nutrition"],
+                  ["health", "Vaccines, treatments & health"],
+                  ["labour", "Labour"],
+                  ["transport", "Transport"],
+                  ["fuel", "Fuel / energy"],
+                  ["utilities", "Water, electricity & utilities"],
+                  ["equipment_depreciation", "Equipment depreciation"],
+                  ["administrative", "Administrative"],
+                  ["maintenance", "Maintenance"],
+                  ["taxes", "Taxes / permits"],
+                  ["cash_purchase", "Cash purchase"],
+                  ["emergency", "Emergency"],
+                  ["other", "Other"],
+                ].map(([value, english]) => (
+                  <option key={value} value={value}>
+                    {fr
+                      ? (
+                          {
+                            animals: "Achat des animaux",
+                            feed: "Aliment / nutrition",
+                            health: "Vaccins, traitements et santé",
+                            labour: "Main-d’œuvre",
+                            transport: "Transport",
+                            fuel: "Carburant / énergie",
+                            utilities: "Eau, électricité et services",
+                            equipment_depreciation:
+                              "Amortissement des équipements",
+                            administrative: "Administratif",
+                            maintenance: "Maintenance",
+                            taxes: "Taxes / permis",
+                            cash_purchase: "Achat comptant",
+                            emergency: "Urgence",
+                            other: "Autre",
+                          } as Record<string, string>
+                        )[value ?? ""]
+                      : english}
+                  </option>
+                ))}
               </select>
             </Field>
           </>
         ) : (
           <>
             <Field
-              label={label(fr, "Accepted receipt to pay (BR)", "Réception acceptée à payer (BR)")}
+              label={label(
+                fr,
+                "Accepted receipt to pay (BR)",
+                "Réception acceptée à payer (BR)",
+              )}
               htmlFor="receiptId"
               required
               error={fieldError("receiptId")}
@@ -7820,14 +12280,20 @@ function EditorFields({
                 name="receiptId"
                 required
                 value={selectedPaymentReceiptId}
-                onChange={(event) => applyReceiptPaymentDefaults(event.target.value)}
+                onChange={(event) =>
+                  applyReceiptPaymentDefaults(event.target.value)
+                }
                 aria-invalid={Boolean(fieldError("receiptId"))}
                 className={`h-10 w-full rounded-lg border bg-surface-1 px-3 text-sm text-ink ${fieldError("receiptId") ? "border-critical" : "border-border-strong"}`}
               >
                 <option value="" disabled={receiptOptions.length === 0}>
                   {receiptOptions.length
                     ? label(fr, "Select", "Sélectionner")
-                    : label(fr, "No accepted receipt available", "Aucune réception acceptée disponible")}
+                    : label(
+                        fr,
+                        "No accepted receipt available",
+                        "Aucune réception acceptée disponible",
+                      )}
                 </option>
                 {receiptOptions.map((option) => (
                   <option key={option.value} value={option.value}>
@@ -7841,16 +12307,31 @@ function EditorFields({
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[.12em] text-brand">
-                      {label(fr, "Payment information recovered", "Informations récupérées")}
+                      {label(
+                        fr,
+                        "Payment information recovered",
+                        "Informations récupérées",
+                      )}
                     </p>
                     <p className="mt-1 text-sm font-semibold text-ink">
-                      {String(selectedReceiptPayment.receipt.receiptNumber ?? "—")} · {String(selectedReceiptPayment.order?.orderNumber ?? "—")}
+                      {String(
+                        selectedReceiptPayment.receipt.receiptNumber ?? "—",
+                      )}{" "}
+                      ·{" "}
+                      {String(selectedReceiptPayment.order?.orderNumber ?? "—")}
                     </p>
                     <p className="mt-1 text-xs text-ink-secondary">
-                      {String(selectedReceiptPayment.supplier?.name ?? "") || label(fr, "Supplier unavailable", "Fournisseur indisponible")}
+                      {String(selectedReceiptPayment.supplier?.name ?? "") ||
+                        label(
+                          fr,
+                          "Supplier unavailable",
+                          "Fournisseur indisponible",
+                        )}
                     </p>
                   </div>
-                  <Badge variant="info">{selectedReceiptPayment.currency}</Badge>
+                  <Badge variant="info">
+                    {selectedReceiptPayment.currency}
+                  </Badge>
                 </div>
                 <dl className="mt-4 grid gap-3 sm:grid-cols-3">
                   <div className="rounded-xl border border-border bg-surface-1 px-3 py-2.5">
@@ -7858,7 +12339,11 @@ function EditorFields({
                       {label(fr, "Received", "Reçu")}
                     </dt>
                     <dd className="mt-1 text-sm font-semibold text-ink">
-                      {money(selectedReceiptPayment.total, selectedReceiptPayment.currency, fr ? "fr" : "en")}
+                      {money(
+                        selectedReceiptPayment.total,
+                        selectedReceiptPayment.currency,
+                        fr ? "fr" : "en",
+                      )}
                     </dd>
                   </div>
                   <div className="rounded-xl border border-border bg-surface-1 px-3 py-2.5">
@@ -7866,7 +12351,11 @@ function EditorFields({
                       {label(fr, "Already paid", "Déjà payé")}
                     </dt>
                     <dd className="mt-1 text-sm font-semibold text-ink">
-                      {money(selectedReceiptPayment.paid, selectedReceiptPayment.currency, fr ? "fr" : "en")}
+                      {money(
+                        selectedReceiptPayment.paid,
+                        selectedReceiptPayment.currency,
+                        fr ? "fr" : "en",
+                      )}
                     </dd>
                   </div>
                   <div className="rounded-xl border border-brand/20 bg-brand/[0.045] px-3 py-2.5">
@@ -7874,21 +12363,41 @@ function EditorFields({
                       {label(fr, "Balance to pay", "Solde à payer")}
                     </dt>
                     <dd className="mt-1 text-sm font-semibold text-ink">
-                      {money(selectedReceiptPayment.outstanding, selectedReceiptPayment.currency, fr ? "fr" : "en")}
+                      {money(
+                        selectedReceiptPayment.outstanding,
+                        selectedReceiptPayment.currency,
+                        fr ? "fr" : "en",
+                      )}
                     </dd>
                   </div>
                 </dl>
                 {selectedReceiptPayment.total <= 0 ? (
                   <p className="mt-3 text-xs leading-5 text-warning">
-                    {label(fr, "No received item has been confirmed on this BR yet. Add the actual received items before recording its payment.", "Aucun article reçu n’est encore confirmé sur ce BR. Enregistrez d’abord les articles réellement reçus avant son paiement.")}
+                    {label(
+                      fr,
+                      "No received item has been confirmed on this BR yet. Add the actual received items before recording its payment.",
+                      "Aucun article reçu n’est encore confirmé sur ce BR. Enregistrez d’abord les articles réellement reçus avant son paiement.",
+                    )}
                   </p>
                 ) : null}
               </div>
             ) : null}
-            <input type="hidden" name="paymentIdempotencyKey" value={getValue("paymentIdempotencyKey") || paymentIdempotencyKey} />
-            <input type="hidden" name="currencyCode" value={receiptPaymentCurrency} />
+            <input
+              type="hidden"
+              name="paymentIdempotencyKey"
+              value={getValue("paymentIdempotencyKey") || paymentIdempotencyKey}
+            />
+            <input
+              type="hidden"
+              name="currencyCode"
+              value={receiptPaymentCurrency}
+            />
             <div className="md:col-span-2 rounded-xl border border-border bg-surface-2/60 px-3 py-2 text-xs leading-5 text-ink-secondary">
-              {label(fr, "The amount, project, task, supplier and currency are recovered from the BR. You only confirm the amount paid now, payment proof and payment method.", "Le montant, le projet, la tâche, le fournisseur et la devise sont récupérés depuis le BR. Vous confirmez seulement le montant payé maintenant, la preuve et le mode de paiement.")}
+              {label(
+                fr,
+                "The amount, project, task, supplier and currency are recovered from the BR. You only confirm the amount paid now, payment proof and payment method.",
+                "Le montant, le projet, la tâche, le fournisseur et la devise sont récupérés depuis le BR. Vous confirmez seulement le montant payé maintenant, la preuve et le mode de paiement.",
+              )}
             </div>
           </>
         )}
@@ -7920,12 +12429,25 @@ function EditorFields({
                 onClick={() => setReceiptPaymentMode("partial")}
                 className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${receiptPaymentMode === "partial" ? "bg-brand text-white" : "border border-border bg-surface-1 text-ink hover:bg-surface-2"}`}
               >
-                {label(fr, "Record a partial payment", "Enregistrer un paiement partiel")}
+                {label(
+                  fr,
+                  "Record a partial payment",
+                  "Enregistrer un paiement partiel",
+                )}
               </button>
             </div>
             {receiptPaymentMode === "partial" ? (
               <>
-                <Field label={label(fr, "Amount paid now", "Montant payé maintenant")} htmlFor="amount" required error={fieldError("amount")}>
+                <Field
+                  label={label(
+                    fr,
+                    "Amount paid now",
+                    "Montant payé maintenant",
+                  )}
+                  htmlFor="amount"
+                  required
+                  error={fieldError("amount")}
+                >
                   <Input
                     id="amount"
                     name="amount"
@@ -7934,31 +12456,58 @@ function EditorFields({
                     step="0.01"
                     required
                     value={receiptPaymentAmount}
-                    onChange={(event) => setReceiptPaymentAmount(event.target.value)}
+                    onChange={(event) =>
+                      setReceiptPaymentAmount(event.target.value)
+                    }
                     invalid={Boolean(fieldError("amount"))}
                   />
                 </Field>
-                <Field label={label(fr, "Payment date", "Date du paiement")} htmlFor="expenseDate" required error={fieldError("expenseDate")}>
+                <Field
+                  label={label(fr, "Payment date", "Date du paiement")}
+                  htmlFor="expenseDate"
+                  required
+                  error={fieldError("expenseDate")}
+                >
                   <Input
                     id="expenseDate"
                     name="expenseDate"
                     type="date"
                     required
                     value={receiptPaymentDate}
-                    onChange={(event) => setReceiptPaymentDate(event.target.value)}
+                    onChange={(event) =>
+                      setReceiptPaymentDate(event.target.value)
+                    }
                     invalid={Boolean(fieldError("expenseDate"))}
                   />
                 </Field>
-                {input("paymentMethod", label(fr, "Payment method", "Mode de paiement"))}
-                {input("paymentReference", label(fr, "Payment reference", "Référence de paiement"))}
+                {input(
+                  "paymentMethod",
+                  label(fr, "Payment method", "Mode de paiement"),
+                )}
+                {input(
+                  "paymentReference",
+                  label(fr, "Payment reference", "Référence de paiement"),
+                )}
                 <p className="md:col-span-2 text-xs leading-5 text-ink-secondary">
-                  {label(fr, "The receipt, order, supplier, task and currency remain linked automatically. You only enter this new partial amount.", "Le BR, le BC, le fournisseur, la tâche et la devise restent liés automatiquement. Vous saisissez seulement ce nouveau montant partiel.")}
+                  {label(
+                    fr,
+                    "The receipt, order, supplier, task and currency remain linked automatically. You only enter this new partial amount.",
+                    "Le BR, le BC, le fournisseur, la tâche et la devise restent liés automatiquement. Vous saisissez seulement ce nouveau montant partiel.",
+                  )}
                 </p>
               </>
             ) : (
               <>
-                <input type="hidden" name="amount" value={receiptPaymentAmount} />
-                <input type="hidden" name="expenseDate" value={receiptPaymentDate} />
+                <input
+                  type="hidden"
+                  name="amount"
+                  value={receiptPaymentAmount}
+                />
+                <input
+                  type="hidden"
+                  name="expenseDate"
+                  value={receiptPaymentDate}
+                />
                 <div className="md:col-span-2 rounded-xl border border-good/25 bg-good/8 px-4 py-3 text-sm leading-6 text-ink-secondary">
                   {selectedReceiptPayment.outstanding > 0
                     ? label(
@@ -7974,32 +12523,65 @@ function EditorFields({
                 </div>
               </>
             )}
-          </>        ) : (
+          </>
+        ) : (
           <>
-            {input("title", label(fr, "Title / subject", "Titre / objet"), true)}
+            {input(
+              "title",
+              label(fr, "Title / subject", "Titre / objet"),
+              true,
+            )}
             {input("amount", label(fr, "Amount", "Montant"), true, "number")}
             {currency()}
-            {input("expenseDate", label(fr, "Expense date", "Date de dépense"), true, "date")}
-            {input("paymentMethod", label(fr, "Payment method", "Mode de paiement"))}
-            {input("paymentReference", label(fr, "Payment reference", "Référence de paiement"))}
+            {input(
+              "expenseDate",
+              label(fr, "Expense date", "Date de dépense"),
+              true,
+              "date",
+            )}
+            {input(
+              "paymentMethod",
+              label(fr, "Payment method", "Mode de paiement"),
+            )}
+            {input(
+              "paymentReference",
+              label(fr, "Payment reference", "Référence de paiement"),
+            )}
             {select(
               "status",
               label(fr, "Status", "Statut"),
               (isOwner
-                ? ["draft", "submitted", "approved", "paid", "rejected", "cancelled", "refunded"]
+                ? [
+                    "draft",
+                    "submitted",
+                    "approved",
+                    "paid",
+                    "rejected",
+                    "cancelled",
+                    "refunded",
+                  ]
                 : ["draft", "submitted"]
               ).map((value) => ({
                 value,
-                text: value === "draft"
-                  ? label(fr, "Draft", "Brouillon")
-                  : value === "submitted"
-                    ? label(fr, "Submit for approval", "Soumettre pour approbation")
-                    : titleCase(value),
+                text:
+                  value === "draft"
+                    ? label(fr, "Draft", "Brouillon")
+                    : value === "submitted"
+                      ? label(
+                          fr,
+                          "Submit for approval",
+                          "Soumettre pour approbation",
+                        )
+                      : titleCase(value),
               })),
               true,
             )}
             <Field
-              label={label(fr, "Invoice, receipt or proof", "Facture, reçu ou justificatif")}
+              label={label(
+                fr,
+                "Invoice, receipt or proof",
+                "Facture, reçu ou justificatif",
+              )}
               htmlFor="expenseEvidence"
               className="md:col-span-2"
               hint={label(
@@ -8008,14 +12590,66 @@ function EditorFields({
                 "PDF ou image facultatif. Le fichier est conservé de façon privée dans les Documents du projet.",
               )}
             >
-              <Input id="expenseEvidence" name="expenseEvidence" type="file" accept="application/pdf,image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif" />
+              <Input
+                id="expenseEvidence"
+                name="expenseEvidence"
+                type="file"
+                accept="application/pdf,image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif"
+              />
             </Field>
-            <Field label={label(fr, "Description", "Description")} htmlFor="description" className="md:col-span-2" hint={label(fr, "Optional operational details. The title remains the accounting subject.", "Détails opérationnels facultatifs. Le titre reste l’objet comptable.")}>
-              <Textarea id="description" name="description" defaultValue={getValue("description")} placeholder={label(fr, "Describe the cost, payment, or correction.", "Décrivez le coût, le paiement ou la correction.")} />
+            <Field
+              label={label(fr, "Description", "Description")}
+              htmlFor="description"
+              className="md:col-span-2"
+              hint={label(
+                fr,
+                "Optional operational details. The title remains the accounting subject.",
+                "Détails opérationnels facultatifs. Le titre reste l’objet comptable.",
+              )}
+            >
+              <Textarea
+                id="description"
+                name="description"
+                defaultValue={getValue("description")}
+                placeholder={label(
+                  fr,
+                  "Describe the cost, payment, or correction.",
+                  "Décrivez le coût, le paiement ou la correction.",
+                )}
+              />
             </Field>
-            {isOwner ? <Field label={label(fr, "Owner budget override justification", "Justification propriétaire de dépassement")} htmlFor="budgetOverrideReason" className="md:col-span-2" hint={label(fr, "Required only for an operation that exceeds the remaining project or task budget.", "Requise seulement pour une opération qui dépasse le budget disponible du projet ou de la tâche.")}><Textarea id="budgetOverrideReason" name="budgetOverrideReason" defaultValue={getValue("budgetOverrideReason")} /></Field> : null}
-            <Field label={label(fr, "Accounting notes", "Notes comptables")} htmlFor="notes" className="md:col-span-2">
-              <Textarea id="notes" name="notes" defaultValue={getValue("notes")} />
+            {isOwner ? (
+              <Field
+                label={label(
+                  fr,
+                  "Owner budget override justification",
+                  "Justification propriétaire de dépassement",
+                )}
+                htmlFor="budgetOverrideReason"
+                className="md:col-span-2"
+                hint={label(
+                  fr,
+                  "Required only for an operation that exceeds the remaining project or task budget.",
+                  "Requise seulement pour une opération qui dépasse le budget disponible du projet ou de la tâche.",
+                )}
+              >
+                <Textarea
+                  id="budgetOverrideReason"
+                  name="budgetOverrideReason"
+                  defaultValue={getValue("budgetOverrideReason")}
+                />
+              </Field>
+            ) : null}
+            <Field
+              label={label(fr, "Accounting notes", "Notes comptables")}
+              htmlFor="notes"
+              className="md:col-span-2"
+            >
+              <Textarea
+                id="notes"
+                name="notes"
+                defaultValue={getValue("notes")}
+              />
             </Field>
           </>
         )}
@@ -8957,7 +13591,10 @@ function ProcurementRecordsPanel({
   const currentPage = Math.min(page, totalPages - 1);
   const firstItem = rows.length ? currentPage * pageSize + 1 : 0;
   const lastItem = Math.min((currentPage + 1) * pageSize, rows.length);
-  const visibleRows = rows.slice(currentPage * pageSize, (currentPage + 1) * pageSize);
+  const visibleRows = rows.slice(
+    currentPage * pageSize,
+    (currentPage + 1) * pageSize,
+  );
   const formatDate = (value: unknown) => {
     if (!value) return null;
     const parsed = new Date(String(value));
@@ -9000,7 +13637,8 @@ function ProcurementRecordsPanel({
       const parsed = Number(value);
       return `${quantityLabel[field]} : ${Number.isFinite(parsed) ? quantity.format(parsed) : String(value)}`;
     }
-    if (field === "unit") return `${label(fr, "Unit", "Unité")} : ${String(value)}`;
+    if (field === "unit")
+      return `${label(fr, "Unit", "Unité")} : ${String(value)}`;
     if (field === "status") {
       const statusLabels: Record<string, string> = fr
         ? {
@@ -9041,9 +13679,22 @@ function ProcurementRecordsPanel({
   const auditAction = (value: unknown) => {
     const action = String(value ?? "");
     const labels: Record<string, string> = fr
-      ? { create: "Créé", update: "Mis à jour", approve: "Approuvé", reject: "Refusé" }
-      : { create: "Created", update: "Updated", approve: "Approved", reject: "Rejected" };
-    return labels[action] ?? (action ? titleCase(action) : label(fr, "Created", "Créé"));
+      ? {
+          create: "Créé",
+          update: "Mis à jour",
+          approve: "Approuvé",
+          reject: "Refusé",
+        }
+      : {
+          create: "Created",
+          update: "Updated",
+          approve: "Approved",
+          reject: "Rejected",
+        };
+    return (
+      labels[action] ??
+      (action ? titleCase(action) : label(fr, "Created", "Créé"))
+    );
   };
 
   return (
@@ -9055,7 +13706,9 @@ function ProcurementRecordsPanel({
           </span>
           <div className="min-w-0">
             <h3 className="text-base font-semibold text-ink">{title}</h3>
-            <p className="mt-1 max-w-xl text-xs leading-5 text-ink-secondary">{subtitle}</p>
+            <p className="mt-1 max-w-xl text-xs leading-5 text-ink-secondary">
+              {subtitle}
+            </p>
           </div>
         </div>
         {onAdd ? (
@@ -9069,193 +13722,334 @@ function ProcurementRecordsPanel({
         {rows.length ? (
           <>
             {visibleRows.map((row, index) => {
-            const rowCanEdit = !canEditRow || canEditRow(row);
-            const recordName = String(
-              row.requestNumber ??
-                row.orderNumber ??
-                row.receiptNumber ??
-                row.description ??
-                row.name ??
-                row.title ??
-                row.code ??
-                "—",
-            );
-            const details = fields
-              .filter((field) => row[field] != null && row[field] !== "")
-              .map((field) => formatValue(field, row[field]));
-            const relatedItems =
-              relatedRows && relatedKey
-                ? relatedRows.filter(
-                    (item) => String(item[relatedKey] ?? "") === String(row.id),
-                  )
-                : [];
-            const recordIsDraft = String(row.status) === "draft";
-            const recordCanSubmit = Boolean(onSubmit) && (canSubmitRow?.(row) ?? recordIsDraft);
-            const actorName = typeof row.lastActionByName === "string" && row.lastActionByName.trim()
-              ? row.lastActionByName
-              : null;
-            const actorRole = typeof row.lastActionByRole === "string" && row.lastActionByRole.trim()
-              ? row.lastActionByRole
-              : null;
-            const timestamp = formatAuditDate(row.lastActionAt ?? row.createdAt);
-            return (
-              <article
-                key={String(row.id || `${title}-${recordName}-${index}`)}
-                className="overflow-hidden rounded-2xl border border-brand/20 bg-surface-1 ring-1 ring-brand/[0.025] transition-shadow hover:shadow-[0_14px_30px_-26px_rgb(15_118_110_/_0.5)]"
-              >
-                <header className="flex flex-wrap items-start justify-between gap-3 border-b border-border/70 bg-surface-2/45 px-4 py-3.5">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-brand/10 text-brand">
-                      <Icon className="size-4" />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="text-[10px] font-bold uppercase tracking-[0.13em] text-ink-muted">{title}</p>
-                      <h4 className="mt-0.5 truncate text-sm font-semibold text-ink">{recordName}</h4>
-                    </div>
-                  </div>
-                  {row.status ? (
-                    <Badge variant={statusVariant(row.status)}>
-                      {formatValue("status", row.status)}
-                    </Badge>
-                  ) : null}
-                </header>
-                <div className="space-y-3 px-4 py-4">
-                  {details.length ? (
-                    <div className="flex flex-wrap gap-2">
-                      {details.map((detail, detailIndex) => (
-                        <span
-                          key={`${recordName}-${detailIndex}`}
-                          className="rounded-lg border border-border bg-surface-2 px-2.5 py-1.5 text-xs leading-4 text-ink-secondary"
-                        >
-                          {detail}
-                        </span>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-ink-muted">—</p>
-                  )}
-                  {relatedItems.length ? (
-                    <div className="rounded-xl border border-border bg-surface-2/55 px-3 py-3">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setExpandedRowId((current) =>
-                            current === String(row.id) ? null : String(row.id),
-                          )
-                        }
-                        aria-expanded={expandedRowId === String(row.id)}
-                        className="flex w-full items-center justify-between gap-3 text-left"
-                      >
-                        <span className="text-[11px] font-semibold uppercase tracking-[0.11em] text-ink-muted">
-                          {relatedLabel ?? label(fr, "Requested items", "Articles demandés")}
-                        </span>
-                        <span className="rounded-md bg-brand/8 px-2 py-1 text-xs font-semibold text-brand">
-                          {relatedItems.length} {label(fr, "item(s)", "article(s)")} · {expandedRowId === String(row.id) ? label(fr, "Close", "Réduire") : label(fr, "View", "Voir")}
-                        </span>
-                      </button>
-                      <div className="mt-2 space-y-1.5">
-                        {(expandedRowId === String(row.id) ? relatedItems : relatedItems.slice(0, 2)).map((item, itemIndex) => (
-                          <div
-                            key={String(item.id || `${row.id}-item-${itemIndex}`)}
-                            className="flex items-center justify-between gap-3 rounded-lg px-1 py-1 text-xs"
-                          >
-                            <span className="min-w-0 truncate text-ink-secondary">
-                              {String(item.description ?? item.name ?? "—")}
-                            </span>
-                            <span className="flex shrink-0 items-center gap-2 font-medium text-ink">
-                              <span>{String(item.requestedQuantity ?? item.orderedQuantity ?? item.receivedQuantity ?? "—")} {String(item.unit ?? "")}</span>
-                              {recordIsDraft && onEditRelatedRow ? (
-                                <Button size="sm" variant="ghost" onClick={() => onEditRelatedRow(item)}>
-                                  <Pencil className="size-3.5" />
-                                  {label(fr, "Edit", "Modifier")}
-                                </Button>
-                              ) : null}
-                            </span>
-                          </div>
-                        ))}
-                        {relatedItems.length > 2 && expandedRowId !== String(row.id) ? (
-                          <button
-                            type="button"
-                            onClick={() => setExpandedRowId(String(row.id))}
-                            className="pt-1 text-xs font-medium text-brand hover:underline"
-                          >
-                            +{relatedItems.length - 2} {label(fr, "more item(s)", "autre(s) article(s)")} · {label(fr, "Open all", "Ouvrir tout")}
-                          </button>
-                        ) : null}
+              const rowCanEdit = !canEditRow || canEditRow(row);
+              const recordName = String(
+                row.requestNumber ??
+                  row.orderNumber ??
+                  row.receiptNumber ??
+                  row.description ??
+                  row.name ??
+                  row.title ??
+                  row.code ??
+                  "—",
+              );
+              const details = fields
+                .filter((field) => row[field] != null && row[field] !== "")
+                .map((field) => formatValue(field, row[field]));
+              const relatedItems =
+                relatedRows && relatedKey
+                  ? relatedRows.filter(
+                      (item) =>
+                        String(item[relatedKey] ?? "") === String(row.id),
+                    )
+                  : [];
+              const recordIsDraft = String(row.status) === "draft";
+              const recordCanSubmit =
+                Boolean(onSubmit) && (canSubmitRow?.(row) ?? recordIsDraft);
+              const actorName =
+                typeof row.lastActionByName === "string" &&
+                row.lastActionByName.trim()
+                  ? row.lastActionByName
+                  : null;
+              const actorRole =
+                typeof row.lastActionByRole === "string" &&
+                row.lastActionByRole.trim()
+                  ? row.lastActionByRole
+                  : null;
+              const timestamp = formatAuditDate(
+                row.lastActionAt ?? row.createdAt,
+              );
+              return (
+                <article
+                  key={String(row.id || `${title}-${recordName}-${index}`)}
+                  className="overflow-hidden rounded-2xl border border-brand/20 bg-surface-1 ring-1 ring-brand/[0.025] transition-shadow hover:shadow-[0_14px_30px_-26px_rgb(15_118_110_/_0.5)]"
+                >
+                  <header className="flex flex-wrap items-start justify-between gap-3 border-b border-border/70 bg-surface-2/45 px-4 py-3.5">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-brand/10 text-brand">
+                        <Icon className="size-4" />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.13em] text-ink-muted">
+                          {title}
+                        </p>
+                        <h4 className="mt-0.5 truncate text-sm font-semibold text-ink">
+                          {recordName}
+                        </h4>
                       </div>
                     </div>
+                    {row.status ? (
+                      <Badge variant={statusVariant(row.status)}>
+                        {formatValue("status", row.status)}
+                      </Badge>
+                    ) : null}
+                  </header>
+                  <div className="space-y-3 px-4 py-4">
+                    {details.length ? (
+                      <div className="flex flex-wrap gap-2">
+                        {details.map((detail, detailIndex) => (
+                          <span
+                            key={`${recordName}-${detailIndex}`}
+                            className="rounded-lg border border-border bg-surface-2 px-2.5 py-1.5 text-xs leading-4 text-ink-secondary"
+                          >
+                            {detail}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-ink-muted">—</p>
+                    )}
+                    {relatedItems.length ? (
+                      <div className="rounded-xl border border-border bg-surface-2/55 px-3 py-3">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setExpandedRowId((current) =>
+                              current === String(row.id)
+                                ? null
+                                : String(row.id),
+                            )
+                          }
+                          aria-expanded={expandedRowId === String(row.id)}
+                          className="flex w-full items-center justify-between gap-3 text-left"
+                        >
+                          <span className="text-[11px] font-semibold uppercase tracking-[0.11em] text-ink-muted">
+                            {relatedLabel ??
+                              label(fr, "Requested items", "Articles demandés")}
+                          </span>
+                          <span className="rounded-md bg-brand/8 px-2 py-1 text-xs font-semibold text-brand">
+                            {relatedItems.length}{" "}
+                            {label(fr, "item(s)", "article(s)")} ·{" "}
+                            {expandedRowId === String(row.id)
+                              ? label(fr, "Close", "Réduire")
+                              : label(fr, "View", "Voir")}
+                          </span>
+                        </button>
+                        <div className="mt-2 space-y-1.5">
+                          {(expandedRowId === String(row.id)
+                            ? relatedItems
+                            : relatedItems.slice(0, 2)
+                          ).map((item, itemIndex) => (
+                            <div
+                              key={String(
+                                item.id || `${row.id}-item-${itemIndex}`,
+                              )}
+                              className="flex items-center justify-between gap-3 rounded-lg px-1 py-1 text-xs"
+                            >
+                              <span className="min-w-0 truncate text-ink-secondary">
+                                {String(item.description ?? item.name ?? "—")}
+                              </span>
+                              <span className="flex shrink-0 items-center gap-2 font-medium text-ink">
+                                <span>
+                                  {String(
+                                    item.requestedQuantity ??
+                                      item.orderedQuantity ??
+                                      item.receivedQuantity ??
+                                      "—",
+                                  )}{" "}
+                                  {String(item.unit ?? "")}
+                                </span>
+                                {recordIsDraft && onEditRelatedRow ? (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => onEditRelatedRow(item)}
+                                  >
+                                    <Pencil className="size-3.5" />
+                                    {label(fr, "Edit", "Modifier")}
+                                  </Button>
+                                ) : null}
+                              </span>
+                            </div>
+                          ))}
+                          {relatedItems.length > 2 &&
+                          expandedRowId !== String(row.id) ? (
+                            <button
+                              type="button"
+                              onClick={() => setExpandedRowId(String(row.id))}
+                              className="pt-1 text-xs font-medium text-brand hover:underline"
+                            >
+                              +{relatedItems.length - 2}{" "}
+                              {label(fr, "more item(s)", "autre(s) article(s)")}{" "}
+                              · {label(fr, "Open all", "Ouvrir tout")}
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : null}
+                    {actorName || timestamp ? (
+                      <p className="flex flex-wrap gap-x-1.5 gap-y-0.5 border-t border-border/70 pt-3 text-[11px] leading-4 text-ink-muted">
+                        <span className="font-medium text-ink-secondary">
+                          {auditAction(row.lastAction)}
+                        </span>
+                        {actorName ? (
+                          <>
+                            <span>·</span>
+                            <span>
+                              {fr ? "par" : "by"} {actorName}
+                            </span>
+                          </>
+                        ) : null}
+                        {actorRole ? (
+                          <>
+                            <span>·</span>
+                            <span>{actorRole}</span>
+                          </>
+                        ) : null}
+                        {timestamp ? (
+                          <>
+                            <span>·</span>
+                            <time
+                              dateTime={String(
+                                row.lastActionAt ?? row.createdAt,
+                              )}
+                            >
+                              {timestamp}
+                            </time>
+                          </>
+                        ) : null}
+                      </p>
+                    ) : null}
+                  </div>
+                  {recordCanSubmit ||
+                  (onReject &&
+                    String(row.status) === "draft" &&
+                    (!canRejectRow || canRejectRow(row))) ||
+                  (onVerify && (!canVerifyRow || canVerifyRow(row))) ||
+                  (onAddItem &&
+                    String(row.status) === "draft" &&
+                    (!canAddItemRow || canAddItemRow(row))) ||
+                  (onReturnToDraft &&
+                    String(row.status) !== "draft" &&
+                    (!canReturnRow || canReturnRow(row))) ||
+                  (onCancel && (!canCancelRow || canCancelRow(row))) ||
+                  (onEdit && rowCanEdit) ||
+                  (canDownloadPdf && orgSlug && pdfResource && row.id) ? (
+                    <footer className="flex flex-wrap justify-end gap-2 border-t border-border/70 bg-surface-2/30 px-4 py-3">
+                      {canDownloadPdf && orgSlug && pdfResource && row.id ? (
+                        <a
+                          href={orgApiUrl(
+                            orgSlug,
+                            `owner-management/procurement/${pdfResource}/${String(row.id)}/export.pdf`,
+                          )}
+                          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-brand/25 bg-brand/5 px-2.5 text-xs font-semibold text-brand transition-colors hover:bg-brand/10 focus:outline-none focus:ring-2 focus:ring-brand/30"
+                        >
+                          <Download className="size-3.5" />
+                          {label(fr, "Download PDF", "Télécharger le PDF")}
+                        </a>
+                      ) : null}
+                      {recordCanSubmit ? (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => onSubmit?.(row)}
+                        >
+                          <Send className="size-3.5" />
+                          {submitLabel ?? label(fr, "Submit", "Soumettre")}
+                        </Button>
+                      ) : null}
+                      {onReject &&
+                      String(row.status) === "draft" &&
+                      (!canRejectRow || canRejectRow(row)) ? (
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={() => onReject(row)}
+                        >
+                          {rejectLabel ??
+                            label(
+                              fr,
+                              "Reject delivery",
+                              "Refuser la livraison",
+                            )}
+                        </Button>
+                      ) : null}
+                      {onVerify && (!canVerifyRow || canVerifyRow(row)) ? (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => onVerify(row)}
+                        >
+                          {verifyLabel ??
+                            label(
+                              fr,
+                              "Verify receipt",
+                              "Vérifier la réception",
+                            )}
+                        </Button>
+                      ) : null}
+                      {onAddItem &&
+                      String(row.status) === "draft" &&
+                      (!canAddItemRow || canAddItemRow(row)) ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => onAddItem(row)}
+                        >
+                          <Plus className="size-3.5" />
+                          {addItemLabel ??
+                            (row.orderNumber
+                              ? label(
+                                  fr,
+                                  "Add additional item",
+                                  "Ajouter un article supplémentaire",
+                                )
+                              : label(fr, "Add item", "Ajouter un article"))}
+                        </Button>
+                      ) : null}
+                      {onReturnToDraft &&
+                      String(row.status) !== "draft" &&
+                      (!canReturnRow || canReturnRow(row)) ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => onReturnToDraft(row)}
+                        >
+                          <Pencil className="size-3.5" />
+                          {label(
+                            fr,
+                            "Return to draft",
+                            "Retourner en brouillon",
+                          )}
+                        </Button>
+                      ) : null}
+                      {onCancel && (!canCancelRow || canCancelRow(row)) ? (
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={() => onCancel(row)}
+                        >
+                          {cancelLabel ??
+                            label(fr, "Cancel order", "Annuler le bon")}
+                        </Button>
+                      ) : null}
+                      {onEdit && rowCanEdit ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => onEdit(row)}
+                        >
+                          <Pencil className="size-3.5" />
+                          {editLabel ?? label(fr, "Edit", "Modifier")}
+                        </Button>
+                      ) : null}
+                    </footer>
                   ) : null}
-                  {actorName || timestamp ? (
-                    <p className="flex flex-wrap gap-x-1.5 gap-y-0.5 border-t border-border/70 pt-3 text-[11px] leading-4 text-ink-muted">
-                      <span className="font-medium text-ink-secondary">{auditAction(row.lastAction)}</span>
-                      {actorName ? <><span>·</span><span>{fr ? "par" : "by"} {actorName}</span></> : null}
-                      {actorRole ? <><span>·</span><span>{actorRole}</span></> : null}
-                      {timestamp ? <><span>·</span><time dateTime={String(row.lastActionAt ?? row.createdAt)}>{timestamp}</time></> : null}
-                    </p>
-                  ) : null}
-                </div>
-                {(recordCanSubmit || (onReject && String(row.status) === "draft" && (!canRejectRow || canRejectRow(row))) || (onVerify && (!canVerifyRow || canVerifyRow(row))) || (onAddItem && String(row.status) === "draft" && (!canAddItemRow || canAddItemRow(row))) || (onReturnToDraft && String(row.status) !== "draft" && (!canReturnRow || canReturnRow(row))) || (onCancel && (!canCancelRow || canCancelRow(row))) || (onEdit && rowCanEdit) || (canDownloadPdf && orgSlug && pdfResource && row.id)) ? (
-                  <footer className="flex flex-wrap justify-end gap-2 border-t border-border/70 bg-surface-2/30 px-4 py-3">
-                    {canDownloadPdf && orgSlug && pdfResource && row.id ? (
-                      <a
-                        href={orgApiUrl(orgSlug, `owner-management/procurement/${pdfResource}/${String(row.id)}/export.pdf`)}
-                        className="inline-flex h-8 items-center gap-1.5 rounded-md border border-brand/25 bg-brand/5 px-2.5 text-xs font-semibold text-brand transition-colors hover:bg-brand/10 focus:outline-none focus:ring-2 focus:ring-brand/30"
-                      >
-                        <Download className="size-3.5" />
-                        {label(fr, "Download PDF", "Télécharger le PDF")}
-                      </a>
-                    ) : null}
-                    {recordCanSubmit ? (
-                      <Button size="sm" variant="secondary" onClick={() => onSubmit?.(row)}>
-                        <Send className="size-3.5" />
-                        {submitLabel ?? label(fr, "Submit", "Soumettre")}
-                      </Button>
-                    ) : null}
-                    {onReject && String(row.status) === "draft" && (!canRejectRow || canRejectRow(row)) ? (
-                      <Button size="sm" variant="destructive" onClick={() => onReject(row)}>
-                        {rejectLabel ?? label(fr, "Reject delivery", "Refuser la livraison")}
-                      </Button>
-                    ) : null}
-                    {onVerify && (!canVerifyRow || canVerifyRow(row)) ? (
-                      <Button size="sm" variant="secondary" onClick={() => onVerify(row)}>
-                        {verifyLabel ?? label(fr, "Verify receipt", "Vérifier la réception")}
-                      </Button>
-                    ) : null}
-                    {onAddItem && String(row.status) === "draft" && (!canAddItemRow || canAddItemRow(row)) ? (
-                      <Button size="sm" variant="ghost" onClick={() => onAddItem(row)}>
-                        <Plus className="size-3.5" />
-                        {addItemLabel ?? (row.orderNumber ? label(fr, "Add additional item", "Ajouter un article supplémentaire") : label(fr, "Add item", "Ajouter un article"))}
-                      </Button>
-                    ) : null}
-                    {onReturnToDraft && String(row.status) !== "draft" && (!canReturnRow || canReturnRow(row)) ? (
-                      <Button size="sm" variant="ghost" onClick={() => onReturnToDraft(row)}>
-                        <Pencil className="size-3.5" />
-                        {label(fr, "Return to draft", "Retourner en brouillon")}
-                      </Button>
-                    ) : null}
-                    {onCancel && (!canCancelRow || canCancelRow(row)) ? (
-                      <Button size="sm" variant="destructive" onClick={() => onCancel(row)}>
-                        {cancelLabel ?? label(fr, "Cancel order", "Annuler le bon")}
-                      </Button>
-                    ) : null}
-                    {onEdit && rowCanEdit ? (
-                      <Button size="sm" variant="ghost" onClick={() => onEdit(row)}>
-                        <Pencil className="size-3.5" />
-                        {editLabel ?? label(fr, "Edit", "Modifier")}
-                      </Button>
-                    ) : null}
-                  </footer>
-                ) : null}
-              </article>
-            );
+                </article>
+              );
             })}
             {rows.length > pageSize ? (
               <nav
                 className="flex flex-wrap items-center justify-between gap-3 border-t border-border/70 pt-4"
-                aria-label={label(fr, "Record pagination", "Pagination des enregistrements")}
+                aria-label={label(
+                  fr,
+                  "Record pagination",
+                  "Pagination des enregistrements",
+                )}
               >
                 <p className="text-xs text-ink-secondary">
-                  {label(fr, "Showing", "Affichage")} {firstItem}–{lastItem} {label(fr, "of", "sur")} {rows.length}
+                  {label(fr, "Showing", "Affichage")} {firstItem}–{lastItem}{" "}
+                  {label(fr, "of", "sur")} {rows.length}
                 </p>
                 <div className="flex items-center gap-2">
                   <Button
@@ -9275,7 +14069,9 @@ function ProcurementRecordsPanel({
                     size="sm"
                     variant="secondary"
                     disabled={currentPage >= totalPages - 1}
-                    onClick={() => setPage((value) => Math.min(totalPages - 1, value + 1))}
+                    onClick={() =>
+                      setPage((value) => Math.min(totalPages - 1, value + 1))
+                    }
                   >
                     {label(fr, "Next", "Suivant")}
                   </Button>
@@ -9286,12 +14082,22 @@ function ProcurementRecordsPanel({
         ) : (
           <EmptyState
             title={label(fr, "No record yet", "Aucun enregistrement")}
-            description={label(fr, "Add the first record for this project area.", "Ajoutez le premier enregistrement de cette zone du projet.")}
+            description={label(
+              fr,
+              "Add the first record for this project area.",
+              "Ajoutez le premier enregistrement de cette zone du projet.",
+            )}
             icon={Icon}
-            action={onAdd ? { label: label(fr, "Add", "Ajouter"), onClick: onAdd } : undefined}
+            action={
+              onAdd
+                ? { label: label(fr, "Add", "Ajouter"), onClick: onAdd }
+                : undefined
+            }
           />
         )}
-        {footer ? <div className="border-t border-border/70 pt-4">{footer}</div> : null}
+        {footer ? (
+          <div className="border-t border-border/70 pt-4">{footer}</div>
+        ) : null}
       </div>
     </section>
   );
@@ -9335,7 +14141,11 @@ function ProjectAssetPhoto({
             event.stopPropagation();
             setPreviewOpen(true);
           }}
-          aria-label={label(fr, `Open photo of ${title}`, `Ouvrir la photo de ${title}`)}
+          aria-label={label(
+            fr,
+            `Open photo of ${title}`,
+            `Ouvrir la photo de ${title}`,
+          )}
         >
           <img
             src={previewUrl}
@@ -9350,7 +14160,11 @@ function ProjectAssetPhoto({
       ) : (
         <span
           className="grid size-16 place-items-center rounded-xl border border-dashed border-border bg-surface-2 text-ink-muted sm:size-20"
-          aria-label={label(fr, "No equipment photo", "Aucune photo d’équipement")}
+          aria-label={label(
+            fr,
+            "No equipment photo",
+            "Aucune photo d’équipement",
+          )}
         >
           <FileImage className="size-5" />
         </span>
@@ -9372,7 +14186,10 @@ function ProjectAssetPhoto({
                 <p className="text-xs font-semibold uppercase tracking-[.13em] text-brand">
                   {label(fr, "Equipment photo", "Photo de l’équipement")}
                 </p>
-                <h2 id={`project-asset-photo-${asset.id}`} className="mt-1 truncate text-lg font-semibold text-ink">
+                <h2
+                  id={`project-asset-photo-${asset.id}`}
+                  className="mt-1 truncate text-lg font-semibold text-ink"
+                >
                   {title}
                 </h2>
               </div>
@@ -9412,48 +14229,146 @@ function BudgetChangeHistory({
 }) {
   const changes = rows.flatMap((row) => {
     try {
-      const parsed = JSON.parse(String(row.status ?? "")) as Record<string, unknown>;
+      const parsed = JSON.parse(String(row.status ?? "")) as Record<
+        string,
+        unknown
+      >;
       const before = Number(parsed.before ?? 0);
       const after = Number(parsed.after ?? 0);
       if (!Number.isFinite(before) || !Number.isFinite(after)) return [];
-      return [{
-        id: `${String(row.id)}-${String(row.occurredAt ?? "")}`, title: String(row.title ?? ""),
-        actorName: String(row.actorName ?? "").trim(), occurredAt: row.occurredAt,
-        scope: String(parsed.scope ?? "project"), before, after,
-        difference: Number(parsed.difference ?? after - before),
-        currencyCode: String(parsed.currencyCode ?? defaultCurrency ?? "CDF"),
-        justification: String(parsed.justification ?? "").trim(),
-      }];
-    } catch { return []; }
+      return [
+        {
+          id: `${String(row.id)}-${String(row.occurredAt ?? "")}`,
+          title: String(row.title ?? ""),
+          actorName: String(row.actorName ?? "").trim(),
+          occurredAt: row.occurredAt,
+          scope: String(parsed.scope ?? "project"),
+          before,
+          after,
+          difference: Number(parsed.difference ?? after - before),
+          currencyCode: String(parsed.currencyCode ?? defaultCurrency ?? "CDF"),
+          justification: String(parsed.justification ?? "").trim(),
+        },
+      ];
+    } catch {
+      return [];
+    }
   });
   const formattedDate = (value: unknown) => {
     const parsed = new Date(String(value ?? ""));
-    return Number.isNaN(parsed.getTime()) ? "—" : new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(parsed);
+    return Number.isNaN(parsed.getTime())
+      ? "—"
+      : new Intl.DateTimeFormat(locale, {
+          dateStyle: "medium",
+          timeStyle: "short",
+        }).format(parsed);
   };
   return (
     <Panel
       title={label(fr, "Budget change history", "Historique des budgets")}
-      subtitle={label(fr, "Every budget increase or reduction is retained with the previous amount, new amount, person and date.", "Chaque augmentation ou réduction est conservée avec l’ancien montant, le nouveau montant, la personne et la date.")}
+      subtitle={label(
+        fr,
+        "Every budget increase or reduction is retained with the previous amount, new amount, person and date.",
+        "Chaque augmentation ou réduction est conservée avec l’ancien montant, le nouveau montant, la personne et la date.",
+      )}
       icon={ClipboardList}
     >
-      {changes.length ? <div className="max-h-[28rem] space-y-3 overflow-y-auto pr-1">
-        {changes.map((change) => {
-          const increased = change.difference > 0.0001;
-          const decreased = change.difference < -0.0001;
-          const scope = change.scope === "task" ? label(fr, "Task budget", "Budget de la tâche") : label(fr, "Project budget", "Budget du projet");
-          return <article key={change.id} className="rounded-2xl border border-brand/20 bg-surface-2/45 p-4">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div><p className="text-sm font-semibold text-ink">{scope}{change.scope === "task" && change.title ? ` · ${change.title}` : ""}</p><p className="mt-1 text-xs text-ink-secondary">{increased ? label(fr, "Budget increased", "Budget augmenté") : decreased ? label(fr, "Budget reduced", "Budget réduit") : label(fr, "Budget adjusted", "Budget ajusté")}</p></div>
-              <Badge variant={increased ? "good" : decreased ? "warning" : "neutral"}>{increased ? "+" : ""}{money(change.difference, change.currencyCode, locale)}</Badge>
-            </div>
-            <div className="mt-3 grid gap-2 sm:grid-cols-3">
-              {[[label(fr, "Previous", "Ancien"), change.before], [label(fr, "New", "Nouveau"), change.after], [label(fr, "Difference", "Écart"), change.difference]].map(([title, amount]) => <div key={String(title)} className="rounded-xl border border-border bg-surface-1 px-3 py-2.5"><p className="text-[10px] font-semibold uppercase tracking-[.1em] text-ink-muted">{title}</p><p className="mt-1 text-sm font-semibold tabular-nums text-ink">{money(amount, change.currencyCode, locale)}</p></div>)}
-            </div>
-            {change.justification ? <p className="mt-3 rounded-xl border border-amber-500/25 bg-amber-500/[0.07] px-3 py-2 text-xs leading-5 text-ink-secondary"><span className="font-semibold text-ink">{label(fr, "Owner justification", "Justification propriétaire")} · </span>{change.justification}</p> : null}
-            <p className="mt-3 border-t border-border pt-2.5 text-[11px] text-ink-muted">{change.actorName ? `${label(fr, "Changed by", "Modifié par")} ${change.actorName} · ` : ""}{formattedDate(change.occurredAt)}</p>
-          </article>;
-        })}
-      </div> : <EmptyState icon={ClipboardList} title={label(fr, "No budget change yet", "Aucun changement de budget")} description={label(fr, "The initial budget is recorded when the project or task is created. Every later adjustment will appear here.", "Le budget initial est enregistré lors de la création du projet ou de la tâche. Chaque ajustement ultérieur apparaîtra ici.")} />}
+      {changes.length ? (
+        <div className="max-h-[28rem] space-y-3 overflow-y-auto pr-1">
+          {changes.map((change) => {
+            const increased = change.difference > 0.0001;
+            const decreased = change.difference < -0.0001;
+            const scope =
+              change.scope === "task"
+                ? label(fr, "Task budget", "Budget de la tâche")
+                : label(fr, "Project budget", "Budget du projet");
+            return (
+              <article
+                key={change.id}
+                className="rounded-2xl border border-brand/20 bg-surface-2/45 p-4"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-ink">
+                      {scope}
+                      {change.scope === "task" && change.title
+                        ? ` · ${change.title}`
+                        : ""}
+                    </p>
+                    <p className="mt-1 text-xs text-ink-secondary">
+                      {increased
+                        ? label(fr, "Budget increased", "Budget augmenté")
+                        : decreased
+                          ? label(fr, "Budget reduced", "Budget réduit")
+                          : label(fr, "Budget adjusted", "Budget ajusté")}
+                    </p>
+                  </div>
+                  <Badge
+                    variant={
+                      increased ? "good" : decreased ? "warning" : "neutral"
+                    }
+                  >
+                    {increased ? "+" : ""}
+                    {money(change.difference, change.currencyCode, locale)}
+                  </Badge>
+                </div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                  {[
+                    [label(fr, "Previous", "Ancien"), change.before],
+                    [label(fr, "New", "Nouveau"), change.after],
+                    [label(fr, "Difference", "Écart"), change.difference],
+                  ].map(([title, amount]) => (
+                    <div
+                      key={String(title)}
+                      className="rounded-xl border border-border bg-surface-1 px-3 py-2.5"
+                    >
+                      <p className="text-[10px] font-semibold uppercase tracking-[.1em] text-ink-muted">
+                        {title}
+                      </p>
+                      <p className="mt-1 text-sm font-semibold tabular-nums text-ink">
+                        {money(amount, change.currencyCode, locale)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+                {change.justification ? (
+                  <p className="mt-3 rounded-xl border border-amber-500/25 bg-amber-500/[0.07] px-3 py-2 text-xs leading-5 text-ink-secondary">
+                    <span className="font-semibold text-ink">
+                      {label(
+                        fr,
+                        "Owner justification",
+                        "Justification propriétaire",
+                      )}{" "}
+                      ·{" "}
+                    </span>
+                    {change.justification}
+                  </p>
+                ) : null}
+                <p className="mt-3 border-t border-border pt-2.5 text-[11px] text-ink-muted">
+                  {change.actorName
+                    ? `${label(fr, "Changed by", "Modifié par")} ${change.actorName} · `
+                    : ""}
+                  {formattedDate(change.occurredAt)}
+                </p>
+              </article>
+            );
+          })}
+        </div>
+      ) : (
+        <EmptyState
+          icon={ClipboardList}
+          title={label(
+            fr,
+            "No budget change yet",
+            "Aucun changement de budget",
+          )}
+          description={label(
+            fr,
+            "The initial budget is recorded when the project or task is created. Every later adjustment will appear here.",
+            "Le budget initial est enregistré lors de la création du projet ou de la tâche. Chaque ajustement ultérieur apparaîtra ici.",
+          )}
+        />
+      )}
     </Panel>
   );
 }
@@ -9551,8 +14466,10 @@ function RecordsPanel({
           damagedQuantity: "Damaged",
           rejectedQuantity: "Rejected",
         };
-    if (quantityLabels[field]) return `${quantityLabels[field]} : ${quantity(value)}`;
-    if (field === "unit") return `${label(fr, "Unit", "Unité")} : ${String(value)}`;
+    if (quantityLabels[field])
+      return `${quantityLabels[field]} : ${quantity(value)}`;
+    if (field === "unit")
+      return `${label(fr, "Unit", "Unité")} : ${String(value)}`;
     if (field === "taskType")
       return String(value) === "milestone"
         ? label(fr, "Milestone", "Jalon")
@@ -9616,7 +14533,10 @@ function RecordsPanel({
   const currentPage = Math.min(page, totalPages - 1);
   const firstItem = rows.length ? currentPage * pageSize + 1 : 0;
   const lastItem = Math.min((currentPage + 1) * pageSize, rows.length);
-  const visibleRows = rows.slice(currentPage * pageSize, (currentPage + 1) * pageSize);
+  const visibleRows = rows.slice(
+    currentPage * pageSize,
+    (currentPage + 1) * pageSize,
+  );
 
   return (
     <Panel
@@ -9665,76 +14585,80 @@ function RecordsPanel({
                 tabIndex={onOpen ? 0 : undefined}
               >
                 <div className="flex min-w-0 flex-1 items-start gap-3">
-                  {leading ? <div className="shrink-0">{leading(row)}</div> : null}
-                  <div className="min-w-0 flex-1">
-                  <p className="flex items-center gap-1.5 truncate text-sm font-semibold text-ink">
-                    {String(row.visibility ?? "company") !== "company" ||
-                    row.isLocked ? (
-                      <Lock
-                        className="size-3.5 shrink-0 text-amber-600"
-                        aria-label={label(fr, "Restricted", "Restreint")}
-                      />
-                    ) : null}
-                    {String(
-                      row.name ??
-                        row.title ??
-                        row.code ??
-                        row.requestNumber ??
-                        row.orderNumber ??
-                        row.expenseNumber ??
-                        row.assetNumber ??
-                        row.workOrderNumber ??
-                        "—",
-                    )}
-                  </p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {fields
-                      .map((field) =>
-                        row[field] == null || row[field] === ""
-                          ? null
-                          : displayField(field, row[field]),
-                      )
-                      .filter(Boolean)
-                      .map((detail, detailIndex) => (
-                        <span
-                          key={`${String(row.id)}-${detailIndex}`}
-                          className="rounded-lg border border-border bg-surface-2 px-2.5 py-1.5 text-xs leading-4 text-ink-secondary"
-                        >
-                          {detail}
-                        </span>
-                      ))}
-                  </div>
-                  {actorName || timestamp ? (
-                    <p className="mt-3 flex flex-wrap gap-x-1.5 gap-y-0.5 border-t border-border pt-2.5 text-[11px] leading-4 text-ink-muted">
-                      <span className="font-medium text-ink-secondary">
-                        {auditAction(row.lastAction)}
-                      </span>
-                      {actorName ? (
-                        <>
-                          <span>·</span>
-                          <span>
-                            {fr ? "par" : "by"} {actorName}
-                          </span>
-                        </>
-                      ) : null}
-                      {actorRole ? (
-                        <>
-                          <span>·</span>
-                          <span>{actorRole}</span>
-                        </>
-                      ) : null}
-                      {timestamp ? (
-                        <>
-                          <span>·</span>
-                          <time
-                            dateTime={String(row.lastActionAt ?? row.createdAt)}
-                          >
-                            {timestamp}
-                          </time>
-                        </>
-                      ) : null}
-                    </p>
+                  {leading ? (
+                    <div className="shrink-0">{leading(row)}</div>
                   ) : null}
+                  <div className="min-w-0 flex-1">
+                    <p className="flex items-center gap-1.5 truncate text-sm font-semibold text-ink">
+                      {String(row.visibility ?? "company") !== "company" ||
+                      row.isLocked ? (
+                        <Lock
+                          className="size-3.5 shrink-0 text-amber-600"
+                          aria-label={label(fr, "Restricted", "Restreint")}
+                        />
+                      ) : null}
+                      {String(
+                        row.name ??
+                          row.title ??
+                          row.code ??
+                          row.requestNumber ??
+                          row.orderNumber ??
+                          row.expenseNumber ??
+                          row.assetNumber ??
+                          row.workOrderNumber ??
+                          "—",
+                      )}
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {fields
+                        .map((field) =>
+                          row[field] == null || row[field] === ""
+                            ? null
+                            : displayField(field, row[field]),
+                        )
+                        .filter(Boolean)
+                        .map((detail, detailIndex) => (
+                          <span
+                            key={`${String(row.id)}-${detailIndex}`}
+                            className="rounded-lg border border-border bg-surface-2 px-2.5 py-1.5 text-xs leading-4 text-ink-secondary"
+                          >
+                            {detail}
+                          </span>
+                        ))}
+                    </div>
+                    {actorName || timestamp ? (
+                      <p className="mt-3 flex flex-wrap gap-x-1.5 gap-y-0.5 border-t border-border pt-2.5 text-[11px] leading-4 text-ink-muted">
+                        <span className="font-medium text-ink-secondary">
+                          {auditAction(row.lastAction)}
+                        </span>
+                        {actorName ? (
+                          <>
+                            <span>·</span>
+                            <span>
+                              {fr ? "par" : "by"} {actorName}
+                            </span>
+                          </>
+                        ) : null}
+                        {actorRole ? (
+                          <>
+                            <span>·</span>
+                            <span>{actorRole}</span>
+                          </>
+                        ) : null}
+                        {timestamp ? (
+                          <>
+                            <span>·</span>
+                            <time
+                              dateTime={String(
+                                row.lastActionAt ?? row.createdAt,
+                              )}
+                            >
+                              {timestamp}
+                            </time>
+                          </>
+                        ) : null}
+                      </p>
+                    ) : null}
                   </div>
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
@@ -9776,10 +14700,15 @@ function RecordsPanel({
           {rows.length > pageSize ? (
             <nav
               className="flex flex-wrap items-center justify-between gap-3 border-t border-border/70 pt-4"
-              aria-label={label(fr, "Record pagination", "Pagination des enregistrements")}
+              aria-label={label(
+                fr,
+                "Record pagination",
+                "Pagination des enregistrements",
+              )}
             >
               <p className="text-xs text-ink-secondary">
-                {label(fr, "Showing", "Affichage")} {firstItem}–{lastItem} {label(fr, "of", "sur")} {rows.length}
+                {label(fr, "Showing", "Affichage")} {firstItem}–{lastItem}{" "}
+                {label(fr, "of", "sur")} {rows.length}
               </p>
               <div className="flex items-center gap-2">
                 <Button
@@ -9799,7 +14728,9 @@ function RecordsPanel({
                   size="sm"
                   variant="secondary"
                   disabled={currentPage >= totalPages - 1}
-                  onClick={() => setPage((value) => Math.min(totalPages - 1, value + 1))}
+                  onClick={() =>
+                    setPage((value) => Math.min(totalPages - 1, value + 1))
+                  }
                 >
                   {label(fr, "Next", "Suivant")}
                 </Button>
@@ -9851,7 +14782,12 @@ function DependencyPanel({
   const sourceNames = new Map(
     sources.map((row) => [
       row.id,
-      String(row.name ?? row.title ?? row.code ?? row.id),
+      [
+        String(row.name ?? row.title ?? row.code ?? row.id),
+        row.projectName ? String(row.projectName) : null,
+      ]
+        .filter(Boolean)
+        .join(" · "),
     ]),
   );
 
@@ -9954,42 +14890,817 @@ function ProductionProfitabilityPanel({
   const profit = number(data.profit);
   const margin = number(data.marginPercent);
   const noRecordedCost = number(data.operationalCost) === 0;
-  const eggsRemaining = Math.max(number(data.eggsProduced) - number(data.eggsSold), 0);
+  const eggsRemaining = Math.max(
+    number(data.eggsProduced) - number(data.eggsSold),
+    0,
+  );
+  const costs = data.costBreakdown ?? {};
+  const costItems = [
+    ["animals", label(fr, "Animal acquisition", "Achat des animaux")],
+    ["feed", label(fr, "Feed distributed", "Aliment distribué")],
+    ["health", label(fr, "Vaccines & treatments", "Vaccins et traitements")],
+    ["labour", label(fr, "Labour", "Main-d’œuvre")],
+    ["transport", label(fr, "Transport", "Transport")],
+    ["utilities", label(fr, "Water & electricity", "Eau et électricité")],
+    [
+      "equipment_depreciation",
+      label(fr, "Equipment depreciation", "Amortissement équipement"),
+    ],
+    [
+      "other",
+      label(fr, "Other production costs", "Autres coûts de production"),
+    ],
+  ] as const;
+  const flocks = data.flocks ?? [];
 
   return (
     <Panel
       icon={BarChart3}
-      title={label(fr, "Poultry production profitability", "Rentabilité de production avicole")}
+      title={label(
+        fr,
+        "Poultry production profitability",
+        "Rentabilité de production avicole",
+      )}
       subtitle={label(
         fr,
-        "Automatically connects the flock linked to this project with its delivered egg and bird sales. Project receipts and approved direct expenses remain the recorded operating costs.",
-        "Relie automatiquement le lot de ce projet aux ventes livrées d’œufs et de volailles. Les réceptions du projet et dépenses directes approuvées restent les coûts opérationnels enregistrés.",
+        "Each linked flock keeps its own costs, delivered sales and customer cash position. A delivery creates revenue; payment changes cash only.",
+        "Chaque lot lié conserve ses coûts, ses ventes livrées et son encaissement client. Une livraison crée une recette ; le paiement change seulement la trésorerie.",
       )}
     >
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <ProfitabilityMetric label={label(fr, "Sales revenue", "Recettes des ventes")} value={money(data.revenue, currency, locale)} tone="text-emerald-700" />
-        <ProfitabilityMetric label={label(fr, "Operating cost", "Coûts opérationnels")} value={money(data.operationalCost, currency, locale)} tone="text-rose-700" />
-        <ProfitabilityMetric label={label(fr, "Operating profit", "Résultat opérationnel")} value={money(profit, currency, locale)} tone={profit < 0 ? "text-critical" : "text-brand"} />
-        <ProfitabilityMetric label={label(fr, "Cash received", "Encaissements clients")} value={money(data.cashReceived, currency, locale)} tone="text-ink" />
+        <ProfitabilityMetric
+          label={label(fr, "Delivery revenue", "Recettes livrées")}
+          value={money(data.revenue, currency, locale)}
+          tone="text-emerald-700"
+        />
+        <ProfitabilityMetric
+          label={label(
+            fr,
+            "Real production costs",
+            "Coûts réels de production",
+          )}
+          value={money(data.operationalCost, currency, locale)}
+          tone="text-rose-700"
+        />
+        <ProfitabilityMetric
+          label={label(fr, "Operating result", "Résultat opérationnel")}
+          value={money(profit, currency, locale)}
+          tone={profit < 0 ? "text-critical" : "text-brand"}
+        />
+        <ProfitabilityMetric
+          label={label(fr, "Cash received", "Encaissements reçus")}
+          value={money(data.cashReceived, currency, locale)}
+          tone="text-ink"
+        />
+      </div>
+      <div className="mt-4 rounded-xl border border-sky-500/25 bg-sky-500/[.06] px-4 py-3 text-sm leading-5 text-ink-secondary">
+        <span className="font-semibold text-ink">
+          {label(
+            fr,
+            "Revenue is not cash.",
+            "La recette n’est pas l’encaissement.",
+          )}
+        </span>{" "}
+        {label(
+          fr,
+          "A confirmed delivery increases revenue and customer balance. Only a customer payment increases cash received.",
+          "Une livraison confirmée augmente la recette et le solde client. Seul un paiement client augmente l’encaissement.",
+        )}
       </div>
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        <EggVolumeCard label={label(fr, "Total œufs produits", "Total eggs produced")} value={number(data.eggsProduced).toLocaleString(locale)} tone="sky" />
-        <EggVolumeCard label={label(fr, "Œufs vendus", "Eggs sold")} value={number(data.eggsSold).toLocaleString(locale)} tone="emerald" />
-        <EggVolumeCard label={label(fr, "Œufs restants", "Eggs remaining")} value={eggsRemaining.toLocaleString(locale)} tone="amber" />
+        <EggVolumeCard
+          label={label(fr, "Total œufs produits", "Total eggs produced")}
+          value={number(data.eggsProduced).toLocaleString(locale)}
+          tone="sky"
+        />
+        <EggVolumeCard
+          label={label(fr, "Œufs vendus", "Eggs sold")}
+          value={number(data.eggsSold).toLocaleString(locale)}
+          tone="emerald"
+        />
+        <EggVolumeCard
+          label={label(fr, "Œufs restants", "Eggs remaining")}
+          value={eggsRemaining.toLocaleString(locale)}
+          tone="amber"
+        />
       </div>
       <div className="mt-3 grid gap-3 rounded-xl border border-border bg-surface-2/45 p-4 sm:grid-cols-3">
-        <Info label={label(fr, "Linked flocks", "Lots liés")} value={String(data.linkedFlockCount)} />
-        <Info label={label(fr, "Birds sold", "Birds sold")} value={number(data.birdsSold).toLocaleString(locale)} />
-        <Info label={label(fr, "Margin", "Marge")} value={`${margin.toFixed(1)}%`} />
+        <Info
+          label={label(fr, "Linked flocks", "Lots liés")}
+          value={String(data.linkedFlockCount)}
+        />
+        <Info
+          label={label(fr, "Birds sold", "Birds sold")}
+          value={number(data.birdsSold).toLocaleString(locale)}
+        />
+        <Info
+          label={label(fr, "Margin", "Marge")}
+          value={`${margin.toFixed(1)}%`}
+        />
       </div>
-      <div className="mt-4 grid gap-3 text-sm text-ink-secondary sm:grid-cols-3">
-        <p>{label(fr, "Customer balance", "Solde client")} · <span className="font-semibold text-ink">{money(data.outstandingRevenue, currency, locale)}</span></p>
-        <p>{label(fr, "Cost per egg produced", "Coût par œuf produit")} · <span className="font-semibold text-ink">{number(data.eggsProduced) > 0 ? money(data.costPerEggProduced, currency, locale) : "—"}</span></p>
-        <p>{label(fr, "Declared flock value (reference)", "Valeur déclarée des lots (référence)")} · <span className="font-semibold text-ink">{money(data.declaredFlockPurchaseCost, currency, locale)}</span></p>
+      <div className="mt-4 grid gap-3 text-sm text-ink-secondary sm:grid-cols-4">
+        <p>
+          {label(fr, "Customer balance", "Solde client")} ·{" "}
+          <span className="font-semibold text-ink">
+            {money(data.outstandingRevenue, currency, locale)}
+          </span>
+        </p>
+        <p>
+          {label(fr, "Cost per egg produced", "Coût par œuf produit")} ·{" "}
+          <span className="font-semibold text-ink">
+            {number(data.eggsProduced) > 0
+              ? money(data.costPerEggProduced, currency, locale)
+              : "—"}
+          </span>
+        </p>
+        <p>
+          {label(fr, "Cost per bird sold", "Coût par poulet vendu")} ·{" "}
+          <span className="font-semibold text-ink">
+            {number(data.birdsSold) > 0
+              ? money(data.costPerBirdSold ?? 0, currency, locale)
+              : "—"}
+          </span>
+        </p>
+        <p>
+          {label(fr, "Declared flock purchase", "Achat déclaré des lots")} ·{" "}
+          <span className="font-semibold text-ink">
+            {money(data.declaredFlockPurchaseCost, currency, locale)}
+          </span>
+        </p>
       </div>
-      {noRecordedCost ? <p className="mt-4 rounded-xl border border-warning/30 bg-warning/5 px-3 py-2 text-sm leading-5 text-ink-secondary">{label(fr, "No operating cost is recorded yet. Confirm a project receipt or approve a direct expense to include the purchase, feed, health, transport or labour cost here.", "Aucun coût opérationnel n’est encore enregistré. Confirmez une réception du projet ou approuvez une dépense directe pour inclure l’achat, l’aliment, la santé, le transport ou la main-d’œuvre ici.")}</p> : null}
-      <p className="mt-3 text-xs leading-5 text-ink-muted">{label(fr, "Supplier payments do not change this result again: the related receipt is already counted once as a project cost.", "Les paiements fournisseurs ne modifient pas ce résultat une seconde fois : la réception liée est déjà comptée une seule fois comme coût du projet.")}</p>
+      <section className="mt-5 rounded-xl border border-border bg-surface-2/35 p-4">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <div>
+            <h3 className="text-sm font-semibold text-ink">
+              {label(fr, "Actual costs by type", "Coûts réels par type")}
+            </h3>
+            <p className="mt-1 text-xs leading-5 text-ink-muted">
+              {label(
+                fr,
+                "Feed is costed on issue to the flock. Direct production expenses and eligible service receipts are allocated by the starting number of birds.",
+                "L’aliment est valorisé lors de sa distribution au lot. Les dépenses directes et services admissibles sont répartis selon l’effectif de départ.",
+              )}
+            </p>
+          </div>
+          <span className="text-sm font-semibold tabular-nums text-ink">
+            {money(data.operationalCost, currency, locale)}
+          </span>
+        </div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          {costItems.map(([key, itemLabel]) => (
+            <ProductionCostItem
+              key={key}
+              label={itemLabel}
+              value={money(costs[key] ?? 0, currency, locale)}
+            />
+          ))}
+        </div>
+      </section>
+      {flocks.length ? (
+        <section className="mt-5 rounded-xl border border-border bg-surface-2/35 p-4">
+          <div>
+            <h3 className="text-sm font-semibold text-ink">
+              {label(fr, "Result by flock", "Résultat par lot")}
+            </h3>
+            <p className="mt-1 text-xs leading-5 text-ink-muted">
+              {label(
+                fr,
+                "See the true cost, delivery revenue and cash position of each flock linked to this project.",
+                "Consultez le coût réel, les recettes livrées et la trésorerie de chaque lot lié à ce projet.",
+              )}
+            </p>
+          </div>
+          <div className="mt-3 grid gap-3 xl:grid-cols-2">
+            {flocks.map((flock) => {
+              const flockProfit = number(flock.profit);
+              const flockCosts = flock.costBreakdown ?? {};
+              return (
+                <article
+                  key={String(flock.id)}
+                  className="rounded-xl border border-border bg-surface p-4 shadow-sm"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <h4 className="font-semibold text-ink">
+                        {String(
+                          flock.name || flock.code || label(fr, "Flock", "Lot"),
+                        )}
+                      </h4>
+                      {flock.code && flock.name ? (
+                        <p className="mt-0.5 text-xs text-ink-muted">
+                          {String(flock.code)}
+                        </p>
+                      ) : null}
+                    </div>
+                    <span
+                      className={`rounded-full px-2.5 py-1 text-xs font-semibold ${flockProfit < 0 ? "bg-critical/10 text-critical" : "bg-emerald-500/10 text-emerald-800 dark:text-emerald-300"}`}
+                    >
+                      {money(flockProfit, currency, locale)}
+                    </span>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    <Info
+                      label={label(fr, "Real cost", "Coût réel")}
+                      value={money(
+                        flock.operationalCost ?? 0,
+                        currency,
+                        locale,
+                      )}
+                    />
+                    <Info
+                      label={label(fr, "Delivery revenue", "Recettes livrées")}
+                      value={money(flock.revenue ?? 0, currency, locale)}
+                    />
+                    <Info
+                      label={label(fr, "Cash received", "Encaissements")}
+                      value={money(flock.cashReceived ?? 0, currency, locale)}
+                    />
+                    <Info
+                      label={label(fr, "Customer balance", "Solde client")}
+                      value={money(
+                        flock.outstandingRevenue ?? 0,
+                        currency,
+                        locale,
+                      )}
+                    />
+                  </div>
+                  <div className="mt-3 grid gap-2 text-xs text-ink-secondary sm:grid-cols-3">
+                    <span>
+                      {label(fr, "Eggs", "Œufs")} ·{" "}
+                      <strong className="text-ink">
+                        {number(flock.eggsProduced).toLocaleString(locale)} /{" "}
+                        {number(flock.eggsSold).toLocaleString(locale)}
+                      </strong>
+                    </span>
+                    <span>
+                      {label(fr, "Cost / egg", "Coût / œuf")} ·{" "}
+                      <strong className="text-ink">
+                        {number(flock.eggsProduced) > 0
+                          ? money(
+                              flock.costPerEggProduced ?? 0,
+                              currency,
+                              locale,
+                            )
+                          : "—"}
+                      </strong>
+                    </span>
+                    <span>
+                      {label(fr, "Cost / bird", "Coût / poulet")} ·{" "}
+                      <strong className="text-ink">
+                        {number(flock.birdsSold) > 0
+                          ? money(flock.costPerBirdSold ?? 0, currency, locale)
+                          : "—"}
+                      </strong>
+                    </span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-ink-muted">
+                    {costItems
+                      .filter(([key]) => number(flockCosts[key]) > 0)
+                      .map(([key, itemLabel]) => (
+                        <span key={key}>
+                          {itemLabel} ·{" "}
+                          {money(flockCosts[key] ?? 0, currency, locale)}
+                        </span>
+                      ))}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
+      {noRecordedCost ? (
+        <p className="mt-4 rounded-xl border border-warning/30 bg-warning/5 px-3 py-2 text-sm leading-5 text-ink-secondary">
+          {label(
+            fr,
+            "No real production cost is recorded yet. Add the animal purchase to the flock, issue feed from stock, or approve a direct expense for health, labour, transport, water or electricity.",
+            "Aucun coût réel de production n’est encore enregistré. Ajoutez l’achat des animaux au lot, distribuez l’aliment depuis le stock ou approuvez une dépense directe de santé, main-d’œuvre, transport, eau ou électricité.",
+          )}
+        </p>
+      ) : null}
+      <p className="mt-3 text-xs leading-5 text-ink-muted">
+        {label(
+          fr,
+          "A supplier payment settles a debt only. It never adds a second cost after the received item or direct expense has already been counted.",
+          "Un paiement fournisseur règle seulement une dette. Il n’ajoute jamais un deuxième coût après la réception ou la dépense directe déjà comptée.",
+        )}
+      </p>
     </Panel>
+  );
+}
+
+function ProductionCostItem({
+  label: text,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-surface px-3 py-2">
+      <p className="text-[11px] font-medium text-ink-muted">{text}</p>
+      <p className="mt-1 text-sm font-semibold tabular-nums text-ink">
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function ProjectDecisionSimulationDialog({
+  orgSlug,
+  project,
+  fr,
+  locale,
+  onClose,
+}: {
+  orgSlug: string;
+  project: Project;
+  fr: boolean;
+  locale: string;
+  onClose: () => void;
+}) {
+  const emptyScenario = {
+    eggPriceChangePercent: 0,
+    feedCostChangePercent: 0,
+    mortalityPercent: 0,
+    saleDelayDays: 0,
+    budgetChangePercent: 0,
+  };
+  const [scenario, setScenario] = useState(emptyScenario);
+  const simulate = useMutation({
+    mutationFn: () =>
+      ownerManagementApi.projectDecisionSimulation<{
+        simulation: ProjectDecisionSimulation;
+      }>(orgSlug, project.id, scenario),
+  });
+  const result = simulate.data?.simulation;
+  const currency = result?.currencyCode ?? project.currencyCode ?? "CDF";
+  const updateScenario = (key: keyof typeof emptyScenario, raw: string) => {
+    const parsed = Number(raw);
+    setScenario((current) => ({
+      ...current,
+      [key]: Number.isFinite(parsed) ? parsed : 0,
+    }));
+  };
+  const signedMoney = (value: unknown) => {
+    const amountValue = number(value);
+    const sign = amountValue > 0 ? "+" : amountValue < 0 ? "−" : "";
+    return `${sign}${money(Math.abs(amountValue), currency, locale)}`;
+  };
+  const percentValue = (value: number | null | undefined) =>
+    value == null ? "—" : `${value.toFixed(1)}%`;
+
+  return (
+    <div className="fixed inset-0 z-[60] overflow-y-auto bg-ink/55 p-4 backdrop-blur-sm">
+      <div className="mx-auto my-6 max-w-5xl rounded-2xl border border-border bg-surface-1 shadow-2xl">
+        <div className="flex items-start justify-between gap-4 border-b border-border p-5 sm:p-6">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-brand">
+              <Calculator className="size-5" />
+              <p className="text-xs font-semibold uppercase tracking-[.13em]">
+                {label(
+                  fr,
+                  "Owner decision tool",
+                  "Outil de décision propriétaire",
+                )}
+              </p>
+            </div>
+            <h2 className="mt-2 text-xl font-semibold text-ink sm:text-2xl">
+              {label(fr, "Before you commit", "Simulation avant décision")}
+            </h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-ink-secondary">
+              {label(
+                fr,
+                "Test a price, feed, mortality, timing or budget change before it becomes a real purchase or expense.",
+                "Testez un changement de prix, d’aliment, de mortalité, de délai ou de budget avant qu’il ne devienne un achat ou une dépense réelle.",
+              )}
+            </p>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={onClose}
+            aria-label={label(fr, "Close", "Fermer")}
+          >
+            <X />
+          </Button>
+        </div>
+
+        <form
+          className="grid gap-5 p-5 sm:p-6 xl:grid-cols-[minmax(0,.78fr)_minmax(0,1.22fr)]"
+          onSubmit={(event) => {
+            event.preventDefault();
+            simulate.mutate();
+          }}
+        >
+          <section className="space-y-4">
+            <div className="rounded-2xl border border-brand/25 bg-brand-subtle/35 p-4">
+              <h3 className="text-sm font-semibold text-ink">
+                {label(fr, "Scenario assumptions", "Hypothèses du scénario")}
+              </h3>
+              <p className="mt-1 text-xs leading-5 text-ink-secondary">
+                {label(
+                  fr,
+                  "Leave a field at 0 when it should stay unchanged. The assumptions are never saved to the project.",
+                  "Laissez un champ à 0 lorsqu’il ne doit pas changer. Les hypothèses ne sont jamais enregistrées dans le projet.",
+                )}
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {[
+                  [
+                    "eggPriceChangePercent",
+                    -20,
+                    "Egg price −20%",
+                    "Prix de l’œuf −20 %",
+                  ],
+                  ["feedCostChangePercent", 15, "Feed +15%", "Aliment +15 %"],
+                  ["mortalityPercent", 5, "Mortality 5%", "Mortalité 5 %"],
+                  [
+                    "saleDelayDays",
+                    30,
+                    "Sale delayed 30 days",
+                    "Vente retardée de 30 j",
+                  ],
+                  ["budgetChangePercent", 10, "Budget +10%", "Budget +10 %"],
+                ].map(([key, value, english, french]) => (
+                  <button
+                    key={String(key)}
+                    type="button"
+                    onClick={() =>
+                      setScenario((current) => ({
+                        ...current,
+                        [key as keyof typeof emptyScenario]: Number(value),
+                      }))
+                    }
+                    className="rounded-full border border-brand/25 bg-surface-1 px-3 py-1.5 text-xs font-semibold text-brand transition hover:bg-brand hover:text-white"
+                  >
+                    {label(fr, String(english), String(french))}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field
+                label={label(
+                  fr,
+                  "Egg price change (%)",
+                  "Variation du prix de l’œuf (%)",
+                )}
+                htmlFor="simulationEggPrice"
+              >
+                <Input
+                  id="simulationEggPrice"
+                  type="number"
+                  step="0.1"
+                  value={scenario.eggPriceChangePercent}
+                  onChange={(event) =>
+                    updateScenario("eggPriceChangePercent", event.target.value)
+                  }
+                />
+              </Field>
+              <Field
+                label={label(
+                  fr,
+                  "Feed cost change (%)",
+                  "Variation du coût d’aliment (%)",
+                )}
+                htmlFor="simulationFeedCost"
+              >
+                <Input
+                  id="simulationFeedCost"
+                  type="number"
+                  step="0.1"
+                  value={scenario.feedCostChangePercent}
+                  onChange={(event) =>
+                    updateScenario("feedCostChangePercent", event.target.value)
+                  }
+                />
+              </Field>
+              <Field
+                label={label(
+                  fr,
+                  "Mortality in scenario (%)",
+                  "Mortalité dans le scénario (%)",
+                )}
+                htmlFor="simulationMortality"
+              >
+                <Input
+                  id="simulationMortality"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.1"
+                  value={scenario.mortalityPercent}
+                  onChange={(event) =>
+                    updateScenario("mortalityPercent", event.target.value)
+                  }
+                />
+              </Field>
+              <Field
+                label={label(
+                  fr,
+                  "Sales delay (days)",
+                  "Retard de vente (jours)",
+                )}
+                htmlFor="simulationDelay"
+              >
+                <Input
+                  id="simulationDelay"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={scenario.saleDelayDays}
+                  onChange={(event) =>
+                    updateScenario("saleDelayDays", event.target.value)
+                  }
+                />
+              </Field>
+              <Field
+                label={label(
+                  fr,
+                  "Budget change (%)",
+                  "Variation du budget (%)",
+                )}
+                htmlFor="simulationBudget"
+                className="sm:col-span-2"
+              >
+                <Input
+                  id="simulationBudget"
+                  type="number"
+                  step="0.1"
+                  value={scenario.budgetChangePercent}
+                  onChange={(event) =>
+                    updateScenario("budgetChangePercent", event.target.value)
+                  }
+                />
+              </Field>
+            </div>
+            {simulate.error ? (
+              <p className="rounded-xl border border-critical/35 bg-critical/10 px-3 py-2 text-sm text-critical">
+                {simulate.error instanceof ApiError
+                  ? simulate.error.message
+                  : label(
+                      fr,
+                      "The simulation could not be calculated.",
+                      "La simulation n’a pas pu être calculée.",
+                    )}
+              </p>
+            ) : null}
+            <div className="flex flex-wrap gap-3">
+              <Button type="submit" disabled={simulate.isPending}>
+                <Calculator />
+                {simulate.isPending
+                  ? label(fr, "Calculating…", "Calcul…")
+                  : label(fr, "Run simulation", "Simuler")}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setScenario(emptyScenario)}
+              >
+                {label(fr, "Reset", "Réinitialiser")}
+              </Button>
+            </div>
+          </section>
+
+          <section className="min-w-0 rounded-2xl border border-border bg-surface-2/45 p-4 sm:p-5">
+            {result ? (
+              <>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-base font-semibold text-ink">
+                      {label(
+                        fr,
+                        "Projected decision impact",
+                        "Impact projeté de la décision",
+                      )}
+                    </h3>
+                    <p className="mt-1 text-xs leading-5 text-ink-secondary">
+                      {label(
+                        fr,
+                        "Compared with the recorded project position.",
+                        "Comparé à la position réelle actuellement enregistrée.",
+                      )}
+                    </p>
+                  </div>
+                  <Badge
+                    variant={
+                      number(result.scenario.operatingResult) < 0
+                        ? "critical"
+                        : "good"
+                    }
+                  >
+                    {number(result.scenario.operatingResult) < 0
+                      ? label(fr, "Loss scenario", "Scénario déficitaire")
+                      : label(fr, "Viable scenario", "Scénario viable")}
+                  </Badge>
+                </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  <SimulationMetric
+                    label={label(fr, "ROI", "ROI")}
+                    value={percentValue(result.scenario.roiPercent)}
+                    tone={
+                      number(result.scenario.roiPercent) < 0
+                        ? "critical"
+                        : "good"
+                    }
+                  />
+                  <SimulationMetric
+                    label={label(fr, "Payback", "Retour sur investissement")}
+                    value={
+                      result.scenario.paybackDays == null
+                        ? "—"
+                        : `${result.scenario.paybackDays.toLocaleString(locale)} ${label(fr, "days", "jours")}`
+                    }
+                    tone="brand"
+                  />
+                  <SimulationMetric
+                    label={label(
+                      fr,
+                      "Break-even revenue",
+                      "Seuil de rentabilité",
+                    )}
+                    value={money(
+                      result.scenario.breakEvenRevenue,
+                      currency,
+                      locale,
+                    )}
+                    tone="ink"
+                  />
+                  <SimulationMetric
+                    label={label(fr, "Projected revenue", "Recettes projetées")}
+                    value={money(result.scenario.revenue, currency, locale)}
+                    tone="good"
+                  />
+                  <SimulationMetric
+                    label={label(fr, "Projected costs", "Coûts projetés")}
+                    value={money(
+                      result.scenario.operationalCost,
+                      currency,
+                      locale,
+                    )}
+                    tone="critical"
+                  />
+                  <SimulationMetric
+                    label={label(
+                      fr,
+                      "Operating result",
+                      "Résultat opérationnel",
+                    )}
+                    value={money(
+                      result.scenario.operatingResult,
+                      currency,
+                      locale,
+                    )}
+                    tone={
+                      number(result.scenario.operatingResult) < 0
+                        ? "critical"
+                        : "brand"
+                    }
+                  />
+                </div>
+                <div className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
+                  <SimulationImpact
+                    label={label(
+                      fr,
+                      "Egg-price impact",
+                      "Impact du prix de l’œuf",
+                    )}
+                    value={signedMoney(result.impacts.eggPriceRevenueChange)}
+                  />
+                  <SimulationImpact
+                    label={label(
+                      fr,
+                      "Feed-cost impact",
+                      "Impact du coût d’aliment",
+                    )}
+                    value={signedMoney(result.impacts.feedCostChange)}
+                  />
+                  <SimulationImpact
+                    label={label(
+                      fr,
+                      "Mortality revenue loss",
+                      "Perte de recette liée à la mortalité",
+                    )}
+                    value={`−${money(result.impacts.mortalityRevenueLoss, currency, locale)}`}
+                  />
+                  <SimulationImpact
+                    label={label(
+                      fr,
+                      "Investment after budget change",
+                      "Investissement après variation du budget",
+                    )}
+                    value={money(result.scenario.investment, currency, locale)}
+                  />
+                  <SimulationImpact
+                    label={label(fr, "Cash delayed", "Encaissement retardé")}
+                    value={
+                      result.scenario.cashArrivalDelayDays
+                        ? `${result.scenario.cashArrivalDelayDays} ${label(fr, "days", "jours")}`
+                        : label(fr, "No delay", "Aucun retard")
+                    }
+                  />
+                  <SimulationImpact
+                    label={label(
+                      fr,
+                      "Break-even price / egg",
+                      "Prix d’équilibre / œuf",
+                    )}
+                    value={
+                      result.scenario.breakEvenPricePerEgg == null
+                        ? "—"
+                        : money(
+                            result.scenario.breakEvenPricePerEgg,
+                            currency,
+                            locale,
+                          )
+                    }
+                  />
+                </div>
+                <p className="mt-4 rounded-xl border border-brand/20 bg-brand-subtle/35 px-3 py-2 text-xs leading-5 text-ink-secondary">
+                  {fr
+                    ? "Méthode : les recettes d’œufs enregistrées subissent le changement de prix ; la mortalité réduit la production vendable projetée ; seul le coût d’aliment varie avec son hypothèse. Le délai de vente prolonge le retour sur investissement, sans modifier la marge elle-même."
+                    : "Method: recorded egg revenue receives the price change; mortality reduces projected saleable production; only recorded feed cost receives the feed assumption. A sales delay extends payback without changing the operating margin itself."}
+                </p>
+                <p className="mt-2 text-xs leading-5 text-ink-muted">
+                  {label(
+                    fr,
+                    "Observed period used for the return estimate",
+                    "Période observée utilisée pour l’estimation du retour",
+                  )}{" "}
+                  · {result.method.observedDays} {label(fr, "days", "jours")}.{" "}
+                  {label(
+                    fr,
+                    "Nothing has been saved or changed.",
+                    "Aucune donnée n’a été enregistrée ni modifiée.",
+                  )}
+                </p>
+              </>
+            ) : (
+              <div className="flex min-h-80 flex-col items-center justify-center px-6 text-center">
+                <Calculator className="size-9 text-brand" />
+                <h3 className="mt-4 text-base font-semibold text-ink">
+                  {label(
+                    fr,
+                    "Ready for a safe projection",
+                    "Prêt pour une projection sans risque",
+                  )}
+                </h3>
+                <p className="mt-2 max-w-md text-sm leading-6 text-ink-secondary">
+                  {label(
+                    fr,
+                    "Set one or more assumptions, then run the simulation. Current project records remain unchanged.",
+                    "Définissez une ou plusieurs hypothèses, puis lancez la simulation. Les données actuelles du projet restent inchangées.",
+                  )}
+                </p>
+              </div>
+            )}
+          </section>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function SimulationMetric({
+  label: text,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: "good" | "critical" | "brand" | "ink";
+}) {
+  const tones = {
+    good: "border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200",
+    critical: "border-critical/30 bg-critical/10 text-critical",
+    brand: "border-brand/25 bg-brand-subtle text-brand",
+    ink: "border-border bg-surface-1 text-ink",
+  }[tone];
+  return (
+    <div className={`rounded-xl border p-3 ${tones}`}>
+      <p className="text-[11px] font-semibold uppercase tracking-[.1em] opacity-80">
+        {text}
+      </p>
+      <p className="mt-1 text-lg font-semibold tabular-nums">{value}</p>
+    </div>
+  );
+}
+
+function SimulationImpact({
+  label: text,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-surface-1 px-3 py-2">
+      <p className="text-[11px] text-ink-muted">{text}</p>
+      <p className="mt-1 text-sm font-semibold tabular-nums text-ink">
+        {value}
+      </p>
+    </div>
   );
 }
 
@@ -10004,12 +15715,16 @@ function EggVolumeCard({
 }) {
   const styles = {
     sky: "border-sky-500/30 bg-sky-500/10 text-sky-950 dark:text-sky-50",
-    emerald: "border-emerald-500/30 bg-emerald-500/10 text-emerald-950 dark:text-emerald-50",
-    amber: "border-amber-500/35 bg-amber-500/10 text-amber-950 dark:text-amber-50",
+    emerald:
+      "border-emerald-500/30 bg-emerald-500/10 text-emerald-950 dark:text-emerald-50",
+    amber:
+      "border-amber-500/35 bg-amber-500/10 text-amber-950 dark:text-amber-50",
   }[tone];
   return (
     <div className={`rounded-xl border p-4 shadow-sm ${styles}`}>
-      <p className="text-[11px] font-semibold uppercase tracking-[.1em] opacity-80">{text}</p>
+      <p className="text-[11px] font-semibold uppercase tracking-[.1em] opacity-80">
+        {text}
+      </p>
       <p className="mt-1 text-2xl font-bold tabular-nums">{value}</p>
     </div>
   );
@@ -10026,13 +15741,18 @@ function ProfitabilityMetric({
 }) {
   return (
     <div className="rounded-xl border border-border bg-surface-2/55 p-4">
-      <p className="text-[11px] font-semibold uppercase tracking-[.1em] text-ink-muted">{text}</p>
-      <p className={`mt-1 text-xl font-semibold tabular-nums ${tone}`}>{value}</p>
+      <p className="text-[11px] font-semibold uppercase tracking-[.1em] text-ink-muted">
+        {text}
+      </p>
+      <p className={`mt-1 text-xl font-semibold tabular-nums ${tone}`}>
+        {value}
+      </p>
     </div>
   );
 }
 
-function Metric({  label: text,
+function Metric({
+  label: text,
   value,
   icon: Icon,
   inverse = false,
@@ -10061,7 +15781,13 @@ function Metric({  label: text,
       >
         {value}
       </p>
-      {hint ? <p className={`mt-2 border-t pt-2 text-[10px] leading-4 ${inverse ? "border-white/10 text-sky-50/80" : "border-border text-ink-secondary"}`}>{hint}</p> : null}
+      {hint ? (
+        <p
+          className={`mt-2 border-t pt-2 text-[10px] leading-4 ${inverse ? "border-white/10 text-sky-50/80" : "border-border text-ink-secondary"}`}
+        >
+          {hint}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -10211,10 +15937,18 @@ function DocumentFolders({
   );
   const folderPageSize = 4;
   const [folderPage, setFolderPage] = useState(0);
-  const folderTotalPages = Math.max(1, Math.ceil(sorted.length / folderPageSize));
+  const folderTotalPages = Math.max(
+    1,
+    Math.ceil(sorted.length / folderPageSize),
+  );
   const currentFolderPage = Math.min(folderPage, folderTotalPages - 1);
-  const firstFolder = sorted.length ? currentFolderPage * folderPageSize + 1 : 0;
-  const lastFolder = Math.min((currentFolderPage + 1) * folderPageSize, sorted.length);
+  const firstFolder = sorted.length
+    ? currentFolderPage * folderPageSize + 1
+    : 0;
+  const lastFolder = Math.min(
+    (currentFolderPage + 1) * folderPageSize,
+    sorted.length,
+  );
   const visibleFolders = sorted.slice(
     currentFolderPage * folderPageSize,
     (currentFolderPage + 1) * folderPageSize,
@@ -10273,15 +16007,28 @@ function DocumentFolders({
           </header>
           <ul className="divide-y divide-brand/15">
             {recentDocuments.map((document) => (
-              <li key={document.id} className="flex items-center justify-between gap-3 px-4 py-3">
+              <li
+                key={document.id}
+                className="flex items-center justify-between gap-3 px-4 py-3"
+              >
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-ink">
-                    {String(document.title ?? label(fr, "Untitled document", "Document sans titre"))}
+                    {String(
+                      document.title ??
+                        label(fr, "Untitled document", "Document sans titre"),
+                    )}
                   </p>
                   <p className="mt-1 truncate text-xs text-ink-secondary">
-                    {String(document.documentCategoryName ?? document.documentType ?? label(fr, "Other", "Autre"))}
-                    {" · "}{String(document.mimeType ?? "—")}
-                    {" · "}{label(fr, "Added", "Ajouté le")} {date(document.createdAt, locale)}
+                    {String(
+                      document.documentCategoryName ??
+                        document.documentType ??
+                        label(fr, "Other", "Autre"),
+                    )}
+                    {" · "}
+                    {String(document.mimeType ?? "—")}
+                    {" · "}
+                    {label(fr, "Added", "Ajouté le")}{" "}
+                    {date(document.createdAt, locale)}
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
@@ -10293,7 +16040,10 @@ function DocumentFolders({
                     {label(fr, "Preview", "Aperçu")}
                   </button>
                   <a
-                    href={orgApiUrl(orgSlug, `files/${String(document.id)}/download`)}
+                    href={orgApiUrl(
+                      orgSlug,
+                      `files/${String(document.id)}/download`,
+                    )}
                     className="grid size-8 place-items-center rounded-md text-ink-secondary hover:bg-surface-3 hover:text-ink"
                     aria-label={label(fr, "Download", "Télécharger")}
                   >
@@ -10308,227 +16058,253 @@ function DocumentFolders({
       {sorted.length ? (
         <>
           <div className="grid gap-4 lg:grid-cols-2">
-          {visibleFolders.map((folder) => {
-            const isOpen = openFolder === folder.key;
-            return (
-              <article
-                key={folder.key}
-                className="overflow-hidden rounded-xl border border-border bg-surface-2"
-              >
-                <div className="flex items-stretch bg-surface-1">
-                  <button
-                  type="button"
-                  onClick={() =>
-                    setOpenFolder((current) =>
-                      current === folder.key ? null : folder.key,
-                    )
-                  }
-                  aria-expanded={isOpen}
-                  className="flex w-full items-center justify-between gap-3 bg-surface-1 px-4 py-3 text-left transition hover:bg-surface-2"
+            {visibleFolders.map((folder) => {
+              const isOpen = openFolder === folder.key;
+              return (
+                <article
+                  key={folder.key}
+                  className="overflow-hidden rounded-xl border border-border bg-surface-2"
                 >
-                  <span className="flex min-w-0 items-center gap-2">
-                    <FolderOpen className="size-4 shrink-0 text-brand" />
-                    <span className="min-w-0">
-                      <span className="flex items-center gap-1.5">
-                        <span className="truncate text-sm font-semibold text-ink">
-                          {folder.name}
-                        </span>
-                        {folder.visibility === "owner_only" ? (
-                          <Lock
-                            className="size-3.5 shrink-0 text-amber-700"
-                            aria-label={label(
-                              fr,
-                              "Owner only",
-                              "Propriétaire uniquement",
-                            )}
-                          />
-                        ) : null}
-                      </span>
-                      <span className="block text-xs text-ink-muted">
-                        {folder.documents.length}{" "}
-                        {label(fr, "document(s)", "document(s)")}
-                        {folder.visibility === "owner_only"
-                          ? ` · ${label(fr, "Owner only", "Propriétaire uniquement")}`
-                          : ""}
-                        {!folder.configured
-                          ? ` · ${label(fr, "legacy category", "catégorie existante")}`
-                          : ""}
-                      </span>
-                    </span>
-                  </span>
-                  <span className="flex shrink-0 items-center gap-2">
-                    <Badge variant="neutral">{titleCase(folder.code)}</Badge>
-                    <span className="text-xs font-semibold text-brand">
-                      {isOpen
-                        ? label(fr, "Close", "Fermer")
-                        : label(fr, "Open", "Ouvrir")}
-                    </span>
-                  </span>
-                  </button>
-                  {onToggleLock && folder.configured ? (
+                  <div className="flex items-stretch bg-surface-1">
                     <button
                       type="button"
                       onClick={() =>
-                        onToggleLock(
-                          folder.key,
-                          folder.visibility === "owner_only"
-                            ? "company"
-                            : "owner_only",
+                        setOpenFolder((current) =>
+                          current === folder.key ? null : folder.key,
                         )
                       }
-                      className={`m-2 grid size-9 shrink-0 place-items-center rounded-lg border transition ${
-                        folder.visibility === "owner_only"
-                          ? "border-amber-400/60 bg-amber-50 text-amber-800 hover:bg-amber-100"
-                          : "border-border bg-surface-2 text-ink-secondary hover:border-amber-400 hover:text-amber-800"
-                      }`}
-                      title={
-                        folder.visibility === "owner_only"
-                          ? label(fr, "Unlock folder", "Déverrouiller le dossier")
-                          : label(fr, "Lock folder", "Verrouiller le dossier")
-                      }
-                      aria-label={
-                        folder.visibility === "owner_only"
-                          ? label(fr, "Unlock folder", "Déverrouiller le dossier")
-                          : label(fr, "Lock folder", "Verrouiller le dossier")
-                      }
+                      aria-expanded={isOpen}
+                      className="flex w-full items-center justify-between gap-3 bg-surface-1 px-4 py-3 text-left transition hover:bg-surface-2"
                     >
-                      {folder.visibility === "owner_only" ? (
-                        <Unlock className="size-4" />
-                      ) : (
-                        <Lock className="size-4" />
-                      )}
+                      <span className="flex min-w-0 items-center gap-2">
+                        <FolderOpen className="size-4 shrink-0 text-brand" />
+                        <span className="min-w-0">
+                          <span className="flex items-center gap-1.5">
+                            <span className="truncate text-sm font-semibold text-ink">
+                              {folder.name}
+                            </span>
+                            {folder.visibility === "owner_only" ? (
+                              <Lock
+                                className="size-3.5 shrink-0 text-amber-700"
+                                aria-label={label(
+                                  fr,
+                                  "Owner only",
+                                  "Propriétaire uniquement",
+                                )}
+                              />
+                            ) : null}
+                          </span>
+                          <span className="block text-xs text-ink-muted">
+                            {folder.documents.length}{" "}
+                            {label(fr, "document(s)", "document(s)")}
+                            {folder.visibility === "owner_only"
+                              ? ` · ${label(fr, "Owner only", "Propriétaire uniquement")}`
+                              : ""}
+                            {!folder.configured
+                              ? ` · ${label(fr, "legacy category", "catégorie existante")}`
+                              : ""}
+                          </span>
+                        </span>
+                      </span>
+                      <span className="flex shrink-0 items-center gap-2">
+                        <Badge variant="neutral">
+                          {titleCase(folder.code)}
+                        </Badge>
+                        <span className="text-xs font-semibold text-brand">
+                          {isOpen
+                            ? label(fr, "Close", "Fermer")
+                            : label(fr, "Open", "Ouvrir")}
+                        </span>
+                      </span>
                     </button>
-                  ) : null}
-                </div>
-                {isOpen ? (
-                  folder.documents.length ? (
-                    <ul className="max-h-[28rem] divide-y divide-border overflow-y-auto border-t border-border">
-                      {folder.documents.map((document) => (
-                        <li
-                          key={document.id}
-                          className="flex items-center justify-between gap-3 px-4 py-3"
-                        >
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-medium text-ink">
-                              {String(
-                                document.title ??
-                                  label(
-                                    fr,
-                                    "Untitled document",
-                                    "Document sans titre",
-                                  ),
-                              )}
-                            </p>
-                            <p className="mt-2 flex flex-wrap gap-x-2 gap-y-1 text-xs leading-5 text-ink-secondary">
-                              {String(document.mimeType ?? "—")} ·{" "}
-                              {fileSize(document.fileSizeBytes)} ·{" "}
-                              {label(fr, "Added", "Ajouté le")} {date(document.createdAt, locale)}
-                            </p>
-                            {document.taskUsageSummary ? (
-                              <p className="mt-1 truncate text-xs font-medium text-ink-secondary">
-                                {label(fr, "Task", "Tâche")} :{" "}
-                                {String(document.taskUsageSummary)}
+                    {onToggleLock && folder.configured ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onToggleLock(
+                            folder.key,
+                            folder.visibility === "owner_only"
+                              ? "company"
+                              : "owner_only",
+                          )
+                        }
+                        className={`m-2 grid size-9 shrink-0 place-items-center rounded-lg border transition ${
+                          folder.visibility === "owner_only"
+                            ? "border-amber-400/60 bg-amber-50 text-amber-800 hover:bg-amber-100"
+                            : "border-border bg-surface-2 text-ink-secondary hover:border-amber-400 hover:text-amber-800"
+                        }`}
+                        title={
+                          folder.visibility === "owner_only"
+                            ? label(
+                                fr,
+                                "Unlock folder",
+                                "Déverrouiller le dossier",
+                              )
+                            : label(fr, "Lock folder", "Verrouiller le dossier")
+                        }
+                        aria-label={
+                          folder.visibility === "owner_only"
+                            ? label(
+                                fr,
+                                "Unlock folder",
+                                "Déverrouiller le dossier",
+                              )
+                            : label(fr, "Lock folder", "Verrouiller le dossier")
+                        }
+                      >
+                        {folder.visibility === "owner_only" ? (
+                          <Unlock className="size-4" />
+                        ) : (
+                          <Lock className="size-4" />
+                        )}
+                      </button>
+                    ) : null}
+                  </div>
+                  {isOpen ? (
+                    folder.documents.length ? (
+                      <ul className="max-h-[28rem] divide-y divide-border overflow-y-auto border-t border-border">
+                        {folder.documents.map((document) => (
+                          <li
+                            key={document.id}
+                            className="flex items-center justify-between gap-3 px-4 py-3"
+                          >
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium text-ink">
+                                {String(
+                                  document.title ??
+                                    label(
+                                      fr,
+                                      "Untitled document",
+                                      "Document sans titre",
+                                    ),
+                                )}
                               </p>
-                            ) : null}
-                            {document.taskAssigneeSummary ||
-                            document.uploadedByName ? (
-                              <p className="mt-1 truncate text-xs font-medium text-ink-secondary">
-                                {document.taskAssigneeSummary
-                                  ? `${label(fr, "Assigned to", "Affectée à")} ${String(document.taskAssigneeSummary)}`
-                                  : ""}
-                                {document.taskAssigneeSummary &&
-                                document.uploadedByName
-                                  ? " · "
-                                  : ""}
-                                {document.uploadedByName
-                                  ? `${label(fr, "Added by", "Ajoutée par")} ${String(document.uploadedByName)}`
-                                  : ""}
+                              <p className="mt-2 flex flex-wrap gap-x-2 gap-y-1 text-xs leading-5 text-ink-secondary">
+                                {String(document.mimeType ?? "—")} ·{" "}
+                                {fileSize(document.fileSizeBytes)} ·{" "}
+                                {label(fr, "Added", "Ajouté le")}{" "}
+                                {date(document.createdAt, locale)}
                               </p>
-                            ) : null}
-                          </div>
-                          <div className="flex shrink-0 items-center gap-1">
-                            <button
-                              type="button"
-                              onClick={() => onPreview(document)}
-                              className="rounded-md px-2 py-1.5 text-xs font-semibold text-brand hover:bg-brand-subtle"
-                            >
-                              {label(fr, "Preview", "Aperçu")}
-                            </button>
-                            <a
-                              href={orgApiUrl(
-                                orgSlug,
-                                `files/${String(document.id)}/download`,
-                              )}
-                              className="grid size-8 place-items-center rounded-md text-ink-secondary hover:bg-surface-3 hover:text-ink"
-                              aria-label={label(fr, "Download", "Télécharger")}
-                            >
-                              <Download className="size-4" />
-                            </a>
-                            {onConfigure ? (
+                              {document.taskUsageSummary ? (
+                                <p className="mt-1 truncate text-xs font-medium text-ink-secondary">
+                                  {label(fr, "Task", "Tâche")} :{" "}
+                                  {String(document.taskUsageSummary)}
+                                </p>
+                              ) : null}
+                              {document.taskAssigneeSummary ||
+                              document.uploadedByName ? (
+                                <p className="mt-1 truncate text-xs font-medium text-ink-secondary">
+                                  {document.taskAssigneeSummary
+                                    ? `${label(fr, "Assigned to", "Affectée à")} ${String(document.taskAssigneeSummary)}`
+                                    : ""}
+                                  {document.taskAssigneeSummary &&
+                                  document.uploadedByName
+                                    ? " · "
+                                    : ""}
+                                  {document.uploadedByName
+                                    ? `${label(fr, "Added by", "Ajoutée par")} ${String(document.uploadedByName)}`
+                                    : ""}
+                                </p>
+                              ) : null}
+                            </div>
+                            <div className="flex shrink-0 items-center gap-1">
                               <button
                                 type="button"
-                                onClick={() => onConfigure(document)}
+                                onClick={() => onPreview(document)}
+                                className="rounded-md px-2 py-1.5 text-xs font-semibold text-brand hover:bg-brand-subtle"
+                              >
+                                {label(fr, "Preview", "Aperçu")}
+                              </button>
+                              <a
+                                href={orgApiUrl(
+                                  orgSlug,
+                                  `files/${String(document.id)}/download`,
+                                )}
                                 className="grid size-8 place-items-center rounded-md text-ink-secondary hover:bg-surface-3 hover:text-ink"
                                 aria-label={label(
                                   fr,
-                                  "Manage document privacy",
-                                  "Gérer la confidentialité",
+                                  "Download",
+                                  "Télécharger",
                                 )}
                               >
-                                <Lock className="size-3.5" />
-                              </button>
-                            ) : null}
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <div className="border-t border-border px-4 py-5 text-sm text-ink-secondary">
-                      {label(
-                        fr,
-                        "No files in this folder yet.",
-                        "Aucun fichier dans ce dossier pour le moment.",
-                      )}
-                    </div>
-                  )
-                ) : null}
-              </article>
-            );
-          })}
-        </div>
-        {sorted.length > folderPageSize ? (
-          <nav
-            className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border/70 pt-4"
-            aria-label={label(fr, "Folder pagination", "Pagination des dossiers")}
-          >
-            <p className="text-xs text-ink-secondary">
-              {label(fr, "Showing", "Affichage")} {firstFolder}–{lastFolder} {label(fr, "of", "sur")} {sorted.length}
-            </p>
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                disabled={currentFolderPage === 0}
-                onClick={() => setFolderPage((value) => Math.max(0, value - 1))}
-              >
-                {label(fr, "Previous", "Précédent")}
-              </Button>
-              <span className="rounded-lg border border-border bg-surface-2 px-2.5 py-1.5 text-xs font-medium text-ink-secondary">
-                {currentFolderPage + 1}/{folderTotalPages}
-              </span>
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                disabled={currentFolderPage >= folderTotalPages - 1}
-                onClick={() => setFolderPage((value) => Math.min(folderTotalPages - 1, value + 1))}
-              >
-                {label(fr, "Next", "Suivant")}
-              </Button>
-            </div>
-          </nav>
-        ) : null}
+                                <Download className="size-4" />
+                              </a>
+                              {onConfigure ? (
+                                <button
+                                  type="button"
+                                  onClick={() => onConfigure(document)}
+                                  className="grid size-8 place-items-center rounded-md text-ink-secondary hover:bg-surface-3 hover:text-ink"
+                                  aria-label={label(
+                                    fr,
+                                    "Manage document privacy",
+                                    "Gérer la confidentialité",
+                                  )}
+                                >
+                                  <Lock className="size-3.5" />
+                                </button>
+                              ) : null}
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <div className="border-t border-border px-4 py-5 text-sm text-ink-secondary">
+                        {label(
+                          fr,
+                          "No files in this folder yet.",
+                          "Aucun fichier dans ce dossier pour le moment.",
+                        )}
+                      </div>
+                    )
+                  ) : null}
+                </article>
+              );
+            })}
+          </div>
+          {sorted.length > folderPageSize ? (
+            <nav
+              className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border/70 pt-4"
+              aria-label={label(
+                fr,
+                "Folder pagination",
+                "Pagination des dossiers",
+              )}
+            >
+              <p className="text-xs text-ink-secondary">
+                {label(fr, "Showing", "Affichage")} {firstFolder}–{lastFolder}{" "}
+                {label(fr, "of", "sur")} {sorted.length}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  disabled={currentFolderPage === 0}
+                  onClick={() =>
+                    setFolderPage((value) => Math.max(0, value - 1))
+                  }
+                >
+                  {label(fr, "Previous", "Précédent")}
+                </Button>
+                <span className="rounded-lg border border-border bg-surface-2 px-2.5 py-1.5 text-xs font-medium text-ink-secondary">
+                  {currentFolderPage + 1}/{folderTotalPages}
+                </span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  disabled={currentFolderPage >= folderTotalPages - 1}
+                  onClick={() =>
+                    setFolderPage((value) =>
+                      Math.min(folderTotalPages - 1, value + 1),
+                    )
+                  }
+                >
+                  {label(fr, "Next", "Suivant")}
+                </Button>
+              </div>
+            </nav>
+          ) : null}
         </>
       ) : (
         <EmptyState
@@ -11150,21 +16926,35 @@ function TaskDetailDialog({
   const taskBudgetHistory = budgetChanges.flatMap((event) => {
     if (String(event.entityId ?? "") !== String(task.id ?? "")) return [];
     try {
-      const parsed = JSON.parse(String(event.status ?? "")) as Record<string, unknown>;
+      const parsed = JSON.parse(String(event.status ?? "")) as Record<
+        string,
+        unknown
+      >;
       const before = Number(parsed.before ?? 0);
       const after = Number(parsed.after ?? 0);
-      if (String(parsed.scope) !== "task" || !Number.isFinite(before) || !Number.isFinite(after))
+      if (
+        String(parsed.scope) !== "task" ||
+        !Number.isFinite(before) ||
+        !Number.isFinite(after)
+      )
         return [];
-      return [{
-        id: String(event.id ?? `${event.entityId}-${event.occurredAt}`),
-        before,
-        after,
-        difference: Number(parsed.difference ?? after - before),
-        currencyCode: String(parsed.currencyCode ?? task.budgetCurrencyCode ?? task.currencyCode ?? "CDF"),
-        actorName: String(event.actorName ?? "").trim(),
-        occurredAt: event.occurredAt,
-        justification: String(parsed.justification ?? "").trim(),
-      }];
+      return [
+        {
+          id: String(event.id ?? `${event.entityId}-${event.occurredAt}`),
+          before,
+          after,
+          difference: Number(parsed.difference ?? after - before),
+          currencyCode: String(
+            parsed.currencyCode ??
+              task.budgetCurrencyCode ??
+              task.currencyCode ??
+              "CDF",
+          ),
+          actorName: String(event.actorName ?? "").trim(),
+          occurredAt: event.occurredAt,
+          justification: String(parsed.justification ?? "").trim(),
+        },
+      ];
     } catch {
       return [];
     }
@@ -11279,7 +17069,11 @@ function TaskDetailDialog({
                 {label(fr, "Budget record", "Repère budgétaire")}
               </h3>
               <p className="mt-2 text-lg font-semibold text-ink">
-                {money(existingBudget, String(task.budgetCurrencyCode ?? task.currencyCode ?? "CDF"), locale)}
+                {money(
+                  existingBudget,
+                  String(task.budgetCurrencyCode ?? task.currencyCode ?? "CDF"),
+                  locale,
+                )}
               </p>
               <p className="mt-1 text-sm leading-6 text-ink-secondary">
                 {label(
@@ -11298,26 +17092,47 @@ function TaskDetailDialog({
                     {label(fr, "Budget history", "Historique du budget")}
                   </h3>
                   <p className="mt-0.5 text-xs text-ink-secondary">
-                    {label(fr, "Every initial amount and later change is retained.", "Le montant initial et chaque modification sont conservés.")}
+                    {label(
+                      fr,
+                      "Every initial amount and later change is retained.",
+                      "Le montant initial et chaque modification sont conservés.",
+                    )}
                   </p>
                 </div>
                 <Badge variant="neutral">{taskBudgetHistory.length}</Badge>
               </header>
               <ol className="divide-y divide-brand/15 bg-surface-1">
                 {taskBudgetHistory.map((change) => (
-                  <li key={change.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                  <li
+                    key={change.id}
+                    className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
+                  >
                     <div>
                       <p className="text-sm font-semibold text-ink">
-                        {money(change.before, change.currencyCode, locale)} → {money(change.after, change.currencyCode, locale)}
+                        {money(change.before, change.currencyCode, locale)} →{" "}
+                        {money(change.after, change.currencyCode, locale)}
                       </p>
                       <p className="mt-1 text-xs text-ink-secondary">
                         {date(change.occurredAt, locale)}
-                        {change.actorName ? ` · ${label(fr, "by", "par")} ${change.actorName}` : ""}
-                        {change.justification ? ` · ${change.justification}` : ""}
+                        {change.actorName
+                          ? ` · ${label(fr, "by", "par")} ${change.actorName}`
+                          : ""}
+                        {change.justification
+                          ? ` · ${change.justification}`
+                          : ""}
                       </p>
                     </div>
-                    <Badge variant={change.difference > 0 ? "warning" : change.difference < 0 ? "good" : "neutral"}>
-                      {change.difference > 0 ? "+" : ""}{money(change.difference, change.currencyCode, locale)}
+                    <Badge
+                      variant={
+                        change.difference > 0
+                          ? "warning"
+                          : change.difference < 0
+                            ? "good"
+                            : "neutral"
+                      }
+                    >
+                      {change.difference > 0 ? "+" : ""}
+                      {money(change.difference, change.currencyCode, locale)}
                     </Badge>
                   </li>
                 ))}

@@ -10,7 +10,14 @@ import {
 } from "../../utils/errors";
 import { withTenantContext } from "../../utils/tenant-query";
 import { calculateProjectBudget } from "./project-budget";
-import { calculateProductionProfitability } from "./project-profitability";
+import {
+  calculateProductionProfitability,
+  emptyProductionCostBreakdown,
+  productionCostCategories,
+  type ProductionCostBreakdown,
+  type ProductionCostCategory,
+} from "./project-profitability";
+import { calculateProjectDecisionSimulation } from "./project-decision-simulation";
 import {
   createNotificationInTransaction,
   notifyOrganizationOwnersInTransaction,
@@ -30,6 +37,8 @@ import type {
   InventoryStockQuery,
   MyTaskUpdateInput,
   OwnerManagementListQuery,
+  ProjectAnalyticsQuery,
+  ProjectDecisionSimulationInput,
   ProcurementDocumentType,
   OwnerManagementResource,
 } from "./owner-management.validation";
@@ -58,6 +67,7 @@ interface ResourceConfig {
   sortField?: string;
   immutable?: boolean;
   readOnly?: boolean;
+  deleteProtected?: boolean;
 }
 
 const snake = (name: string) =>
@@ -162,10 +172,14 @@ const resources: Record<OwnerManagementResource, ResourceConfig> = {
       "siteId",
       "departmentId",
       "responsibleMemberId",
+      "benefitOwnerMemberId",
       "startDate",
+      "operationalStartDate",
+      "benefitReviewDate",
       "targetCompletionDate",
       "revisedCompletionDate",
       "completedDate",
+      "lifecycleStage",
       "status",
       "priority",
       "estimatedTotalBudget",
@@ -174,6 +188,7 @@ const resources: Record<OwnerManagementResource, ResourceConfig> = {
       "blueprint",
       "fundingSource",
       "expectedOutcome",
+      "benefitTargets",
       "approvalRequired",
       "notes",
       "createdByUserId",
@@ -255,6 +270,102 @@ const resources: Record<OwnerManagementResource, ResourceConfig> = {
     scopeSelect:
       "ph.project_id AS project_id, p.province_id AS province_id, NULL::uuid AS assigned_member_id",
     immutable: true,
+  },
+  risks: {
+    table: "management_project_risks",
+    fields: [
+      "projectId",
+      "code",
+      "recordType",
+      "category",
+      "title",
+      "description",
+      "probability",
+      "impact",
+      "ownerMemberId",
+      "triggerCondition",
+      "alertThreshold",
+      "preventionAction",
+      "contingencyAction",
+      "reviewDate",
+      "status",
+      "triggeredAt",
+      "resolvedAt",
+      "decision",
+      "decisionTaken",
+      "decisionJustification",
+      "decidedByMemberId",
+      "decidedAt",
+      "createdByMemberId",
+      "notes",
+    ],
+    scopeFrom: "management_project_risks r" + projectJoin,
+    scopeSelect: projectScope,
+    projectField: "project_id",
+    statusField: "status",
+    dateField: "review_date",
+    sortField: "review_date",
+    deleteProtected: true,
+  },
+  "quality-checks": {
+    table: "management_project_quality_checks",
+    fields: [
+      "projectId",
+      "receiptId",
+      "assetId",
+      "checkNumber",
+      "qualityStatus",
+      "quantityMatches",
+      "conditionAccepted",
+      "documentsComplete",
+      "functionalTestPassed",
+      "safetyCheckPassed",
+      "returnedQuantity",
+      "returnReason",
+      "warrantyProvider",
+      "warrantyReference",
+      "warrantyExpiresOn",
+      "beforePhotoDocumentId",
+      "afterPhotoDocumentId",
+      "checkedByMemberId",
+      "checkedAt",
+      "commissioningStatus",
+      "commissionedByMemberId",
+      "commissionedAt",
+      "commissioningNotes",
+      "notes",
+    ],
+    scopeFrom: "management_project_quality_checks r" + projectJoin,
+    scopeSelect: projectScope,
+    projectField: "project_id",
+    statusField: "quality_status",
+    dateField: "checked_at",
+    deleteProtected: true,
+  },
+  "project-closeouts": {
+    table: "management_project_closeouts",
+    fields: [
+      "projectId",
+      "status",
+      "expectedOutcomeAchieved",
+      "achievementSummary",
+      "actualOutcome",
+      "lessonsLearned",
+      "handoverMemberId",
+      "commissioningValidated",
+      "commissioningSummary",
+      "closeoutDocumentId",
+      "preparedByMemberId",
+      "approvedByMemberId",
+      "completedAt",
+      "notes",
+    ],
+    scopeFrom: "management_project_closeouts r" + projectJoin,
+    scopeSelect: projectScope,
+    projectField: "project_id",
+    statusField: "status",
+    dateField: "completed_at",
+    deleteProtected: true,
   },
   tasks: {
     table: "management_project_tasks",
@@ -472,44 +583,83 @@ const resources: Record<OwnerManagementResource, ResourceConfig> = {
       "management_feed_batch_inputs r JOIN management_feed_batches b ON b.organization_id = r.organization_id AND b.id = r.batch_id JOIN sites s ON s.organization_id = b.organization_id AND s.id = b.site_id",
     scopeSelect:
       "b.project_id AS project_id, s.province_id AS province_id, NULL::uuid AS assigned_member_id",
-
   },
   "nutrition-profiles": {
     table: "nutrition_feed_profiles",
     fields: [
-      "code", "species", "stage", "minAgeDays", "maxAgeDays",
-      "dailyRationKg", "rationMode", "benchmarkFcr", "isActive", "notes",
+      "code",
+      "species",
+      "stage",
+      "minAgeDays",
+      "maxAgeDays",
+      "dailyRationKg",
+      "rationMode",
+      "benchmarkFcr",
+      "isActive",
+      "notes",
     ],
     scopeFrom: "nutrition_feed_profiles r",
-    scopeSelect: "NULL::uuid AS project_id, NULL::uuid AS province_id, NULL::uuid AS assigned_member_id",
+    scopeSelect:
+      "NULL::uuid AS project_id, NULL::uuid AS province_id, NULL::uuid AS assigned_member_id",
   },
   "feed-recipes": {
     table: "nutrition_feed_recipes",
     fields: [
-      "code", "name", "targetSpecies", "feedStage", "baseQuantityKg",
-      "outputItemId", "overheadPerKg", "isActive", "notes", "createdByMemberId",
+      "code",
+      "name",
+      "targetSpecies",
+      "feedStage",
+      "baseQuantityKg",
+      "outputItemId",
+      "overheadPerKg",
+      "isActive",
+      "notes",
+      "createdByMemberId",
     ],
     scopeFrom: "nutrition_feed_recipes r",
-    scopeSelect: "NULL::uuid AS project_id, NULL::uuid AS province_id, NULL::uuid AS assigned_member_id",
+    scopeSelect:
+      "NULL::uuid AS project_id, NULL::uuid AS province_id, NULL::uuid AS assigned_member_id",
   },
   "feed-recipe-lines": {
     table: "nutrition_feed_recipe_lines",
     fields: [
-      "recipeId", "inventoryItemId", "ingredientName", "unit", "quantityPerBase",
-      "unitCostOverride", "sortOrder", "notes",
+      "recipeId",
+      "inventoryItemId",
+      "ingredientName",
+      "unit",
+      "quantityPerBase",
+      "unitCostOverride",
+      "sortOrder",
+      "notes",
     ],
-    scopeFrom: "nutrition_feed_recipe_lines r JOIN nutrition_feed_recipes recipe ON recipe.organization_id = r.organization_id AND recipe.id = r.recipe_id",
-    scopeSelect: "NULL::uuid AS project_id, NULL::uuid AS province_id, NULL::uuid AS assigned_member_id",
+    scopeFrom:
+      "nutrition_feed_recipe_lines r JOIN nutrition_feed_recipes recipe ON recipe.organization_id = r.organization_id AND recipe.id = r.recipe_id",
+    scopeSelect:
+      "NULL::uuid AS project_id, NULL::uuid AS province_id, NULL::uuid AS assigned_member_id",
   },
   "feed-orders": {
     table: "nutrition_feed_orders",
     fields: [
-      "orderNumber", "recipeId", "projectId", "siteId", "inputWarehouseId",
-      "outputWarehouseId", "outputItemId", "plannedQuantityKg", "actualQuantityKg",
-      "bagWeightKg", "overheadTotal", "productionDate", "status", "producedByMemberId", "notes",
+      "orderNumber",
+      "recipeId",
+      "projectId",
+      "siteId",
+      "inputWarehouseId",
+      "outputWarehouseId",
+      "outputItemId",
+      "plannedQuantityKg",
+      "actualQuantityKg",
+      "bagWeightKg",
+      "overheadTotal",
+      "productionDate",
+      "status",
+      "producedByMemberId",
+      "notes",
     ],
-    scopeFrom: "nutrition_feed_orders r JOIN sites s ON s.organization_id = r.organization_id AND s.id = r.site_id LEFT JOIN management_projects p ON p.organization_id = r.organization_id AND p.id = r.project_id",
-    scopeSelect: "r.project_id AS project_id, s.province_id AS province_id, NULL::uuid AS assigned_member_id",
+    scopeFrom:
+      "nutrition_feed_orders r JOIN sites s ON s.organization_id = r.organization_id AND s.id = r.site_id LEFT JOIN management_projects p ON p.organization_id = r.organization_id AND p.id = r.project_id",
+    scopeSelect:
+      "r.project_id AS project_id, s.province_id AS province_id, NULL::uuid AS assigned_member_id",
     projectField: "project_id",
     siteField: "site_id",
     statusField: "status",
@@ -814,6 +964,10 @@ const resources: Record<OwnerManagementResource, ResourceConfig> = {
       "intervalMeter",
       "nextDueDate",
       "nextDueMeter",
+      "serviceCategory",
+      "warningWindowDays",
+      "warningWindowMeter",
+      "blocksDispatchWhenDue",
       "estimatedCost",
       "isActive",
       "createdByMemberId",
@@ -1199,7 +1353,9 @@ async function budgetChangeAuditMetadata(
         before,
         after,
         difference: after - before,
-        currencyCode: String(saved.currency_code ?? current?.currency_code ?? "CDF"),
+        currencyCode: String(
+          saved.currency_code ?? current?.currency_code ?? "CDF",
+        ),
       },
     };
   }
@@ -1327,7 +1483,10 @@ function ownerManagementDatabaseError(
       "Another phase already uses this phase code. Choose a different code.",
     );
   if (resource === "purchase-orders") {
-    if (pg.code === "23505" && pg.constraint === "management_purchase_orders_number_unique")
+    if (
+      pg.code === "23505" &&
+      pg.constraint === "management_purchase_orders_number_unique"
+    )
       throw new ConflictError(
         "Another purchase order already uses this BC reference. Refresh and try again.",
         { field: "orderNumber" },
@@ -1443,12 +1602,16 @@ function ownerManagementDatabaseError(
       management_projects_values_check:
         "Project budget must be zero or higher, and progress must be between 0 and 100",
       management_projects_dates_check:
-        "Target completion and actual completion cannot be before the project start date",
+        "Project milestones and benefit review dates cannot be before the project start or operational start date",
       management_projects_text_check:
         "Project name and any supplied description, blueprint or notes cannot be blank",
       management_projects_type_check: "Choose a valid project type",
       management_projects_status_check: "Choose a valid project status",
       management_projects_priority_check: "Choose a valid project priority",
+      management_projects_lifecycle_stage_check:
+        "Choose a valid investment lifecycle stage",
+      management_projects_benefit_targets_check:
+        "The investment targets must have a valid format",
     };
     throw new BadRequestError(
       message[pg.constraint ?? ""] ??
@@ -1806,7 +1969,10 @@ function assertManagerWorkflowInput(
       throw new ForbiddenError(
         "The purchase-request date is created automatically and cannot be changed",
       );
-    if (input.approvalStatus !== undefined || input.reviewedByMemberId !== undefined)
+    if (
+      input.approvalStatus !== undefined ||
+      input.reviewedByMemberId !== undefined
+    )
       throw new ForbiddenError(
         "Purchase-request approval is controlled only through the approval queue",
       );
@@ -1855,7 +2021,6 @@ function assertManagerWorkflowInput(
         "Managers cannot approve or mark an expense as paid",
       );
   }
-
 }
 
 async function assertPurchaseRequestItemsCanChange(
@@ -1930,7 +2095,11 @@ async function assertReceiptStatusTransition(
       { field: "status" },
     );
 
-  if (current === "cancelled" && ["draft", "received"].includes(next) && !context.isOwner)
+  if (
+    current === "cancelled" &&
+    ["draft", "received"].includes(next) &&
+    !context.isOwner
+  )
     throw new ForbiddenError(
       "Only the company owner can reactivate a cancelled receipt",
     );
@@ -1948,10 +2117,40 @@ async function assertReceiptStatusTransition(
     await assertReceiptDoesNotExceedOrder(client, context, receiptId);
   }
 
-  if (
-    next === "cancelled" &&
-    ["received", "verified"].includes(current)
-  ) {
+  if (next === "verified") {
+    const [quality, durableItems] = await Promise.all([
+      client.query<{
+        quality_status: string;
+        commissioning_status: string;
+      }>(
+        "SELECT quality_status, commissioning_status FROM management_project_quality_checks WHERE organization_id = $1 AND receipt_id = $2",
+        [context.organizationId, receiptId],
+      ),
+      client.query<{ count: string }>(
+        "SELECT count(*)::text AS count FROM management_receipt_lines WHERE organization_id = $1 AND receipt_id = $2 AND asset_required = true",
+        [context.organizationId, receiptId],
+      ),
+    ]);
+    const check = quality.rows[0];
+    if (
+      !check ||
+      !["accepted", "accepted_with_observations"].includes(check.quality_status)
+    )
+      throw new BadRequestError(
+        "Complete and accept the reception quality checklist before verifying this receipt",
+        { field: "status" },
+      );
+    if (
+      Number(durableItems.rows[0]?.count ?? 0) > 0 &&
+      check.commissioning_status !== "validated"
+    )
+      throw new BadRequestError(
+        "Validate commissioning for the received equipment before verifying this receipt",
+        { field: "status" },
+      );
+  }
+
+  if (next === "cancelled" && ["received", "verified"].includes(current)) {
     if (!context.isOwner)
       throw new ForbiddenError(
         "Only the company owner can cancel a confirmed receipt",
@@ -1998,11 +2197,15 @@ async function assertReceiptDoesNotExceedOrder(
     [context.organizationId, receiptId],
   );
   const exceeded = totals.rows.find(
-    (line) => Number(line.current_accepted) + Number(line.accepted_before) > Number(line.ordered_quantity),
+    (line) =>
+      Number(line.current_accepted) + Number(line.accepted_before) >
+      Number(line.ordered_quantity),
   );
   if (exceeded)
     throw new BadRequestError(
-      "The accepted quantity for " + (exceeded.description ?? "this item") + " exceeds the quantity ordered. Create a new order or correct the receipt quantities.",
+      "The accepted quantity for " +
+        (exceeded.description ?? "this item") +
+        " exceeds the quantity ordered. Create a new order or correct the receipt quantities.",
       { field: "receivedQuantity" },
     );
 }
@@ -2041,18 +2244,28 @@ async function reverseReceiptInventory(
   receiptId: string,
 ): Promise<void> {
   for (const line of await receiptInventoryLines(client, context, receiptId)) {
-    const accepted = Number(line.received_quantity) - Number(line.damaged_quantity) - Number(line.rejected_quantity);
+    const accepted =
+      Number(line.received_quantity) -
+      Number(line.damaged_quantity) -
+      Number(line.rejected_quantity);
     const itemId = line.inventory_item_id ?? line.order_item_id;
     const warehouseId = line.receipt_warehouse_id ?? line.order_warehouse_id;
     if (!(accepted > 0 && itemId && warehouseId)) continue;
-    const inStock = Math.max(0, await receiptLineStockBalance(client, context, String(line.id)));
+    const inStock = Math.max(
+      0,
+      await receiptLineStockBalance(client, context, String(line.id)),
+    );
     const quantityToReturn = Math.min(accepted, inStock);
     if (!(quantityToReturn > 0)) continue;
     await writeStockLedger(client, context, {
       warehouseId: String(warehouseId),
       itemId: String(itemId),
       projectId: String(line.project_id),
-      projectMaterialId: line.project_material_id ? String(line.project_material_id) : line.order_material_id ? String(line.order_material_id) : null,
+      projectMaterialId: line.project_material_id
+        ? String(line.project_material_id)
+        : line.order_material_id
+          ? String(line.order_material_id)
+          : null,
       movementType: "return",
       quantityDelta: -quantityToReturn,
       unitCost: Number(line.actual_unit_cost ?? line.unit_cost),
@@ -2072,18 +2285,28 @@ async function restoreReceiptInventory(
   receiptId: string,
 ): Promise<void> {
   for (const line of await receiptInventoryLines(client, context, receiptId)) {
-    const accepted = Number(line.received_quantity) - Number(line.damaged_quantity) - Number(line.rejected_quantity);
+    const accepted =
+      Number(line.received_quantity) -
+      Number(line.damaged_quantity) -
+      Number(line.rejected_quantity);
     const itemId = line.inventory_item_id ?? line.order_item_id;
     const warehouseId = line.receipt_warehouse_id ?? line.order_warehouse_id;
     if (!(accepted > 0 && itemId && warehouseId)) continue;
-    const inStock = Math.max(0, await receiptLineStockBalance(client, context, String(line.id)));
+    const inStock = Math.max(
+      0,
+      await receiptLineStockBalance(client, context, String(line.id)),
+    );
     const quantityToRestore = accepted - inStock;
     if (!(quantityToRestore > 0)) continue;
     await writeStockLedger(client, context, {
       warehouseId: String(warehouseId),
       itemId: String(itemId),
       projectId: String(line.project_id),
-      projectMaterialId: line.project_material_id ? String(line.project_material_id) : line.order_material_id ? String(line.order_material_id) : null,
+      projectMaterialId: line.project_material_id
+        ? String(line.project_material_id)
+        : line.order_material_id
+          ? String(line.order_material_id)
+          : null,
       movementType: "receipt",
       quantityDelta: quantityToRestore,
       unitCost: Number(line.actual_unit_cost ?? line.unit_cost),
@@ -2187,24 +2410,75 @@ function withDefaults(
     (typeof result.code !== "string" || !result.code.trim())
   )
     result.code = `task-${randomUUID().slice(0, 8)}`;
-  if (
-    resource === "stock-movements" &&
-    result.quantityDelta !== undefined
-  )
+  if (resource === "stock-movements" && result.quantityDelta !== undefined)
     result.quantityDelta = normalizedStockMovementDelta(
       result.movementType,
       result.quantityDelta,
     );
   if (resource === "project-members") result.assignedBy = context.userId;
-  if (resource === "suppliers") result.code = supplierCode(result.code, result.name);
-  if (resource === "warehouses") result.code = warehouseCode(result.code, result.name);  if (resource === "feed-recipes" && (typeof result.code !== "string" || !result.code.trim())) {
-    const stem = String(result.name ?? "feed")
-      .normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
-      .replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 42) || "feed";
-    result.code = `recette_${stem}_${randomUUID().replace(/-/g, "").slice(0, 5)}`.slice(0, 63);
+  if (resource === "risks") {
+    result.recordType ??= "risk";
+    result.category ??= "other";
+    result.probability ??= "medium";
+    result.impact ??= "medium";
+    result.status ??= "open";
+    result.decision ??= "pending";
+    result.createdByMemberId ??= context.memberId;
+    if (String(result.status) === "triggered" && !result.triggeredAt)
+      result.triggeredAt = new Date().toISOString();
+    if (String(result.status) === "closed" && !result.resolvedAt)
+      result.resolvedAt = new Date().toISOString();
+    if (String(result.decision) !== "pending") {
+      result.decidedByMemberId = context.memberId;
+      result.decidedAt ??= new Date().toISOString();
+    }
+  }
+  if (resource === "quality-checks") {
+    result.qualityStatus ??= "pending";
+    result.commissioningStatus ??= "not_required";
+    result.returnedQuantity ??= 0;
+    result.checkedByMemberId ??= context.memberId;
+    result.checkedAt ??= new Date().toISOString();
+    if (String(result.commissioningStatus) === "validated") {
+      result.commissionedByMemberId ??= context.memberId;
+      result.commissionedAt ??= new Date().toISOString();
+    }
+  }
+  if (resource === "project-closeouts") {
+    result.status ??= "draft";
+    result.preparedByMemberId ??= context.memberId;
+    if (String(result.status) === "completed") {
+      result.approvedByMemberId ??= context.memberId;
+      result.completedAt ??= new Date().toISOString();
+    }
+  }
+  if (resource === "suppliers")
+    result.code = supplierCode(result.code, result.name);
+  if (resource === "warehouses")
+    result.code = warehouseCode(result.code, result.name);
+  if (
+    resource === "feed-recipes" &&
+    (typeof result.code !== "string" || !result.code.trim())
+  ) {
+    const stem =
+      String(result.name ?? "feed")
+        .normalize("NFKD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "")
+        .slice(0, 42) || "feed";
+    result.code =
+      `recette_${stem}_${randomUUID().replace(/-/g, "").slice(0, 5)}`.slice(
+        0,
+        63,
+      );
     result.createdByMemberId ??= context.memberId;
   }
-  if (resource === "nutrition-profiles" && (typeof result.code !== "string" || !result.code.trim()))
+  if (
+    resource === "nutrition-profiles" &&
+    (typeof result.code !== "string" || !result.code.trim())
+  )
     result.code = `profil_${randomUUID().replace(/-/g, "").slice(0, 10)}`;
   if (resource === "feed-orders") {
     result.status ??= "draft";
@@ -2250,7 +2524,10 @@ function withDefaults(
     result.issuedBy = context.userId;
   if (resource === "expenses") {
     result.createdByUserId = context.userId;
-    if (typeof result.expenseNumber !== "string" || !result.expenseNumber.trim())
+    if (
+      typeof result.expenseNumber !== "string" ||
+      !result.expenseNumber.trim()
+    )
       delete result.expenseNumber;
     if (String(result.status ?? "draft") === "submitted" && !result.submittedAt)
       result.submittedAt = new Date().toISOString();
@@ -2304,7 +2581,9 @@ async function assertConsistency(
         "Choose an active warehouse in this organization",
         { field: "warehouseId" },
       );
-    if (String(match.project_province_id) !== String(match.warehouse_province_id))
+    if (
+      String(match.project_province_id) !== String(match.warehouse_province_id)
+    )
       throw new BadRequestError(
         "Choose a warehouse in the project's province",
         { field: "warehouseId" },
@@ -2313,10 +2592,9 @@ async function assertConsistency(
       match.project_site_id &&
       String(match.project_site_id) !== String(match.warehouse_site_id)
     )
-      throw new BadRequestError(
-        "Choose a warehouse at the project's site",
-        { field: "warehouseId" },
-      );
+      throw new BadRequestError("Choose a warehouse at the project's site", {
+        field: "warehouseId",
+      });
   };
   // The project budget is authoritative. A task estimate is an allocation of
   // that one amount, never an extra budget line or a second source of funds.
@@ -2333,6 +2611,104 @@ async function assertConsistency(
         "The main project budget cannot be lower than the total task budgets",
         { field: "estimatedTotalBudget" },
       );
+    if (String(row.lifecycle_stage ?? "investment") === "closed") {
+      const closeout = await client.query<{ status: string }>(
+        "SELECT status FROM management_project_closeouts WHERE organization_id = $1 AND project_id = $2",
+        [org, row.id],
+      );
+      if (String(closeout.rows[0]?.status ?? "") !== "completed")
+        throw new BadRequestError(
+          "Complete the formal project close-out before closing its lifecycle",
+          { field: "lifecycleStage" },
+        );
+    }
+  }
+  if (resource === "quality-checks") {
+    const target = await client.query<{
+      receipt_project_id: string | null;
+      receipt_status: string | null;
+      asset_project_id: string | null;
+      accepted_quantity: string | null;
+    }>(
+      "SELECT receipt.project_id AS receipt_project_id, receipt.status AS receipt_status, asset.project_id AS asset_project_id, COALESCE((SELECT SUM(line.received_quantity - line.damaged_quantity - line.rejected_quantity) FROM management_receipt_lines line WHERE line.organization_id = $1 AND line.receipt_id = receipt.id), 0)::text AS accepted_quantity FROM management_project_quality_checks quality LEFT JOIN management_receipts receipt ON receipt.organization_id = quality.organization_id AND receipt.id = quality.receipt_id LEFT JOIN management_assets asset ON asset.organization_id = quality.organization_id AND asset.id = quality.asset_id WHERE quality.organization_id = $1 AND quality.id = $2",
+      [org, row.id],
+    );
+    const value = target.rows[0];
+    if (!value) throw new NotFoundError("Quality check not found");
+    if (
+      value.receipt_project_id &&
+      String(value.receipt_project_id) !== String(row.project_id)
+    )
+      throw new BadRequestError(
+        "The quality receipt must belong to this project",
+        { field: "receiptId" },
+      );
+    if (
+      value.asset_project_id &&
+      String(value.asset_project_id) !== String(row.project_id)
+    )
+      throw new BadRequestError(
+        "The inspected equipment must belong to this project",
+        { field: "assetId" },
+      );
+    if (
+      row.receipt_id &&
+      !["received", "verified"].includes(String(value.receipt_status))
+    )
+      throw new BadRequestError(
+        "Confirm the receipt before performing its quality check",
+        { field: "receiptId" },
+      );
+    if (
+      Number(row.returned_quantity ?? 0) > Number(value.accepted_quantity ?? 0)
+    )
+      throw new BadRequestError(
+        "The declared return cannot exceed the quantity accepted on this receipt",
+        { field: "returnedQuantity" },
+      );
+    if (
+      String(row.quality_status) === "returned" &&
+      Number(row.returned_quantity ?? 0) <= 0
+    )
+      throw new BadRequestError(
+        "Record the quantity returned to the supplier",
+        { field: "returnedQuantity" },
+      );
+    if (
+      String(row.quality_status) === "accepted" &&
+      (!row.quantity_matches ||
+        !row.condition_accepted ||
+        !row.documents_complete)
+    )
+      throw new BadRequestError(
+        "Complete the quantity, condition and document checks before accepting this receipt",
+        { field: "qualityStatus" },
+      );
+    if (
+      String(row.commissioning_status) === "validated" &&
+      (!row.functional_test_passed || !row.safety_check_passed)
+    )
+      throw new BadRequestError(
+        "Complete the functional and safety checks before validating commissioning",
+        { field: "commissioningStatus" },
+      );
+  }
+  if (resource === "project-closeouts") {
+    if (!context.isOwner)
+      throw new ForbiddenError(
+        "Only the workspace owner can formally close a project",
+      );
+    if (String(row.status) === "completed") {
+      const openTasks = await client.query<{ count: string }>(
+        "SELECT count(*)::text AS count FROM management_project_tasks WHERE organization_id = $1 AND project_id = $2 AND status NOT IN ('completed', 'cancelled')",
+        [org, row.project_id],
+      );
+      if (Number(openTasks.rows[0]?.count ?? 0) > 0)
+        throw new ConflictError(
+          "Complete, cancel or archive the remaining project tasks before formal close-out",
+          { field: "status" },
+        );
+    }
   }
   if (resource === "tasks" && row.project_id && row.task_type === "work") {
     const totals = await client.query<Row>(
@@ -2355,14 +2731,15 @@ async function assertConsistency(
       );
     if (
       Number(project.allocated ?? 0) >
-      Number(project.estimated_total_budget ?? 0) + 0.0001 &&
+        Number(project.estimated_total_budget ?? 0) + 0.0001 &&
       (!context.isOwner || !String(row.budget_override_reason ?? "").trim())
     )
       throw new BadRequestError(
         "Task budgets cannot exceed the main project budget without an owner justification",
         { field: "estimatedCost" },
       );
-  }  if (resource === "tasks" && !row.project_id) {
+  }
+  if (resource === "tasks" && !row.project_id) {
     if (!row.province_id)
       throw new BadRequestError("Choose a province for a normal company task", {
         field: "provinceId",
@@ -2570,13 +2947,24 @@ async function assertConsistency(
       );
   }
   if (resource === "phase-dependencies") {
-    const match = await client.query(
-      "SELECT p1.project_id = p2.project_id AS same_project FROM management_project_phases p1 JOIN management_project_phases p2 ON p2.organization_id = p1.organization_id AND p2.id = $3 WHERE p1.organization_id = $1 AND p1.id = $2",
+    const match = await client.query<{
+      waiting_project_id: string;
+      prerequisite_project_id: string;
+    }>(
+      "SELECT p1.project_id AS waiting_project_id, p2.project_id AS prerequisite_project_id FROM management_project_phases p1 JOIN management_project_phases p2 ON p2.organization_id = p1.organization_id AND p2.id = $3 WHERE p1.organization_id = $1 AND p1.id = $2",
       [org, row.phase_id, row.depends_on_phase_id],
     );
-    if (!match.rows[0]?.same_project)
+    const dependency = match.rows[0];
+    if (!dependency)
       throw new BadRequestError(
-        "Phase dependencies must be inside the same project",
+        "Choose phases that belong to this organization",
+      );
+    if (
+      dependency.waiting_project_id !== dependency.prerequisite_project_id &&
+      !context.isOwner
+    )
+      throw new ForbiddenError(
+        "Only the workspace owner can create a dependency between projects",
       );
     const cycle = await client.query(
       "WITH RECURSIVE upstream(id) AS (SELECT depends_on_phase_id FROM management_project_phase_dependencies WHERE organization_id = $1 AND phase_id = $3 UNION SELECT d.depends_on_phase_id FROM management_project_phase_dependencies d JOIN upstream u ON u.id = d.phase_id WHERE d.organization_id = $1) SELECT 1 FROM upstream WHERE id = $2 LIMIT 1",
@@ -2586,13 +2974,24 @@ async function assertConsistency(
       throw new BadRequestError("A phase dependency cannot create a cycle");
   }
   if (resource === "task-dependencies") {
-    const match = await client.query(
-      "SELECT t1.project_id = t2.project_id AS same_project FROM management_project_tasks t1 JOIN management_project_tasks t2 ON t2.organization_id = t1.organization_id AND t2.id = $3 WHERE t1.organization_id = $1 AND t1.id = $2",
+    const match = await client.query<{
+      waiting_project_id: string | null;
+      prerequisite_project_id: string | null;
+    }>(
+      "SELECT t1.project_id AS waiting_project_id, t2.project_id AS prerequisite_project_id FROM management_project_tasks t1 JOIN management_project_tasks t2 ON t2.organization_id = t1.organization_id AND t2.id = $3 WHERE t1.organization_id = $1 AND t1.id = $2",
       [org, row.task_id, row.depends_on_task_id],
     );
-    if (!match.rows[0]?.same_project)
+    const dependency = match.rows[0];
+    if (!dependency)
       throw new BadRequestError(
-        "Task dependencies must be inside the same project",
+        "Choose tasks that belong to this organization",
+      );
+    if (
+      dependency.waiting_project_id !== dependency.prerequisite_project_id &&
+      !context.isOwner
+    )
+      throw new ForbiddenError(
+        "Only the workspace owner can create a dependency between projects",
       );
     const cycle = await client.query(
       "WITH RECURSIVE upstream(id) AS (SELECT depends_on_task_id FROM management_task_dependencies WHERE organization_id = $1 AND task_id = $3 UNION SELECT d.depends_on_task_id FROM management_task_dependencies d JOIN upstream u ON u.id = d.task_id WHERE d.organization_id = $1) SELECT 1 FROM upstream WHERE id = $2 LIMIT 1",
@@ -2692,7 +3091,8 @@ async function assertConsistency(
       );
     if (
       row.project_material_id != null &&
-      String(row.project_material_id) !== String(orderLine.project_material_id ?? "")
+      String(row.project_material_id) !==
+        String(orderLine.project_material_id ?? "")
     )
       throw new BadRequestError(
         "The project material must match the ordered item",
@@ -2700,7 +3100,8 @@ async function assertConsistency(
       );
     if (
       row.inventory_item_id != null &&
-      String(row.inventory_item_id) !== String(orderLine.inventory_item_id ?? "")
+      String(row.inventory_item_id) !==
+        String(orderLine.inventory_item_id ?? "")
     )
       throw new BadRequestError(
         "The inventory item must match the ordered item",
@@ -2826,7 +3227,13 @@ export async function transferInventoryStock(
       quantityDelta: number,
       notes: string | null,
     ): Promise<Row> => {
-      await adjustStock(client, context, warehouseId, input.itemId, quantityDelta);
+      await adjustStock(
+        client,
+        context,
+        warehouseId,
+        input.itemId,
+        quantityDelta,
+      );
       const result = await client.query<Row>(
         "INSERT INTO management_inventory_stock_movements (organization_id, warehouse_id, item_id, movement_date, movement_type, quantity_delta, reference_type, reference_id, performed_by_member_id, notes) VALUES ($1,$2,$3,$4,$5,$6,'warehouse_transfer',$7,$8,$9) RETURNING *",
         [
@@ -2842,7 +3249,8 @@ export async function transferInventoryStock(
         ],
       );
       const movement = result.rows[0];
-      if (!movement) throw new BadRequestError("Could not record stock transfer");
+      if (!movement)
+        throw new BadRequestError("Could not record stock transfer");
       return movement;
     };
 
@@ -2882,7 +3290,11 @@ export async function transferInventoryStock(
       "stock-movements",
       destinationMovement,
       ["sourceWarehouseId", "destinationWarehouseId", "itemId", "quantity"],
-      { ...auditMetadata, counterpartWarehouseId: input.sourceWarehouseId, direction: "in" },
+      {
+        ...auditMetadata,
+        counterpartWarehouseId: input.sourceWarehouseId,
+        direction: "in",
+      },
     );
 
     return {
@@ -2994,7 +3406,11 @@ async function purchaseRequestEstimatedAmount(
     [organizationId, purchaseRequestId],
   );
   const row = result.rows[0];
-  if (!row || Number(row.item_count) === 0 || Number(row.missing_cost_count) > 0)
+  if (
+    !row ||
+    Number(row.item_count) === 0 ||
+    Number(row.missing_cost_count) > 0
+  )
     return null;
   const amount = Number(row.estimated_amount);
   return Number.isFinite(amount) ? amount : null;
@@ -3137,6 +3553,49 @@ async function syncResponsibleProjectManager(
   );
 }
 
+/** The person accountable for outcomes may be different from the person who
+ * delivered the investment. Keep that accountability inside the company and
+ * make the form error precise before the foreign key is reached. */
+async function assertActiveProjectBenefitOwner(
+  client: PoolClient,
+  context: OwnerManagementContext,
+  memberId: unknown,
+): Promise<void> {
+  if (memberId == null || !String(memberId).trim()) return;
+  const member = await client.query<{ id: string }>(
+    "SELECT id FROM organization_members WHERE organization_id = $1 AND id = $2 AND status = 'active'",
+    [context.organizationId, memberId],
+  );
+  if (!member.rowCount)
+    throw new BadRequestError(
+      "Choose an active company member as the benefit owner",
+      { field: "benefitOwnerMemberId" },
+    );
+}
+
+async function assertActiveProjectRiskOwner(
+  client: PoolClient,
+  context: OwnerManagementContext,
+  memberId: unknown,
+): Promise<void> {
+  if (memberId == null || !String(memberId).trim())
+    throw new BadRequestError(
+      "Choose an active person responsible for this risk",
+      {
+        field: "ownerMemberId",
+      },
+    );
+  const member = await client.query<{ id: string }>(
+    "SELECT id FROM organization_members WHERE organization_id = $1 AND id = $2 AND status = 'active'",
+    [context.organizationId, memberId],
+  );
+  if (!member.rowCount)
+    throw new BadRequestError(
+      "Choose an active company member responsible for this risk",
+      { field: "ownerMemberId" },
+    );
+}
+
 /** A material purchased for a project must not disappear simply because the
  * requester typed a new description instead of selecting a pre-existing
  * material. The purchase order is the first committed source: create (or
@@ -3157,7 +3616,12 @@ async function ensureProjectMaterialForPurchaseOrderLine(
 
   const existing = await client.query<{ id: string }>(
     "SELECT id FROM management_project_materials WHERE organization_id = $1 AND project_id = $2 AND lower(btrim(name)) = lower(btrim($3)) AND lower(btrim(unit)) = lower(btrim($4)) ORDER BY created_at ASC LIMIT 1",
-    [context.organizationId, source.project_id, source.description, source.unit],
+    [
+      context.organizationId,
+      source.project_id,
+      source.description,
+      source.unit,
+    ],
   );
   let materialId = existing.rows[0]?.id ?? null;
   if (!materialId) {
@@ -3178,7 +3642,8 @@ async function ensureProjectMaterialForPurchaseOrderLine(
     );
     materialId = created.rows[0]?.id ?? null;
   }
-  if (!materialId) throw new BadRequestError("Could not create the project material");
+  if (!materialId)
+    throw new BadRequestError("Could not create the project material");
 
   await client.query(
     "UPDATE management_purchase_order_lines SET project_material_id = $3 WHERE organization_id = $1 AND id = $2 AND project_material_id IS NULL",
@@ -3234,7 +3699,9 @@ async function ensureInventoryItemForProjectMaterial(
 }
 function isKilogramUnit(value: unknown): boolean {
   return ["kg", "kilogram", "kilograms"].includes(
-    String(value ?? "").trim().toLowerCase(),
+    String(value ?? "")
+      .trim()
+      .toLowerCase(),
   );
 }
 
@@ -3246,7 +3713,9 @@ async function assertFeedBatchContext(
   const siteId = String(input.siteId ?? "");
   const warehouseId = String(input.warehouseId ?? "");
   if (!siteId || !warehouseId)
-    throw new BadRequestError("Choose the production site and finished-feed warehouse");
+    throw new BadRequestError(
+      "Choose the production site and finished-feed warehouse",
+    );
   const warehouse = await client.query<{ site_id: string }>(
     "SELECT site_id FROM management_warehouses WHERE organization_id = $1 AND id = $2 AND is_active = true",
     [context.organizationId, warehouseId],
@@ -3262,7 +3731,9 @@ async function assertFeedBatchContext(
       [context.organizationId, input.projectId],
     );
     if (!project.rowCount)
-      throw new BadRequestError("Choose a project in this company", { field: "projectId" });
+      throw new BadRequestError("Choose a project in this company", {
+        field: "projectId",
+      });
     if (project.rows[0]?.site_id && project.rows[0]?.site_id !== siteId)
       throw new BadRequestError(
         "The feed batch site must match the linked project site",
@@ -3280,16 +3751,59 @@ async function assertNutritionRecipeLineContext(
   const itemId = String(input.inventoryItemId ?? "");
   if (!recipeId || !itemId) return;
   const [recipe, item] = await Promise.all([
-    client.query("SELECT 1 FROM nutrition_feed_recipes WHERE organization_id=$1 AND id=$2", [context.organizationId, recipeId]),
-    client.query<{ category: string | null; unit: string; is_active: boolean }>("SELECT category,unit,is_active FROM management_inventory_items WHERE organization_id=$1 AND id=$2", [context.organizationId, itemId]),
+    client.query(
+      "SELECT 1 FROM nutrition_feed_recipes WHERE organization_id=$1 AND id=$2",
+      [context.organizationId, recipeId],
+    ),
+    client.query<{ category: string | null; unit: string; is_active: boolean }>(
+      "SELECT category,unit,is_active FROM management_inventory_items WHERE organization_id=$1 AND id=$2",
+      [context.organizationId, itemId],
+    ),
   ]);
-  if (!recipe.rowCount) throw new BadRequestError("Choose a feed recipe in this company", { field: "recipeId" });
+  if (!recipe.rowCount)
+    throw new BadRequestError("Choose a feed recipe in this company", {
+      field: "recipeId",
+    });
   const stockItem = item.rows[0];
-  const category = String(stockItem?.category ?? "").trim().toLowerCase();
-  if (!stockItem?.is_active || !["provenderie · matière première", "provenderie · additif / minéral", "feed_raw_material", "feed_additive", "matière première alimentaire", "matiere premiere alimentaire", "feed raw material", "feed additive", "additif alimentaire", "additif & minéral"].includes(category))
-    throw new BadRequestError("Choose an active stock item classified as « Provenderie · matière première » or « Provenderie · additif / minéral ».", { field: "inventoryItemId" });
-  if (!isKilogramUnit(stockItem.unit) && !["g", "gram", "gramme", "bag_50", "sac_50", "50kg", "50 kg", "sac 50 kg"].includes(String(stockItem.unit).trim().toLowerCase()))
-    throw new BadRequestError("A feed ingredient must use kg, g, or a 50 kg bag.", { field: "inventoryItemId" });
+  const category = String(stockItem?.category ?? "")
+    .trim()
+    .toLowerCase();
+  if (
+    !stockItem?.is_active ||
+    ![
+      "provenderie · matière première",
+      "provenderie · additif / minéral",
+      "feed_raw_material",
+      "feed_additive",
+      "matière première alimentaire",
+      "matiere premiere alimentaire",
+      "feed raw material",
+      "feed additive",
+      "additif alimentaire",
+      "additif & minéral",
+    ].includes(category)
+  )
+    throw new BadRequestError(
+      "Choose an active stock item classified as « Provenderie · matière première » or « Provenderie · additif / minéral ».",
+      { field: "inventoryItemId" },
+    );
+  if (
+    !isKilogramUnit(stockItem.unit) &&
+    ![
+      "g",
+      "gram",
+      "gramme",
+      "bag_50",
+      "sac_50",
+      "50kg",
+      "50 kg",
+      "sac 50 kg",
+    ].includes(String(stockItem.unit).trim().toLowerCase())
+  )
+    throw new BadRequestError(
+      "A feed ingredient must use kg, g, or a 50 kg bag.",
+      { field: "inventoryItemId" },
+    );
 }
 
 async function assertNutritionFeedOrderContext(
@@ -3302,26 +3816,48 @@ async function assertNutritionFeedOrderContext(
   const inputWarehouseId = String(input.inputWarehouseId ?? "");
   const outputWarehouseId = String(input.outputWarehouseId ?? "");
   if (!recipeId || !siteId || !inputWarehouseId || !outputWarehouseId)
-    throw new BadRequestError("Choose a recipe, production site, ingredient warehouse and finished-feed warehouse");
+    throw new BadRequestError(
+      "Choose a recipe, production site, ingredient warehouse and finished-feed warehouse",
+    );
   const recipe = await client.query<{ id: string }>(
     "SELECT id FROM nutrition_feed_recipes WHERE organization_id=$1 AND id=$2 AND is_active=true",
     [context.organizationId, recipeId],
   );
   if (!recipe.rowCount)
-    throw new BadRequestError("Choose an active feed recipe in this company", { field: "recipeId" });
-  const warehouses = await client.query<{ id: string; site_id: string; is_active: boolean }>(
+    throw new BadRequestError("Choose an active feed recipe in this company", {
+      field: "recipeId",
+    });
+  const warehouses = await client.query<{
+    id: string;
+    site_id: string;
+    is_active: boolean;
+  }>(
     "SELECT id,site_id,is_active FROM management_warehouses WHERE organization_id=$1 AND id = ANY($2::uuid[])",
     [context.organizationId, [inputWarehouseId, outputWarehouseId]],
   );
-  if (warehouses.rowCount !== 2 || warehouses.rows.some((warehouse) => !warehouse.is_active || warehouse.site_id !== siteId))
-    throw new BadRequestError("Both selected warehouses must be active and belong to the production site", { field: "inputWarehouseId" });
+  if (
+    warehouses.rowCount !== 2 ||
+    warehouses.rows.some(
+      (warehouse) => !warehouse.is_active || warehouse.site_id !== siteId,
+    )
+  )
+    throw new BadRequestError(
+      "Both selected warehouses must be active and belong to the production site",
+      { field: "inputWarehouseId" },
+    );
   if (input.projectId) {
     const project = await client.query<{ site_id: string | null }>(
       "SELECT site_id FROM management_projects WHERE organization_id=$1 AND id=$2",
       [context.organizationId, input.projectId],
     );
-    if (!project.rowCount || (project.rows[0]?.site_id && project.rows[0].site_id !== siteId))
-      throw new BadRequestError("The production order site must match the linked project site", { field: "siteId" });
+    if (
+      !project.rowCount ||
+      (project.rows[0]?.site_id && project.rows[0].site_id !== siteId)
+    )
+      throw new BadRequestError(
+        "The production order site must match the linked project site",
+        { field: "siteId" },
+      );
   }
 }
 
@@ -3364,9 +3900,12 @@ async function assertFeedBatchInputContext(
   );
   const quantity = Number(input.quantityKg ?? 0);
   if (!Number.isFinite(quantity) || quantity <= 0)
-    throw new BadRequestError("Enter an ingredient quantity greater than zero", {
-      field: "quantityKg",
-    });
+    throw new BadRequestError(
+      "Enter an ingredient quantity greater than zero",
+      {
+        field: "quantityKg",
+      },
+    );
   const sourceType = String(input.sourceType ?? "");
   if (sourceType === "harvest") {
     const harvest = await client.query<{ site_id: string; unit: string }>(
@@ -3386,7 +3925,10 @@ async function assertFeedBatchInputContext(
     return;
   }
   if (sourceType === "inventory") {
-    const source = await client.query<{ warehouse_site_id: string; unit: string }>(
+    const source = await client.query<{
+      warehouse_site_id: string;
+      unit: string;
+    }>(
       "SELECT w.site_id AS warehouse_site_id, i.unit FROM management_inventory_items i JOIN management_warehouses w ON w.organization_id = i.organization_id AND w.id = $3 AND w.is_active = true WHERE i.organization_id = $1 AND i.id = $2 AND i.is_active = true",
       [context.organizationId, input.inventoryItemId, input.warehouseId],
     );
@@ -3402,9 +3944,12 @@ async function assertFeedBatchInputContext(
       );
     return;
   }
-  throw new BadRequestError("Choose harvest or inventory as the ingredient source", {
-    field: "sourceType",
-  });
+  throw new BadRequestError(
+    "Choose harvest or inventory as the ingredient source",
+    {
+      field: "sourceType",
+    },
+  );
 }
 
 async function ensureFeedOutputItem(
@@ -3413,11 +3958,19 @@ async function ensureFeedOutputItem(
   batch: Row,
 ): Promise<string> {
   if (batch.output_item_id) {
-    const output = await client.query<{ id: string; unit: string; is_active: boolean }>(
+    const output = await client.query<{
+      id: string;
+      unit: string;
+      is_active: boolean;
+    }>(
       "SELECT id, unit, is_active FROM management_inventory_items WHERE organization_id = $1 AND id = $2",
       [context.organizationId, batch.output_item_id],
     );
-    if (!output.rowCount || !output.rows[0]?.is_active || !isKilogramUnit(output.rows[0]?.unit))
+    if (
+      !output.rowCount ||
+      !output.rows[0]?.is_active ||
+      !isKilogramUnit(output.rows[0]?.unit)
+    )
       throw new BadRequestError(
         "The finished-feed item must be an active inventory item measured in kilograms",
         { field: "outputItemId" },
@@ -3436,20 +3989,23 @@ async function ensureFeedOutputItem(
     );
     return itemId;
   }
-  const stem = String(batch.feed_name)
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, 42) || "fabrique";
-  const code = `alim_${stem}_${randomUUID().replace(/-/g, "").slice(0, 6)}`.slice(0, 63);
+  const stem =
+    String(batch.feed_name)
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .slice(0, 42) || "fabrique";
+  const code =
+    `alim_${stem}_${randomUUID().replace(/-/g, "").slice(0, 6)}`.slice(0, 63);
   const created = await client.query<{ id: string }>(
     "INSERT INTO management_inventory_items (organization_id, code, name, category, unit, is_active, notes) VALUES ($1,$2,$3,'Aliment fabriqué','kg',true,'Created automatically from a confirmed feed batch') RETURNING id",
     [context.organizationId, code, batch.feed_name],
   );
   const createdId = created.rows[0]?.id;
-  if (!createdId) throw new BadRequestError("Could not create the finished-feed stock item");
+  if (!createdId)
+    throw new BadRequestError("Could not create the finished-feed stock item");
   await client.query(
     "UPDATE management_feed_batches SET output_item_id = $3 WHERE organization_id = $1 AND id = $2",
     [context.organizationId, batch.id, createdId],
@@ -3478,18 +4034,30 @@ async function applyFeedBatchInventoryEffects(
     for (const input of inputs.rows) {
       const quantity = Number(input.quantity_kg);
       if (String(input.source_type) === "harvest") {
-        const harvest = await client.query<{ net_quantity: string; unit: string; site_id: string }>(
+        const harvest = await client.query<{
+          net_quantity: string;
+          unit: string;
+          site_id: string;
+        }>(
           "SELECT h.quantity - h.rejected_quantity AS net_quantity, h.unit, s.id AS site_id FROM agriculture_harvest_records h JOIN agriculture_plantings p ON p.organization_id = h.organization_id AND p.id = h.planting_id JOIN agriculture_plots pl ON pl.organization_id = p.organization_id AND pl.id = p.plot_id JOIN agriculture_fields f ON f.organization_id = pl.organization_id AND f.id = pl.field_id JOIN agriculture_farms farm ON farm.organization_id = f.organization_id AND farm.id = f.farm_id JOIN sites s ON s.organization_id = farm.organization_id AND s.id = farm.site_id WHERE h.organization_id = $1 AND h.id = $2 FOR UPDATE",
           [context.organizationId, input.harvest_record_id],
         );
         const source = harvest.rows[0];
-        if (!source || source.site_id !== batch.site_id || !isKilogramUnit(source.unit))
-          throw new BadRequestError("A harvest ingredient is no longer available at this site");
+        if (
+          !source ||
+          source.site_id !== batch.site_id ||
+          !isKilogramUnit(source.unit)
+        )
+          throw new BadRequestError(
+            "A harvest ingredient is no longer available at this site",
+          );
         const alreadyUsed = await client.query<{ quantity: string }>(
           "SELECT COALESCE(SUM(i.quantity_kg), 0) AS quantity FROM management_feed_batch_inputs i JOIN management_feed_batches b ON b.organization_id = i.organization_id AND b.id = i.batch_id WHERE i.organization_id = $1 AND i.harvest_record_id = $2 AND b.id <> $3 AND b.status = 'confirmed' AND b.stock_applied_at IS NOT NULL",
           [context.organizationId, input.harvest_record_id, batch.id],
         );
-        const remaining = Number(source.net_quantity) - Number(alreadyUsed.rows[0]?.quantity ?? 0);
+        const remaining =
+          Number(source.net_quantity) -
+          Number(alreadyUsed.rows[0]?.quantity ?? 0);
         if (quantity > remaining + 0.0001)
           throw new BadRequestError(
             "This feed batch uses more harvest than is still available",
@@ -3498,13 +4066,21 @@ async function applyFeedBatchInventoryEffects(
         totalInputCost += quantity * Number(input.unit_cost ?? 0);
         continue;
       }
-      const item = await client.query<{ standard_unit_cost: string | null; unit: string }>(
+      const item = await client.query<{
+        standard_unit_cost: string | null;
+        unit: string;
+      }>(
         "SELECT standard_unit_cost, unit FROM management_inventory_items WHERE organization_id = $1 AND id = $2 AND is_active = true",
         [context.organizationId, input.inventory_item_id],
       );
       if (!item.rowCount || !isKilogramUnit(item.rows[0]?.unit))
-        throw new BadRequestError("A stocked feed ingredient is no longer available");
-      const unitCost = input.unit_cost == null ? Number(item.rows[0]?.standard_unit_cost ?? 0) : Number(input.unit_cost);
+        throw new BadRequestError(
+          "A stocked feed ingredient is no longer available",
+        );
+      const unitCost =
+        input.unit_cost == null
+          ? Number(item.rows[0]?.standard_unit_cost ?? 0)
+          : Number(input.unit_cost);
       await writeStockLedger(client, context, {
         warehouseId: String(input.warehouse_id),
         itemId: String(input.inventory_item_id),
@@ -3584,6 +4160,24 @@ async function applyEffects(
     await client.query(
       "UPDATE management_projects SET completed_date = COALESCE(completed_date, current_date) WHERE organization_id = $1 AND id = $2",
       [context.organizationId, row.id],
+    );
+  }
+  if (resource === "quality-checks" && row.warranty_expires_on) {
+    if (row.asset_id)
+      await client.query(
+        "UPDATE management_assets SET warranty_expires_on = GREATEST(COALESCE(warranty_expires_on, $3::date), $3::date) WHERE organization_id = $1 AND id = $2",
+        [context.organizationId, row.asset_id, row.warranty_expires_on],
+      );
+    else if (row.receipt_id)
+      await client.query(
+        "UPDATE management_assets asset SET warranty_expires_on = GREATEST(COALESCE(asset.warranty_expires_on, $3::date), $3::date) FROM management_receipt_line_assets link JOIN management_receipt_lines line ON line.organization_id = link.organization_id AND line.id = link.receipt_line_id WHERE asset.organization_id = $1 AND asset.id = link.asset_id AND line.receipt_id = $2",
+        [context.organizationId, row.receipt_id, row.warranty_expires_on],
+      );
+  }
+  if (resource === "project-closeouts" && String(row.status) === "completed") {
+    await client.query(
+      "UPDATE management_projects SET status = 'completed', lifecycle_stage = 'closed', completed_date = COALESCE(completed_date, current_date) WHERE organization_id = $1 AND id = $2",
+      [context.organizationId, row.project_id],
     );
   }
   if (resource === "phases") {
@@ -3786,7 +4380,13 @@ async function applyEffects(
     // The inventory catalogue is created only when an accepted quantity reaches
     // a confirmed receipt with a real storage location. Planned, ordered,
     // rejected, or fully damaged material never becomes physical stock.
-    if (!itemId && materialId && receiptConfirmed && accepted > 0 && warehouseId) {
+    if (
+      !itemId &&
+      materialId &&
+      receiptConfirmed &&
+      accepted > 0 &&
+      warehouseId
+    ) {
       itemId = await ensureInventoryItemForProjectMaterial(
         client,
         context,
@@ -3835,7 +4435,8 @@ async function applyEffects(
       );
       if (Number(existingAssets.rows[0]?.count ?? 0) === 0) {
         const assetName = row.asset_name ?? receipt.order_asset_name;
-        const assetCategory = row.asset_category ?? receipt.order_asset_category;
+        const assetCategory =
+          row.asset_category ?? receipt.order_asset_category;
         if (!assetName || !assetCategory)
           throw new BadRequestError(
             "Give the durable item an asset name and category before receiving it",
@@ -3968,12 +4569,14 @@ async function enrichApprovalRows(
     [context.organizationId, ids],
   );
   const byId = new Map(labels.rows.map((row) => [String(row.id), mapRow(row)]));
-  const purchaseRequestIds = [...new Set(
-    labels.rows
-      .filter((row) => String(row.request_type) === "purchase_request")
-      .map((row) => String(row.entity_id))
-      .filter(Boolean),
-  )];
+  const purchaseRequestIds = [
+    ...new Set(
+      labels.rows
+        .filter((row) => String(row.request_type) === "purchase_request")
+        .map((row) => String(row.entity_id))
+        .filter(Boolean),
+    ),
+  ];
   const purchaseDetails = new Map<
     string,
     {
@@ -4078,6 +4681,42 @@ async function enrichProjectMemberRows(
     };
   });
 }
+/** Human labels for the risk register are fetched after scope filtering, so a
+ * risk owner or decision maker never leaks a person outside the tenant. */
+async function enrichProjectRiskRows(
+  client: PoolClient,
+  context: OwnerManagementContext,
+  rows: Row[],
+): Promise<Row[]> {
+  if (!rows.length) return rows;
+  const ids = rows.map((row) => String(row.id));
+  const result = await client.query<Row>(
+    `SELECT risk.id,
+            COALESCE(owner_user.full_name, owner_user.email, '—') AS "ownerName",
+            COALESCE(decider_user.full_name, decider_user.email, NULL) AS "decidedByName",
+            COALESCE(creator_user.full_name, creator_user.email, NULL) AS "createdByName"
+       FROM management_project_risks risk
+       LEFT JOIN organization_members owner_member
+         ON owner_member.organization_id=risk.organization_id
+        AND owner_member.id=risk.owner_member_id
+       LEFT JOIN users owner_user ON owner_user.id=owner_member.user_id
+       LEFT JOIN organization_members decider_member
+         ON decider_member.organization_id=risk.organization_id
+        AND decider_member.id=risk.decided_by_member_id
+       LEFT JOIN users decider_user ON decider_user.id=decider_member.user_id
+       LEFT JOIN organization_members creator_member
+         ON creator_member.organization_id=risk.organization_id
+        AND creator_member.id=risk.created_by_member_id
+       LEFT JOIN users creator_user ON creator_user.id=creator_member.user_id
+      WHERE risk.organization_id=$1 AND risk.id = ANY($2::uuid[])`,
+    [context.organizationId, ids],
+  );
+  const labels = new Map(
+    result.rows.map((row) => [String(row.id), mapRow(row)]),
+  );
+  return rows.map((row) => ({ ...row, ...(labels.get(String(row.id)) ?? {}) }));
+}
+
 async function enrichTaskCostRows(
   client: PoolClient,
   context: OwnerManagementContext,
@@ -4789,20 +5428,30 @@ async function enrichProcurementActorRows(
 ): Promise<Row[]> {
   if (!rows.length || !["purchase-orders", "receipts"].includes(resource))
     return rows;
-  const memberField = resource === "receipts" ? "receivedByMemberId" : "orderedByMemberId";
-  const outputField = resource === "receipts" ? "receivedByName" : "orderedByName";
-  const memberIds = [...new Set(
-    rows
-      .map((row) => row[memberField])
-      .filter((value): value is string => typeof value === "string" && value.length > 0),
-  )];
+  const memberField =
+    resource === "receipts" ? "receivedByMemberId" : "orderedByMemberId";
+  const outputField =
+    resource === "receipts" ? "receivedByName" : "orderedByName";
+  const memberIds = [
+    ...new Set(
+      rows
+        .map((row) => row[memberField])
+        .filter(
+          (value): value is string =>
+            typeof value === "string" && value.length > 0,
+        ),
+    ),
+  ];
   if (!memberIds.length) return rows;
   const people = await client.query<Row>(
     "SELECT m.id, u.full_name FROM organization_members m JOIN users u ON u.id = m.user_id WHERE m.organization_id = $1 AND m.id = ANY($2::uuid[])",
     [context.organizationId, memberIds],
   );
   const names = new Map(
-    people.rows.map((row) => [String(row.id), String(row.full_name ?? "").trim()]),
+    people.rows.map((row) => [
+      String(row.id),
+      String(row.full_name ?? "").trim(),
+    ]),
   );
   return rows.map((row) => ({
     ...row,
@@ -4814,18 +5463,26 @@ async function enrichStockMovementActorRows(
   context: OwnerManagementContext,
   rows: Row[],
 ): Promise<Row[]> {
-  const memberIds = [...new Set(
-    rows
-      .map((row) => row.performedByMemberId)
-      .filter((value): value is string => typeof value === "string" && value.length > 0),
-  )];
+  const memberIds = [
+    ...new Set(
+      rows
+        .map((row) => row.performedByMemberId)
+        .filter(
+          (value): value is string =>
+            typeof value === "string" && value.length > 0,
+        ),
+    ),
+  ];
   if (!memberIds.length) return rows;
   const people = await client.query<Row>(
     "SELECT m.id, u.full_name FROM organization_members m JOIN users u ON u.id = m.user_id WHERE m.organization_id = $1 AND m.id = ANY($2::uuid[])",
     [context.organizationId, memberIds],
   );
   const names = new Map(
-    people.rows.map((row) => [String(row.id), String(row.full_name ?? "").trim()]),
+    people.rows.map((row) => [
+      String(row.id),
+      String(row.full_name ?? "").trim(),
+    ]),
   );
   return rows.map((row) => ({
     ...row,
@@ -4837,9 +5494,16 @@ async function enrichExpenseRows(
   context: OwnerManagementContext,
   rows: Row[],
 ): Promise<Row[]> {
-  const receiptIds = [...new Set(rows
-    .map((row) => row.receiptId)
-    .filter((value): value is string => typeof value === "string" && value.length > 0))];
+  const receiptIds = [
+    ...new Set(
+      rows
+        .map((row) => row.receiptId)
+        .filter(
+          (value): value is string =>
+            typeof value === "string" && value.length > 0,
+        ),
+    ),
+  ];
   if (!receiptIds.length) return rows;
   const result = await client.query<Row>(
     "SELECT re.id, re.receipt_number, po.order_number, supplier.name AS supplier_name, COALESCE(SUM((rl.received_quantity - rl.damaged_quantity - rl.rejected_quantity) * COALESCE(rl.actual_unit_cost, pol.unit_cost, 0)), 0) AS receipt_total, COALESCE((SELECT SUM(CASE WHEN e.expense_type = 'receipt_payment' THEN e.amount WHEN e.expense_type = 'reimbursement' THEN -e.amount ELSE 0 END) FROM management_expenses e WHERE e.organization_id = re.organization_id AND e.receipt_id = re.id AND e.status IN ('approved', 'paid')), 0) AS paid_amount FROM management_receipts re JOIN management_purchase_orders po ON po.organization_id = re.organization_id AND po.id = re.purchase_order_id LEFT JOIN management_suppliers supplier ON supplier.organization_id = po.organization_id AND supplier.id = po.supplier_id LEFT JOIN management_receipt_lines rl ON rl.organization_id = re.organization_id AND rl.receipt_id = re.id LEFT JOIN management_purchase_order_lines pol ON pol.organization_id = rl.organization_id AND pol.id = rl.purchase_order_line_id WHERE re.organization_id = $1 AND re.id = ANY($2::uuid[]) GROUP BY re.id, re.receipt_number, po.order_number, supplier.name",
@@ -4860,7 +5524,8 @@ async function enrichExpenseRows(
       receiptTotal: total,
       receiptPaid: paid,
       receiptBalance: balance,
-      receiptPaymentStatus: balance <= 0.0001 ? "paid" : paid > 0 ? "partially_paid" : "unpaid",
+      receiptPaymentStatus:
+        balance <= 0.0001 ? "paid" : paid > 0 ? "partially_paid" : "unpaid",
     };
   });
 }
@@ -4955,17 +5620,28 @@ export async function listOwnerManagementRecords(
         ? await enrichApprovalRows(client, context, readablePage)
         : resource === "project-members"
           ? await enrichProjectMemberRows(client, context, readablePage)
-          : resource === "tasks"
-            ? await enrichTaskCostRows(client, context, readablePage)
-            : resource === "documents"
-              ? await enrichDocumentRows(client, context, readablePage)
-              : resource === "purchase-orders" || resource === "receipts"
-                ? await enrichProcurementActorRows(client, context, resource, readablePage)
-                : resource === "stock-movements"
-                  ? await enrichStockMovementActorRows(client, context, readablePage)
-                  : resource === "expenses"
-                  ? await enrichExpenseRows(client, context, readablePage)
-                  : readablePage;
+          : resource === "risks"
+            ? await enrichProjectRiskRows(client, context, readablePage)
+            : resource === "tasks"
+              ? await enrichTaskCostRows(client, context, readablePage)
+              : resource === "documents"
+                ? await enrichDocumentRows(client, context, readablePage)
+                : resource === "purchase-orders" || resource === "receipts"
+                  ? await enrichProcurementActorRows(
+                      client,
+                      context,
+                      resource,
+                      readablePage,
+                    )
+                  : resource === "stock-movements"
+                    ? await enrichStockMovementActorRows(
+                        client,
+                        context,
+                        readablePage,
+                      )
+                    : resource === "expenses"
+                      ? await enrichExpenseRows(client, context, readablePage)
+                      : readablePage;
     const audited = await enrichAuditMetadata(
       client,
       context,
@@ -5155,14 +5831,19 @@ export async function getOwnerManagementRecord(
           ? ((
               await enrichProjectMemberRows(client, context, [mapRow(row)])
             )[0] ?? mapRow(row))
-          : resource === "tasks"
-            ? ((await enrichTaskCostRows(client, context, [mapRow(row)]))[0] ??
-              mapRow(row))
-            : resource === "documents"
+          : resource === "risks"
+            ? ((
+                await enrichProjectRiskRows(client, context, [mapRow(row)])
+              )[0] ?? mapRow(row))
+            : resource === "tasks"
               ? ((
-                  await enrichDocumentRows(client, context, [mapRow(row)])
+                  await enrichTaskCostRows(client, context, [mapRow(row)])
                 )[0] ?? mapRow(row))
-              : mapRow(row);
+              : resource === "documents"
+                ? ((
+                    await enrichDocumentRows(client, context, [mapRow(row)])
+                  )[0] ?? mapRow(row))
+                : mapRow(row);
     const audited =
       (await enrichAuditMetadata(client, context, resource, [mapped]))[0] ??
       mapped;
@@ -5255,6 +5936,38 @@ async function notifyManagementEvent(
       );
     return;
   }
+  if (resource === "risks") {
+    const riskOwnerId = row.owner_member_id
+      ? String(row.owner_member_id)
+      : null;
+    if (action === "created" && riskOwnerId && riskOwnerId !== context.memberId)
+      await createNotificationInTransaction(client, {
+        organizationId: context.organizationId,
+        recipientMemberId: riskOwnerId,
+        actorUserId: context.userId,
+        provinceId,
+        type: "project_risk_assigned",
+        category: "project",
+        priority: String(row.impact) === "critical" ? "urgent" : "high",
+        title: "Project risk assigned",
+        message: label,
+        actionUrl: "/projects",
+        entityType: "management_project_risk",
+        entityId: recordId,
+        metadata: projectId ? { projectId } : {},
+        deduplicationKey: `project-risk-assigned:${recordId}:${riskOwnerId}`,
+      });
+    if (String(row.status) === "triggered" && previousStatus !== "triggered")
+      await owner(
+        "project_risk_triggered",
+        "project",
+        String(row.impact) === "critical" ? "high" : "normal",
+        "Project risk triggered",
+        label,
+        "/projects",
+      );
+    return;
+  }
   if (
     resource === "phases" &&
     String(row.status) === "completed" &&
@@ -5314,7 +6027,10 @@ async function hydratePurchaseOrderFromRequest(
   context: OwnerManagementContext,
   input: Input,
 ): Promise<void> {
-  if (typeof input.purchaseRequestId !== "string" || !input.purchaseRequestId.trim())
+  if (
+    typeof input.purchaseRequestId !== "string" ||
+    !input.purchaseRequestId.trim()
+  )
     throw new BadRequestError("Choose an approved purchase request", {
       field: "purchaseRequestId",
     });
@@ -5324,18 +6040,22 @@ async function hydratePurchaseOrderFromRequest(
   );
   const request = result.rows[0];
   if (!request)
-    throw new BadRequestError("Choose a purchase request from this organization", {
-      field: "purchaseRequestId",
-    });
-  if (!['approved', 'partially_approved'].includes(String(request.approval_status)))
+    throw new BadRequestError(
+      "Choose a purchase request from this organization",
+      {
+        field: "purchaseRequestId",
+      },
+    );
+  if (
+    !["approved", "partially_approved"].includes(
+      String(request.approval_status),
+    )
+  )
     throw new BadRequestError(
       "Only an approved purchase request can be used for a purchase order",
       { field: "purchaseRequestId" },
     );
-  if (
-    input.projectId &&
-    String(input.projectId) !== String(request.project_id)
-  )
+  if (input.projectId && String(input.projectId) !== String(request.project_id))
     throw new BadRequestError(
       "The selected purchase request belongs to a different project",
       { field: "purchaseRequestId" },
@@ -5380,10 +6100,13 @@ async function assertPurchaseOrderCanReceive(
   );
   const order = result.rows[0];
   if (!order)
-    throw new BadRequestError("Choose a valid purchase order before recording this receipt", {
-      field: "purchaseOrderId",
-    });
-  if (!['sent', 'partially_received'].includes(String(order.status)))
+    throw new BadRequestError(
+      "Choose a valid purchase order before recording this receipt",
+      {
+        field: "purchaseOrderId",
+      },
+    );
+  if (!["sent", "partially_received"].includes(String(order.status)))
     throw new BadRequestError(
       "Only a sent purchase order with items still to receive can be selected for a new receipt",
       { field: "purchaseOrderId" },
@@ -5411,7 +6134,10 @@ async function hydrateReceiptFromPurchaseOrder(
   input: Input,
   requireReceivingBalance = false,
 ): Promise<void> {
-  if (typeof input.purchaseOrderId !== "string" || !input.purchaseOrderId.trim())
+  if (
+    typeof input.purchaseOrderId !== "string" ||
+    !input.purchaseOrderId.trim()
+  )
     throw new BadRequestError("Choose the purchase order that was delivered", {
       field: "purchaseOrderId",
     });
@@ -5421,9 +6147,12 @@ async function hydrateReceiptFromPurchaseOrder(
   );
   const order = result.rows[0];
   if (!order)
-    throw new BadRequestError("Choose a valid purchase order before recording this receipt", {
-      field: "purchaseOrderId",
-    });
+    throw new BadRequestError(
+      "Choose a valid purchase order before recording this receipt",
+      {
+        field: "purchaseOrderId",
+      },
+    );
   if (input.projectId && String(input.projectId) !== String(order.project_id))
     throw new BadRequestError(
       "The selected purchase order belongs to a different project",
@@ -5465,12 +6194,10 @@ async function hydrateProjectTaskContext(
   resource: OwnerManagementResource,
   input: Input,
 ): Promise<void> {
-  if (![
-    "purchase-requests",
-    "purchase-orders",
-    "expenses",
-  ].includes(resource)) return;
-  let taskId = typeof input.projectTaskId === "string" ? input.projectTaskId : null;
+  if (!["purchase-requests", "purchase-orders", "expenses"].includes(resource))
+    return;
+  let taskId =
+    typeof input.projectTaskId === "string" ? input.projectTaskId : null;
   if (!taskId && resource === "purchase-orders" && input.purchaseRequestId) {
     const request = await client.query<Row>(
       "SELECT project_task_id FROM management_purchase_requests WHERE organization_id = $1 AND id = $2",
@@ -5500,9 +6227,12 @@ async function hydrateProjectTaskContext(
       field: "projectTaskId",
     });
   if (input.projectId && String(input.projectId) !== String(row.project_id))
-    throw new BadRequestError("The linked task belongs to a different project", {
-      field: "projectTaskId",
-    });
+    throw new BadRequestError(
+      "The linked task belongs to a different project",
+      {
+        field: "projectTaskId",
+      },
+    );
   // When a task is selected, its own phase is authoritative. This makes the
   // request, order and direct-expense flows resilient to a stale phase control
   // in the browser while preserving a phase-only record when no task is used.
@@ -5583,10 +6313,7 @@ async function assertProjectBudgetImpact(
     Number(budget.available ?? 0) < -0.0001 ||
     (task != null && Number(task.available ?? 0) < -0.0001);
   if (!tooHigh) return;
-  if (
-    context.isOwner &&
-    String(budgetRow.budget_override_reason ?? "").trim()
-  )
+  if (context.isOwner && String(budgetRow.budget_override_reason ?? "").trim())
     return;
   throw new BadRequestError(
     task
@@ -5594,13 +6321,17 @@ async function assertProjectBudgetImpact(
       : "This operation exceeds the remaining project budget. An owner justification is required to continue.",
     { field: task ? "projectTaskId" : "amount" },
   );
-}/** A payment attached to a confirmed BR is only a settlement record.  The BR
+} /** A payment attached to a confirmed BR is only a settlement record.  The BR
  * already consumed the budget, so the server owns its amount, currency and
  * procurement links and prevents a second budget impact. */
-function expenseType(input: Input): "direct_expense" | "receipt_payment" | "reimbursement" {
+function expenseType(
+  input: Input,
+): "direct_expense" | "receipt_payment" | "reimbursement" {
   if (input.reimbursesExpenseId) return "reimbursement";
   const requested = String(input.expenseType ?? "").trim();
-  if (["direct_expense", "receipt_payment", "reimbursement"].includes(requested))
+  if (
+    ["direct_expense", "receipt_payment", "reimbursement"].includes(requested)
+  )
     return requested as "direct_expense" | "receipt_payment" | "reimbursement";
   // Historical payments did not have a type. A receipt is the reliable signal.
   return input.receiptId ? "receipt_payment" : "direct_expense";
@@ -5632,18 +6363,31 @@ async function hydrateSupplierPaymentFromReceipt(
     );
     const source = original.rows[0];
     if (!source)
-      throw new BadRequestError("Choose the original financial record to reimburse", {
-        field: "reimbursesExpenseId",
-      });
+      throw new BadRequestError(
+        "Choose the original financial record to reimburse",
+        {
+          field: "reimbursesExpenseId",
+        },
+      );
     if (!paymentCountsTowardPayable(source.status))
-      throw new BadRequestError("Only an approved or paid record can be reimbursed", {
-        field: "reimbursesExpenseId",
-      });
+      throw new BadRequestError(
+        "Only an approved or paid record can be reimbursed",
+        {
+          field: "reimbursesExpenseId",
+        },
+      );
     const refundAmount = Number(input.amount ?? 0);
-    if (!Number.isFinite(refundAmount) || refundAmount <= 0 || refundAmount > Number(source.amount ?? 0))
-      throw new BadRequestError("The reimbursement must be greater than zero and cannot exceed the original amount", {
-        field: "amount",
-      });
+    if (
+      !Number.isFinite(refundAmount) ||
+      refundAmount <= 0 ||
+      refundAmount > Number(source.amount ?? 0)
+    )
+      throw new BadRequestError(
+        "The reimbursement must be greater than zero and cannot exceed the original amount",
+        {
+          field: "amount",
+        },
+      );
     input.projectId = source.project_id;
     input.projectTaskId = source.project_task_id ?? null;
     input.phaseId = source.phase_id ?? null;
@@ -5671,41 +6415,67 @@ async function hydrateSupplierPaymentFromReceipt(
   }
 
   if (!input.receiptId)
-    throw new BadRequestError("Choose a confirmed receipt before recording its supplier payment", {
-      field: "receiptId",
-    });
+    throw new BadRequestError(
+      "Choose a confirmed receipt before recording its supplier payment",
+      {
+        field: "receiptId",
+      },
+    );
   const result = await client.query<Row>(
     "SELECT re.id, re.project_id, re.purchase_order_id, po.project_task_id, po.phase_id, po.currency_code, po.supplier_id, COALESCE(SUM((rl.received_quantity - rl.damaged_quantity - rl.rejected_quantity) * COALESCE(rl.actual_unit_cost, pol.unit_cost, 0)), 0) AS receipt_amount FROM management_receipts re JOIN management_purchase_orders po ON po.organization_id = re.organization_id AND po.id = re.purchase_order_id LEFT JOIN management_receipt_lines rl ON rl.organization_id = re.organization_id AND rl.receipt_id = re.id LEFT JOIN management_purchase_order_lines pol ON pol.organization_id = rl.organization_id AND pol.id = rl.purchase_order_line_id WHERE re.organization_id = $1 AND re.id = $2 AND re.status IN ('received', 'verified') GROUP BY re.id, re.project_id, re.purchase_order_id, po.project_task_id, po.phase_id, po.currency_code, po.supplier_id",
     [context.organizationId, input.receiptId],
   );
   const receipt = result.rows[0];
   if (!receipt)
-    throw new BadRequestError("Choose a confirmed receipt before recording its supplier payment", {
-      field: "receiptId",
-    });
+    throw new BadRequestError(
+      "Choose a confirmed receipt before recording its supplier payment",
+      {
+        field: "receiptId",
+      },
+    );
   if (input.projectId && String(input.projectId) !== String(receipt.project_id))
-    throw new BadRequestError("The linked receipt must belong to the same project", {
-      field: "receiptId",
-    });
-  if (input.projectTaskId && receipt.project_task_id && String(input.projectTaskId) !== String(receipt.project_task_id))
-    throw new BadRequestError("The linked receipt belongs to a different project task", {
-      field: "receiptId",
-    });
+    throw new BadRequestError(
+      "The linked receipt must belong to the same project",
+      {
+        field: "receiptId",
+      },
+    );
+  if (
+    input.projectTaskId &&
+    receipt.project_task_id &&
+    String(input.projectTaskId) !== String(receipt.project_task_id)
+  )
+    throw new BadRequestError(
+      "The linked receipt belongs to a different project task",
+      {
+        field: "receiptId",
+      },
+    );
 
   const paid = await client.query<Row>(
     "SELECT COALESCE(SUM(CASE WHEN expense_type = 'receipt_payment' THEN amount WHEN expense_type = 'reimbursement' THEN -amount ELSE 0 END), 0) AS paid_amount FROM management_expenses WHERE organization_id = $1 AND receipt_id = $2 AND status IN ('approved', 'paid') AND ($3::uuid IS NULL OR id <> $3::uuid)",
     [context.organizationId, receipt.id, currentExpenseId ?? null],
   );
-  const balance = Math.max(Number(receipt.receipt_amount ?? 0) - Number(paid.rows[0]?.paid_amount ?? 0), 0);
+  const balance = Math.max(
+    Number(receipt.receipt_amount ?? 0) -
+      Number(paid.rows[0]?.paid_amount ?? 0),
+    0,
+  );
   const amount = Number(input.amount ?? 0);
   if (!Number.isFinite(amount) || amount <= 0)
-    throw new BadRequestError("Enter a supplier payment amount greater than zero", {
-      field: "amount",
-    });
+    throw new BadRequestError(
+      "Enter a supplier payment amount greater than zero",
+      {
+        field: "amount",
+      },
+    );
   if (amount > balance + 0.0001)
-    throw new BadRequestError("This payment exceeds the remaining balance of the receipt", {
-      field: "amount",
-    });
+    throw new BadRequestError(
+      "This payment exceeds the remaining balance of the receipt",
+      {
+        field: "amount",
+      },
+    );
 
   input.projectId = receipt.project_id;
   input.purchaseOrderId = receipt.purchase_order_id;
@@ -5729,7 +6499,19 @@ export async function createOwnerManagementRecord(
     );
   return withTenantContext(context, async (client) => {
     const defaults = withDefaults(context, resource, input);
-  if (resource === "feed-batches") {
+    if (resource === "projects")
+      await assertActiveProjectBenefitOwner(
+        client,
+        context,
+        defaults.benefitOwnerMemberId,
+      );
+    if (resource === "risks")
+      await assertActiveProjectRiskOwner(
+        client,
+        context,
+        defaults.ownerMemberId,
+      );
+    if (resource === "feed-batches") {
       defaults.status ??= "draft";
       defaults.producedByMemberId ??= context.memberId;
       const outputQuantity = Number(defaults.outputQuantityKg ?? 0);
@@ -5763,7 +6545,8 @@ export async function createOwnerManagementRecord(
         defaults.orderNumber = `OF-${String(Number(next.rows[0]?.next_number ?? 1)).padStart(6, "0")}`;
       }
       await assertNutritionFeedOrderContext(client, context, defaults);
-    }    if (resource === "purchase-orders")
+    }
+    if (resource === "purchase-orders")
       await hydratePurchaseOrderFromRequest(client, context, defaults);
     await hydrateProjectTaskContext(client, context, resource, defaults);
     if (resource === "purchase-orders") {
@@ -5856,7 +6639,9 @@ export async function createOwnerManagementRecord(
         [context.organizationId, defaults.paymentIdempotencyKey.trim()],
       );
       if (existing.rows[0]?.id)
-        return mapRow(await rawRecord(client, context, resource, existing.rows[0].id));
+        return mapRow(
+          await rawRecord(client, context, resource, existing.rows[0].id),
+        );
     }
     const prepared = prepareInput(resource, defaults);
     const columns = ["organization_id", ...prepared.columns];
@@ -5930,11 +6715,82 @@ export async function updateOwnerManagementRecord(
     );
   return withTenantContext(context, async (client) => {
     const current = await rawRecord(client, context, resource, recordId);
-  if (resource === "feed-batches") {
+    if (resource === "projects" && input.benefitOwnerMemberId !== undefined)
+      await assertActiveProjectBenefitOwner(
+        client,
+        context,
+        input.benefitOwnerMemberId,
+      );
+    if (resource === "risks") {
+      if (input.ownerMemberId !== undefined)
+        await assertActiveProjectRiskOwner(
+          client,
+          context,
+          input.ownerMemberId,
+        );
+      const nextStatus = String(input.status ?? current.status);
+      if (nextStatus === "triggered" && String(current.status) !== "triggered")
+        input.triggeredAt ??= new Date().toISOString();
+      if (nextStatus === "closed" && String(current.status) !== "closed")
+        input.resolvedAt ??= new Date().toISOString();
+      const nextDecision = String(input.decision ?? current.decision);
+      if (
+        String(current.decision) !== "pending" &&
+        (input.decision !== undefined ||
+          input.decisionTaken !== undefined ||
+          input.decisionJustification !== undefined)
+      )
+        throw new ForbiddenError(
+          "A recorded risk decision is preserved. Add a note or create a follow-up risk instead of replacing it.",
+        );
+      if (
+        nextDecision !== "pending" &&
+        (input.decision !== undefined ||
+          input.decisionTaken !== undefined ||
+          input.decisionJustification !== undefined)
+      ) {
+        input.decidedByMemberId = context.memberId;
+        input.decidedAt = new Date().toISOString();
+      }
+    }
+    if (resource === "quality-checks") {
+      const nextCommissioningStatus = String(
+        input.commissioningStatus ?? current.commissioning_status,
+      );
+      if (
+        nextCommissioningStatus === "validated" &&
+        String(current.commissioning_status) !== "validated"
+      ) {
+        input.commissionedByMemberId ??= context.memberId;
+        input.commissionedAt ??= new Date().toISOString();
+      }
+      input.checkedByMemberId ??=
+        current.checked_by_member_id ?? context.memberId;
+      input.checkedAt ??= current.checked_at ?? new Date().toISOString();
+    }
+    if (resource === "project-closeouts") {
+      const nextStatus = String(input.status ?? current.status);
+      if (
+        nextStatus === "completed" &&
+        String(current.status) !== "completed"
+      ) {
+        if (!context.isOwner)
+          throw new ForbiddenError(
+            "Only the workspace owner can formally close a project",
+          );
+        input.approvedByMemberId = context.memberId;
+        input.completedAt = new Date().toISOString();
+      }
+      input.preparedByMemberId ??=
+        current.prepared_by_member_id ?? context.memberId;
+    }
+    if (resource === "feed-batches") {
       const currentStatus = String(current.status);
       const nextStatus = String(input.status ?? currentStatus);
       if (currentStatus === "confirmed") {
-        const changingBusinessData = Object.keys(input).some((key) => key !== "status");
+        const changingBusinessData = Object.keys(input).some(
+          (key) => key !== "status",
+        );
         if (nextStatus !== "cancelled" || changingBusinessData)
           throw new ForbiddenError(
             "A confirmed feed batch is locked. Cancel it to reverse the stock movements.",
@@ -5943,9 +6799,12 @@ export async function updateOwnerManagementRecord(
       if (currentStatus === "cancelled")
         throw new ForbiddenError("A cancelled feed batch cannot be changed");
       if (!["draft", "confirmed", "cancelled"].includes(nextStatus))
-        throw new BadRequestError("Choose draft, confirmed, or cancelled for this feed batch", {
-          field: "status",
-        });
+        throw new BadRequestError(
+          "Choose draft, confirmed, or cancelled for this feed batch",
+          {
+            field: "status",
+          },
+        );
       await assertFeedBatchContext(client, context, {
         ...mapRow(current),
         ...input,
@@ -5965,18 +6824,20 @@ export async function updateOwnerManagementRecord(
       const currentStatus = String(current.status);
       const nextStatus = String(input.status ?? currentStatus);
       if (["confirmed", "cancelled"].includes(currentStatus))
-        throw new ForbiddenError("A confirmed or cancelled feed production order is locked. Use the controlled production actions instead.");
+        throw new ForbiddenError(
+          "A confirmed or cancelled feed production order is locked. Use the controlled production actions instead.",
+        );
       if (!["draft", "in_progress"].includes(nextStatus))
-        throw new BadRequestError("Confirm or cancel a feed production order from its controlled action, not by editing the status", { field: "status" });
+        throw new BadRequestError(
+          "Confirm or cancel a feed production order from its controlled action, not by editing the status",
+          { field: "status" },
+        );
       await assertNutritionFeedOrderContext(client, context, {
         ...mapRow(current),
         ...input,
       });
     }
-    if (
-      resource === "purchase-requests" &&
-      String(current.status) !== "draft"
-    )
+    if (resource === "purchase-requests" && String(current.status) !== "draft")
       throw new ForbiddenError(
         "A submitted or decided purchase request is locked. Create a new request for any change.",
       );
@@ -5987,11 +6848,7 @@ export async function updateOwnerManagementRecord(
         current.purchase_request_id,
       );
     if (resource === "receipt-lines")
-      await assertReceiptItemsCanChange(
-        client,
-        context,
-        current.receipt_id,
-      );
+      await assertReceiptItemsCanChange(client, context, current.receipt_id);
     if (
       resource === "purchase-requests" &&
       String(input.status ?? current.status) === "submitted"
@@ -6023,7 +6880,8 @@ export async function updateOwnerManagementRecord(
         throw new ConflictError(
           "A purchase order cannot be cancelled after a receiving record exists. Correct the receiving record instead.",
         );
-    }    if (resource === "receipts")
+    }
+    if (resource === "receipts")
       if (
         input.purchaseOrderId !== undefined &&
         String(input.purchaseOrderId) !== String(current.purchase_order_id)
@@ -6041,7 +6899,9 @@ export async function updateOwnerManagementRecord(
       );
     if (
       resource === "receipts" &&
-      ["received", "verified"].includes(String(input.status ?? current.status)) &&
+      ["received", "verified"].includes(
+        String(input.status ?? current.status),
+      ) &&
       String(current.status) === "draft"
     ) {
       const lines = await client.query<{ count: string }>(
@@ -6074,17 +6934,38 @@ export async function updateOwnerManagementRecord(
         recordId,
       );
       for (const field of [
-        "expenseType", "projectId", "projectTaskId", "phaseId", "provinceId",
-        "siteId", "supplierId", "purchaseOrderId", "receiptId", "currencyCode",
-        "category", "title", "description",
+        "expenseType",
+        "projectId",
+        "projectTaskId",
+        "phaseId",
+        "provinceId",
+        "siteId",
+        "supplierId",
+        "purchaseOrderId",
+        "receiptId",
+        "currencyCode",
+        "category",
+        "title",
+        "description",
       ]) {
         if (prospective[field] !== undefined) input[field] = prospective[field];
       }
-      if (String(input.status ?? current.status) === "submitted" && !current.submitted_at)
+      if (
+        String(input.status ?? current.status) === "submitted" &&
+        !current.submitted_at
+      )
         input.submittedAt = new Date().toISOString();
-      if (String(input.status ?? current.status) === "paid" && !current.paid_by_member_id)
+      if (
+        String(input.status ?? current.status) === "paid" &&
+        !current.paid_by_member_id
+      )
         input.paidByMemberId = context.memberId;
-      if (["cancelled", "void", "refunded"].includes(String(input.status ?? current.status)) && !current.cancelled_at)
+      if (
+        ["cancelled", "void", "refunded"].includes(
+          String(input.status ?? current.status),
+        ) &&
+        !current.cancelled_at
+      )
         input.cancelledAt = new Date().toISOString();
     }
     if (resource === "purchase-orders" && input.purchaseRequestId !== undefined)
@@ -6191,6 +7072,10 @@ export async function deleteOwnerManagementRecord(
     throw new BadRequestError(
       "This history record cannot be deleted. Add an adjustment or reversal instead.",
     );
+  if (config.deleteProtected)
+    throw new BadRequestError(
+      "A risk register entry is retained for traceability. Close it instead of deleting it.",
+    );
   await withTenantContext(context, async (client) => {
     const deleted = await rawRecord(client, context, resource, recordId);
     if (resource === "feed-batches" && String(deleted.status) !== "draft")
@@ -6200,17 +7085,19 @@ export async function deleteOwnerManagementRecord(
     if (resource === "feed-batch-inputs")
       await assertFeedBatchInputsCanChange(client, context, deleted.batch_id);
     if (resource === "feed-orders" && String(deleted.status) !== "draft")
-      throw new ForbiddenError("A confirmed or cancelled feed production order is preserved for stock traceability. Cancel it instead of deleting it.");
+      throw new ForbiddenError(
+        "A confirmed or cancelled feed production order is preserved for stock traceability. Cancel it instead of deleting it.",
+      );
     if (
       resource === "expenses" &&
-      ["approved", "paid", "reimbursed", "refunded"].includes(String(deleted.status))
+      ["approved", "paid", "reimbursed", "refunded"].includes(
+        String(deleted.status),
+      )
     )
       throw new ForbiddenError(
         "An approved financial record cannot be deleted. Cancel it or create an audited reimbursement instead.",
-      );    if (
-      resource === "purchase-requests" &&
-      String(deleted.status) !== "draft"
-    )
+      );
+    if (resource === "purchase-requests" && String(deleted.status) !== "draft")
       throw new ForbiddenError(
         "A submitted or decided purchase request cannot be deleted",
       );
@@ -6221,11 +7108,7 @@ export async function deleteOwnerManagementRecord(
         deleted.purchase_request_id,
       );
     if (resource === "receipt-lines")
-      await assertReceiptItemsCanChange(
-        client,
-        context,
-        deleted.receipt_id,
-      );
+      await assertReceiptItemsCanChange(client, context, deleted.receipt_id);
     if (resource === "tasks") {
       const financialLinks = await client.query(
         "SELECT 1 FROM management_purchase_requests WHERE organization_id = $1 AND project_task_id = $2 UNION ALL SELECT 1 FROM management_purchase_orders WHERE organization_id = $1 AND project_task_id = $2 UNION ALL SELECT 1 FROM management_expenses WHERE organization_id = $1 AND project_task_id = $2 UNION ALL SELECT 1 FROM management_receipts receipt JOIN management_purchase_orders purchase_order ON purchase_order.organization_id = receipt.organization_id AND purchase_order.id = receipt.purchase_order_id WHERE receipt.organization_id = $1 AND purchase_order.project_task_id = $2 LIMIT 1",
@@ -6303,7 +7186,8 @@ export async function returnPurchaseRequestToDraft(
         context.organizationId,
         recordId,
         context.memberId,
-        correctionNote?.trim() || "Returned to draft by the owner for correction",
+        correctionNote?.trim() ||
+          "Returned to draft by the owner for correction",
       ],
     );
     for (const approval of closedApprovals.rows)
@@ -6363,7 +7247,8 @@ export async function decideApproval(
         ? requestedAmount
         : decision === "partially_approved"
           ? approvedAmount
-          : null;    await client.query(
+          : null;
+    await client.query(
       "UPDATE management_approval_requests SET status = $3, decided_by_member_id = $4, decided_at = now(), decision_notes = $5, approved_amount = $6 WHERE organization_id = $1 AND id = $2",
       [
         context.organizationId,
@@ -6464,57 +7349,223 @@ async function operationalLinksForProject(
   );
 }
 
+function productionCostCategory(value: unknown): ProductionCostCategory {
+  const category = String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[éèêë]/g, "e")
+    .replace(/[^a-z0-9]+/g, "_");
+  if (
+    /(animal|livestock|poulet|volaille|poultry|bird|bovin|porc)/.test(category)
+  )
+    return "animals";
+  if (/(feed|aliment|nutrition|provende)/.test(category)) return "feed";
+  if (/(health|vaccin|vaccine|treatment|traitement|medic|veter)/.test(category))
+    return "health";
+  if (
+    /(labou?r|salary|wage|salaire|main.*oeuvre|main.*œuvre|personnel)/.test(
+      category,
+    )
+  )
+    return "labour";
+  if (/(transport|delivery|livraison|freight)/.test(category))
+    return "transport";
+  if (
+    /(utilit|electric|eau|water|fuel|carburant|energy|energie)/.test(category)
+  )
+    return "utilities";
+  if (/(depreciation|amortissement)/.test(category))
+    return "equipment_depreciation";
+  return "other";
+}
+
+function addProductionCost(
+  costs: ProductionCostBreakdown,
+  category: ProductionCostCategory,
+  value: unknown,
+) {
+  const amount = Number(value ?? 0);
+  if (Number.isFinite(amount) && amount > 0) costs[category] += amount;
+}
+
+function distributeProductionCost(
+  flocks: Array<{
+    id: string;
+    initialBirdCount: number;
+    costs: ProductionCostBreakdown;
+  }>,
+  costs: ProductionCostBreakdown,
+) {
+  const totalBirds = flocks.reduce(
+    (sum, flock) => sum + Math.max(1, flock.initialBirdCount),
+    0,
+  );
+  if (!totalBirds) return;
+  for (const flock of flocks) {
+    const ratio = Math.max(1, flock.initialBirdCount) / totalBirds;
+    for (const category of productionCostCategories)
+      flock.costs[category] += costs[category] * ratio;
+  }
+}
+
 /**
- * A poultry project does not duplicate sales or operating data.  Its linked
- * flock is the bridge: confirmed deliveries are revenue, while the existing
- * project-budget calculation supplies already de-duplicated operating cost.
+ * A poultry project does not copy sales or operating data into a second
+ * ledger. Feed is costed only when it is issued to a linked flock. Stocked
+ * supplies stay out of the production result until consumption; supplier
+ * settlement is cash-only and is never a second production cost.
  */
 async function productionProfitabilityFor(
   client: PoolClient,
   organizationId: string,
   projectId: string,
   currencyCode: string,
-  operationalCost: number,
 ): Promise<Row | null> {
   const flocks = await client.query<Row>(
-    "SELECT f.id, f.name, f.code, COALESCE(f.purchase_cost_total, 0) AS declared_purchase_cost FROM management_project_operational_links link JOIN poultry_flocks f ON f.organization_id = link.organization_id AND f.id = link.record_id WHERE link.organization_id = $1 AND link.project_id = $2 AND link.module_code = 'poultry' AND link.resource_code = 'flocks' ORDER BY f.arrival_date, f.name",
+    "SELECT f.id, f.name, f.code, f.initial_bird_count, COALESCE(f.purchase_cost_total, 0) AS declared_purchase_cost FROM management_project_operational_links link JOIN poultry_flocks f ON f.organization_id = link.organization_id AND f.id = link.record_id WHERE link.organization_id = $1 AND link.project_id = $2 AND link.module_code = 'poultry' AND link.resource_code = 'flocks' ORDER BY f.arrival_date, f.name",
     [organizationId, projectId],
   );
   if (!flocks.rowCount) return null;
 
-  const [eggProduction, sales, cash] = await Promise.all([
+  const [
+    eggProduction,
+    sales,
+    cash,
+    feedIssues,
+    directExpenses,
+    serviceReceipts,
+  ] = await Promise.all([
     client.query<Row>(
-      "SELECT COALESCE(SUM(eggs.total_eggs), 0) AS eggs_produced FROM poultry_egg_records eggs JOIN management_project_operational_links link ON link.organization_id = eggs.organization_id AND link.record_id = eggs.flock_id WHERE eggs.organization_id = $1 AND link.project_id = $2 AND link.module_code = 'poultry' AND link.resource_code = 'flocks'",
+      "SELECT eggs.flock_id, COALESCE(SUM(eggs.total_eggs), 0) AS eggs_produced FROM poultry_egg_records eggs JOIN management_project_operational_links link ON link.organization_id = eggs.organization_id AND link.record_id = eggs.flock_id WHERE eggs.organization_id = $1 AND link.project_id = $2 AND link.module_code = 'poultry' AND link.resource_code = 'flocks' GROUP BY eggs.flock_id",
       [organizationId, projectId],
     ),
     client.query<Row>(
-      "WITH linked_flocks AS (SELECT record_id FROM management_project_operational_links WHERE organization_id = $1 AND project_id = $2 AND module_code = 'poultry' AND resource_code = 'flocks') SELECT COALESCE(SUM(CASE WHEN offer.source_type = 'egg_flock' THEN line.delivered_quantity ELSE 0 END), 0) AS eggs_sold, COALESCE(SUM(CASE WHEN offer.source_type = 'poultry_flock' THEN line.delivered_quantity ELSE 0 END), 0) AS birds_sold, COALESCE(SUM(line.delivered_quantity * line.unit_price * (1 - line.discount_percent / 100) * (1 + line.tax_percent / 100)), 0) AS revenue FROM sales_order_lines line JOIN sales_orders sale ON sale.organization_id = line.organization_id AND sale.id = line.order_id JOIN sales_operational_offers offer ON offer.organization_id = line.organization_id AND offer.id = line.operational_offer_id JOIN linked_flocks flock ON flock.record_id = offer.source_id WHERE line.organization_id = $1 AND offer.source_type IN ('egg_flock', 'poultry_flock') AND sale.currency = $3 AND sale.status IN ('partially_delivered', 'delivered', 'invoiced')",
+      "WITH linked_flocks AS (SELECT record_id FROM management_project_operational_links WHERE organization_id = $1 AND project_id = $2 AND module_code = 'poultry' AND resource_code = 'flocks') SELECT offer.source_id AS flock_id, COALESCE(SUM(CASE WHEN offer.source_type = 'egg_flock' THEN line.delivered_quantity ELSE 0 END), 0) AS eggs_sold, COALESCE(SUM(CASE WHEN offer.source_type = 'poultry_flock' THEN line.delivered_quantity ELSE 0 END), 0) AS birds_sold, COALESCE(SUM(line.delivered_quantity * line.unit_price * (1 - line.discount_percent / 100) * (1 + line.tax_percent / 100)), 0) AS revenue FROM sales_order_lines line JOIN sales_orders sale ON sale.organization_id = line.organization_id AND sale.id = line.order_id JOIN sales_operational_offers offer ON offer.organization_id = line.organization_id AND offer.id = line.operational_offer_id JOIN linked_flocks flock ON flock.record_id = offer.source_id WHERE line.organization_id = $1 AND offer.source_type IN ('egg_flock', 'poultry_flock') AND sale.currency = $3 AND sale.status IN ('partially_delivered', 'delivered', 'invoiced') GROUP BY offer.source_id",
       [organizationId, projectId, currencyCode],
     ),
     client.query<Row>(
-      "WITH production_order_totals AS (SELECT line.order_id, SUM(line.delivered_quantity * line.unit_price * (1 - line.discount_percent / 100) * (1 + line.tax_percent / 100)) AS production_total FROM sales_order_lines line JOIN sales_operational_offers offer ON offer.organization_id = line.organization_id AND offer.id = line.operational_offer_id JOIN management_project_operational_links link ON link.organization_id = line.organization_id AND link.record_id = offer.source_id WHERE line.organization_id = $1 AND link.project_id = $2 AND link.module_code = 'poultry' AND link.resource_code = 'flocks' AND offer.source_type IN ('egg_flock', 'poultry_flock') GROUP BY line.order_id) SELECT COALESCE(SUM(allocation.amount * LEAST(totals.production_total / NULLIF(invoice.total, 0), 1)), 0) AS cash_received FROM payment_allocations allocation JOIN sales_invoices invoice ON invoice.organization_id = allocation.organization_id AND invoice.id = allocation.invoice_id JOIN production_order_totals totals ON totals.order_id = invoice.order_id WHERE allocation.organization_id = $1 AND invoice.currency = $3 AND invoice.status NOT IN ('draft', 'cancelled', 'written_off')",
+      "WITH production_lines AS (SELECT line.order_id, offer.source_id AS flock_id, SUM(line.delivered_quantity * line.unit_price * (1 - line.discount_percent / 100) * (1 + line.tax_percent / 100)) AS revenue FROM sales_order_lines line JOIN sales_orders sale ON sale.organization_id = line.organization_id AND sale.id = line.order_id JOIN sales_operational_offers offer ON offer.organization_id = line.organization_id AND offer.id = line.operational_offer_id JOIN management_project_operational_links link ON link.organization_id = line.organization_id AND link.record_id = offer.source_id WHERE line.organization_id = $1 AND link.project_id = $2 AND link.module_code = 'poultry' AND link.resource_code = 'flocks' AND offer.source_type IN ('egg_flock', 'poultry_flock') AND sale.currency = $3 AND sale.status IN ('partially_delivered', 'delivered', 'invoiced') GROUP BY line.order_id, offer.source_id), order_totals AS (SELECT order_id, SUM(revenue) AS revenue FROM production_lines GROUP BY order_id), invoice_cash AS (SELECT invoice.order_id, SUM(allocation.amount) AS cash_received FROM payment_allocations allocation JOIN sales_invoices invoice ON invoice.organization_id = allocation.organization_id AND invoice.id = allocation.invoice_id WHERE allocation.organization_id = $1 AND invoice.currency = $3 AND invoice.status NOT IN ('draft', 'cancelled', 'written_off') GROUP BY invoice.order_id) SELECT production_lines.flock_id, COALESCE(SUM(COALESCE(invoice_cash.cash_received, 0) * (production_lines.revenue / NULLIF(order_totals.revenue, 0))), 0) AS cash_received FROM production_lines JOIN order_totals ON order_totals.order_id = production_lines.order_id LEFT JOIN invoice_cash ON invoice_cash.order_id = production_lines.order_id GROUP BY production_lines.flock_id",
+      [organizationId, projectId, currencyCode],
+    ),
+    client.query<Row>(
+      "SELECT feed.flock_id, COALESCE(SUM(ABS(stock.quantity_delta) * COALESCE(stock.unit_cost, item.standard_unit_cost, 0)), 0) AS feed_cost FROM management_inventory_stock_movements stock JOIN poultry_feed_records feed ON feed.organization_id = stock.organization_id AND feed.id = stock.reference_id JOIN management_project_operational_links link ON link.organization_id = feed.organization_id AND link.record_id = feed.flock_id LEFT JOIN management_inventory_items item ON item.organization_id = stock.organization_id AND item.id = stock.item_id WHERE stock.organization_id = $1 AND link.project_id = $2 AND link.module_code = 'poultry' AND link.resource_code = 'flocks' AND stock.reference_type = 'poultry_feed' AND stock.movement_type = 'issue' GROUP BY feed.flock_id",
+      [organizationId, projectId],
+    ),
+    client.query<Row>(
+      "SELECT category, COALESCE(SUM(amount), 0) AS amount FROM management_expenses WHERE organization_id = $1 AND project_id = $2 AND currency_code = $3 AND expense_type = 'direct_expense' AND receipt_id IS NULL AND status IN ('approved', 'paid') GROUP BY category",
+      [organizationId, projectId, currencyCode],
+    ),
+    client.query<Row>(
+      "SELECT purchase_line.item_kind, purchase_line.description, COALESCE(SUM((receipt_line.received_quantity - receipt_line.damaged_quantity - receipt_line.rejected_quantity) * COALESCE(receipt_line.actual_unit_cost, purchase_line.unit_cost, 0)), 0) AS amount FROM management_receipt_lines receipt_line JOIN management_receipts receipt ON receipt.organization_id = receipt_line.organization_id AND receipt.id = receipt_line.receipt_id JOIN management_purchase_orders purchase_order ON purchase_order.organization_id = receipt.organization_id AND purchase_order.id = receipt.purchase_order_id JOIN management_purchase_order_lines purchase_line ON purchase_line.organization_id = receipt_line.organization_id AND purchase_line.id = receipt_line.purchase_order_line_id WHERE receipt_line.organization_id = $1 AND receipt.project_id = $2 AND purchase_order.currency_code = $3 AND receipt.status IN ('received', 'verified') AND purchase_line.item_kind IN ('service', 'other') GROUP BY purchase_line.item_kind, purchase_line.description",
       [organizationId, projectId, currencyCode],
     ),
   ]);
 
+  const eggsByFlock = new Map(
+    eggProduction.rows.map((row) => [
+      String(row.flock_id),
+      Number(row.eggs_produced ?? 0),
+    ]),
+  );
+  const salesByFlock = new Map(
+    sales.rows.map((row) => [
+      String(row.flock_id),
+      {
+        eggsSold: Number(row.eggs_sold ?? 0),
+        birdsSold: Number(row.birds_sold ?? 0),
+        revenue: Number(row.revenue ?? 0),
+      },
+    ]),
+  );
+  const cashByFlock = new Map(
+    cash.rows.map((row) => [
+      String(row.flock_id),
+      Number(row.cash_received ?? 0),
+    ]),
+  );
+  const feedCostByFlock = new Map(
+    feedIssues.rows.map((row) => [
+      String(row.flock_id),
+      Number(row.feed_cost ?? 0),
+    ]),
+  );
+  const flockRows = flocks.rows.map((flock) => ({
+    id: String(flock.id),
+    name: String(flock.name ?? ""),
+    code: String(flock.code ?? ""),
+    initialBirdCount: Number(flock.initial_bird_count ?? 0),
+    declaredPurchaseCost: Number(flock.declared_purchase_cost ?? 0),
+    costs: emptyProductionCostBreakdown(),
+  }));
+
+  const sharedCosts = emptyProductionCostBreakdown();
+  for (const expense of directExpenses.rows)
+    addProductionCost(
+      sharedCosts,
+      productionCostCategory(expense.category),
+      expense.amount,
+    );
+  for (const receipt of serviceReceipts.rows)
+    addProductionCost(
+      sharedCosts,
+      productionCostCategory(receipt.description),
+      receipt.amount,
+    );
+  distributeProductionCost(flockRows, sharedCosts);
+
+  // Animal acquisition is recorded on the flock itself. It is the unique
+  // source for animal cost, while stock purchases wait for actual issue.
+  for (const flock of flockRows) {
+    flock.costs.animals += Math.max(0, flock.declaredPurchaseCost);
+    flock.costs.feed += Math.max(0, feedCostByFlock.get(flock.id) ?? 0);
+  }
+  const costBreakdown = emptyProductionCostBreakdown();
+  for (const flock of flockRows)
+    for (const category of productionCostCategories)
+      costBreakdown[category] += flock.costs[category];
+
   const calculated = calculateProductionProfitability({
     linkedFlockCount: flocks.rowCount,
-    operationalCost,
-    revenue: Number(sales.rows[0]?.revenue ?? 0),
-    cashReceived: Number(cash.rows[0]?.cash_received ?? 0),
-    eggsProduced: Number(eggProduction.rows[0]?.eggs_produced ?? 0),
-    eggsSold: Number(sales.rows[0]?.eggs_sold ?? 0),
-    birdsSold: Number(sales.rows[0]?.birds_sold ?? 0),
+    costBreakdown,
+    revenue: sales.rows.reduce((sum, row) => sum + Number(row.revenue ?? 0), 0),
+    cashReceived: cash.rows.reduce(
+      (sum, row) => sum + Number(row.cash_received ?? 0),
+      0,
+    ),
+    eggsProduced: eggProduction.rows.reduce(
+      (sum, row) => sum + Number(row.eggs_produced ?? 0),
+      0,
+    ),
+    eggsSold: sales.rows.reduce(
+      (sum, row) => sum + Number(row.eggs_sold ?? 0),
+      0,
+    ),
+    birdsSold: sales.rows.reduce(
+      (sum, row) => sum + Number(row.birds_sold ?? 0),
+      0,
+    ),
+    flocks: flockRows.map((flock) => {
+      const sale = salesByFlock.get(flock.id);
+      return {
+        id: flock.id,
+        name: flock.name,
+        code: flock.code,
+        costs: flock.costs,
+        eggsProduced: eggsByFlock.get(flock.id) ?? 0,
+        eggsSold: sale?.eggsSold ?? 0,
+        birdsSold: sale?.birdsSold ?? 0,
+        revenue: sale?.revenue ?? 0,
+        cashReceived: cashByFlock.get(flock.id) ?? 0,
+      };
+    }),
   });
 
   return {
     ...calculated,
     currencyCode,
-    declaredFlockPurchaseCost: flocks.rows.reduce(
-      (sum, flock) => sum + Number(flock.declared_purchase_cost ?? 0),
+    declaredFlockPurchaseCost: flockRows.reduce(
+      (sum, flock) => sum + flock.declaredPurchaseCost,
       0,
     ),
-    flocks: flocks.rows.map(mapRow),
   };
 }
 async function projectSummaryFor(
@@ -6523,29 +7574,40 @@ async function projectSummaryFor(
   projectId: string,
 ): Promise<Row> {
   const project = await rawRecord(client, context, "projects", projectId);
-  const [tasksResult, ordersResult, receiptsResult, expensesResult, progressResult] =
-    await Promise.all([
-      client.query<Row>(
-        "SELECT t.id, t.phase_id, t.title, t.estimated_cost, t.budget_currency_code, ph.name AS phase_name FROM management_project_tasks t LEFT JOIN management_project_phases ph ON ph.organization_id = t.organization_id AND ph.id = t.phase_id WHERE t.organization_id = $1 AND t.project_id = $2 AND t.task_type = 'work' ORDER BY ph.phase_order NULLS LAST, t.created_at",
-        [context.organizationId, projectId],
-      ),
-      client.query<Row>(
-        "SELECT po.id, po.project_task_id, po.status, COALESCE(SUM(pol.ordered_quantity * pol.unit_cost + pol.tax_amount), 0) AS amount FROM management_purchase_orders po LEFT JOIN management_purchase_order_lines pol ON pol.organization_id = po.organization_id AND pol.purchase_order_id = po.id WHERE po.organization_id = $1 AND po.project_id = $2 GROUP BY po.id, po.project_task_id, po.status",
-        [context.organizationId, projectId],
-      ),
-      client.query<Row>(
-        "SELECT re.id, re.purchase_order_id, po.project_task_id, re.status, COALESCE(SUM((rl.received_quantity - rl.damaged_quantity - rl.rejected_quantity) * COALESCE(rl.actual_unit_cost, pol.unit_cost, 0)), 0) AS amount FROM management_receipts re JOIN management_purchase_orders po ON po.organization_id = re.organization_id AND po.id = re.purchase_order_id LEFT JOIN management_receipt_lines rl ON rl.organization_id = re.organization_id AND rl.receipt_id = re.id LEFT JOIN management_purchase_order_lines pol ON pol.organization_id = rl.organization_id AND pol.id = rl.purchase_order_line_id WHERE re.organization_id = $1 AND re.project_id = $2 GROUP BY re.id, re.purchase_order_id, po.project_task_id, re.status",
-        [context.organizationId, projectId],
-      ),
-      client.query<Row>(
-        "SELECT id, project_task_id, receipt_id, reimburses_expense_id, expense_type, status, amount FROM management_expenses WHERE organization_id = $1 AND project_id = $2",
-        [context.organizationId, projectId],
-      ),
-      client.query<Row>(
-        "SELECT COALESCE(AVG(progress_percent) FILTER (WHERE task_type = 'work'), AVG(progress_percent), 0) AS progress_percent, COUNT(*) FILTER (WHERE task_type = 'work' AND status NOT IN ('completed', 'cancelled')) AS open_tasks, COUNT(*) FILTER (WHERE task_type = 'work' AND due_date < current_date AND status NOT IN ('completed', 'cancelled')) AS overdue_tasks FROM management_project_tasks WHERE organization_id = $1 AND project_id = $2",
-        [context.organizationId, projectId],
-      ),
-    ]);
+  const benefitOwner = project.benefit_owner_member_id
+    ? await client.query<{ full_name: string | null }>(
+        "SELECT user_account.full_name FROM organization_members member JOIN users user_account ON user_account.id = member.user_id WHERE member.organization_id = $1 AND member.id = $2",
+        [context.organizationId, project.benefit_owner_member_id],
+      )
+    : null;
+  const [
+    tasksResult,
+    ordersResult,
+    receiptsResult,
+    expensesResult,
+    progressResult,
+  ] = await Promise.all([
+    client.query<Row>(
+      "SELECT t.id, t.phase_id, t.title, t.estimated_cost, t.budget_currency_code, ph.name AS phase_name FROM management_project_tasks t LEFT JOIN management_project_phases ph ON ph.organization_id = t.organization_id AND ph.id = t.phase_id WHERE t.organization_id = $1 AND t.project_id = $2 AND t.task_type = 'work' ORDER BY ph.phase_order NULLS LAST, t.created_at",
+      [context.organizationId, projectId],
+    ),
+    client.query<Row>(
+      "SELECT po.id, po.project_task_id, po.status, COALESCE(SUM(pol.ordered_quantity * pol.unit_cost + pol.tax_amount), 0) AS amount FROM management_purchase_orders po LEFT JOIN management_purchase_order_lines pol ON pol.organization_id = po.organization_id AND pol.purchase_order_id = po.id WHERE po.organization_id = $1 AND po.project_id = $2 GROUP BY po.id, po.project_task_id, po.status",
+      [context.organizationId, projectId],
+    ),
+    client.query<Row>(
+      "SELECT re.id, re.purchase_order_id, po.project_task_id, re.status, COALESCE(SUM((rl.received_quantity - rl.damaged_quantity - rl.rejected_quantity) * COALESCE(rl.actual_unit_cost, pol.unit_cost, 0)), 0) AS amount FROM management_receipts re JOIN management_purchase_orders po ON po.organization_id = re.organization_id AND po.id = re.purchase_order_id LEFT JOIN management_receipt_lines rl ON rl.organization_id = re.organization_id AND rl.receipt_id = re.id LEFT JOIN management_purchase_order_lines pol ON pol.organization_id = rl.organization_id AND pol.id = rl.purchase_order_line_id WHERE re.organization_id = $1 AND re.project_id = $2 GROUP BY re.id, re.purchase_order_id, po.project_task_id, re.status",
+      [context.organizationId, projectId],
+    ),
+    client.query<Row>(
+      "SELECT id, project_task_id, receipt_id, reimburses_expense_id, expense_type, status, amount FROM management_expenses WHERE organization_id = $1 AND project_id = $2",
+      [context.organizationId, projectId],
+    ),
+    client.query<Row>(
+      "SELECT COALESCE(AVG(progress_percent) FILTER (WHERE task_type = 'work'), AVG(progress_percent), 0) AS progress_percent, COUNT(*) FILTER (WHERE task_type = 'work' AND status NOT IN ('completed', 'cancelled')) AS open_tasks, COUNT(*) FILTER (WHERE task_type = 'work' AND due_date < current_date AND status NOT IN ('completed', 'cancelled')) AS overdue_tasks FROM management_project_tasks WHERE organization_id = $1 AND project_id = $2",
+      [context.organizationId, projectId],
+    ),
+  ]);
   const calculation = calculateProjectBudget({
     planned: Number(project.estimated_total_budget ?? 0),
     tasks: tasksResult.rows.map((task) => ({
@@ -6554,11 +7616,14 @@ async function projectSummaryFor(
       phaseName: task.phase_name == null ? null : String(task.phase_name),
       title: String(task.title),
       planned: Number(task.estimated_cost ?? 0),
-      currencyCode: String(task.budget_currency_code ?? project.currency_code ?? "CDF"),
+      currencyCode: String(
+        task.budget_currency_code ?? project.currency_code ?? "CDF",
+      ),
     })),
     orders: ordersResult.rows.map((order) => ({
       id: String(order.id),
-      taskId: order.project_task_id == null ? null : String(order.project_task_id),
+      taskId:
+        order.project_task_id == null ? null : String(order.project_task_id),
       status: String(order.status),
       amount: Number(order.amount ?? 0),
     })),
@@ -6566,20 +7631,25 @@ async function projectSummaryFor(
       id: String(receipt.id),
       orderId: String(receipt.purchase_order_id),
       taskId:
-        receipt.project_task_id == null ? null : String(receipt.project_task_id),
+        receipt.project_task_id == null
+          ? null
+          : String(receipt.project_task_id),
       status: String(receipt.status),
       amount: Number(receipt.amount ?? 0),
     })),
     expenses: expensesResult.rows.map((expense) => ({
       id: String(expense.id),
       taskId:
-        expense.project_task_id == null ? null : String(expense.project_task_id),
+        expense.project_task_id == null
+          ? null
+          : String(expense.project_task_id),
       receiptId: expense.receipt_id == null ? null : String(expense.receipt_id),
       reimbursesExpenseId:
         expense.reimburses_expense_id == null
           ? null
           : String(expense.reimburses_expense_id),
-      expenseType: expense.expense_type == null ? null : String(expense.expense_type),
+      expenseType:
+        expense.expense_type == null ? null : String(expense.expense_type),
       status: String(expense.status),
       amount: Number(expense.amount ?? 0),
     })),
@@ -6611,7 +7681,8 @@ async function projectSummaryFor(
     current.availableAmount += task.available;
     phaseCostsById.set(task.phaseId, current);
   }
-  const phaseCosts = [...phaseCostsById.values()];  const materials = await materialSummaryForProject(
+  const phaseCosts = [...phaseCostsById.values()];
+  const materials = await materialSummaryForProject(
     client,
     context.organizationId,
     projectId,
@@ -6626,7 +7697,6 @@ async function projectSummaryFor(
     context.organizationId,
     projectId,
     String(project.currency_code ?? "CDF"),
-    calculation.spent,
   );
   const nextActions = await client.query<Row>(
     "SELECT task.id, task.title, task.status, task.priority, task.due_date, task.blocked_reason, task.assigned_member_id, assigned_user.full_name AS assigned_member_name FROM management_project_tasks task LEFT JOIN organization_members assigned_member ON assigned_member.organization_id = task.organization_id AND assigned_member.id = task.assigned_member_id LEFT JOIN users assigned_user ON assigned_user.id = assigned_member.user_id WHERE task.organization_id = $1 AND task.project_id = $2 AND task.task_type = 'work' AND task.status NOT IN ('completed', 'cancelled') ORDER BY CASE WHEN task.status = 'blocked' THEN 0 ELSE 1 END, task.due_date NULLS LAST, task.priority DESC LIMIT 10",
@@ -6635,6 +7705,7 @@ async function projectSummaryFor(
   const progress = progressResult.rows[0] ?? {};
   return {
     ...mapRow(project),
+    benefitOwnerName: benefitOwner?.rows[0]?.full_name ?? null,
     calculatedProgressPercent: progress.progress_percent ?? 0,
     openTasks: progress.open_tasks ?? 0,
     overdueTasks: progress.overdue_tasks ?? 0,
@@ -6667,6 +7738,286 @@ export async function projectSummary(
   );
 }
 
+type CashForecastEvent = {
+  eventDate: string;
+  direction: "in" | "out";
+  kind: string;
+  category: string;
+  amount: number;
+};
+
+const forecastDate = (days: number) => {
+  const date = new Date();
+  date.setUTCHours(12, 0, 0, 0);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+};
+
+function forecastExpenseGroup(
+  value: unknown,
+):
+  | "salaries"
+  | "feed"
+  | "health"
+  | "fuel"
+  | "transport"
+  | "utilities"
+  | "other" {
+  const category = String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[éèêë]/g, "e");
+  if (
+    /(labou?r|salary|wage|salaire|main.*oeuvre|main.*œuvre|personnel)/.test(
+      category,
+    )
+  )
+    return "salaries";
+  if (/(feed|aliment|nutrition|provende)/.test(category)) return "feed";
+  if (/(health|vaccin|vaccine|treatment|traitement|medic|veter)/.test(category))
+    return "health";
+  if (/(fuel|carburant|diesel|essence)/.test(category)) return "fuel";
+  if (/(transport|delivery|livraison|freight)/.test(category))
+    return "transport";
+  if (/(utilit|electric|eau|water|energy|energie)/.test(category))
+    return "utilities";
+  return "other";
+}
+
+export async function projectDecisionSimulation(
+  context: OwnerManagementContext,
+  projectId: string,
+  input: ProjectDecisionSimulationInput,
+): Promise<Row> {
+  if (!context.isOwner)
+    throw new ForbiddenError(
+      "Only the workspace owner can simulate a project decision",
+    );
+  return withTenantContext(context, async (client) => {
+    const summary = await projectSummaryFor(client, context, projectId);
+    const profitability = (summary.productionProfitability ?? {}) as Row;
+    const costs = (profitability.costBreakdown ?? {}) as Row;
+    const started = String(
+      summary.operationalStartDate ??
+        summary.startDate ??
+        summary.createdAt ??
+        "",
+    );
+    const startedAt = Date.parse(started);
+    const observedDays = Number.isFinite(startedAt)
+      ? Math.max(1, Math.floor((Date.now() - startedAt) / 86_400_000) + 1)
+      : 30;
+    return calculateProjectDecisionSimulation(
+      {
+        currencyCode: String(summary.currencyCode ?? "CDF"),
+        plannedBudget: Number(((summary.budget ?? {}) as Row).planned ?? 0),
+        operationalCost: Number(profitability.operationalCost ?? 0),
+        feedCost: Number(costs.feed ?? 0),
+        revenue: Number(profitability.revenue ?? 0),
+        cashReceived: Number(profitability.cashReceived ?? 0),
+        eggsSold: Number(profitability.eggsSold ?? 0),
+        revenuePerEggSold: Number(profitability.revenuePerEggSold ?? 0),
+        observedDays,
+      },
+      input,
+    );
+  });
+}
+
+function forecastWindow(events: CashForecastEvent[], days: number): Row {
+  const cutoff = forecastDate(days);
+  const value = (amount: unknown) => {
+    const parsed = Number(amount ?? 0);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+  const operating = {
+    salaries: 0,
+    feed: 0,
+    health: 0,
+    fuel: 0,
+    transport: 0,
+    utilities: 0,
+    other: 0,
+  };
+  let expectedCustomerCash = 0;
+  let expectedSalesRevenue = 0;
+  let supplierPayments = 0;
+
+  for (const event of events) {
+    if (event.eventDate > cutoff) continue;
+    if (event.kind === "expected_sale") {
+      expectedSalesRevenue += value(event.amount);
+      continue;
+    }
+    if (event.kind === "customer_payment") {
+      expectedCustomerCash += value(event.amount);
+      continue;
+    }
+    if (event.kind === "supplier_payment") {
+      supplierPayments += value(event.amount);
+      continue;
+    }
+    if (event.direction === "out")
+      operating[forecastExpenseGroup(event.category)] += value(event.amount);
+  }
+
+  const operatingOutflows = Object.values(operating).reduce(
+    (sum, amount) => sum + amount,
+    0,
+  );
+  const expectedOutflows = supplierPayments + operatingOutflows;
+  const netCashFlow = expectedCustomerCash - expectedOutflows;
+  return {
+    days,
+    expectedSalesRevenue,
+    expectedCustomerCash,
+    supplierPayments,
+    operating,
+    operatingOutflows,
+    expectedOutflows,
+    netCashFlow,
+    fundingGap: Math.max(expectedOutflows - expectedCustomerCash, 0),
+    atRisk: expectedOutflows > expectedCustomerCash + 0.0001,
+  };
+}
+
+/**
+ * Cash forecasting deliberately differs from the project result. It uses due
+ * customer invoices for cash in, then unpaid supplier obligations and planned
+ * direct costs for cash out. A confirmed delivery remains a revenue event,
+ * even when its customer has not paid yet.
+ */
+async function projectCashForecastFor(
+  client: PoolClient,
+  organizationId: string,
+  projectId: string,
+  currencyCode: string,
+): Promise<Row> {
+  const events = await client.query<Row>(
+    `WITH receipt_totals AS (
+       SELECT receipt.id, receipt.purchase_order_id, receipt.received_date,
+              COALESCE(SUM((line.received_quantity - line.damaged_quantity - line.rejected_quantity) * COALESCE(line.actual_unit_cost, purchase_line.unit_cost, 0)), 0) AS amount
+         FROM management_receipts receipt
+         JOIN management_purchase_orders purchase_order ON purchase_order.organization_id = receipt.organization_id AND purchase_order.id = receipt.purchase_order_id
+         LEFT JOIN management_receipt_lines line ON line.organization_id = receipt.organization_id AND line.receipt_id = receipt.id
+         LEFT JOIN management_purchase_order_lines purchase_line ON purchase_line.organization_id = line.organization_id AND purchase_line.id = line.purchase_order_line_id
+        WHERE receipt.organization_id = $1 AND receipt.project_id = $2
+          AND purchase_order.currency_code = $3 AND receipt.status IN ('received', 'verified')
+        GROUP BY receipt.id, receipt.purchase_order_id, receipt.received_date
+     ), receipt_payments AS (
+       SELECT expense.receipt_id,
+              COALESCE(SUM(CASE WHEN expense.expense_type = 'receipt_payment' THEN expense.amount WHEN expense.expense_type = 'reimbursement' THEN -expense.amount ELSE 0 END), 0) AS paid
+         FROM management_expenses expense
+        WHERE expense.organization_id = $1 AND expense.status IN ('approved', 'paid')
+        GROUP BY expense.receipt_id
+     ), project_order_revenue AS (
+       SELECT sale_line.order_id,
+              COALESCE(SUM(sale_line.line_total), 0) AS project_total
+         FROM sales_order_lines sale_line
+         JOIN sales_operational_offers offer ON offer.organization_id = sale_line.organization_id AND offer.id = sale_line.operational_offer_id
+         JOIN management_project_operational_links link ON link.organization_id = offer.organization_id AND link.record_id = offer.source_id
+        WHERE sale_line.organization_id = $1 AND link.project_id = $2
+        GROUP BY sale_line.order_id
+     ), order_revenue AS (
+       SELECT sale_line.order_id, COALESCE(SUM(sale_line.line_total), 0) AS total
+         FROM sales_order_lines sale_line
+        WHERE sale_line.organization_id = $1
+        GROUP BY sale_line.order_id
+     ), purchase_remaining AS (
+       SELECT purchase_order.id, COALESCE(purchase_order.expected_delivery_date, purchase_order.order_date) AS event_date,
+              COALESCE(SUM(GREATEST(purchase_line.ordered_quantity - COALESCE(received.accepted_quantity, 0), 0) * purchase_line.unit_cost + CASE WHEN purchase_line.ordered_quantity = 0 THEN 0 ELSE purchase_line.tax_amount * GREATEST(purchase_line.ordered_quantity - COALESCE(received.accepted_quantity, 0), 0) / purchase_line.ordered_quantity END), 0) AS amount
+         FROM management_purchase_orders purchase_order
+         JOIN management_purchase_order_lines purchase_line ON purchase_line.organization_id = purchase_order.organization_id AND purchase_line.purchase_order_id = purchase_order.id
+         LEFT JOIN LATERAL (
+           SELECT COALESCE(SUM(received_line.received_quantity - received_line.damaged_quantity - received_line.rejected_quantity), 0) AS accepted_quantity
+             FROM management_receipt_lines received_line
+             JOIN management_receipts received_receipt ON received_receipt.organization_id = received_line.organization_id AND received_receipt.id = received_line.receipt_id
+            WHERE received_line.organization_id = purchase_line.organization_id
+              AND received_line.purchase_order_line_id = purchase_line.id
+              AND received_receipt.status IN ('received', 'verified')
+         ) received ON true
+        WHERE purchase_order.organization_id = $1 AND purchase_order.project_id = $2
+          AND purchase_order.currency_code = $3
+          AND purchase_order.status IN ('sent', 'partially_received')
+          AND NOT EXISTS (
+            SELECT 1 FROM finance_payables payable
+             WHERE payable.organization_id = purchase_order.organization_id
+               AND payable.purchase_order_id = purchase_order.id
+               AND payable.status IN ('open', 'partially_paid', 'overdue', 'disputed')
+          )
+        GROUP BY purchase_order.id, purchase_order.expected_delivery_date, purchase_order.order_date
+     )
+     SELECT receipt_totals.received_date::text AS event_date, 'out'::text AS direction,
+            'supplier_payment'::text AS kind, 'supplier'::text AS category,
+            GREATEST(receipt_totals.amount - COALESCE(receipt_payments.paid, 0), 0) AS amount
+       FROM receipt_totals
+       LEFT JOIN receipt_payments ON receipt_payments.receipt_id = receipt_totals.id
+      WHERE NOT EXISTS (
+        SELECT 1 FROM finance_payables payable
+         WHERE payable.organization_id = $1 AND payable.purchase_order_id = receipt_totals.purchase_order_id
+           AND payable.status IN ('open', 'partially_paid', 'overdue', 'disputed')
+      )
+     UNION ALL
+     SELECT payable.due_date::text, 'out'::text, 'supplier_payment'::text, 'supplier'::text,
+            GREATEST(payable.total - payable.paid_total, 0)
+       FROM finance_payables payable
+       JOIN management_purchase_orders purchase_order ON purchase_order.organization_id = payable.organization_id AND purchase_order.id = payable.purchase_order_id
+      WHERE payable.organization_id = $1 AND purchase_order.project_id = $2 AND payable.currency = $3
+        AND payable.status IN ('open', 'partially_paid', 'overdue', 'disputed')
+     UNION ALL
+     SELECT purchase_remaining.event_date::text, 'out'::text, 'supplier_payment'::text, 'supplier'::text, purchase_remaining.amount
+       FROM purchase_remaining
+     UNION ALL
+     SELECT expense.expense_date::text, 'out'::text, 'planned_direct_expense'::text, expense.category, expense.amount
+       FROM management_expenses expense
+      WHERE expense.organization_id = $1 AND expense.project_id = $2 AND expense.currency_code = $3
+        AND expense.expense_type = 'direct_expense' AND expense.status IN ('draft', 'submitted')
+     UNION ALL
+     SELECT invoice.due_date::text, 'in'::text, 'customer_payment'::text, 'customer'::text,
+            GREATEST(invoice.total - invoice.paid_total, 0) * project_order_revenue.project_total / NULLIF(order_revenue.total, 0)
+       FROM sales_invoices invoice
+       JOIN project_order_revenue ON project_order_revenue.order_id = invoice.order_id
+       JOIN order_revenue ON order_revenue.order_id = invoice.order_id
+      WHERE invoice.organization_id = $1 AND invoice.currency = $3
+        AND invoice.status IN ('issued', 'partially_paid', 'overdue')
+     UNION ALL
+     SELECT COALESCE(sale.required_date, sale.order_date)::text, 'in'::text, 'expected_sale'::text, 'sales'::text,
+            COALESCE(SUM((sale_line.quantity - sale_line.delivered_quantity) * sale_line.unit_price * (1 - sale_line.discount_percent / 100) * (1 + sale_line.tax_percent / 100)), 0)
+       FROM sales_orders sale
+       JOIN sales_order_lines sale_line ON sale_line.organization_id = sale.organization_id AND sale_line.order_id = sale.id
+       JOIN sales_operational_offers offer ON offer.organization_id = sale_line.organization_id AND offer.id = sale_line.operational_offer_id
+       JOIN management_project_operational_links link ON link.organization_id = offer.organization_id AND link.record_id = offer.source_id
+      WHERE sale.organization_id = $1 AND sale.currency = $3 AND link.project_id = $2
+        AND sale.status IN ('confirmed', 'partially_delivered')
+        AND NOT EXISTS (
+          SELECT 1 FROM sales_invoices invoice
+           WHERE invoice.organization_id = sale.organization_id AND invoice.order_id = sale.id
+             AND invoice.status NOT IN ('draft', 'cancelled', 'written_off')
+        )
+      GROUP BY sale.required_date, sale.order_date`,
+    [organizationId, projectId, currencyCode],
+  );
+  const normalized = events.rows
+    .map((event) => ({
+      eventDate: String(event.event_date ?? "").slice(0, 10),
+      direction: (String(event.direction) === "in" ? "in" : "out") as
+        "in" | "out",
+      kind: String(event.kind ?? ""),
+      category: String(event.category ?? ""),
+      amount: Math.max(0, Number(event.amount ?? 0)),
+    }))
+    .filter(
+      (event) =>
+        event.eventDate && Number.isFinite(event.amount) && event.amount > 0,
+    )
+    .filter((event) => event.eventDate <= forecastDate(90));
+  const windows = [30, 60, 90].map((days) => forecastWindow(normalized, days));
+  return {
+    windows,
+    alert: windows.some((window) => Boolean(window.atRisk)),
+  };
+}
+
 /**
  * Cross-project portfolio analytics. The physical stock stays single-instance
  * for the organisation; this view only aggregates each visible project's
@@ -6675,23 +8026,96 @@ export async function projectSummary(
  */
 export async function projectAnalytics(
   context: OwnerManagementContext,
+  filters: ProjectAnalyticsQuery = {},
 ): Promise<Row> {
-  const visibleProjects = await listOwnerManagementRecords(context, "projects", {
-    limit: 200,
-    offset: 0,
-  });
+  const allVisibleProjects = await listOwnerManagementRecords(
+    context,
+    "projects",
+    {
+      limit: 200,
+      offset: 0,
+    },
+  );
+  const intersectsPeriod = (project: Row) => {
+    const start = String(project.startDate ?? project.createdAt ?? "").slice(
+      0,
+      10,
+    );
+    const end = String(
+      project.revisedCompletionDate ??
+        project.targetCompletionDate ??
+        project.completedDate ??
+        start,
+    ).slice(0, 10);
+    if (filters.fromDate && end && end < filters.fromDate) return false;
+    if (filters.toDate && start && start > filters.toDate) return false;
+    return true;
+  };
+  const visibleProjects = allVisibleProjects.filter(
+    (project) =>
+      (!filters.provinceId ||
+        String(project.provinceId) === filters.provinceId) &&
+      (!filters.siteId || String(project.siteId) === filters.siteId) &&
+      (!filters.projectType ||
+        String(project.projectType) === filters.projectType) &&
+      (!filters.managerId ||
+        String(project.responsibleMemberId) === filters.managerId) &&
+      (!filters.status || String(project.status) === filters.status) &&
+      intersectsPeriod(project),
+  );
   return withTenantContext(context, async (client) => {
-    const summaries: Row[] = [];
+    const ids = visibleProjects.map((project) => String(project.id));
+    if (!ids.length)
+      return {
+        generatedAt: new Date().toISOString(),
+        filters,
+        projects: [],
+        totalsByCurrency: [],
+      };
+    const [metadata, budgetBaselines] = await Promise.all([
+      client.query<Row>(
+        "SELECT project.id, project.province_id, province.name AS province_name, project.site_id, site.name AS site_name, project.responsible_member_id, COALESCE(member_user.full_name, direct_user.full_name) AS manager_name FROM management_projects project LEFT JOIN provinces province ON province.organization_id = project.organization_id AND province.id = project.province_id LEFT JOIN sites site ON site.organization_id = project.organization_id AND site.id = project.site_id LEFT JOIN organization_members member ON member.organization_id = project.organization_id AND member.id = project.responsible_member_id LEFT JOIN users member_user ON member_user.id = member.user_id LEFT JOIN users direct_user ON direct_user.id = project.created_by_user_id WHERE project.organization_id = $1 AND project.id = ANY($2::uuid[])",
+        [context.organizationId, ids],
+      ),
+      client.query<Row>(
+        "SELECT DISTINCT ON (a.changes ->> 'projectId') a.changes ->> 'projectId' AS project_id, NULLIF(a.changes -> 'budgetChange' ->> 'after', '')::numeric AS initial_budget FROM audit_log a WHERE a.organization_id = $1 AND a.changes ? 'budgetChange' AND a.changes -> 'budgetChange' ->> 'scope' = 'project' AND a.changes ->> 'projectId' = ANY($2::text[]) ORDER BY a.changes ->> 'projectId', a.occurred_at ASC, a.id ASC",
+        [context.organizationId, ids],
+      ),
+    ]);
+    const metadataById = new Map(
+      metadata.rows.map((row) => [String(row.id), row]),
+    );
+    const initialBudgetById = new Map(
+      budgetBaselines.rows.map((row) => [
+        String(row.project_id),
+        Number(row.initial_budget ?? 0),
+      ]),
+    );
+    const summaries: Array<{ project: Row; cashForecast: Row }> = [];
     // One client/transaction is deliberately processed sequentially. It keeps
     // tenant context stable and avoids concurrent statements on the same pg client.
-    for (const project of visibleProjects)
-      summaries.push(await projectSummaryFor(client, context, String(project.id)));
+    for (const project of visibleProjects) {
+      const summary = await projectSummaryFor(
+        client,
+        context,
+        String(project.id),
+      );
+      const cashForecast = await projectCashForecastFor(
+        client,
+        context.organizationId,
+        String(project.id),
+        String(summary.currencyCode ?? "CDF"),
+      );
+      summaries.push({ project: summary, cashForecast });
+    }
 
     const totalByCurrency = new Map<string, Row>();
-    const projects = summaries.map((project) => {
+    const projects = summaries.map(({ project, cashForecast }) => {
       const budget = (project.budget ?? {}) as Row;
-      const profitability = project.productionProfitability as Row | null | undefined;
+      const profitability = project.productionProfitability as
+        Row | null | undefined;
       const currencyCode = String(project.currencyCode ?? "CDF");
+      const metadata = metadataById.get(String(project.id));
       const number = (value: unknown) => {
         const parsed = Number(value ?? 0);
         return Number.isFinite(parsed) ? parsed : 0;
@@ -6701,8 +8125,12 @@ export async function projectAnalytics(
       const spent = number(budget.spent);
       const available = number(budget.available);
       const revenue = profitability ? number(profitability.revenue) : 0;
-      const operationalResult = profitability ? number(profitability.profit) : null;
-      const cashReceived = profitability ? number(profitability.cashReceived) : 0;
+      const operationalResult = profitability
+        ? number(profitability.profit)
+        : null;
+      const cashReceived = profitability
+        ? number(profitability.cashReceived)
+        : 0;
       const entry: Row = {
         id: project.id,
         name: project.name,
@@ -6710,7 +8138,22 @@ export async function projectAnalytics(
         projectType: project.projectType,
         status: project.status,
         priority: project.priority,
+        provinceId: metadata?.province_id ?? project.provinceId ?? null,
+        provinceName: metadata?.province_name ?? null,
+        siteId: metadata?.site_id ?? project.siteId ?? null,
+        siteName: metadata?.site_name ?? null,
+        responsibleMemberId:
+          metadata?.responsible_member_id ??
+          project.responsibleMemberId ??
+          null,
+        managerName: metadata?.manager_name ?? null,
+        startDate: project.startDate ?? null,
+        targetCompletionDate: project.targetCompletionDate ?? null,
+        revisedCompletionDate: project.revisedCompletionDate ?? null,
         currencyCode,
+        initialBudget: initialBudgetById.get(String(project.id)) ?? planned,
+        revisedBudget: planned,
+        actualBudget: spent,
         planned,
         allocated: number(budget.allocated),
         unallocated: number(budget.unallocated),
@@ -6727,7 +8170,10 @@ export async function projectAnalytics(
         revenue,
         operationalResult,
         cashReceived,
-        outstandingRevenue: profitability ? number(profitability.outstandingRevenue) : 0,
+        outstandingRevenue: profitability
+          ? number(profitability.outstandingRevenue)
+          : 0,
+        cashForecast,
       };
       const current = totalByCurrency.get(currencyCode) ?? {
         currencyCode,
@@ -6746,13 +8192,25 @@ export async function projectAnalytics(
         overdueTasks: 0,
       };
       current.projectCount = number(current.projectCount) + 1;
-      current.productionProjectCount = number(current.productionProjectCount) + (profitability ? 1 : 0);
-      for (const field of ["planned", "allocated", "unallocated", "committed", "spent", "available", "revenue", "cashReceived"])
+      current.productionProjectCount =
+        number(current.productionProjectCount) + (profitability ? 1 : 0);
+      for (const field of [
+        "planned",
+        "allocated",
+        "unallocated",
+        "committed",
+        "spent",
+        "available",
+        "revenue",
+        "cashReceived",
+      ])
         current[field] = number(current[field]) + number(entry[field]);
       if (operationalResult !== null)
-        current.operationalResult = number(current.operationalResult) + operationalResult;
+        current.operationalResult =
+          number(current.operationalResult) + operationalResult;
       current.openTasks = number(current.openTasks) + number(entry.openTasks);
-      current.overdueTasks = number(current.overdueTasks) + number(entry.overdueTasks);
+      current.overdueTasks =
+        number(current.overdueTasks) + number(entry.overdueTasks);
       totalByCurrency.set(currencyCode, current);
       return entry;
     });
@@ -6807,6 +8265,24 @@ export async function projectActivity(
            UNION ALL
            SELECT CASE WHEN t.completed_date IS NOT NULL THEN 'completed' ELSE 'created' END, 'task'::text, t.id, t.title, t.status, t.estimated_cost, pr.currency_code, COALESCE(t.completed_date::timestamptz, t.created_at), t.assigned_member_id, t.created_by_user_id
              FROM management_project_tasks t JOIN management_projects pr ON pr.organization_id = t.organization_id AND pr.id = t.project_id WHERE t.organization_id = $1 AND t.project_id = $2
+           UNION ALL
+           SELECT CASE
+                    WHEN r.decision <> 'pending' THEN 'risk_decided'
+                    WHEN r.status = 'triggered' THEN 'risk_triggered'
+                    ELSE 'risk_logged'
+                  END,
+                  'risk'::text,
+                  r.id,
+                  r.code || ' · ' || r.title,
+                  r.status,
+                  NULL::numeric,
+                  pr.currency_code,
+                  COALESCE(r.decided_at, r.triggered_at, r.created_at),
+                  COALESCE(r.decided_by_member_id, r.owner_member_id, r.created_by_member_id),
+                  NULL::uuid
+             FROM management_project_risks r
+             JOIN management_projects pr ON pr.organization_id = r.organization_id AND pr.id = r.project_id
+            WHERE r.organization_id = $1 AND r.project_id = $2
            UNION ALL
            SELECT 'budget_line', 'budget', b.id, b.category, NULL::text, b.planned_amount, b.currency_code, b.created_at, NULL::uuid, NULL::uuid
              FROM management_project_budget_lines b WHERE b.organization_id = $1 AND b.project_id = $2
@@ -7252,11 +8728,35 @@ async function createInventoryMovementHistoryPdf(
       { key: "quantity", label: "Quantité", width: 58 },
     ] as const;
     const header = () => {
-      doc.fillColor(navy).font("Helvetica-Bold").fontSize(18).text(companyName, left, 38, { width: 245, ellipsis: true });
-      doc.fillColor(muted).font("Helvetica").fontSize(8.5).text("INVENTAIRE - HISTORIQUE JOURNALIER", left, 63, { width: 250 });
-      doc.fillColor(teal).font("Helvetica-Bold").fontSize(13).text("MOUVEMENTS DE STOCK", 310, 40, { width: 247, align: "right" });
-      doc.fillColor(muted).font("Helvetica").fontSize(8.5).text(`Journée : ${pdfDate(`${historyDate}T12:00:00`)}`, 310, 62, { width: 247, align: "right" });
-      doc.moveTo(left, 88).lineTo(left + contentWidth, 88).strokeColor(teal).lineWidth(1.5).stroke();
+      doc
+        .fillColor(navy)
+        .font("Helvetica-Bold")
+        .fontSize(18)
+        .text(companyName, left, 38, { width: 245, ellipsis: true });
+      doc
+        .fillColor(muted)
+        .font("Helvetica")
+        .fontSize(8.5)
+        .text("INVENTAIRE - HISTORIQUE JOURNALIER", left, 63, { width: 250 });
+      doc
+        .fillColor(teal)
+        .font("Helvetica-Bold")
+        .fontSize(13)
+        .text("MOUVEMENTS DE STOCK", 310, 40, { width: 247, align: "right" });
+      doc
+        .fillColor(muted)
+        .font("Helvetica")
+        .fontSize(8.5)
+        .text(`Journée : ${pdfDate(`${historyDate}T12:00:00`)}`, 310, 62, {
+          width: 247,
+          align: "right",
+        });
+      doc
+        .moveTo(left, 88)
+        .lineTo(left + contentWidth, 88)
+        .strokeColor(teal)
+        .lineWidth(1.5)
+        .stroke();
       doc.y = 104;
     };
     const tableHeader = () => {
@@ -7265,7 +8765,10 @@ async function createInventoryMovementHistoryPdf(
       doc.save().rect(left, y, contentWidth, 21).fill("#F0F6F8");
       doc.fillColor(navy).font("Helvetica-Bold").fontSize(7.2);
       for (const column of columns) {
-        doc.text(column.label, x + 4, y + 7, { width: column.width - 7, ellipsis: true });
+        doc.text(column.label, x + 4, y + 7, {
+          width: column.width - 7,
+          ellipsis: true,
+        });
         x += column.width;
       }
       doc.restore();
@@ -7280,11 +8783,26 @@ async function createInventoryMovementHistoryPdf(
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
     header();
-    doc.fillColor(muted).font("Helvetica").fontSize(9).text(`${rows.length} écriture(s) de registre. Les mouvements restent traçables et ne sont pas modifiables.`, left, doc.y, { width: contentWidth });
+    doc
+      .fillColor(muted)
+      .font("Helvetica")
+      .fontSize(9)
+      .text(
+        `${rows.length} écriture(s) de registre. Les mouvements restent traçables et ne sont pas modifiables.`,
+        left,
+        doc.y,
+        { width: contentWidth },
+      );
     doc.moveDown(1.05);
     tableHeader();
     if (!rows.length) {
-      doc.fillColor(muted).font("Helvetica").fontSize(10).text("Aucun mouvement pour cette journée.", left, doc.y + 10, { width: contentWidth });
+      doc
+        .fillColor(muted)
+        .font("Helvetica")
+        .fontSize(10)
+        .text("Aucun mouvement pour cette journée.", left, doc.y + 10, {
+          width: contentWidth,
+        });
     }
     for (const row of rows) {
       const delta = Number(row.quantityDelta ?? 0);
@@ -7302,10 +8820,24 @@ async function createInventoryMovementHistoryPdf(
       if (doc.y + height > bottom) nextPage();
       const y = doc.y;
       let x = left;
-      doc.moveTo(left, y + height).lineTo(left + contentWidth, y + height).strokeColor(border).lineWidth(0.45).stroke();
+      doc
+        .moveTo(left, y + height)
+        .lineTo(left + contentWidth, y + height)
+        .strokeColor(border)
+        .lineWidth(0.45)
+        .stroke();
       for (const column of columns) {
-        const color = column.key === "quantity" ? (delta < 0 ? "#B42318" : teal) : navy;
-        doc.fillColor(color).font(column.key === "quantity" ? "Helvetica-Bold" : "Helvetica").fontSize(7.4).text(values[column.key], x + 4, y + 5, { width: column.width - 7, height: height - 7, ellipsis: true });
+        const color =
+          column.key === "quantity" ? (delta < 0 ? "#B42318" : teal) : navy;
+        doc
+          .fillColor(color)
+          .font(column.key === "quantity" ? "Helvetica-Bold" : "Helvetica")
+          .fontSize(7.4)
+          .text(values[column.key], x + 4, y + 5, {
+            width: column.width - 7,
+            height: height - 7,
+            ellipsis: true,
+          });
         x += column.width;
       }
       doc.y = y + height;
@@ -7313,7 +8845,16 @@ async function createInventoryMovementHistoryPdf(
     const pages = doc.bufferedPageRange();
     for (let page = 0; page < pages.count; page += 1) {
       doc.switchToPage(page);
-      doc.fillColor(muted).font("Helvetica").fontSize(7.5).text(`${companyName} - Historique de stock - ${historyDate} - Page ${page + 1}/${pages.count}`, left, 808, { width: contentWidth, align: "center" });
+      doc
+        .fillColor(muted)
+        .font("Helvetica")
+        .fontSize(7.5)
+        .text(
+          `${companyName} - Historique de stock - ${historyDate} - Page ${page + 1}/${pages.count}`,
+          left,
+          808,
+          { width: contentWidth, align: "center" },
+        );
     }
     doc.end();
   });
@@ -7323,17 +8864,22 @@ export async function exportInventoryMovementHistoryPdf(
   context: OwnerManagementContext,
   query: InventoryMovementHistoryPdfQuery,
 ): Promise<{ filename: string; buffer: Buffer }> {
-  const allForDay = await listOwnerManagementRecords(context, "stock-movements", {
-    fromDate: query.date,
-    toDate: query.date,
-    provinceId: query.provinceId,
-    siteId: query.siteId,
-    limit: 1000,
-    offset: 0,
-  });
-  const movements = allForDay.filter((row) =>
-    (!query.warehouseId || String(row.warehouseId) === query.warehouseId) &&
-    (!query.itemId || String(row.itemId) === query.itemId),
+  const allForDay = await listOwnerManagementRecords(
+    context,
+    "stock-movements",
+    {
+      fromDate: query.date,
+      toDate: query.date,
+      provinceId: query.provinceId,
+      siteId: query.siteId,
+      limit: 1000,
+      offset: 0,
+    },
+  );
+  const movements = allForDay.filter(
+    (row) =>
+      (!query.warehouseId || String(row.warehouseId) === query.warehouseId) &&
+      (!query.itemId || String(row.itemId) === query.itemId),
   );
   const companyName = await withTenantContext(context, async (client) => {
     const result = await client.query<{ name: string | null }>(
@@ -7344,23 +8890,47 @@ export async function exportInventoryMovementHistoryPdf(
   });
   const detailed = await withTenantContext(context, async (client) => {
     if (!movements.length) return movements;
-    const itemIds = [...new Set(movements.map((row) => String(row.itemId)).filter(Boolean))];
-    const warehouseIds = [...new Set(movements.map((row) => String(row.warehouseId)).filter(Boolean))];
+    const itemIds = [
+      ...new Set(movements.map((row) => String(row.itemId)).filter(Boolean)),
+    ];
+    const warehouseIds = [
+      ...new Set(
+        movements.map((row) => String(row.warehouseId)).filter(Boolean),
+      ),
+    ];
     const [items, warehouses] = await Promise.all([
-      client.query<Row>("SELECT id, name, code, unit FROM management_inventory_items WHERE organization_id = $1 AND id = ANY($2::uuid[])", [context.organizationId, itemIds]),
-      client.query<Row>("SELECT id, name FROM management_warehouses WHERE organization_id = $1 AND id = ANY($2::uuid[])", [context.organizationId, warehouseIds]),
+      client.query<Row>(
+        "SELECT id, name, code, unit FROM management_inventory_items WHERE organization_id = $1 AND id = ANY($2::uuid[])",
+        [context.organizationId, itemIds],
+      ),
+      client.query<Row>(
+        "SELECT id, name FROM management_warehouses WHERE organization_id = $1 AND id = ANY($2::uuid[])",
+        [context.organizationId, warehouseIds],
+      ),
     ]);
     const itemById = new Map(items.rows.map((row) => [String(row.id), row]));
-    const warehouseById = new Map(warehouses.rows.map((row) => [String(row.id), row]));
+    const warehouseById = new Map(
+      warehouses.rows.map((row) => [String(row.id), row]),
+    );
     return movements.map((movement) => {
       const item = itemById.get(String(movement.itemId));
       const warehouse = warehouseById.get(String(movement.warehouseId));
-      return { ...movement, itemName: item?.name ?? null, itemCode: item?.code ?? null, itemUnit: item?.unit ?? null, warehouseName: warehouse?.name ?? null };
+      return {
+        ...movement,
+        itemName: item?.name ?? null,
+        itemCode: item?.code ?? null,
+        itemUnit: item?.unit ?? null,
+        warehouseName: warehouse?.name ?? null,
+      };
     });
   });
   return {
     filename: `historique-stock-${query.date}.pdf`,
-    buffer: await createInventoryMovementHistoryPdf(companyName, query.date, detailed),
+    buffer: await createInventoryMovementHistoryPdf(
+      companyName,
+      query.date,
+      detailed,
+    ),
   };
 }
 type ProcurementPdfCompany = {
@@ -7384,7 +8954,12 @@ type ProcurementPdfLine = {
 
 const PROCUREMENT_DOCUMENT_META: Record<
   ProcurementDocumentType,
-  { title: string; referenceKey: string; filenamePrefix: string; dateLabel: string }
+  {
+    title: string;
+    referenceKey: string;
+    filenamePrefix: string;
+    dateLabel: string;
+  }
 > = {
   "purchase-requests": {
     title: "DEMANDE D'ACHAT",
@@ -7417,10 +8992,16 @@ async function procurementPdfLogo(
       !/(^|\.)res\.cloudinary\.com$/i.test(parsed.hostname)
     )
       return null;
-    const response = await fetch(parsed, { signal: AbortSignal.timeout(5_000) });
+    const response = await fetch(parsed, {
+      signal: AbortSignal.timeout(5_000),
+    });
     if (!response.ok) return null;
-    const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
-    if (!contentType.includes("image/png") && !contentType.includes("image/jpeg"))
+    const contentType =
+      response.headers.get("content-type")?.toLowerCase() ?? "";
+    if (
+      !contentType.includes("image/png") &&
+      !contentType.includes("image/jpeg")
+    )
       return null;
     const declaredSize = Number(response.headers.get("content-length") ?? "0");
     if (Number.isFinite(declaredSize) && declaredSize > 2_000_000) return null;
@@ -7450,7 +9031,11 @@ async function procurementDocumentData(
   context: OwnerManagementContext,
   documentType: ProcurementDocumentType,
   recordId: string,
-): Promise<{ company: ProcurementPdfCompany; record: Row; lines: ProcurementPdfLine[] }> {
+): Promise<{
+  company: ProcurementPdfCompany;
+  record: Row;
+  lines: ProcurementPdfLine[];
+}> {
   return withTenantContext(context, async (client) => {
     const companyResult = await client.query<Row>(
       "SELECT COALESCE(o.display_name, o.legal_name, o.slug) AS name, o.address_line1, o.address_line2, o.city, o.region, o.postal_code, settings.logo_url FROM organizations o LEFT JOIN organization_settings settings ON settings.organization_id = o.id WHERE o.id = $1",
@@ -7491,7 +9076,10 @@ async function procurementDocumentData(
         description: String(line.description ?? ""),
         unit: String(line.unit ?? ""),
         quantity: Number(line.requested_quantity ?? 0),
-        unitCost: line.estimated_unit_cost == null ? null : Number(line.estimated_unit_cost),
+        unitCost:
+          line.estimated_unit_cost == null
+            ? null
+            : Number(line.estimated_unit_cost),
         notes: (line.notes as string | null) ?? null,
       }));
     } else if (documentType === "purchase-orders") {
@@ -7560,12 +9148,13 @@ export async function procurementDocumentPdf(
   const ink = "#18242C";
   const muted = "#5F6F79";
   const border = "#D5E2E5";
-  const initials = company.name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part.slice(0, 1).toUpperCase())
-    .join("") || "CO";
+  const initials =
+    company.name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part.slice(0, 1).toUpperCase())
+      .join("") || "CO";
 
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({
@@ -7600,110 +9189,272 @@ export async function procurementDocumentPdf(
         try {
           doc.image(logo, left + 6, 38, { fit: [36, 36] });
         } catch {
-          doc.fillColor(navy).font("Helvetica-Bold").fontSize(15).text(initials, left, 48, { width: 48, align: "center" });
+          doc
+            .fillColor(navy)
+            .font("Helvetica-Bold")
+            .fontSize(15)
+            .text(initials, left, 48, { width: 48, align: "center" });
         }
       } else {
-        doc.fillColor(navy).font("Helvetica-Bold").fontSize(15).text(initials, left, 48, { width: 48, align: "center" });
+        doc
+          .fillColor(navy)
+          .font("Helvetica-Bold")
+          .fontSize(15)
+          .text(initials, left, 48, { width: 48, align: "center" });
       }
-      doc.fillColor(ink).font("Helvetica-Bold").fontSize(15).text(company.name, left + 60, 38, { width: 235, ellipsis: true });
-      doc.fillColor(muted).font("Helvetica").fontSize(7.5).text(company.address || "Adresse officielle non renseignée", left + 60, 58, { width: 245, height: 32, ellipsis: true });
-      doc.fillColor(navy).font("Helvetica-Bold").fontSize(17).text(meta.title, pageWidth - left - 250, 36, { width: 250, align: "right" });
-      doc.fillColor(brand).font("Helvetica-Bold").fontSize(9.5).text(reference, pageWidth - left - 250, 59, { width: 250, align: "right" });
-      doc.fillColor(muted).font("Helvetica").fontSize(7.5).text(`${dateLabel} : ${pdfDate(documentDate)}`, pageWidth - left - 250, 75, { width: 250, align: "right" });
-      doc.moveTo(left, 101).lineTo(pageWidth - left, 101).strokeColor(border).lineWidth(0.7).stroke();
+      doc
+        .fillColor(ink)
+        .font("Helvetica-Bold")
+        .fontSize(15)
+        .text(company.name, left + 60, 38, { width: 235, ellipsis: true });
+      doc
+        .fillColor(muted)
+        .font("Helvetica")
+        .fontSize(7.5)
+        .text(
+          company.address || "Adresse officielle non renseignée",
+          left + 60,
+          58,
+          { width: 245, height: 32, ellipsis: true },
+        );
+      doc
+        .fillColor(navy)
+        .font("Helvetica-Bold")
+        .fontSize(17)
+        .text(meta.title, pageWidth - left - 250, 36, {
+          width: 250,
+          align: "right",
+        });
+      doc
+        .fillColor(brand)
+        .font("Helvetica-Bold")
+        .fontSize(9.5)
+        .text(reference, pageWidth - left - 250, 59, {
+          width: 250,
+          align: "right",
+        });
+      doc
+        .fillColor(muted)
+        .font("Helvetica")
+        .fontSize(7.5)
+        .text(
+          `${dateLabel} : ${pdfDate(documentDate)}`,
+          pageWidth - left - 250,
+          75,
+          { width: 250, align: "right" },
+        );
+      doc
+        .moveTo(left, 101)
+        .lineTo(pageWidth - left, 101)
+        .strokeColor(border)
+        .lineWidth(0.7)
+        .stroke();
       doc.y = 118;
     };
-    const newPage = () => { doc.addPage(); drawHeader(); };
-    const ensure = (height: number) => { if (doc.y + height > bottom) newPage(); };
-    const infoBox = (x: number, y: number, width: number, heading: string, values: string[]) => {
+    const newPage = () => {
+      doc.addPage();
+      drawHeader();
+    };
+    const ensure = (height: number) => {
+      if (doc.y + height > bottom) newPage();
+    };
+    const infoBox = (
+      x: number,
+      y: number,
+      width: number,
+      heading: string,
+      values: string[],
+    ) => {
       const lines = values.filter((value) => value && value !== "-");
       const height = Math.max(60, 29 + Math.max(1, lines.length) * 11);
       doc.roundedRect(x, y, width, height, 7).fill(pale);
-      doc.fillColor(brand).font("Helvetica-Bold").fontSize(7).text(heading.toUpperCase(), x + 10, y + 9, { width: width - 20 });
-      doc.fillColor(ink).font("Helvetica").fontSize(8).text(lines.join("\n") || "-", x + 10, y + 21, { width: width - 20, height: height - 26, ellipsis: true });
+      doc
+        .fillColor(brand)
+        .font("Helvetica-Bold")
+        .fontSize(7)
+        .text(heading.toUpperCase(), x + 10, y + 9, { width: width - 20 });
+      doc
+        .fillColor(ink)
+        .font("Helvetica")
+        .fontSize(8)
+        .text(lines.join("\n") || "-", x + 10, y + 21, {
+          width: width - 20,
+          height: height - 26,
+          ellipsis: true,
+        });
       return height;
     };
     const section = (heading: string) => {
       ensure(29);
       doc.roundedRect(left, doc.y, contentWidth, 21, 5).fill(navy);
-      doc.fillColor("#FFFFFF").font("Helvetica-Bold").fontSize(8).text(heading.toUpperCase(), left + 10, doc.y + 7, { width: contentWidth - 20 });
+      doc
+        .fillColor("#FFFFFF")
+        .font("Helvetica-Bold")
+        .fontSize(8)
+        .text(heading.toUpperCase(), left + 10, doc.y + 7, {
+          width: contentWidth - 20,
+        });
       doc.y += 29;
     };
-    const columns = documentType === "receipts"
-      ? [
-          { label: "ARTICLE", width: 180 },
-          { label: "CMD.", width: 52 },
-          { label: "RECU", width: 52 },
-          { label: "ACCEPTE", width: 58 },
-          { label: "NON CONFORME", width: 74 },
-          { label: "VALEUR", width: 95 },
-        ]
-      : [
-          { label: "ARTICLE / DESCRIPTION", width: 190 },
-          { label: "QTE", width: 54 },
-          { label: "UNITE", width: 52 },
-          { label: "PRIX UNITAIRE", width: 98 },
-          { label: "TOTAL", width: 117 },
-        ];
+    const columns =
+      documentType === "receipts"
+        ? [
+            { label: "ARTICLE", width: 180 },
+            { label: "CMD.", width: 52 },
+            { label: "RECU", width: 52 },
+            { label: "ACCEPTE", width: 58 },
+            { label: "NON CONFORME", width: 74 },
+            { label: "VALEUR", width: 95 },
+          ]
+        : [
+            { label: "ARTICLE / DESCRIPTION", width: 190 },
+            { label: "QTE", width: 54 },
+            { label: "UNITE", width: 52 },
+            { label: "PRIX UNITAIRE", width: 98 },
+            { label: "TOTAL", width: 117 },
+          ];
     const tableHeader = () => {
       ensure(21);
       const y = doc.y;
       let x = left;
       doc.rect(left, y, contentWidth, 19).fill(brand);
       for (const column of columns) {
-        doc.fillColor("#FFFFFF").font("Helvetica-Bold").fontSize(6.8).text(column.label, x + 5, y + 6, { width: column.width - 10, align: column.label === "ARTICLE / DESCRIPTION" || column.label === "ARTICLE" ? "left" : "center", lineBreak: false, ellipsis: true });
+        doc
+          .fillColor("#FFFFFF")
+          .font("Helvetica-Bold")
+          .fontSize(6.8)
+          .text(column.label, x + 5, y + 6, {
+            width: column.width - 10,
+            align:
+              column.label === "ARTICLE / DESCRIPTION" ||
+              column.label === "ARTICLE"
+                ? "left"
+                : "center",
+            lineBreak: false,
+            ellipsis: true,
+          });
         x += column.width;
       }
       doc.y = y + 19;
     };
-    const lineCostKnown = (line: ProcurementPdfLine) => line.unitCost !== null && line.unitCost !== undefined && Number.isFinite(Number(line.unitCost));
+    const lineCostKnown = (line: ProcurementPdfLine) =>
+      line.unitCost !== null &&
+      line.unitCost !== undefined &&
+      Number.isFinite(Number(line.unitCost));
     const lineTotal = (line: ProcurementPdfLine) => {
       if (!lineCostKnown(line)) return null;
-      const quantity = documentType === "receipts" ? Number(line.acceptedQuantity ?? 0) : line.quantity;
-      return quantity * Number(line.unitCost) + (documentType === "purchase-orders" ? Number(line.taxAmount ?? 0) : 0);
+      const quantity =
+        documentType === "receipts"
+          ? Number(line.acceptedQuantity ?? 0)
+          : line.quantity;
+      return (
+        quantity * Number(line.unitCost) +
+        (documentType === "purchase-orders" ? Number(line.taxAmount ?? 0) : 0)
+      );
     };
     const drawTable = () => {
-      section(documentType === "purchase-requests" ? "Articles demandés" : documentType === "purchase-orders" ? "Articles commandés" : "Articles réceptionnés");
+      section(
+        documentType === "purchase-requests"
+          ? "Articles demandés"
+          : documentType === "purchase-orders"
+            ? "Articles commandés"
+            : "Articles réceptionnés",
+      );
       if (!lines.length) {
-        doc.fillColor(muted).font("Helvetica-Oblique").fontSize(9).text("Aucun article enregistré pour ce document.");
+        doc
+          .fillColor(muted)
+          .font("Helvetica-Oblique")
+          .fontSize(9)
+          .text("Aucun article enregistré pour ce document.");
         doc.moveDown(0.8);
         return;
       }
       tableHeader();
       for (const line of lines) {
-        const nonConforming = Number(line.damagedQuantity ?? 0) + Number(line.rejectedQuantity ?? 0);
-        const cells = documentType === "receipts"
-          ? [
-              procurementPdfValue(line.description),
-              procurementPdfNumber(line.orderedQuantity),
-              procurementPdfNumber(line.quantity),
-              procurementPdfNumber(line.acceptedQuantity),
-              procurementPdfNumber(nonConforming),
-              lineTotal(line) == null ? "A chiffrer" : pdfMoney(lineTotal(line), currency),
-            ]
-          : [
-              procurementPdfValue(line.description),
-              procurementPdfNumber(line.quantity),
-              procurementPdfValue(line.unit),
-              lineCostKnown(line) ? pdfMoney(line.unitCost, currency) : "A chiffrer",
-              lineTotal(line) == null ? "A chiffrer" : pdfMoney(lineTotal(line), currency),
-            ];
+        const nonConforming =
+          Number(line.damagedQuantity ?? 0) +
+          Number(line.rejectedQuantity ?? 0);
+        const cells =
+          documentType === "receipts"
+            ? [
+                procurementPdfValue(line.description),
+                procurementPdfNumber(line.orderedQuantity),
+                procurementPdfNumber(line.quantity),
+                procurementPdfNumber(line.acceptedQuantity),
+                procurementPdfNumber(nonConforming),
+                lineTotal(line) == null
+                  ? "A chiffrer"
+                  : pdfMoney(lineTotal(line), currency),
+              ]
+            : [
+                procurementPdfValue(line.description),
+                procurementPdfNumber(line.quantity),
+                procurementPdfValue(line.unit),
+                lineCostKnown(line)
+                  ? pdfMoney(line.unitCost, currency)
+                  : "A chiffrer",
+                lineTotal(line) == null
+                  ? "A chiffrer"
+                  : pdfMoney(lineTotal(line), currency),
+              ];
         doc.font("Helvetica").fontSize(7.7);
-        const height = Math.max(25, doc.heightOfString(cells[0]!, { width: columns[0]!.width - 10 }) + 10);
-        if (doc.y + height > bottom) { newPage(); section(documentType === "purchase-requests" ? "Articles demandés" : documentType === "purchase-orders" ? "Articles commandés" : "Articles réceptionnés"); tableHeader(); }
+        const height = Math.max(
+          25,
+          doc.heightOfString(cells[0]!, { width: columns[0]!.width - 10 }) + 10,
+        );
+        if (doc.y + height > bottom) {
+          newPage();
+          section(
+            documentType === "purchase-requests"
+              ? "Articles demandés"
+              : documentType === "purchase-orders"
+                ? "Articles commandés"
+                : "Articles réceptionnés",
+          );
+          tableHeader();
+        }
         const y = doc.y;
         let x = left;
-        doc.rect(left, y, contentWidth, height).fill("#FFFFFF").strokeColor(border).lineWidth(0.45).stroke();
+        doc
+          .rect(left, y, contentWidth, height)
+          .fill("#FFFFFF")
+          .strokeColor(border)
+          .lineWidth(0.45)
+          .stroke();
         for (let index = 0; index < columns.length; index += 1) {
           const column = columns[index]!;
-          doc.fillColor(ink).font("Helvetica").fontSize(7.7).text(cells[index]!, x + 5, y + 6, { width: column.width - 10, height: height - 10, ellipsis: true, align: index === 0 ? "left" : "right" });
-          if (index > 0) doc.moveTo(x, y).lineTo(x, y + height).strokeColor(border).lineWidth(0.35).stroke();
+          doc
+            .fillColor(ink)
+            .font("Helvetica")
+            .fontSize(7.7)
+            .text(cells[index]!, x + 5, y + 6, {
+              width: column.width - 10,
+              height: height - 10,
+              ellipsis: true,
+              align: index === 0 ? "left" : "right",
+            });
+          if (index > 0)
+            doc
+              .moveTo(x, y)
+              .lineTo(x, y + height)
+              .strokeColor(border)
+              .lineWidth(0.35)
+              .stroke();
           x += column.width;
         }
         doc.y = y + height;
         if (line.notes) {
           ensure(19);
-          doc.fillColor(muted).font("Helvetica-Oblique").fontSize(6.8).text(`Note : ${procurementPdfValue(line.notes)}`, left + 8, doc.y + 3, { width: contentWidth - 16, height: 14, ellipsis: true });
+          doc
+            .fillColor(muted)
+            .font("Helvetica-Oblique")
+            .fontSize(6.8)
+            .text(
+              `Note : ${procurementPdfValue(line.notes)}`,
+              left + 8,
+              doc.y + 3,
+              { width: contentWidth - 16, height: 14, ellipsis: true },
+            );
           doc.y += 18;
         }
       }
@@ -7713,20 +9464,47 @@ export async function procurementDocumentPdf(
     drawHeader();
     const boxGap = 12;
     const boxWidth = (contentWidth - boxGap) / 2;
-    const sender = documentType === "purchase-requests"
-      ? [procurementPdfValue(record.requester_name), procurementPdfValue(record.project_name), procurementPdfValue(record.site_name || record.province_name)]
-      : documentType === "purchase-orders"
-        ? [company.name, `Commandé par : ${procurementPdfValue(record.ordered_by_name)}`, procurementPdfValue(record.project_name)]
-        : [company.name, `Réceptionné par : ${procurementPdfValue(record.receiver_name)}`, procurementPdfValue(record.project_name)];
+    const sender =
+      documentType === "purchase-requests"
+        ? [
+            procurementPdfValue(record.requester_name),
+            procurementPdfValue(record.project_name),
+            procurementPdfValue(record.site_name || record.province_name),
+          ]
+        : documentType === "purchase-orders"
+          ? [
+              company.name,
+              `Commandé par : ${procurementPdfValue(record.ordered_by_name)}`,
+              procurementPdfValue(record.project_name),
+            ]
+          : [
+              company.name,
+              `Réceptionné par : ${procurementPdfValue(record.receiver_name)}`,
+              procurementPdfValue(record.project_name),
+            ];
     const supplier = [
       procurementPdfValue(record.supplier_name),
       procurementPdfValue(record.supplier_contact_name),
       procurementPdfValue(record.supplier_address),
-      [record.supplier_phone, record.supplier_email].filter(Boolean).join(" - "),
+      [record.supplier_phone, record.supplier_email]
+        .filter(Boolean)
+        .join(" - "),
     ];
     const y = doc.y;
-    const leftHeight = infoBox(left, y, boxWidth, documentType === "purchase-requests" ? "Demandeur / projet" : "Emetteur", sender);
-    const rightHeight = infoBox(left + boxWidth + boxGap, y, boxWidth, documentType === "receipts" ? "Fournisseur / livraison" : "Fournisseur", supplier);
+    const leftHeight = infoBox(
+      left,
+      y,
+      boxWidth,
+      documentType === "purchase-requests" ? "Demandeur / projet" : "Emetteur",
+      sender,
+    );
+    const rightHeight = infoBox(
+      left + boxWidth + boxGap,
+      y,
+      boxWidth,
+      documentType === "receipts" ? "Fournisseur / livraison" : "Fournisseur",
+      supplier,
+    );
     doc.y = y + Math.max(leftHeight, rightHeight) + 14;
 
     section("Informations du document");
@@ -7734,10 +9512,16 @@ export async function procurementDocumentPdf(
       ["Statut", status],
       [dateLabel, pdfDate(documentDate)],
       ["Projet", procurementPdfValue(record.project_name)],
-      ["Site / province", procurementPdfValue(record.site_name || record.province_name)],
+      [
+        "Site / province",
+        procurementPdfValue(record.site_name || record.province_name),
+      ],
     ];
     if (documentType === "purchase-requests") {
-      infoRows.push(["Date requise", pdfDate(record.required_date)], ["Priorité", procurementPdfValue(record.priority)]);
+      infoRows.push(
+        ["Date requise", pdfDate(record.required_date)],
+        ["Priorité", procurementPdfValue(record.priority)],
+      );
     } else if (documentType === "purchase-orders") {
       infoRows.push(
         ["Demande source", procurementPdfValue(record.request_number)],
@@ -7749,7 +9533,10 @@ export async function procurementDocumentPdf(
         ["Bon de commande", procurementPdfValue(record.order_number)],
         ["Réceptionné par", procurementPdfValue(record.receiver_name)],
         ["Entrepôt", procurementPdfValue(record.warehouse_name)],
-        ["Bon de livraison fournisseur", procurementPdfValue(record.delivery_note_number)],
+        [
+          "Bon de livraison fournisseur",
+          procurementPdfValue(record.delivery_note_number),
+        ],
       );
     }
     for (let index = 0; index < infoRows.length; index += 2) {
@@ -7758,25 +9545,68 @@ export async function procurementDocumentPdf(
       const first = infoRows[index]!;
       const second = infoRows[index + 1];
       const width = second ? (contentWidth - 8) / 2 : contentWidth;
-      for (const [offset, item] of (second ? [[0, first], [width + 8, second]] : [[0, first]]) as Array<[number, [string, string]]>) {
-        doc.roundedRect(left + offset, rowY, width, 34, 5).fill("#F8FBFC").strokeColor(border).lineWidth(0.35).stroke();
-        doc.fillColor(muted).font("Helvetica-Bold").fontSize(6.7).text(item[0].toUpperCase(), left + offset + 8, rowY + 7, { width: width - 16 });
-        doc.fillColor(ink).font("Helvetica-Bold").fontSize(8).text(item[1] || "-", left + offset + 8, rowY + 18, { width: width - 16, ellipsis: true });
+      for (const [offset, item] of (second
+        ? [
+            [0, first],
+            [width + 8, second],
+          ]
+        : [[0, first]]) as Array<[number, [string, string]]>) {
+        doc
+          .roundedRect(left + offset, rowY, width, 34, 5)
+          .fill("#F8FBFC")
+          .strokeColor(border)
+          .lineWidth(0.35)
+          .stroke();
+        doc
+          .fillColor(muted)
+          .font("Helvetica-Bold")
+          .fontSize(6.7)
+          .text(item[0].toUpperCase(), left + offset + 8, rowY + 7, {
+            width: width - 16,
+          });
+        doc
+          .fillColor(ink)
+          .font("Helvetica-Bold")
+          .fontSize(8)
+          .text(item[1] || "-", left + offset + 8, rowY + 18, {
+            width: width - 16,
+            ellipsis: true,
+          });
       }
       doc.y = rowY + 41;
     }
-    const reason = documentType === "purchase-requests" ? record.reason : record.notes;
+    const reason =
+      documentType === "purchase-requests" ? record.reason : record.notes;
     if (reason) {
       ensure(55);
-      section(documentType === "purchase-requests" ? "Motif de la demande" : "Notes");
-      doc.fillColor(ink).font("Helvetica").fontSize(8.5).text(procurementPdfValue(reason), { width: contentWidth, lineGap: 2 });
+      section(
+        documentType === "purchase-requests" ? "Motif de la demande" : "Notes",
+      );
+      doc
+        .fillColor(ink)
+        .font("Helvetica")
+        .fontSize(8.5)
+        .text(procurementPdfValue(reason), { width: contentWidth, lineGap: 2 });
       doc.moveDown(0.8);
     }
 
     drawTable();
     const priced = lines.length > 0 && lines.every(lineCostKnown);
-    const subtotal = priced ? lines.reduce((sum, line) => sum + (lineTotal(line) ?? 0) - (documentType === "purchase-orders" ? Number(line.taxAmount ?? 0) : 0), 0) : null;
-    const taxes = documentType === "purchase-orders" && priced ? lines.reduce((sum, line) => sum + Number(line.taxAmount ?? 0), 0) : 0;
+    const subtotal = priced
+      ? lines.reduce(
+          (sum, line) =>
+            sum +
+            (lineTotal(line) ?? 0) -
+            (documentType === "purchase-orders"
+              ? Number(line.taxAmount ?? 0)
+              : 0),
+          0,
+        )
+      : null;
+    const taxes =
+      documentType === "purchase-orders" && priced
+        ? lines.reduce((sum, line) => sum + Number(line.taxAmount ?? 0), 0)
+        : 0;
     const total = priced ? (subtotal ?? 0) + taxes : null;
     ensure(100);
     const totalWidth = 205;
@@ -7784,28 +9614,77 @@ export async function procurementDocumentPdf(
     const totalsY = doc.y;
     doc.roundedRect(totalX, totalsY, totalWidth, 81, 7).fill("#E8F2F4");
     const totalRows: Array<[string, string]> = [
-      ["SOUS-TOTAL", subtotal == null ? "A chiffrer" : pdfMoney(subtotal, currency)],
+      [
+        "SOUS-TOTAL",
+        subtotal == null ? "A chiffrer" : pdfMoney(subtotal, currency),
+      ],
       ["TAXES", taxes ? pdfMoney(taxes, currency) : pdfMoney(0, currency)],
       ["TOTAL", total == null ? "A chiffrer" : pdfMoney(total, currency)],
     ];
     totalRows.forEach(([label, value], index) => {
       const rowY = totalsY + 10 + index * 22;
-      doc.fillColor(index === 2 ? navy : muted).font(index === 2 ? "Helvetica-Bold" : "Helvetica").fontSize(index === 2 ? 9 : 7.5).text(label, totalX + 12, rowY, { width: 82 });
-      doc.fillColor(index === 2 ? navy : ink).font(index === 2 ? "Helvetica-Bold" : "Helvetica").fontSize(index === 2 ? 9 : 7.5).text(value, totalX + 96, rowY, { width: totalWidth - 108, align: "right" });
+      doc
+        .fillColor(index === 2 ? navy : muted)
+        .font(index === 2 ? "Helvetica-Bold" : "Helvetica")
+        .fontSize(index === 2 ? 9 : 7.5)
+        .text(label, totalX + 12, rowY, { width: 82 });
+      doc
+        .fillColor(index === 2 ? navy : ink)
+        .font(index === 2 ? "Helvetica-Bold" : "Helvetica")
+        .fontSize(index === 2 ? 9 : 7.5)
+        .text(value, totalX + 96, rowY, {
+          width: totalWidth - 108,
+          align: "right",
+        });
     });
     doc.y = totalsY + 95;
 
     ensure(73);
-    doc.moveTo(left, doc.y + 27).lineTo(left + 205, doc.y + 27).strokeColor(border).lineWidth(0.7).stroke();
-    doc.moveTo(pageWidth - left - 205, doc.y + 27).lineTo(pageWidth - left, doc.y + 27).strokeColor(border).lineWidth(0.7).stroke();
-    doc.fillColor(muted).font("Helvetica-Bold").fontSize(7).text(documentType === "purchase-requests" ? "DEMANDEUR" : documentType === "purchase-orders" ? "COMMANDÉ PAR" : "RÉCEPTIONNAIRE", left, doc.y + 34, { width: 205 });
-    doc.fillColor(muted).font("Helvetica-Bold").fontSize(7).text("VALIDATION / SIGNATURE", pageWidth - left - 205, doc.y + 34, { width: 205, align: "right" });
-    const responsibleName = documentType === "purchase-requests"
-      ? procurementPdfValue(record.requester_name)
-      : documentType === "purchase-orders"
-        ? procurementPdfValue(record.ordered_by_name)
-        : procurementPdfValue(record.receiver_name);
-    doc.fillColor(ink).font("Helvetica-Bold").fontSize(8).text(responsibleName, left, doc.y + 46, { width: 205, ellipsis: true });
+    doc
+      .moveTo(left, doc.y + 27)
+      .lineTo(left + 205, doc.y + 27)
+      .strokeColor(border)
+      .lineWidth(0.7)
+      .stroke();
+    doc
+      .moveTo(pageWidth - left - 205, doc.y + 27)
+      .lineTo(pageWidth - left, doc.y + 27)
+      .strokeColor(border)
+      .lineWidth(0.7)
+      .stroke();
+    doc
+      .fillColor(muted)
+      .font("Helvetica-Bold")
+      .fontSize(7)
+      .text(
+        documentType === "purchase-requests"
+          ? "DEMANDEUR"
+          : documentType === "purchase-orders"
+            ? "COMMANDÉ PAR"
+            : "RÉCEPTIONNAIRE",
+        left,
+        doc.y + 34,
+        { width: 205 },
+      );
+    doc
+      .fillColor(muted)
+      .font("Helvetica-Bold")
+      .fontSize(7)
+      .text("VALIDATION / SIGNATURE", pageWidth - left - 205, doc.y + 34, {
+        width: 205,
+        align: "right",
+      });
+    const responsibleName =
+      documentType === "purchase-requests"
+        ? procurementPdfValue(record.requester_name)
+        : documentType === "purchase-orders"
+          ? procurementPdfValue(record.ordered_by_name)
+          : procurementPdfValue(record.receiver_name);
+    doc
+      .fillColor(ink)
+      .font("Helvetica-Bold")
+      .fontSize(8)
+      .text(responsibleName, left, doc.y + 46, { width: 205, ellipsis: true });
     doc.y += 65;
 
     const pageRange = doc.bufferedPageRange();
@@ -7813,9 +9692,28 @@ export async function procurementDocumentPdf(
       doc.switchToPage(pageRange.start + index);
       const footerLineY = pageHeight - 84;
       const footerTextY = pageHeight - 74;
-      doc.moveTo(left, footerLineY).lineTo(pageWidth - left, footerLineY).strokeColor(border).lineWidth(0.5).stroke();
-      doc.fillColor(muted).font("Helvetica").fontSize(7).text(`${company.name} - ${reference} - Document contrôlé`, left, footerTextY, { width: contentWidth / 2, lineBreak: false });
-      doc.text(`Page ${index + 1} / ${pageRange.count}`, left + contentWidth / 2, footerTextY, { width: contentWidth / 2, align: "right", lineBreak: false });
+      doc
+        .moveTo(left, footerLineY)
+        .lineTo(pageWidth - left, footerLineY)
+        .strokeColor(border)
+        .lineWidth(0.5)
+        .stroke();
+      doc
+        .fillColor(muted)
+        .font("Helvetica")
+        .fontSize(7)
+        .text(
+          `${company.name} - ${reference} - Document contrôlé`,
+          left,
+          footerTextY,
+          { width: contentWidth / 2, lineBreak: false },
+        );
+      doc.text(
+        `Page ${index + 1} / ${pageRange.count}`,
+        left + contentWidth / 2,
+        footerTextY,
+        { width: contentWidth / 2, align: "right", lineBreak: false },
+      );
     }
     doc.end();
   });
@@ -7872,23 +9770,78 @@ export async function purchaseRequestFormPdf(
         try {
           doc.image(logo, left + 6, 39, { fit: [36, 36] });
         } catch {
-          doc.fillColor(navy).font("Helvetica-Bold").fontSize(15).text(initials, left, 49, { width: 48, align: "center" });
+          doc
+            .fillColor(navy)
+            .font("Helvetica-Bold")
+            .fontSize(15)
+            .text(initials, left, 49, { width: 48, align: "center" });
         }
       } else {
-        doc.fillColor(navy).font("Helvetica-Bold").fontSize(15).text(initials, left, 49, { width: 48, align: "center" });
+        doc
+          .fillColor(navy)
+          .font("Helvetica-Bold")
+          .fontSize(15)
+          .text(initials, left, 49, { width: 48, align: "center" });
       }
-      doc.fillColor(ink).font("Helvetica-Bold").fontSize(15).text(company.name, left + 60, 39, { width: 230, ellipsis: true });
-      doc.fillColor(muted).font("Helvetica").fontSize(7.5).text(company.address || "Adresse officielle non renseignée", left + 60, 59, { width: 240, height: 25, ellipsis: true });
-      doc.fillColor(navy).font("Helvetica-Bold").fontSize(16).text(title, pageWidth - left - 258, 38, { width: 258, align: "right" });
-      doc.fillColor(blue).font("Helvetica-Bold").fontSize(8).text(pageLabel, pageWidth - left - 258, 62, { width: 258, align: "right" });
-      doc.fillColor(muted).font("Helvetica-Bold").fontSize(7).text(`RÉF. PRÉVISIONNELLE : ${provisionalReference}`, pageWidth - left - 258, 76, { width: 258, align: "right" });
-      doc.moveTo(left, 101).lineTo(pageWidth - left, 101).strokeColor(border).lineWidth(0.7).stroke();
+      doc
+        .fillColor(ink)
+        .font("Helvetica-Bold")
+        .fontSize(15)
+        .text(company.name, left + 60, 39, { width: 230, ellipsis: true });
+      doc
+        .fillColor(muted)
+        .font("Helvetica")
+        .fontSize(7.5)
+        .text(
+          company.address || "Adresse officielle non renseignée",
+          left + 60,
+          59,
+          { width: 240, height: 25, ellipsis: true },
+        );
+      doc
+        .fillColor(navy)
+        .font("Helvetica-Bold")
+        .fontSize(16)
+        .text(title, pageWidth - left - 258, 38, {
+          width: 258,
+          align: "right",
+        });
+      doc
+        .fillColor(blue)
+        .font("Helvetica-Bold")
+        .fontSize(8)
+        .text(pageLabel, pageWidth - left - 258, 62, {
+          width: 258,
+          align: "right",
+        });
+      doc
+        .fillColor(muted)
+        .font("Helvetica-Bold")
+        .fontSize(7)
+        .text(
+          `RÉF. PRÉVISIONNELLE : ${provisionalReference}`,
+          pageWidth - left - 258,
+          76,
+          { width: 258, align: "right" },
+        );
+      doc
+        .moveTo(left, 101)
+        .lineTo(pageWidth - left, 101)
+        .strokeColor(border)
+        .lineWidth(0.7)
+        .stroke();
       doc.y = 118;
     };
     const section = (title: string) => {
       const y = doc.y;
       doc.roundedRect(left, y, contentWidth, 22, 6).fill(navy);
-      doc.fillColor("#FFFFFF").font("Helvetica-Bold").fontSize(8).text(title.toUpperCase(), left + 11, y + 7, { width: contentWidth - 22 });
+      doc
+        .fillColor("#FFFFFF")
+        .font("Helvetica-Bold")
+        .fontSize(8)
+        .text(title.toUpperCase(), left + 11, y + 7, {
+          width: contentWidth - 22,
+        });
       doc.y = y + 31;
     };
     const field = (
@@ -7900,24 +9853,56 @@ export async function purchaseRequestFormPdf(
       height = 19,
       options: { multiline?: boolean; required?: boolean } = {},
     ) => {
-      doc.fillColor(muted).font("Helvetica-Bold").fontSize(6.7).text(caption.toUpperCase(), x, y, { width });
-      doc.roundedRect(x, y + 10, width, height, 4).lineWidth(0.65).fillAndStroke("#FFFFFF", border);
-      doc.font("Helvetica").formText(name, x + 1, y + 11, width - 2, height - 2, {
-        color: ink,
-        fontSize: 8,
-        multiline: options.multiline,
-        required: options.required,
-      });
+      doc
+        .fillColor(muted)
+        .font("Helvetica-Bold")
+        .fontSize(6.7)
+        .text(caption.toUpperCase(), x, y, { width });
+      doc
+        .roundedRect(x, y + 10, width, height, 4)
+        .lineWidth(0.65)
+        .fillAndStroke("#FFFFFF", border);
+      doc
+        .font("Helvetica")
+        .formText(name, x + 1, y + 11, width - 2, height - 2, {
+          color: ink,
+          fontSize: 8,
+          multiline: options.multiline,
+          required: options.required,
+        });
     };
     const checkbox = (name: string, caption: string, x: number, y: number) => {
       doc.rect(x, y, 11, 11).lineWidth(0.8).fillAndStroke("#FFFFFF", blue);
       doc.font("Helvetica").formCheckbox(name, x, y, 11, 11, {});
-      doc.fillColor(ink).font("Helvetica").fontSize(7.7).text(caption, x + 16, y + 2, { width: 92 });
+      doc
+        .fillColor(ink)
+        .font("Helvetica")
+        .fontSize(7.7)
+        .text(caption, x + 16, y + 2, { width: 92 });
     };
     const footer = (page: number, total: number) => {
-      doc.moveTo(left, footerLineY).lineTo(pageWidth - left, footerLineY).strokeColor(border).lineWidth(0.5).stroke();
-      doc.fillColor(muted).font("Helvetica").fontSize(7).text(`${company.name} - Formulaire contrôlé de demande d'achat`, left, footerTextY, { width: contentWidth / 2, lineBreak: false });
-      doc.text(`Page ${page} / ${total}`, left + contentWidth / 2, footerTextY, { width: contentWidth / 2, align: "right", lineBreak: false });
+      doc
+        .moveTo(left, footerLineY)
+        .lineTo(pageWidth - left, footerLineY)
+        .strokeColor(border)
+        .lineWidth(0.5)
+        .stroke();
+      doc
+        .fillColor(muted)
+        .font("Helvetica")
+        .fontSize(7)
+        .text(
+          `${company.name} - Formulaire contrôlé de demande d'achat`,
+          left,
+          footerTextY,
+          { width: contentWidth / 2, lineBreak: false },
+        );
+      doc.text(
+        `Page ${page} / ${total}`,
+        left + contentWidth / 2,
+        footerTextY,
+        { width: contentWidth / 2, align: "right", lineBreak: false },
+      );
     };
 
     drawHeader("DEMANDE D'ACHAT", "FORMULAIRE REMPLISSABLE - EMPLOYÉ");
@@ -7925,8 +9910,18 @@ export async function purchaseRequestFormPdf(
     const half = (contentWidth - 12) / 2;
     const third = (contentWidth - 24) / 3;
     let y = doc.y;
-    field("requester_full_name", "Nom complet du demandeur", left, y, half, 19, { required: true });
-    field("request_date", "Date de la demande", left + half + 12, y, half, 19, { required: true });
+    field(
+      "requester_full_name",
+      "Nom complet du demandeur",
+      left,
+      y,
+      half,
+      19,
+      { required: true },
+    );
+    field("request_date", "Date de la demande", left + half + 12, y, half, 19, {
+      required: true,
+    });
     y += 42;
     field("requester_department", "Service / département", left, y, third, 19);
     field("requester_phone", "Téléphone", left + third + 12, y, third, 19);
@@ -7935,12 +9930,32 @@ export async function purchaseRequestFormPdf(
 
     section("2. Besoin et priorité");
     y = doc.y;
-    field("request_site", "Site / lieu concerné", left, y, half, 19, { required: true });
-    field("request_required_date", "Date nécessaire", left + half + 12, y, half, 19);
+    field("request_site", "Site / lieu concerné", left, y, half, 19, {
+      required: true,
+    });
+    field(
+      "request_required_date",
+      "Date nécessaire",
+      left + half + 12,
+      y,
+      half,
+      19,
+    );
     y += 42;
-    field("request_project", "Projet ou activité concerné(e)", left, y, contentWidth, 19);
+    field(
+      "request_project",
+      "Projet ou activité concerné(e)",
+      left,
+      y,
+      contentWidth,
+      19,
+    );
     y += 42;
-    doc.fillColor(muted).font("Helvetica-Bold").fontSize(6.7).text("PRIORITÉ", left, y, { width: contentWidth });
+    doc
+      .fillColor(muted)
+      .font("Helvetica-Bold")
+      .fontSize(6.7)
+      .text("PRIORITÉ", left, y, { width: contentWidth });
     checkbox("priority_low", "Faible", left, y + 11);
     checkbox("priority_medium", "Moyenne", left + 115, y + 11);
     checkbox("priority_high", "Élevée", left + 230, y + 11);
@@ -7958,14 +9973,25 @@ export async function purchaseRequestFormPdf(
     let x = left;
     doc.rect(left, y, contentWidth, 19).fill(blue);
     columns.forEach((column) => {
-      doc.fillColor("#FFFFFF").font("Helvetica-Bold").fontSize(6.8).text(column.label, x + 6, y + 6, { width: column.width - 12, align: column.label === "ARTICLE / DESCRIPTION" ? "left" : "center", lineBreak: false });
+      doc
+        .fillColor("#FFFFFF")
+        .font("Helvetica-Bold")
+        .fontSize(6.8)
+        .text(column.label, x + 6, y + 6, {
+          width: column.width - 12,
+          align: column.label === "ARTICLE / DESCRIPTION" ? "left" : "center",
+          lineBreak: false,
+        });
       x += column.width;
     });
     y += 19;
     for (let index = 1; index <= 4; index += 1) {
       x = left;
       const rowHeight = 31;
-      doc.rect(left, y, contentWidth, rowHeight).lineWidth(0.45).fillAndStroke("#FFFFFF", border);
+      doc
+        .rect(left, y, contentWidth, rowHeight)
+        .lineWidth(0.45)
+        .fillAndStroke("#FFFFFF", border);
       const inputNames = [
         `item_${index}_description`,
         `item_${index}_unit`,
@@ -7973,33 +9999,90 @@ export async function purchaseRequestFormPdf(
         `item_${index}_estimated_cost`,
       ];
       columns.forEach((column, columnIndex) => {
-        doc.font("Helvetica").formText(inputNames[columnIndex]!, x + 2, y + 3, column.width - 4, rowHeight - 6, {
-          borderColor: "#FFFFFF",
-          backgroundColor: "#FFFFFF",
-          color: ink,
-          fontSize: 8,
-          required: index === 1 && columnIndex < 3,
-          align: columnIndex === 0 ? "left" : "right",
-        });
-        if (columnIndex > 0) doc.moveTo(x, y).lineTo(x, y + rowHeight).strokeColor(border).lineWidth(0.35).stroke();
+        doc
+          .font("Helvetica")
+          .formText(
+            inputNames[columnIndex]!,
+            x + 2,
+            y + 3,
+            column.width - 4,
+            rowHeight - 6,
+            {
+              borderColor: "#FFFFFF",
+              backgroundColor: "#FFFFFF",
+              color: ink,
+              fontSize: 8,
+              required: index === 1 && columnIndex < 3,
+              align: columnIndex === 0 ? "left" : "right",
+            },
+          );
+        if (columnIndex > 0)
+          doc
+            .moveTo(x, y)
+            .lineTo(x, y + rowHeight)
+            .strokeColor(border)
+            .lineWidth(0.35)
+            .stroke();
         x += column.width;
       });
       y += rowHeight;
     }
     doc.y = y + 11;
-    field("request_reason", "Motif / justification de l'achat", left, doc.y, contentWidth, 44, { multiline: true, required: true });
+    field(
+      "request_reason",
+      "Motif / justification de l'achat",
+      left,
+      doc.y,
+      contentWidth,
+      44,
+      { multiline: true, required: true },
+    );
     doc.y += 69;
-    field("requester_signature", "Nom / signature du demandeur", left, doc.y, half, 20, { required: true });
-    field("requester_signature_date", "Date", left + half + 12, doc.y, half, 20, { required: true });
+    field(
+      "requester_signature",
+      "Nom / signature du demandeur",
+      left,
+      doc.y,
+      half,
+      20,
+      { required: true },
+    );
+    field(
+      "requester_signature_date",
+      "Date",
+      left + half + 12,
+      doc.y,
+      half,
+      20,
+      { required: true },
+    );
 
     doc.addPage();
     drawHeader("DÉCISION DU PROPRIÉTAIRE", "PARTIE RÉSERVÉE À L'APPROBATION");
     section("4. Référence et décision");
     y = doc.y;
-    field("official_request_reference", "Référence DA LiteHubs (après enregistrement)", left, y, half, 19);
-    field("owner_decision_date", "Date de décision", left + half + 12, y, half, 19);
+    field(
+      "official_request_reference",
+      "Référence DA LiteHubs (après enregistrement)",
+      left,
+      y,
+      half,
+      19,
+    );
+    field(
+      "owner_decision_date",
+      "Date de décision",
+      left + half + 12,
+      y,
+      half,
+      19,
+    );
     y += 43;
-    doc.fillColor(muted).font("Helvetica-Bold").fontSize(6.7).text("DÉCISION", left, y, { width: contentWidth });
+    doc
+      .fillColor(muted)
+      .font("Helvetica-Bold")
+      .fontSize(6.7)
+      .text("DÉCISION", left, y, { width: contentWidth });
     checkbox("owner_decision_approved", "Approuvée", left, y + 11);
     checkbox("owner_decision_partial", "Partielle", left + 125, y + 11);
     checkbox("owner_decision_rejected", "Refusée", left + 250, y + 11);
@@ -8015,41 +10098,100 @@ export async function purchaseRequestFormPdf(
     x = left;
     doc.rect(left, y, contentWidth, 19).fill(blue);
     approvalColumns.forEach((column) => {
-      doc.fillColor("#FFFFFF").font("Helvetica-Bold").fontSize(6.8).text(column.label, x + 6, y + 6, { width: column.width - 12, align: column.label === "ARTICLE / DESCRIPTION" ? "left" : "center", lineBreak: false });
+      doc
+        .fillColor("#FFFFFF")
+        .font("Helvetica-Bold")
+        .fontSize(6.8)
+        .text(column.label, x + 6, y + 6, {
+          width: column.width - 12,
+          align: column.label === "ARTICLE / DESCRIPTION" ? "left" : "center",
+          lineBreak: false,
+        });
       x += column.width;
     });
     y += 19;
     for (let index = 1; index <= 4; index += 1) {
       x = left;
       const rowHeight = 32;
-      doc.rect(left, y, contentWidth, rowHeight).lineWidth(0.45).fillAndStroke("#FFFFFF", border);
+      doc
+        .rect(left, y, contentWidth, rowHeight)
+        .lineWidth(0.45)
+        .fillAndStroke("#FFFFFF", border);
       const inputNames = [
         `owner_item_${index}_description`,
         `owner_item_${index}_approved_quantity`,
         `owner_item_${index}_approved_cost`,
       ];
       approvalColumns.forEach((column, columnIndex) => {
-        doc.font("Helvetica").formText(inputNames[columnIndex]!, x + 2, y + 3, column.width - 4, rowHeight - 6, {
-          borderColor: "#FFFFFF",
-          backgroundColor: "#FFFFFF",
-          color: ink,
-          fontSize: 8,
-          align: columnIndex === 0 ? "left" : "right",
-        });
-        if (columnIndex > 0) doc.moveTo(x, y).lineTo(x, y + rowHeight).strokeColor(border).lineWidth(0.35).stroke();
+        doc
+          .font("Helvetica")
+          .formText(
+            inputNames[columnIndex]!,
+            x + 2,
+            y + 3,
+            column.width - 4,
+            rowHeight - 6,
+            {
+              borderColor: "#FFFFFF",
+              backgroundColor: "#FFFFFF",
+              color: ink,
+              fontSize: 8,
+              align: columnIndex === 0 ? "left" : "right",
+            },
+          );
+        if (columnIndex > 0)
+          doc
+            .moveTo(x, y)
+            .lineTo(x, y + rowHeight)
+            .strokeColor(border)
+            .lineWidth(0.35)
+            .stroke();
         x += column.width;
       });
       y += rowHeight;
     }
     doc.y = y + 12;
-    field("owner_decision_notes", "Décision, conditions ou motifs", left, doc.y, contentWidth, 58, { multiline: true });
+    field(
+      "owner_decision_notes",
+      "Décision, conditions ou motifs",
+      left,
+      doc.y,
+      contentWidth,
+      58,
+      { multiline: true },
+    );
     doc.y += 83;
-    field("owner_name_signature", "Nom / signature du propriétaire autorisé", left, doc.y, half, 20, { required: true });
-    field("owner_signature_date", "Date", left + half + 12, doc.y, half, 20, { required: true });
+    field(
+      "owner_name_signature",
+      "Nom / signature du propriétaire autorisé",
+      left,
+      doc.y,
+      half,
+      20,
+      { required: true },
+    );
+    field("owner_signature_date", "Date", left + half + 12, doc.y, half, 20, {
+      required: true,
+    });
     doc.y += 47;
     doc.roundedRect(left, doc.y, contentWidth, 42, 7).fill(pale);
-    doc.fillColor(navy).font("Helvetica-Bold").fontSize(8).text("ENREGISTREMENT DANS LITEHUBS", left + 12, doc.y + 10, { width: contentWidth - 24 });
-    doc.fillColor(ink).font("Helvetica").fontSize(7.7).text("Après validation, le propriétaire crée ou met à jour la demande dans Achats. LiteHubs attribue automatiquement la référence DA et conserve la piste d'audit.", left + 12, doc.y + 22, { width: contentWidth - 24, lineGap: 1 });
+    doc
+      .fillColor(navy)
+      .font("Helvetica-Bold")
+      .fontSize(8)
+      .text("ENREGISTREMENT DANS LITEHUBS", left + 12, doc.y + 10, {
+        width: contentWidth - 24,
+      });
+    doc
+      .fillColor(ink)
+      .font("Helvetica")
+      .fontSize(7.7)
+      .text(
+        "Après validation, le propriétaire crée ou met à jour la demande dans Achats. LiteHubs attribue automatiquement la référence DA et conserve la piste d'audit.",
+        left + 12,
+        doc.y + 22,
+        { width: contentWidth - 24, lineGap: 1 },
+      );
 
     const pages = doc.bufferedPageRange();
     for (let index = 0; index < pages.count; index += 1) {
@@ -8075,15 +10217,29 @@ export async function ownerProcurementFormPdf(
   const ink = "#172033";
   const muted = "#61708B";
   const border = "#C7D2E8";
-  const initials = company.name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part.slice(0, 1).toUpperCase()).join("") || "LH";
+  const initials =
+    company.name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part.slice(0, 1).toUpperCase())
+      .join("") || "LH";
   const isOrder = kind === "purchase-order";
   const title = isOrder ? "BON DE COMMANDE" : "BON DE RÉCEPTION";
-  const subtitle = isOrder ? "FORMULAIRE REMPLISSABLE - PROPRIÉTAIRE" : "FORMULAIRE REMPLISSABLE - RÉCEPTION";
+  const subtitle = isOrder
+    ? "FORMULAIRE REMPLISSABLE - PROPRIÉTAIRE"
+    : "FORMULAIRE REMPLISSABLE - RÉCEPTION";
 
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({
-      size: "A4", margin: 42, bufferPages: true,
-      info: { Title: `${title} - ${company.name}`, Author: company.name, Subject: `Formulaire remplissable ${title.toLowerCase()}` },
+      size: "A4",
+      margin: 42,
+      bufferPages: true,
+      info: {
+        Title: `${title} - ${company.name}`,
+        Author: company.name,
+        Subject: `Formulaire remplissable ${title.toLowerCase()}`,
+      },
     });
     const chunks: Buffer[] = [];
     doc.on("data", (chunk: Buffer) => chunks.push(chunk));
@@ -8099,49 +10255,170 @@ export async function ownerProcurementFormPdf(
       doc.rect(0, 0, pageWidth, 17).fill(navy);
       doc.roundedRect(left, 33, 48, 48, 11).fill("#FFFFFF");
       if (logo) {
-        try { doc.image(logo, left + 6, 39, { fit: [36, 36] }); }
-        catch { doc.fillColor(navy).font("Helvetica-Bold").fontSize(15).text(initials, left, 49, { width: 48, align: "center" }); }
-      } else doc.fillColor(navy).font("Helvetica-Bold").fontSize(15).text(initials, left, 49, { width: 48, align: "center" });
-      doc.fillColor(ink).font("Helvetica-Bold").fontSize(15).text(company.name, left + 60, 39, { width: 230, ellipsis: true });
-      doc.fillColor(muted).font("Helvetica").fontSize(7.5).text(company.address || "Adresse officielle non renseignée", left + 60, 59, { width: 240, height: 25, ellipsis: true });
-      doc.fillColor(navy).font("Helvetica-Bold").fontSize(16).text(title, pageWidth - left - 258, 38, { width: 258, align: "right" });
-      doc.fillColor(blue).font("Helvetica-Bold").fontSize(8).text(subtitle, pageWidth - left - 258, 62, { width: 258, align: "right" });
-      doc.fillColor(muted).font("Helvetica-Bold").fontSize(7).text(`RÉF. PRÉVISIONNELLE : ${provisionalReference}`, pageWidth - left - 258, 76, { width: 258, align: "right" });
-      doc.moveTo(left, 101).lineTo(pageWidth - left, 101).strokeColor(border).lineWidth(0.7).stroke();
+        try {
+          doc.image(logo, left + 6, 39, { fit: [36, 36] });
+        } catch {
+          doc
+            .fillColor(navy)
+            .font("Helvetica-Bold")
+            .fontSize(15)
+            .text(initials, left, 49, { width: 48, align: "center" });
+        }
+      } else
+        doc
+          .fillColor(navy)
+          .font("Helvetica-Bold")
+          .fontSize(15)
+          .text(initials, left, 49, { width: 48, align: "center" });
+      doc
+        .fillColor(ink)
+        .font("Helvetica-Bold")
+        .fontSize(15)
+        .text(company.name, left + 60, 39, { width: 230, ellipsis: true });
+      doc
+        .fillColor(muted)
+        .font("Helvetica")
+        .fontSize(7.5)
+        .text(
+          company.address || "Adresse officielle non renseignée",
+          left + 60,
+          59,
+          { width: 240, height: 25, ellipsis: true },
+        );
+      doc
+        .fillColor(navy)
+        .font("Helvetica-Bold")
+        .fontSize(16)
+        .text(title, pageWidth - left - 258, 38, {
+          width: 258,
+          align: "right",
+        });
+      doc
+        .fillColor(blue)
+        .font("Helvetica-Bold")
+        .fontSize(8)
+        .text(subtitle, pageWidth - left - 258, 62, {
+          width: 258,
+          align: "right",
+        });
+      doc
+        .fillColor(muted)
+        .font("Helvetica-Bold")
+        .fontSize(7)
+        .text(
+          `RÉF. PRÉVISIONNELLE : ${provisionalReference}`,
+          pageWidth - left - 258,
+          76,
+          { width: 258, align: "right" },
+        );
+      doc
+        .moveTo(left, 101)
+        .lineTo(pageWidth - left, 101)
+        .strokeColor(border)
+        .lineWidth(0.7)
+        .stroke();
       doc.y = 118;
     };
     const section = (heading: string) => {
       const y = doc.y;
       doc.roundedRect(left, y, contentWidth, 22, 6).fill(navy);
-      doc.fillColor("#FFFFFF").font("Helvetica-Bold").fontSize(8).text(heading.toUpperCase(), left + 11, y + 7, { width: contentWidth - 22 });
+      doc
+        .fillColor("#FFFFFF")
+        .font("Helvetica-Bold")
+        .fontSize(8)
+        .text(heading.toUpperCase(), left + 11, y + 7, {
+          width: contentWidth - 22,
+        });
       doc.y = y + 31;
     };
-    const field = (name: string, caption: string, x: number, y: number, width: number, height = 19, options: { multiline?: boolean; required?: boolean } = {}) => {
-      doc.fillColor(muted).font("Helvetica-Bold").fontSize(6.7).text(caption.toUpperCase(), x, y, { width });
-      doc.roundedRect(x, y + 10, width, height, 4).lineWidth(0.65).fillAndStroke("#FFFFFF", border);
-      doc.font("Helvetica").formText(name, x + 1, y + 11, width - 2, height - 2, { color: ink, fontSize: 8, multiline: options.multiline, required: options.required });
+    const field = (
+      name: string,
+      caption: string,
+      x: number,
+      y: number,
+      width: number,
+      height = 19,
+      options: { multiline?: boolean; required?: boolean } = {},
+    ) => {
+      doc
+        .fillColor(muted)
+        .font("Helvetica-Bold")
+        .fontSize(6.7)
+        .text(caption.toUpperCase(), x, y, { width });
+      doc
+        .roundedRect(x, y + 10, width, height, 4)
+        .lineWidth(0.65)
+        .fillAndStroke("#FFFFFF", border);
+      doc
+        .font("Helvetica")
+        .formText(name, x + 1, y + 11, width - 2, height - 2, {
+          color: ink,
+          fontSize: 8,
+          multiline: options.multiline,
+          required: options.required,
+        });
     };
     const check = (name: string, caption: string, x: number, y: number) => {
       doc.rect(x, y, 11, 11).lineWidth(0.8).fillAndStroke("#FFFFFF", blue);
       doc.font("Helvetica").formCheckbox(name, x, y, 11, 11, {});
-      doc.fillColor(ink).font("Helvetica").fontSize(7.7).text(caption, x + 16, y + 2, { width: 95 });
+      doc
+        .fillColor(ink)
+        .font("Helvetica")
+        .fontSize(7.7)
+        .text(caption, x + 16, y + 2, { width: 95 });
     };
-    const table = (prefix: string, columns: Array<{ label: string; width: number }>) => {
+    const table = (
+      prefix: string,
+      columns: Array<{ label: string; width: number }>,
+    ) => {
       let y = doc.y;
       let x = left;
       doc.rect(left, y, contentWidth, 19).fill(blue);
       columns.forEach((column, index) => {
-        doc.fillColor("#FFFFFF").font("Helvetica-Bold").fontSize(6.4).text(column.label, x + 5, y + 6, { width: column.width - 10, align: index === 0 ? "left" : "center", lineBreak: false });
+        doc
+          .fillColor("#FFFFFF")
+          .font("Helvetica-Bold")
+          .fontSize(6.4)
+          .text(column.label, x + 5, y + 6, {
+            width: column.width - 10,
+            align: index === 0 ? "left" : "center",
+            lineBreak: false,
+          });
         x += column.width;
       });
       y += 19;
       for (let row = 1; row <= 4; row += 1) {
         x = left;
         const rowHeight = 29;
-        doc.rect(left, y, contentWidth, rowHeight).lineWidth(0.45).fillAndStroke("#FFFFFF", border);
+        doc
+          .rect(left, y, contentWidth, rowHeight)
+          .lineWidth(0.45)
+          .fillAndStroke("#FFFFFF", border);
         columns.forEach((column, index) => {
-          doc.font("Helvetica").formText(`${prefix}_${row}_${index + 1}`, x + 2, y + 3, column.width - 4, rowHeight - 6, { borderColor: "#FFFFFF", backgroundColor: "#FFFFFF", color: ink, fontSize: 8, align: index === 0 ? "left" : "right", required: row === 1 && index < 3 });
-          if (index > 0) doc.moveTo(x, y).lineTo(x, y + rowHeight).strokeColor(border).lineWidth(0.35).stroke();
+          doc
+            .font("Helvetica")
+            .formText(
+              `${prefix}_${row}_${index + 1}`,
+              x + 2,
+              y + 3,
+              column.width - 4,
+              rowHeight - 6,
+              {
+                borderColor: "#FFFFFF",
+                backgroundColor: "#FFFFFF",
+                color: ink,
+                fontSize: 8,
+                align: index === 0 ? "left" : "right",
+                required: row === 1 && index < 3,
+              },
+            );
+          if (index > 0)
+            doc
+              .moveTo(x, y)
+              .lineTo(x, y + rowHeight)
+              .strokeColor(border)
+              .lineWidth(0.35)
+              .stroke();
           x += column.width;
         });
         y += rowHeight;
@@ -8151,64 +10428,234 @@ export async function ownerProcurementFormPdf(
     const footer = () => {
       const lineY = pageHeight - 84;
       const textY = pageHeight - 74;
-      doc.moveTo(left, lineY).lineTo(pageWidth - left, lineY).strokeColor(border).lineWidth(0.5).stroke();
-      doc.fillColor(muted).font("Helvetica").fontSize(7).text(`${company.name} - ${title} contrôlé`, left, textY, { width: contentWidth / 2, lineBreak: false });
-      doc.text("Page 1 / 1", left + contentWidth / 2, textY, { width: contentWidth / 2, align: "right", lineBreak: false });
+      doc
+        .moveTo(left, lineY)
+        .lineTo(pageWidth - left, lineY)
+        .strokeColor(border)
+        .lineWidth(0.5)
+        .stroke();
+      doc
+        .fillColor(muted)
+        .font("Helvetica")
+        .fontSize(7)
+        .text(`${company.name} - ${title} contrôlé`, left, textY, {
+          width: contentWidth / 2,
+          lineBreak: false,
+        });
+      doc.text("Page 1 / 1", left + contentWidth / 2, textY, {
+        width: contentWidth / 2,
+        align: "right",
+        lineBreak: false,
+      });
     };
 
     header();
     if (isOrder) {
       section("1. Fournisseur et livraison");
       let y = doc.y;
-      field("po_order_date", "Date de commande", left, y, half, 19, { required: true });
-      field("po_supplier_name", "Fournisseur", left + half + 12, y, half, 19, { required: true });
+      field("po_order_date", "Date de commande", left, y, half, 19, {
+        required: true,
+      });
+      field("po_supplier_name", "Fournisseur", left + half + 12, y, half, 19, {
+        required: true,
+      });
       y += 42;
       field("po_supplier_contact", "Personne de contact", left, y, half, 19);
-      field("po_supplier_phone", "Téléphone / e-mail", left + half + 12, y, half, 19);
+      field(
+        "po_supplier_phone",
+        "Téléphone / e-mail",
+        left + half + 12,
+        y,
+        half,
+        19,
+      );
       y += 42;
-      field("po_delivery_address", "Adresse / site de livraison", left, y, half, 19, { required: true });
-      field("po_expected_delivery", "Livraison prévue", left + half + 12, y, half, 19);
+      field(
+        "po_delivery_address",
+        "Adresse / site de livraison",
+        left,
+        y,
+        half,
+        19,
+        { required: true },
+      );
+      field(
+        "po_expected_delivery",
+        "Livraison prévue",
+        left + half + 12,
+        y,
+        half,
+        19,
+      );
       y += 42;
       field("po_project", "Projet, activité ou département", left, y, half, 19);
-      field("po_source_request", "Référence DA approuvée", left + half + 12, y, half, 19);
+      field(
+        "po_source_request",
+        "Référence DA approuvée",
+        left + half + 12,
+        y,
+        half,
+        19,
+      );
       doc.y = y + 43;
       const currencyY = doc.y;
-      doc.fillColor(muted).font("Helvetica-Bold").fontSize(6.7).text("DEVISE", left, currencyY, { width: 100 });
+      doc
+        .fillColor(muted)
+        .font("Helvetica-Bold")
+        .fontSize(6.7)
+        .text("DEVISE", left, currencyY, { width: 100 });
       check("po_currency_cdf", "CDF", left, currencyY + 11);
       check("po_currency_usd", "USD", left + 105, currencyY + 11);
       check("po_currency_eur", "EUR", left + 210, currencyY + 11);
       doc.y = currencyY + 35;
       section("2. Articles commandés");
-      table("po_item", [{ label: "ARTICLE / DESCRIPTION", width: 202 }, { label: "UNITÉ", width: 55 }, { label: "QTÉ", width: 55 }, { label: "PRIX UNIT.", width: 100 }, { label: "TAXES / TOTAL", width: 99 }]);
-      field("po_notes", "Conditions, consignes ou notes", left, doc.y, contentWidth, 38, { multiline: true });
+      table("po_item", [
+        { label: "ARTICLE / DESCRIPTION", width: 202 },
+        { label: "UNITÉ", width: 55 },
+        { label: "QTÉ", width: 55 },
+        { label: "PRIX UNIT.", width: 100 },
+        { label: "TAXES / TOTAL", width: 99 },
+      ]);
+      field(
+        "po_notes",
+        "Conditions, consignes ou notes",
+        left,
+        doc.y,
+        contentWidth,
+        38,
+        { multiline: true },
+      );
       doc.y += 62;
-      field("po_owner_name", "Nom du propriétaire autorisé", left, doc.y, half, 20, { required: true });
-      field("po_owner_signature", "Signature et date", left + half + 12, doc.y, half, 20, { required: true });
+      field(
+        "po_owner_name",
+        "Nom du propriétaire autorisé",
+        left,
+        doc.y,
+        half,
+        20,
+        { required: true },
+      );
+      field(
+        "po_owner_signature",
+        "Signature et date",
+        left + half + 12,
+        doc.y,
+        half,
+        20,
+        { required: true },
+      );
     } else {
       section("1. Réception et traçabilité");
       let y = doc.y;
-      field("br_received_date", "Date de réception", left, y, half, 19, { required: true });
-      field("br_purchase_order", "Référence bon de commande", left + half + 12, y, half, 19, { required: true });
+      field("br_received_date", "Date de réception", left, y, half, 19, {
+        required: true,
+      });
+      field(
+        "br_purchase_order",
+        "Référence bon de commande",
+        left + half + 12,
+        y,
+        half,
+        19,
+        { required: true },
+      );
       y += 42;
-      field("br_delivery_note", "Bon de livraison fournisseur", left, y, half, 19);
-      field("br_warehouse", "Entrepôt / lieu de stockage", left + half + 12, y, half, 19);
+      field(
+        "br_delivery_note",
+        "Bon de livraison fournisseur",
+        left,
+        y,
+        half,
+        19,
+      );
+      field(
+        "br_warehouse",
+        "Entrepôt / lieu de stockage",
+        left + half + 12,
+        y,
+        half,
+        19,
+      );
       y += 42;
-      field("br_supplier", "Fournisseur", left, y, half, 19, { required: true });
-      field("br_project", "Projet, site ou activité", left + half + 12, y, half, 19);
+      field("br_supplier", "Fournisseur", left, y, half, 19, {
+        required: true,
+      });
+      field(
+        "br_project",
+        "Projet, site ou activité",
+        left + half + 12,
+        y,
+        half,
+        19,
+      );
       y += 42;
-      field("br_receiver_name", "Nom du réceptionnaire", left, y, half, 19, { required: true });
-      field("br_receiver_phone", "Téléphone / e-mail", left + half + 12, y, half, 19);
+      field("br_receiver_name", "Nom du réceptionnaire", left, y, half, 19, {
+        required: true,
+      });
+      field(
+        "br_receiver_phone",
+        "Téléphone / e-mail",
+        left + half + 12,
+        y,
+        half,
+        19,
+      );
       doc.y = y + 43;
       section("2. Articles réellement reçus");
-      table("br_item", [{ label: "ARTICLE / DESCRIPTION", width: 170 }, { label: "UNITÉ", width: 42 }, { label: "CMD.", width: 55 }, { label: "REÇU", width: 55 }, { label: "ACCEPTÉ", width: 62 }, { label: "ABÎMÉ / REFUSÉ", width: 127 }]);
-      field("br_notes", "Écarts, dommages, refus ou observations", left, doc.y, contentWidth, 38, { multiline: true });
+      table("br_item", [
+        { label: "ARTICLE / DESCRIPTION", width: 170 },
+        { label: "UNITÉ", width: 42 },
+        { label: "CMD.", width: 55 },
+        { label: "REÇU", width: 55 },
+        { label: "ACCEPTÉ", width: 62 },
+        { label: "ABÎMÉ / REFUSÉ", width: 127 },
+      ]);
+      field(
+        "br_notes",
+        "Écarts, dommages, refus ou observations",
+        left,
+        doc.y,
+        contentWidth,
+        38,
+        { multiline: true },
+      );
       doc.y += 62;
-      field("br_receiver_signature", "Signature du réceptionnaire", left, doc.y, half, 20, { required: true });
-      field("br_owner_verification", "Vérification propriétaire / date", left + half + 12, doc.y, half, 20);
+      field(
+        "br_receiver_signature",
+        "Signature du réceptionnaire",
+        left,
+        doc.y,
+        half,
+        20,
+        { required: true },
+      );
+      field(
+        "br_owner_verification",
+        "Vérification propriétaire / date",
+        left + half + 12,
+        doc.y,
+        half,
+        20,
+      );
     }
     doc.roundedRect(left, doc.y + 42, contentWidth, 34, 7).fill(pale);
-    doc.fillColor(navy).font("Helvetica-Bold").fontSize(7.5).text("ENREGISTREMENT OFFICIEL", left + 11, doc.y + 51, { width: contentWidth - 22 });
-    doc.fillColor(ink).font("Helvetica").fontSize(7.2).text("Après remplissage, enregistrez les données finales dans Achats afin que LiteHubs conserve la référence officielle, les articles et la piste d’audit.", left + 11, doc.y + 62, { width: contentWidth - 22 });
+    doc
+      .fillColor(navy)
+      .font("Helvetica-Bold")
+      .fontSize(7.5)
+      .text("ENREGISTREMENT OFFICIEL", left + 11, doc.y + 51, {
+        width: contentWidth - 22,
+      });
+    doc
+      .fillColor(ink)
+      .font("Helvetica")
+      .fontSize(7.2)
+      .text(
+        "Après remplissage, enregistrez les données finales dans Achats afin que LiteHubs conserve la référence officielle, les articles et la piste d’audit.",
+        left + 11,
+        doc.y + 62,
+        { width: contentWidth - 22 },
+      );
     footer();
     doc.end();
   });
@@ -8257,12 +10704,13 @@ async function inventoryManualStockFormPdf(
   const subtitle = isTransfer
     ? "FORMULAIRE REMPLISSABLE - ENTRE ENTREPÔTS"
     : "FORMULAIRE REMPLISSABLE - SORTIE MANUELLE";
-  const initials = company.name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part.slice(0, 1).toUpperCase())
-    .join("") || "LH";
+  const initials =
+    company.name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part.slice(0, 1).toUpperCase())
+      .join("") || "LH";
 
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({
@@ -8296,88 +10744,302 @@ async function inventoryManualStockFormPdf(
       height = 19,
       options: { multiline?: boolean; required?: boolean } = {},
     ) => {
-      doc.fillColor(muted).font("Helvetica-Bold").fontSize(6.7).text(label.toUpperCase(), x, y, { width });
-      doc.roundedRect(x, y + 10, width, height, 4).lineWidth(0.65).fillAndStroke("#FFFFFF", border);
-      doc.font("Helvetica").formText(name, x + 1, y + 11, width - 2, height - 2, {
-        color: ink,
-        fontSize: 8,
-        multiline: options.multiline,
-        required: options.required,
-      });
+      doc
+        .fillColor(muted)
+        .font("Helvetica-Bold")
+        .fontSize(6.7)
+        .text(label.toUpperCase(), x, y, { width });
+      doc
+        .roundedRect(x, y + 10, width, height, 4)
+        .lineWidth(0.65)
+        .fillAndStroke("#FFFFFF", border);
+      doc
+        .font("Helvetica")
+        .formText(name, x + 1, y + 11, width - 2, height - 2, {
+          color: ink,
+          fontSize: 8,
+          multiline: options.multiline,
+          required: options.required,
+        });
     };
     const section = (heading: string) => {
       const y = doc.y;
       doc.roundedRect(left, y, contentWidth, 22, 6).fill(navy);
-      doc.fillColor("#FFFFFF").font("Helvetica-Bold").fontSize(8).text(heading.toUpperCase(), left + 11, y + 7, { width: contentWidth - 22 });
+      doc
+        .fillColor("#FFFFFF")
+        .font("Helvetica-Bold")
+        .fontSize(8)
+        .text(heading.toUpperCase(), left + 11, y + 7, {
+          width: contentWidth - 22,
+        });
       doc.y = y + 31;
     };
     const header = () => {
       doc.rect(0, 0, pageWidth, 17).fill(navy);
       doc.roundedRect(left, 33, 48, 48, 11).fill("#FFFFFF");
       if (logo) {
-        try { doc.image(logo, left + 6, 39, { fit: [36, 36] }); }
-        catch { doc.fillColor(navy).font("Helvetica-Bold").fontSize(15).text(initials, left, 49, { width: 48, align: "center" }); }
-      } else doc.fillColor(navy).font("Helvetica-Bold").fontSize(15).text(initials, left, 49, { width: 48, align: "center" });
-      doc.fillColor(ink).font("Helvetica-Bold").fontSize(15).text(company.name, left + 60, 39, { width: 230, ellipsis: true });
-      doc.fillColor(muted).font("Helvetica").fontSize(7.5).text(company.address || "Adresse officielle non renseignée", left + 60, 59, { width: 240, height: 25, ellipsis: true });
-      doc.fillColor(navy).font("Helvetica-Bold").fontSize(16).text(title, pageWidth - left - 258, 38, { width: 258, align: "right" });
-      doc.fillColor(blue).font("Helvetica-Bold").fontSize(8).text(subtitle, pageWidth - left - 258, 62, { width: 258, align: "right" });
-      doc.fillColor(muted).font("Helvetica").fontSize(7).text("Référence LiteHubs attribuée lors de la saisie", pageWidth - left - 258, 76, { width: 258, align: "right" });
-      doc.moveTo(left, 101).lineTo(pageWidth - left, 101).strokeColor(border).lineWidth(0.7).stroke();
+        try {
+          doc.image(logo, left + 6, 39, { fit: [36, 36] });
+        } catch {
+          doc
+            .fillColor(navy)
+            .font("Helvetica-Bold")
+            .fontSize(15)
+            .text(initials, left, 49, { width: 48, align: "center" });
+        }
+      } else
+        doc
+          .fillColor(navy)
+          .font("Helvetica-Bold")
+          .fontSize(15)
+          .text(initials, left, 49, { width: 48, align: "center" });
+      doc
+        .fillColor(ink)
+        .font("Helvetica-Bold")
+        .fontSize(15)
+        .text(company.name, left + 60, 39, { width: 230, ellipsis: true });
+      doc
+        .fillColor(muted)
+        .font("Helvetica")
+        .fontSize(7.5)
+        .text(
+          company.address || "Adresse officielle non renseignée",
+          left + 60,
+          59,
+          { width: 240, height: 25, ellipsis: true },
+        );
+      doc
+        .fillColor(navy)
+        .font("Helvetica-Bold")
+        .fontSize(16)
+        .text(title, pageWidth - left - 258, 38, {
+          width: 258,
+          align: "right",
+        });
+      doc
+        .fillColor(blue)
+        .font("Helvetica-Bold")
+        .fontSize(8)
+        .text(subtitle, pageWidth - left - 258, 62, {
+          width: 258,
+          align: "right",
+        });
+      doc
+        .fillColor(muted)
+        .font("Helvetica")
+        .fontSize(7)
+        .text(
+          "Référence LiteHubs attribuée lors de la saisie",
+          pageWidth - left - 258,
+          76,
+          { width: 258, align: "right" },
+        );
+      doc
+        .moveTo(left, 101)
+        .lineTo(pageWidth - left, 101)
+        .strokeColor(border)
+        .lineWidth(0.7)
+        .stroke();
       doc.y = 118;
     };
     header();
     section("1. Identification de l’opération");
     let y = doc.y;
-    field("operation_date", "Date de l’opération", left, y, half, 19, { required: true });
-    field("paper_reference", "Référence interne papier", left + half + 12, y, half, 19);
+    field("operation_date", "Date de l’opération", left, y, half, 19, {
+      required: true,
+    });
+    field(
+      "paper_reference",
+      "Référence interne papier",
+      left + half + 12,
+      y,
+      half,
+      19,
+    );
     y += 42;
     field("prepared_by", "Préparé par", left, y, third, 19, { required: true });
     field("department", "Service / équipe", left + third + 12, y, third, 19);
     field("phone", "Téléphone", left + (third + 12) * 2, y, third, 19);
     doc.y = y + 43;
 
-    section(isTransfer ? "2. Magasin de départ et magasin d’arrivée" : "2. Magasin et destination de la sortie");
+    section(
+      isTransfer
+        ? "2. Magasin de départ et magasin d’arrivée"
+        : "2. Magasin et destination de la sortie",
+    );
     y = doc.y;
-    field(isTransfer ? "source_warehouse" : "issue_warehouse", isTransfer ? "Entrepôt de départ" : "Entrepôt / magasin", left, y, half, 19, { required: true });
-    field(isTransfer ? "destination_warehouse" : "issue_destination", isTransfer ? "Entrepôt d’arrivée" : "Destination / service bénéficiaire", left + half + 12, y, half, 19, { required: true });
+    field(
+      isTransfer ? "source_warehouse" : "issue_warehouse",
+      isTransfer ? "Entrepôt de départ" : "Entrepôt / magasin",
+      left,
+      y,
+      half,
+      19,
+      { required: true },
+    );
+    field(
+      isTransfer ? "destination_warehouse" : "issue_destination",
+      isTransfer ? "Entrepôt d’arrivée" : "Destination / service bénéficiaire",
+      left + half + 12,
+      y,
+      half,
+      19,
+      { required: true },
+    );
     y += 42;
-    field("source_site", isTransfer ? "Site de départ" : "Site concerné", left, y, half, 19);
-    field("destination_site", isTransfer ? "Site d’arrivée" : "Projet ou tâche concerné(e)", left + half + 12, y, half, 19);
+    field(
+      "source_site",
+      isTransfer ? "Site de départ" : "Site concerné",
+      left,
+      y,
+      half,
+      19,
+    );
+    field(
+      "destination_site",
+      isTransfer ? "Site d’arrivée" : "Projet ou tâche concerné(e)",
+      left + half + 12,
+      y,
+      half,
+      19,
+    );
     doc.y = y + 43;
 
     section("3. Article et quantité");
     y = doc.y;
     field("item_code", "Code article / SKU", left, y, third, 19);
-    field("item_name", "Article / désignation", left + third + 12, y, third, 19, { required: true });
-    field("unit", "Unité", left + (third + 12) * 2, y, third, 19, { required: true });
+    field(
+      "item_name",
+      "Article / désignation",
+      left + third + 12,
+      y,
+      third,
+      19,
+      { required: true },
+    );
+    field("unit", "Unité", left + (third + 12) * 2, y, third, 19, {
+      required: true,
+    });
     y += 42;
-    field("quantity", isTransfer ? "Quantité transférée" : "Quantité sortie", left, y, half, 19, { required: true });
-    field("current_balance", "Solde observé avant opération", left + half + 12, y, half, 19);
+    field(
+      "quantity",
+      isTransfer ? "Quantité transférée" : "Quantité sortie",
+      left,
+      y,
+      half,
+      19,
+      { required: true },
+    );
+    field(
+      "current_balance",
+      "Solde observé avant opération",
+      left + half + 12,
+      y,
+      half,
+      19,
+    );
     doc.y = y + 43;
-    field("reason", isTransfer ? "Motif du transfert" : "Motif de la sortie", left, doc.y, contentWidth, 45, { multiline: true, required: true });
+    field(
+      "reason",
+      isTransfer ? "Motif du transfert" : "Motif de la sortie",
+      left,
+      doc.y,
+      contentWidth,
+      45,
+      { multiline: true, required: true },
+    );
     doc.y += 70;
 
     section("4. Contrôle et signatures");
     y = doc.y;
-    field("requester_signature", isTransfer ? "Nom / signature de l’expéditeur" : "Nom / signature du demandeur", left, y, half, 20, { required: true });
-    field("authorizer_signature", "Responsable autorisant la sortie", left + half + 12, y, half, 20, { required: true });
+    field(
+      "requester_signature",
+      isTransfer
+        ? "Nom / signature de l’expéditeur"
+        : "Nom / signature du demandeur",
+      left,
+      y,
+      half,
+      20,
+      { required: true },
+    );
+    field(
+      "authorizer_signature",
+      "Responsable autorisant la sortie",
+      left + half + 12,
+      y,
+      half,
+      20,
+      { required: true },
+    );
     y += 43;
-    field("receiver_signature", isTransfer ? "Nom / signature du réceptionnaire" : "Personne ayant reçu les articles", left, y, half, 20);
-    field("recorded_by", "Saisi dans LiteHubs par / date", left + half + 12, y, half, 20);
+    field(
+      "receiver_signature",
+      isTransfer
+        ? "Nom / signature du réceptionnaire"
+        : "Personne ayant reçu les articles",
+      left,
+      y,
+      half,
+      20,
+    );
+    field(
+      "recorded_by",
+      "Saisi dans LiteHubs par / date",
+      left + half + 12,
+      y,
+      half,
+      20,
+    );
     doc.y = y + 47;
     doc.roundedRect(left, doc.y, contentWidth, 46, 7).fill(pale);
-    doc.fillColor(navy).font("Helvetica-Bold").fontSize(8).text("SAISIE OFFICIELLE DANS LITEHUBS", left + 12, doc.y + 10, { width: contentWidth - 24 });
-    doc.fillColor(ink).font("Helvetica").fontSize(7.5).text(isTransfer ? "Après signature, utilisez Transférer dans Inventaire. LiteHubs créera une sortie dans le magasin de départ et une entrée liée dans le magasin d’arrivée." : "Après signature, utilisez Sortie de stock dans Inventaire. LiteHubs contrôlera le solde disponible et conservera le motif dans l’historique.", left + 12, doc.y + 22, { width: contentWidth - 24, lineGap: 1 });
+    doc
+      .fillColor(navy)
+      .font("Helvetica-Bold")
+      .fontSize(8)
+      .text("SAISIE OFFICIELLE DANS LITEHUBS", left + 12, doc.y + 10, {
+        width: contentWidth - 24,
+      });
+    doc
+      .fillColor(ink)
+      .font("Helvetica")
+      .fontSize(7.5)
+      .text(
+        isTransfer
+          ? "Après signature, utilisez Transférer dans Inventaire. LiteHubs créera une sortie dans le magasin de départ et une entrée liée dans le magasin d’arrivée."
+          : "Après signature, utilisez Sortie de stock dans Inventaire. LiteHubs contrôlera le solde disponible et conservera le motif dans l’historique.",
+        left + 12,
+        doc.y + 22,
+        { width: contentWidth - 24, lineGap: 1 },
+      );
 
     const pages = doc.bufferedPageRange();
     for (let index = 0; index < pages.count; index += 1) {
       doc.switchToPage(pages.start + index);
       const footerLineY = pageHeight - 84;
       const footerTextY = pageHeight - 74;
-      doc.moveTo(left, footerLineY).lineTo(pageWidth - left, footerLineY).strokeColor(border).lineWidth(0.5).stroke();
-      doc.fillColor(muted).font("Helvetica").fontSize(7).text(`${company.name} - ${title} - Document manuel contrôlé`, left, footerTextY, { width: contentWidth / 2, lineBreak: false });
-      doc.text(`Page ${index + 1} / ${pages.count}`, left + contentWidth / 2, footerTextY, { width: contentWidth / 2, align: "right", lineBreak: false });
+      doc
+        .moveTo(left, footerLineY)
+        .lineTo(pageWidth - left, footerLineY)
+        .strokeColor(border)
+        .lineWidth(0.5)
+        .stroke();
+      doc
+        .fillColor(muted)
+        .font("Helvetica")
+        .fontSize(7)
+        .text(
+          `${company.name} - ${title} - Document manuel contrôlé`,
+          left,
+          footerTextY,
+          { width: contentWidth / 2, lineBreak: false },
+        );
+      doc.text(
+        `Page ${index + 1} / ${pages.count}`,
+        left + contentWidth / 2,
+        footerTextY,
+        { width: contentWidth / 2, align: "right", lineBreak: false },
+      );
     }
     doc.end();
   });
@@ -8402,42 +11064,11 @@ export async function exportInventoryStockTransferFormPdf(
     buffer: await inventoryManualStockFormPdf(company, "transfer"),
   };
 }
-async function ownerProcurementFormCompany(context: OwnerManagementContext, kind: OwnerProcurementFormKind): Promise<{ company: ProcurementPdfCompany; provisionalReference: string }> {
-  return withTenantContext(context, async (client) => {
-    const result = await client.query<Row>(
-      "SELECT COALESCE(o.display_name, o.legal_name, o.slug) AS name, o.address_line1, o.address_line2, o.city, o.region, o.postal_code, settings.logo_url FROM organizations o LEFT JOIN organization_settings settings ON settings.organization_id = o.id WHERE o.id = $1",
-      [context.organizationId],
-    );
-    const row = result.rows[0];
-    if (!row) throw new NotFoundError("Organization not found");
-    const address = [row.address_line1, row.address_line2, [row.city, row.region, row.postal_code].filter(Boolean).join(", ")].filter(Boolean).map((value) => String(value).trim()).filter(Boolean).join("\n");
-    const sequence = await client.query<Row>(
-      kind === "purchase-order"
-        ? "SELECT COALESCE(MAX(CASE WHEN order_number ~ '^BC-[0-9]+$' THEN substring(order_number FROM 4)::integer ELSE 0 END), 0) + 1 AS next_number FROM management_purchase_orders WHERE organization_id = $1"
-        : "SELECT COALESCE(MAX(CASE WHEN receipt_number ~ '^BR-[0-9]+$' THEN substring(receipt_number FROM 4)::integer ELSE 0 END), 0) + 1 AS next_number FROM management_receipts WHERE organization_id = $1",
-      [context.organizationId],
-    );
-    const prefix = kind === "purchase-order" ? "BC" : "BR";
-    return {
-      company: { name: String(row.name ?? "Entreprise").trim() || "Entreprise", address, logoUrl: (row.logo_url as string | null) ?? null } satisfies ProcurementPdfCompany,
-      provisionalReference: `${prefix}-${String(Number(sequence.rows[0]?.next_number ?? 1)).padStart(6, "0")}`,
-    };
-  });
-}
-
-export async function exportPurchaseOrderFormPdf(context: OwnerManagementContext): Promise<{ filename: string; buffer: Buffer }> {
-  const { company, provisionalReference } = await ownerProcurementFormCompany(context, "purchase-order");
-  return { filename: "formulaire-bon-commande-remplissable.pdf", buffer: await ownerProcurementFormPdf(company, "purchase-order", provisionalReference) };
-}
-
-export async function exportReceiptFormPdf(context: OwnerManagementContext): Promise<{ filename: string; buffer: Buffer }> {
-  const { company, provisionalReference } = await ownerProcurementFormCompany(context, "receipt");
-  return { filename: "formulaire-bon-reception-remplissable.pdf", buffer: await ownerProcurementFormPdf(company, "receipt", provisionalReference) };
-}
-export async function exportPurchaseRequestFormPdf(
+async function ownerProcurementFormCompany(
   context: OwnerManagementContext,
-): Promise<{ filename: string; buffer: Buffer }> {
-  const { company, provisionalReference } = await withTenantContext(context, async (client) => {
+  kind: OwnerProcurementFormKind,
+): Promise<{ company: ProcurementPdfCompany; provisionalReference: string }> {
+  return withTenantContext(context, async (client) => {
     const result = await client.query<Row>(
       "SELECT COALESCE(o.display_name, o.legal_name, o.slug) AS name, o.address_line1, o.address_line2, o.city, o.region, o.postal_code, settings.logo_url FROM organizations o LEFT JOIN organization_settings settings ON settings.organization_id = o.id WHERE o.id = $1",
       [context.organizationId],
@@ -8453,20 +11084,93 @@ export async function exportPurchaseRequestFormPdf(
       .map((value) => String(value).trim())
       .filter(Boolean)
       .join("\n");
-    const counter = await client.query<Row>(
-      "SELECT last_number FROM management_purchase_request_number_counters WHERE organization_id = $1",
+    const sequence = await client.query<Row>(
+      kind === "purchase-order"
+        ? "SELECT COALESCE(MAX(CASE WHEN order_number ~ '^BC-[0-9]+$' THEN substring(order_number FROM 4)::integer ELSE 0 END), 0) + 1 AS next_number FROM management_purchase_orders WHERE organization_id = $1"
+        : "SELECT COALESCE(MAX(CASE WHEN receipt_number ~ '^BR-[0-9]+$' THEN substring(receipt_number FROM 4)::integer ELSE 0 END), 0) + 1 AS next_number FROM management_receipts WHERE organization_id = $1",
       [context.organizationId],
     );
-    const nextNumber = Number(counter.rows[0]?.last_number ?? 0) + 1;
+    const prefix = kind === "purchase-order" ? "BC" : "BR";
     return {
       company: {
         name: String(row.name ?? "Entreprise").trim() || "Entreprise",
         address,
         logoUrl: (row.logo_url as string | null) ?? null,
       } satisfies ProcurementPdfCompany,
-      provisionalReference: `DA-${String(nextNumber).padStart(6, "0")}`,
+      provisionalReference: `${prefix}-${String(Number(sequence.rows[0]?.next_number ?? 1)).padStart(6, "0")}`,
     };
   });
+}
+
+export async function exportPurchaseOrderFormPdf(
+  context: OwnerManagementContext,
+): Promise<{ filename: string; buffer: Buffer }> {
+  const { company, provisionalReference } = await ownerProcurementFormCompany(
+    context,
+    "purchase-order",
+  );
+  return {
+    filename: "formulaire-bon-commande-remplissable.pdf",
+    buffer: await ownerProcurementFormPdf(
+      company,
+      "purchase-order",
+      provisionalReference,
+    ),
+  };
+}
+
+export async function exportReceiptFormPdf(
+  context: OwnerManagementContext,
+): Promise<{ filename: string; buffer: Buffer }> {
+  const { company, provisionalReference } = await ownerProcurementFormCompany(
+    context,
+    "receipt",
+  );
+  return {
+    filename: "formulaire-bon-reception-remplissable.pdf",
+    buffer: await ownerProcurementFormPdf(
+      company,
+      "receipt",
+      provisionalReference,
+    ),
+  };
+}
+export async function exportPurchaseRequestFormPdf(
+  context: OwnerManagementContext,
+): Promise<{ filename: string; buffer: Buffer }> {
+  const { company, provisionalReference } = await withTenantContext(
+    context,
+    async (client) => {
+      const result = await client.query<Row>(
+        "SELECT COALESCE(o.display_name, o.legal_name, o.slug) AS name, o.address_line1, o.address_line2, o.city, o.region, o.postal_code, settings.logo_url FROM organizations o LEFT JOIN organization_settings settings ON settings.organization_id = o.id WHERE o.id = $1",
+        [context.organizationId],
+      );
+      const row = result.rows[0];
+      if (!row) throw new NotFoundError("Organization not found");
+      const address = [
+        row.address_line1,
+        row.address_line2,
+        [row.city, row.region, row.postal_code].filter(Boolean).join(", "),
+      ]
+        .filter(Boolean)
+        .map((value) => String(value).trim())
+        .filter(Boolean)
+        .join("\n");
+      const counter = await client.query<Row>(
+        "SELECT last_number FROM management_purchase_request_number_counters WHERE organization_id = $1",
+        [context.organizationId],
+      );
+      const nextNumber = Number(counter.rows[0]?.last_number ?? 0) + 1;
+      return {
+        company: {
+          name: String(row.name ?? "Entreprise").trim() || "Entreprise",
+          address,
+          logoUrl: (row.logo_url as string | null) ?? null,
+        } satisfies ProcurementPdfCompany,
+        provisionalReference: `DA-${String(nextNumber).padStart(6, "0")}`,
+      };
+    },
+  );
   return {
     filename: "formulaire-demande-achat-remplissable.pdf",
     buffer: await purchaseRequestFormPdf(company, provisionalReference),
@@ -8479,16 +11183,55 @@ export async function exportProcurementDocumentPdf(
 ): Promise<{ filename: string; buffer: Buffer }> {
   const data = await procurementDocumentData(context, documentType, recordId);
   const meta = PROCUREMENT_DOCUMENT_META[documentType];
-  const reference = procurementPdfValue(data.record[meta.referenceKey]).replace(/[^A-Za-z0-9_-]/g, "-");
+  const reference = procurementPdfValue(data.record[meta.referenceKey]).replace(
+    /[^A-Za-z0-9_-]/g,
+    "-",
+  );
   return {
     filename: `${meta.filenamePrefix}-${reference}.pdf`,
-    buffer: await procurementDocumentPdf(data.company, documentType, data.record, data.lines),
+    buffer: await procurementDocumentPdf(
+      data.company,
+      documentType,
+      data.record,
+      data.lines,
+    ),
   };
 }
 interface PdfColumn {
   label: string;
   key: string;
   width: number;
+}
+
+function projectBenefitTargetsPdfText(summary: Row): string {
+  const targets = summary.benefitTargets;
+  if (!targets || typeof targets !== "object" || Array.isArray(targets))
+    return "";
+  const value = targets as Record<string, unknown>;
+  const period: Record<string, string> = {
+    daily: "jour",
+    weekly: "semaine",
+    monthly: "mois",
+    cycle: "cycle",
+  };
+  const entries: string[] = [];
+  const quantity = Number(value.targetProductionQuantity);
+  if (Number.isFinite(quantity) && quantity >= 0)
+    entries.push(
+      `Production: ${quantity.toLocaleString("fr-FR")} ${pdfText(value.targetProductionUnit, 30)} / ${period[String(value.targetProductionPeriod)] ?? pdfText(value.targetProductionPeriod, 20)}`,
+    );
+  const sales = Number(value.targetSalesAmount);
+  if (Number.isFinite(sales) && sales >= 0)
+    entries.push(`Ventes: ${pdfMoney(sales, summary.currencyCode)}`);
+  const margin = Number(value.targetMarginPercent);
+  if (Number.isFinite(margin) && margin >= 0) entries.push(`Marge: ${margin}%`);
+  const mortality = Number(value.targetMortalityPercent);
+  if (Number.isFinite(mortality) && mortality >= 0)
+    entries.push(`Mortalité maximum: ${mortality}%`);
+  const unitCost = Number(value.targetUnitCost);
+  if (Number.isFinite(unitCost) && unitCost >= 0)
+    entries.push(`Coût unitaire: ${pdfMoney(unitCost, summary.currencyCode)}`);
+  return entries.join(" · ");
 }
 
 function projectPdfBuffer(
@@ -8721,8 +11464,13 @@ function projectPdfBuffer(
       ["Province", summary.provinceName],
       ["Site / ferme", summary.siteName],
       ["Début", pdfDate(summary.startDate)],
+      ["Démarrage opérationnel", pdfDate(summary.operationalStartDate)],
       ["Fin prévue", pdfDate(summary.targetCompletionDate)],
+      ["Cycle de l’investissement", summary.lifecycleStage],
       ["Objectif", summary.expectedOutcome],
+      ["Responsable des bénéfices", summary.benefitOwnerName],
+      ["Revue des bénéfices", pdfDate(summary.benefitReviewDate)],
+      ["Indicateurs cibles", projectBenefitTargetsPdfText(summary)],
       ["Description", summary.description],
       ["Plan directeur", summary.blueprint],
     ];

@@ -301,7 +301,7 @@ async function nutritionAudience(
         AND (
           member.is_owner
           OR (
-            role.code IN ('general_manager','provincial_manager','site_manager','farm_operations_manager','farm_manager','poultry_supervisor','pig_supervisor','veterinarian')
+            role.code IN ('general_manager','provincial_manager','site_manager','farm_operations_manager','poultry_supervisor','pig_supervisor','veterinarian')
             AND (
               role.data_scope = 'organization'
               OR (

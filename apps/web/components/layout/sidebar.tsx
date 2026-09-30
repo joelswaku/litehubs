@@ -65,6 +65,7 @@ export function Sidebar({
 
   const collapsed = useUiStore((state) => state.sidebarCollapsed);
   const toggleSidebar = useUiStore((state) => state.toggleSidebar);
+  const setMobileNavOpen = useUiStore((state) => state.setMobileNavOpen);
   const collapsedGroups = useUiStore((state) => state.collapsedGroups);
   const toggleGroup = useUiStore((state) => state.toggleGroup);
   const [expandedItems, setExpandedItems] = useState<string[]>([]);
@@ -121,6 +122,7 @@ export function Sidebar({
       >
         <Link
           href={plane === "workspace" ? `${basePath}/dashboard` : "/platform"}
+          onClick={() => setMobileNavOpen(false)}
           title={
             collapsed
               ? plane === "workspace"
@@ -378,12 +380,19 @@ function NavRow({
   onClick?: () => void;
 }) {
   const hasCount = typeof count === "number" && count > 0;
+  const setMobileNavOpen = useUiStore((state) => state.setMobileNavOpen);
 
   return (
     <li className={mobileOnly ? "lg:hidden" : undefined}>
       <Link
         href={href}
-        onClick={onClick}
+        onClick={() => {
+          onClick?.();
+          // The same Sidebar component is rendered in the mobile drawer. A
+          // navigation choice should always reveal the destination rather than
+          // leaving the drawer in front of it; on desktop this is a no-op.
+          setMobileNavOpen(false);
+        }}
         aria-current={active ? "page" : undefined}
         title={collapsed ? label : undefined}
         className={cn(

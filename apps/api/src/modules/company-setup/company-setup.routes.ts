@@ -10,6 +10,7 @@ import * as controller from "./company-setup.controller";
 import {
   createDepartmentSchema,
   createInvitationSchema,
+  companyRulesInputSchema,
   createProvinceSchema,
   createRoleSchema,
   createSiteSchema,
@@ -35,6 +36,31 @@ const inOrganization = [
   validate({ params: organizationParams }),
   requireOrganization,
 ] as const;
+
+// Every company member can read the rulebook. Only its owner publishes a new
+// version; the service stores prior versions for audit and accountability.
+companySetupRoutes.get(
+  "/organizations/:orgSlug/company-rules",
+  ...inOrganization,
+  controller.getCompanyRules,
+);
+companySetupRoutes.get(
+  "/organizations/:orgSlug/company-rules/export.pdf",
+  ...inOrganization,
+  controller.downloadCompanyRulesPdf,
+);
+companySetupRoutes.get(
+  "/organizations/:orgSlug/company-rules/versions",
+  ...inOrganization,
+  controller.listCompanyRulesVersions,
+);
+companySetupRoutes.put(
+  "/organizations/:orgSlug/company-rules",
+  ...inOrganization,
+  requireOwner,
+  validate({ body: companyRulesInputSchema }),
+  controller.publishCompanyRules,
+);
 
 // ------------------------------------------------------------- locations ----
 

@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import type { PoolClient } from "pg";
+import PDFDocument from "pdfkit";
 import { env } from "../../config/env";
 import {
   sendSms,
@@ -15,6 +16,7 @@ import { withTenantContext } from "../../utils/tenant-query";
 import type {
   CreateDepartmentInput,
   CreateInvitationInput,
+  CompanyRulesInput,
   CreateProvinceInput,
   CreateRoleInput,
   CreateSiteInput,
@@ -109,7 +111,545 @@ interface InvitationRow {
   created_at: Date;
 }
 
+interface CompanyRulesVersionRow {
+  id: string;
+  version_number: number;
+  title: string;
+  content: string;
+  change_note: string | null;
+  status: "published" | "superseded";
+  created_at: Date;
+  created_by_name: string | null;
+}
+
+interface CompanyRulesCompanyRow {
+  name: string;
+  address_line1: string | null;
+  address_line2: string | null;
+  city: string | null;
+  region: string | null;
+  postal_code: string | null;
+}
+
 const INVITATION_TTL_DAYS = 7;
+
+function mapCompanyRulesVersion(row: CompanyRulesVersionRow) {
+  return {
+    id: row.id,
+    versionNumber: row.version_number,
+    title: row.title,
+    content: row.content,
+    changeNote: row.change_note,
+    status: row.status,
+    createdAt: row.created_at,
+    createdByName: row.created_by_name ?? null,
+  };
+}
+
+const companyRulesVersionFields = `
+  v.id,v.version_number,v.title,v.content,v.change_note,v.status,v.created_at,
+  author_user.full_name AS created_by_name
+`;
+
+const defaultCompanyRules = {
+  fr: `1. Objet, application et responsabilité
+Ce règlement organise le travail, la protection des personnes, des animaux, des biens et de l’argent de Congo Omega.
+1.1 Il s’applique à tout employé, manager, prestataire et visiteur lorsqu’il intervient pour Congo Omega.
+1.2 La loi applicable, les exigences vétérinaires, fiscales, sanitaires et de travail prévalent toujours sur ce règlement interne.
+1.3 Chaque personne est responsable de signaler un risque, une erreur, un incident ou une fraude sans attendre.
+
+2. Gouvernance, rôles et accès LiteHubs
+Chaque accès est donné pour une fonction, un site, une province ou un projet précis — jamais par commodité.
+2.1 Le Owner contrôle les budgets, approbations, rôles, accès sensibles et décisions exceptionnelles.
+2.2 Un Project Manager ne travaille que sur les projets qui lui sont attribués ; il ne gère pas les dossiers RH privés ni le budget principal.
+2.3 Les employés consultent uniquement leurs tâches, horaires, formations, documents et opérations autorisés.
+2.4 Les mots de passe, téléphones, adresses, contrats, permis et fiches de paie sont confidentiels. Les dossiers RH complets restent réservés au Owner et au responsable RH.
+
+3. Personnel, présence, formation et conduite
+Le personnel est affecté à un site et travaille avec une identité, un horaire et des responsabilités clairs.
+3.1 Toute arrivée et tout départ sont pointés avec le matricule personnel. Il est interdit de pointer pour une autre personne.
+3.2 Une formation obligatoire doit être terminée avant l’exécution d’un travail qui l’exige, notamment en sécurité, biosécurité et conduite.
+3.3 Les absences, accidents, conflits, actes dangereux et manquements sont signalés dans LiteHubs selon le circuit de supervision.
+
+4. Sécurité, biosécurité et bien-être animal
+La protection de la vie, de la santé et des animaux passe avant la rapidité ou la production.
+4.1 Toute personne respecte les règles de tenue, lavage, désinfection, contrôle des visiteurs et circulation propres à chaque site.
+4.2 Une mortalité inhabituelle, une maladie suspecte, une fuite, un incendie, un vol ou un danger immédiat est signalé immédiatement au responsable.
+4.3 Les soins, vaccins, traitements et quarantaines sont enregistrés ; aucun produit vétérinaire ne peut être utilisé sans l’autorisation appropriée.
+
+5. Production agricole, avicole et porcine
+Les données de terrain servent à protéger les animaux et à calculer le coût réel, la production et le bénéfice.
+5.1 Les relevés de ponte, mortalité, aliment, eau, poids, santé, récolte et utilisation sont saisis le jour même par la personne autorisée.
+5.2 Un lot, un animal, un champ, une parcelle ou une récolte est créé une seule fois et peut être relié au projet qui l’a financé.
+5.3 Toute correction après validation doit être justifiée et reste visible dans le journal d’audit.
+
+6. Investissements, projets et bénéfices
+Un projet suit un investissement jusqu’à son résultat réel, pas seulement jusqu’à l’achat.
+6.1 Chaque projet doit avoir un objectif mesurable, un site, un responsable, un budget principal et une étape : Investissement, Mise en service, Exploitation ou Clôturé.
+6.2 Le budget principal est unique. Les budgets de tâches ne l’augmentent pas : ils répartissent seulement ce qui est prévu.
+6.3 Une clôture exige les tâches importantes terminées, les preuves classées, les réceptions contrôlées et une évaluation du résultat attendu.
+
+7. Achats, fournisseurs et réceptions
+Aucun achat ne doit contourner la décision, la preuve ou le contrôle de réception.
+7.1 La chaîne normale est : besoin → demande d’achat → approbation → bon de commande → réception → stock, actif ou ressource.
+7.2 Une demande en brouillon ne dépense rien ; un bon envoyé engage le budget ; une réception confirmée devient une dépense réelle.
+7.3 La réception précise les quantités acceptées, endommagées, refusées ou retournées, avec photo, facture ou bon de livraison lorsque disponible.
+7.4 Un paiement fournisseur règle une réception ou une facture ; il ne réduit jamais le budget une seconde fois.
+
+8. Stocks, entrepôts et provenderie
+Chaque objet physique existe une seule fois dans le stock de l’entreprise, même s’il est financé par un projet.
+8.1 Toute entrée, sortie, retour, transfert ou ajustement de stock est enregistré avec l’entrepôt, la date, la quantité, le motif et la personne responsable.
+8.2 Un transfert indique toujours le site et l’entrepôt de départ et d’arrivée. Aucun mouvement ne doit mélanger les provinces ou sites par erreur.
+8.3 La provenderie utilise uniquement des matières premières réellement disponibles ; la fabrication déduit les intrants et crée l’aliment fini traçable.
+
+9. Équipements, flotte et carburant
+Les actifs durables restent identifiés, entretenus et affectés à une personne ou un lieu connu.
+9.1 Tout équipement reçoit un numéro, une catégorie, un état, un site et un responsable. Les affectations et transferts restent dans son historique.
+9.2 Pour un véhicule ou engin motorisé, le conducteur remplit les contrôles avant départ et retour, compteur, carburant, destination et anomalies.
+9.3 Un permis valide, un contrôle de sécurité et l’entretien requis sont obligatoires avant l’utilisation lorsqu’ils sont configurés pour l’engin.
+
+10. Finance, ventes et rentabilité
+Le bénéfice, la trésorerie et le budget sont liés, mais ce ne sont pas la même chose.
+10.1 Les dépenses directes doivent avoir une catégorie, un montant, une date, une preuve et l’approbation requise avant de réduire le budget.
+10.2 Une vente livrée devient une recette ; l’encaissement client suit séparément la trésorerie et la créance restante.
+10.3 Les prix, remises, factures, annulations et remboursements doivent être traçables et réservés aux personnes autorisées.
+
+11. Documents, données, audit et communication
+Les données saisies dans LiteHubs constituent le dossier opérationnel de l’entreprise.
+11.1 Les contrats, reçus, preuves, photos, permis et documents sont classés dans le bon dossier, sans créer de doublon.
+11.2 Les actions importantes — création, modification, décision, accès sensible ou annulation — restent enregistrées dans le journal d’audit.
+11.3 Les alertes SMS ou e-mail servent à protéger l’exploitation. Elles ne remplacent pas la décision ni l’intervention humaine.
+
+12. Contrôle, non-respect et amélioration
+Les règles sont contrôlées avec équité, preuves et droit d’explication.
+12.1 Toute irrégularité est vérifiée par le responsable compétent avant décision, sauf mesure urgente de sécurité ou de biosécurité.
+12.2 La fraude, la falsification, le vol, le partage d’accès, le pointage pour autrui ou le contournement d’approbation sont interdits.
+12.3 Le Owner peut réviser ce règlement. Toute version nouvelle est communiquée et, si nécessaire, affectée comme formation obligatoire.`,
+  en: [
+    "1. PURPOSE, SCOPE AND ACCOUNTABILITY",
+    "These rules organise work and protect people, animals, company assets and funds.",
+    "1.1 They apply to every employee, manager, contractor and visitor working for the company.",
+    "1.2 Every person promptly reports a risk, mistake, incident, fraud or danger.",
+    "2. GOVERNANCE, ROLES AND LITEHUBS ACCESS",
+    "LiteHubs access is granted for a specific function, site, province or project.",
+    "2.1 The owner controls budgets, approvals, roles, sensitive access and exceptional decisions.",
+    "2.2 Each employee sees only authorised tasks, training, schedules, documents and operations.",
+    "3. PEOPLE, SAFETY AND BIOSECURITY",
+    "Protection of life, health, animals and sites takes priority over speed or production.",
+    "4. PRODUCTION AND FIELD DATA",
+    "Production records protect animals, track cost and measure the actual result.",
+    "5. PROJECTS, PROCUREMENT AND RECEIVING",
+    "An investment is followed through to its actual outcome: project, task, purchase, receipt, production, sales, invoice, collection and benefit.",
+    "6. STOCK, FEED MILL AND EQUIPMENT",
+    "Every physical item exists once in company stock, even when funded by a project.",
+    "7. FINANCE, SALES, DOCUMENTS AND CONTROL",
+    "Budget, profit and cash are linked but remain distinct.",
+    "8. VERSION, COMMUNICATION AND IMPROVEMENT",
+    "The owner may revise these rules. Every version is dated, attributed, retained and communicated to affected people.",
+  ].join("\n\n"),
+};
+
+function formatCompanyRulesDate(value: Date, french: boolean) {
+  return new Intl.DateTimeFormat(french ? "fr-CD" : "en-US", {
+    dateStyle: "long",
+  }).format(value);
+}
+
+function safeRulesText(value: unknown, maxLength = 800) {
+  return String(value ?? "")
+    // Core PDF fonts are deliberately used so the document works offline on
+    // phones and low-bandwidth devices. Normalise symbols they cannot embed.
+    .replaceAll("→", " -> ")
+    .replace(/[—–]/g, " - ")
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
+}
+
+export async function currentCompanyRules(context: SetupContext) {
+  return withTenantContext(context, async (client) => {
+    const result = await client.query<CompanyRulesVersionRow>(
+      `SELECT ${companyRulesVersionFields}
+         FROM company_rules_versions v
+         LEFT JOIN organization_members author_member
+           ON author_member.organization_id=v.organization_id
+          AND author_member.id=v.created_by_member_id
+         LEFT JOIN users author_user ON author_user.id=author_member.user_id
+        WHERE v.organization_id=$1
+        ORDER BY v.version_number DESC
+        LIMIT 1`,
+      [context.organizationId],
+    );
+    return result.rows[0] ? mapCompanyRulesVersion(result.rows[0]) : null;
+  });
+}
+
+export async function listCompanyRulesVersions(context: SetupContext) {
+  return withTenantContext(context, async (client) => {
+    const result = await client.query<CompanyRulesVersionRow>(
+      `SELECT ${companyRulesVersionFields}
+         FROM company_rules_versions v
+         LEFT JOIN organization_members author_member
+           ON author_member.organization_id=v.organization_id
+          AND author_member.id=v.created_by_member_id
+         LEFT JOIN users author_user ON author_user.id=author_member.user_id
+        WHERE v.organization_id=$1
+        ORDER BY v.version_number DESC
+        LIMIT 30`,
+      [context.organizationId],
+    );
+    return result.rows.map(mapCompanyRulesVersion);
+  });
+}
+
+export async function publishCompanyRules(
+  context: SetupContext,
+  input: CompanyRulesInput,
+) {
+  return withTenantContext(context, async (client) => {
+    // Serialize version allocation per company. Two browser tabs cannot both
+    // publish version 2, and neither can overwrite a prior rulebook.
+    await client.query("SELECT id FROM organizations WHERE id=$1 FOR UPDATE", [
+      context.organizationId,
+    ]);
+    const current = await client.query<{ version_number: number }>(
+      `SELECT version_number
+         FROM company_rules_versions
+        WHERE organization_id=$1
+        ORDER BY version_number DESC
+        LIMIT 1`,
+      [context.organizationId],
+    );
+    const versionNumber = (current.rows[0]?.version_number ?? 0) + 1;
+    await client.query(
+      `UPDATE company_rules_versions
+          SET status='superseded'
+        WHERE organization_id=$1 AND status='published'`,
+      [context.organizationId],
+    );
+    const inserted = await client.query<CompanyRulesVersionRow>(
+      `INSERT INTO company_rules_versions (
+         organization_id,version_number,title,content,change_note,status,created_by_member_id
+       ) VALUES ($1,$2,$3,$4,$5,'published',$6)
+       RETURNING id,version_number,title,content,change_note,status,created_at,
+                 NULL::text AS created_by_name`,
+      [
+        context.organizationId,
+        versionNumber,
+        input.title,
+        input.content,
+        input.changeNote ?? null,
+        context.memberId,
+      ],
+    );
+    return mapCompanyRulesVersion(inserted.rows[0]!);
+  });
+}
+
+/**
+ * A controlled, printable version of the company rulebook.  This deliberately
+ * renders on the server instead of relying on `window.print()`: browser print
+ * captures are inconsistent, can include UI chrome and are not an auditable
+ * document layout.
+ */
+export async function exportCompanyRulesPdf(
+  context: SetupContext,
+  french: boolean,
+): Promise<Buffer> {
+  const [policy, company] = await Promise.all([
+    currentCompanyRules(context),
+    withTenantContext(context, async (client) => {
+      const result = await client.query<CompanyRulesCompanyRow>(
+        `SELECT COALESCE(display_name, legal_name, slug) AS name,
+                address_line1,address_line2,city,region,postal_code
+           FROM organizations
+          WHERE id=$1`,
+        [context.organizationId],
+      );
+      return result.rows[0] ?? {
+        name: "LiteHubs",
+        address_line1: null,
+        address_line2: null,
+        city: null,
+        region: null,
+        postal_code: null,
+      };
+    }),
+  ]);
+  const title =
+    policy?.title ??
+    (french
+      ? "Règlement général d’exploitation et de gestion"
+      : "General operating and management rules");
+  const content = policy?.content ?? (french ? defaultCompanyRules.fr : defaultCompanyRules.en);
+  const version = policy?.versionNumber ?? 1;
+  const generatedAt = policy?.createdAt ? new Date(policy.createdAt) : new Date();
+  const author = policy?.createdByName ?? (french ? "Version de référence LiteHubs" : "LiteHubs reference version");
+  const note = policy?.changeNote ?? (french ? "Cadre interne de référence" : "Reference internal framework");
+  const address = [
+    company.address_line1,
+    company.address_line2,
+    [company.city, company.region].filter(Boolean).join(", "),
+    company.postal_code,
+  ]
+    .filter((part): part is string => Boolean(part?.trim()))
+    .join(" · ");
+  const initials =
+    company.name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part.slice(0, 1).toUpperCase())
+      .join("") || "LH";
+
+  return new Promise<Buffer>((resolve, reject) => {
+    const document = new PDFDocument({
+      size: "A4",
+      margins: { top: 44, bottom: 52, left: 42, right: 42 },
+      bufferPages: true,
+      info: {
+        Title: title,
+        Author: company.name,
+        Subject: french ? "Règlement officiel de l’entreprise" : "Official company rulebook",
+      },
+    });
+    const chunks: Buffer[] = [];
+    document.on("data", (chunk: Buffer) => chunks.push(chunk));
+    document.on("error", reject);
+    document.on("end", () => resolve(Buffer.concat(chunks)));
+
+    const navy = "#10243F";
+    const brand = "#087E8B";
+    const pale = "#EEF6F7";
+    const ink = "#162334";
+    const muted = "#64748B";
+    const border = "#D7E2EA";
+    const pageWidth = document.page.width;
+    const pageHeight = document.page.height;
+    const left = document.page.margins.left;
+    const contentWidth = pageWidth - left * 2;
+    const bottom = pageHeight - 58;
+    let cursorY = 118;
+
+    const drawHeader = () => {
+      document.rect(0, 0, pageWidth, 16).fill(navy);
+      document.roundedRect(left, 34, 48, 48, 10).fill("#FFFFFF");
+      document
+        .fillColor(navy)
+        .font("Helvetica-Bold")
+        .fontSize(15)
+        .text(initials, left, 50, { width: 48, align: "center" });
+      document
+        .fillColor(ink)
+        .font("Helvetica-Bold")
+        .fontSize(15)
+        .text(safeRulesText(company.name, 70), left + 60, 39, {
+          width: 220,
+          ellipsis: true,
+        });
+      document
+        .fillColor(muted)
+        .font("Helvetica")
+        .fontSize(7.5)
+        .text(
+          address || (french ? "Adresse officielle non renseignée" : "Official address not provided"),
+          left + 60,
+          60,
+          { width: 240, height: 24, ellipsis: true },
+        );
+      document
+        .fillColor(navy)
+        .font("Helvetica-Bold")
+        .fontSize(16)
+        .text(french ? "REGLEMENT D’ENTREPRISE" : "COMPANY RULEBOOK", pageWidth - left - 252, 39, {
+          width: 252,
+          align: "right",
+        });
+      document
+        .fillColor(brand)
+        .font("Helvetica-Bold")
+        .fontSize(9.5)
+        .text(`REG-${String(version).padStart(3, "0")} · v${version}`, pageWidth - left - 252, 60, {
+          width: 252,
+          align: "right",
+        });
+      document
+        .fillColor(muted)
+        .font("Helvetica")
+        .fontSize(7.5)
+        .text(
+          `${french ? "Publié le" : "Published"} : ${formatCompanyRulesDate(generatedAt, french)}`,
+          pageWidth - left - 252,
+          75,
+          { width: 252, align: "right" },
+        );
+      document
+        .moveTo(left, 100)
+        .lineTo(pageWidth - left, 100)
+        .strokeColor(border)
+        .lineWidth(0.7)
+        .stroke();
+      document.y = 118;
+      cursorY = 118;
+    };
+
+    const addPage = () => {
+      document.addPage();
+      // Explicitly draw the template for intentional chapter breaks.  The
+      // event below remains as a safeguard for any automatic PDFKit break.
+      drawHeader();
+    };
+    const ensureSpace = (height: number) => {
+      if (cursorY + height > bottom) addPage();
+    };
+    const metaCard = (x: number, y: number, label: string, value: string) => {
+      document.roundedRect(x, y, 160, 44, 7).fill(pale);
+      document
+        .fillColor(brand)
+        .font("Helvetica-Bold")
+        .fontSize(6.8)
+        .text(label.toUpperCase(), x + 9, y + 8, { width: 142 });
+      document
+        .fillColor(ink)
+        .font("Helvetica-Bold")
+        .fontSize(8.5)
+        .text(safeRulesText(value, 84), x + 9, y + 20, {
+          width: 142,
+          height: 17,
+          ellipsis: true,
+        });
+    };
+    const chapter = (line: string) => {
+      // Keep a heading with at least the opening paragraph of its chapter.
+      // This avoids a stranded heading at the foot of a page.
+      ensureSpace(105);
+      document.roundedRect(left, cursorY, contentWidth, 23, 6).fill(navy);
+      document
+        .fillColor("#FFFFFF")
+        .font("Helvetica-Bold")
+        .fontSize(8.5)
+        .text(safeRulesText(line, 180).toUpperCase(), left + 10, cursorY + 7, {
+          width: contentWidth - 20,
+          ellipsis: true,
+        });
+      cursorY += 31;
+    };
+    const paragraph = (line: string) => {
+      const rendered = safeRulesText(line);
+      document.font("Helvetica").fontSize(9.2);
+      const height = Math.max(
+        16,
+        document.heightOfString(rendered, {
+          width: contentWidth - 26,
+          lineGap: 2,
+        }) + 10,
+      );
+      ensureSpace(height);
+      const rule = /^\d+\.\d+\s/.test(rendered);
+      if (rule) {
+        document.circle(left + 4, cursorY + 5, 2).fill(brand);
+      }
+      document
+        .fillColor(ink)
+        .font("Helvetica")
+        .fontSize(9.2)
+        .text(rendered, left + (rule ? 14 : 0), cursorY, {
+          width: contentWidth - (rule ? 14 : 0),
+          lineGap: 2,
+        });
+      cursorY += height;
+    };
+
+    // PDFKit can create a page itself when a long paragraph reaches the
+    // bottom.  Decorating that event keeps those pages identical to pages we
+    // add explicitly through `ensureSpace`.
+    document.on("pageAdded", drawHeader);
+    drawHeader();
+    document
+      .fillColor(ink)
+      .font("Helvetica-Bold")
+      .fontSize(19)
+      .text(title, left, cursorY, { width: contentWidth });
+    cursorY += document.heightOfString(title, { width: contentWidth }) + 5;
+    document
+      .fillColor(muted)
+      .font("Helvetica")
+      .fontSize(8.4)
+      .text(
+        french
+          ? "Document interne contrôlé - applicable à toute l’entreprise"
+          : "Controlled internal document - applies to the whole company",
+        left,
+        cursorY,
+      );
+    cursorY += 26;
+    const cardsY = cursorY;
+    metaCard(left, cardsY, french ? "Version" : "Version", `v${version}`);
+    metaCard(
+      left + 170,
+      cardsY,
+      french ? "Responsable de publication" : "Published by",
+      author,
+    );
+    metaCard(
+      left + 340,
+      cardsY,
+      french ? "Motif / référence" : "Reason / reference",
+      note,
+    );
+    cursorY = cardsY + 61;
+    const noticeY = cursorY;
+    document
+      .roundedRect(left, noticeY, contentWidth, 31, 7)
+      .fill("#F7FAFC");
+    document
+      .fillColor(muted)
+      .font("Helvetica")
+      .fontSize(7.8)
+      .text(
+        french
+          ? "Les versions antérieures restent disponibles dans LiteHubs. Ce document ne remplace pas les obligations légales applicables en République démocratique du Congo."
+          : "Earlier versions remain available in LiteHubs. This document does not replace applicable legal obligations in the Democratic Republic of the Congo.",
+        left + 10,
+        noticeY + 8,
+        { width: contentWidth - 20 },
+      );
+    cursorY = noticeY + 45;
+
+    for (const rawLine of content.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line) {
+        cursorY += 4;
+        continue;
+      }
+      if (/^\d+\.\s/.test(line)) chapter(safeRulesText(line));
+      else paragraph(line);
+    }
+
+    const pageRange = document.bufferedPageRange();
+    for (let index = pageRange.start; index < pageRange.start + pageRange.count; index += 1) {
+      document.switchToPage(index);
+      const footerLineY = pageHeight - 76;
+      const footerTextY = pageHeight - 66;
+      document
+        .moveTo(left, footerLineY)
+        .lineTo(pageWidth - left, footerLineY)
+        .strokeColor(border)
+        .lineWidth(0.6)
+        .stroke();
+      document
+        .fillColor(muted)
+        .font("Helvetica")
+        .fontSize(7.2)
+        .text(`${safeRulesText(company.name, 56)} · ${french ? "Document contrôlé" : "Controlled document"} · v${version}`, left, footerTextY, { width: 300, lineBreak: false });
+      document
+        .text(`${french ? "Page" : "Page"} ${index + 1} / ${pageRange.count}`, pageWidth - left - 100, footerTextY, { width: 100, align: "right", lineBreak: false });
+    }
+    document.end();
+  });
+}
 
 function mapProvince(row: ProvinceRow) {
   return {
@@ -395,7 +935,7 @@ function positionCategoryForRoleCodes(
         "provincial_manager",
         "site_manager",
         "farm_operations_manager",
-        "farm_manager",
+        "site_manager",
         "project_manager",
       ].includes(code),
     )

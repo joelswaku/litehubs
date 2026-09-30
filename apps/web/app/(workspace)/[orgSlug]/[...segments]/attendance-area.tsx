@@ -34,6 +34,10 @@ import {
   type ScheduleException,
   type WeeklyScheduleDay,
 } from "@/lib/attendance-api";
+import {
+  companySetupApi,
+  type OrganizationSite,
+} from "@/lib/company-setup-api";
 import { can } from "@/lib/permissions";
 import { formatBusinessDay, formatInstant } from "@/lib/utils";
 import { useLanguage } from "@/providers/language-provider";
@@ -129,7 +133,9 @@ const normaliseWeeklyPlan = (
 const planMinutes = (plan: WeeklyScheduleDay[]) =>
   plan.reduce((total, day) => {
     if (!day.enabled || !day.startsAt || !day.endsAt) return total;
-    const [startHour = 0, startMinute = 0] = day.startsAt.split(":").map(Number);
+    const [startHour = 0, startMinute = 0] = day.startsAt
+      .split(":")
+      .map(Number);
     const [endHour = 0, endMinute = 0] = day.endsAt.split(":").map(Number);
     const start = startHour * 60 + startMinute;
     const end = endHour * 60 + endMinute;
@@ -140,8 +146,11 @@ const planMinutes = (plan: WeeklyScheduleDay[]) =>
 const planHoursLabel = (plan: WeeklyScheduleDay[], locale: string) =>
   `${(planMinutes(plan) / 60).toLocaleString(locale.startsWith("fr") ? "fr-FR" : "en-US", { maximumFractionDigits: 1 })} ${copy(locale, "h/week", "h/semaine")}`;
 
-const firstWorkingTime = (plan: WeeklyScheduleDay[], field: "startsAt" | "endsAt", fallback: string) =>
-  plan.find((day) => day.enabled)?.[field] ?? fallback;
+const firstWorkingTime = (
+  plan: WeeklyScheduleDay[],
+  field: "startsAt" | "endsAt",
+  fallback: string,
+) => plan.find((day) => day.enabled)?.[field] ?? fallback;
 
 /**
  * Attendance and rosters.
@@ -172,8 +181,7 @@ export function AttendanceArea({
   const canRoster = can(user, "shifts.update");
   const canCreateShift = can(user, "shifts.create");
   const canClock =
-    can(user, "attendance.clock_self") ||
-    can(user, "attendance.clock_others");
+    can(user, "attendance.clock_self") || can(user, "attendance.clock_others");
 
   if (!canReadAttendance && !canReadShifts && !canClock) {
     return <NoAccessState what={t("attendance.title")} />;
@@ -198,18 +206,16 @@ export function AttendanceArea({
               {t("attendance.description")}
             </p>
             {canReadAttendance ? (
-            <HrPdfButton
-              orgSlug={orgSlug}
-              report="attendance"
-              fr={locale.startsWith("fr")}
-              className="ml-auto border-brand/30 bg-surface-1/75 text-brand shadow-sm hover:bg-brand/10"
-            />
-          ) : null}
-        </div>
+              <HrPdfButton
+                orgSlug={orgSlug}
+                report="attendance"
+                fr={locale.startsWith("fr")}
+                className="ml-auto border-brand/30 bg-surface-1/75 text-brand shadow-sm hover:bg-brand/10"
+              />
+            ) : null}
+          </div>
         </div>
       </header>
-
-
 
       {canClock ? <ClockTerminal orgSlug={orgSlug} locale={locale} /> : null}
 
@@ -287,10 +293,18 @@ function TabButton({
 
 /* -------------------------------------------------------------- clock -- */
 
-function ClockTerminal({ orgSlug, locale }: { orgSlug: string; locale: string }) {
+function ClockTerminal({
+  orgSlug,
+  locale,
+}: {
+  orgSlug: string;
+  locale: string;
+}) {
   const queryClient = useQueryClient();
   const [employeeNumber, setEmployeeNumber] = useState("");
-  const [workDate, setWorkDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [workDate, setWorkDate] = useState(() =>
+    new Date().toISOString().slice(0, 10),
+  );
   const [action, setAction] = useState<"in" | "out">("in");
 
   const clock = useMutation({
@@ -298,10 +312,15 @@ function ClockTerminal({ orgSlug, locale }: { orgSlug: string; locale: string })
       const body = { employeeNumber, workDate };
       return action === "in"
         ? attendanceApi.clockIn<{ attendance: AttendanceRecord }>(orgSlug, body)
-        : attendanceApi.clockOut<{ attendance: AttendanceRecord }>(orgSlug, body);
+        : attendanceApi.clockOut<{ attendance: AttendanceRecord }>(
+            orgSlug,
+            body,
+          );
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["attendance-records", orgSlug] });
+      void queryClient.invalidateQueries({
+        queryKey: ["attendance-records", orgSlug],
+      });
       setEmployeeNumber("");
     },
   });
@@ -322,10 +341,18 @@ function ClockTerminal({ orgSlug, locale }: { orgSlug: string; locale: string })
             </p>
           </div>
           <h2 className="mt-3 text-xl font-semibold tracking-tight text-ink">
-            {copy(locale, "Clock using the five-digit employee number", "Pointez avec le matricule à cinq chiffres")}
+            {copy(
+              locale,
+              "Clock using the five-digit employee number",
+              "Pointez avec le matricule à cinq chiffres",
+            )}
           </h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-ink-secondary">
-            {copy(locale, "Enter the employee number, not a database ID. The system identifies the employee, their assigned shift and authorized scope automatically.", "Saisissez le matricule employé, et non un identifiant technique. Le système identifie automatiquement la personne, son horaire et son périmètre autorisé.")}
+            {copy(
+              locale,
+              "Enter the employee number, not a database ID. The system identifies the employee, their assigned shift and authorized scope automatically.",
+              "Saisissez le matricule employé, et non un identifiant technique. Le système identifie automatiquement la personne, son horaire et son périmètre autorisé.",
+            )}
           </p>
         </div>
         <span className="rounded-full border border-brand/20 bg-surface-1/80 px-3 py-1.5 text-xs font-medium text-brand shadow-sm">
@@ -353,12 +380,26 @@ function ClockTerminal({ orgSlug, locale }: { orgSlug: string; locale: string })
             placeholder="10001"
             value={employeeNumber}
             maxLength={5}
-            onChange={(event) => setEmployeeNumber(event.target.value.replace(/\D/g, "").slice(0, 5))}
+            onChange={(event) =>
+              setEmployeeNumber(
+                event.target.value.replace(/\D/g, "").slice(0, 5),
+              )
+            }
             required
           />
         </Field>
-        <Field label={copy(locale, "Work date", "Date de travail")} htmlFor="clock-work-date" required>
-          <Input id="clock-work-date" type="date" value={workDate} onChange={(event) => setWorkDate(event.target.value)} required />
+        <Field
+          label={copy(locale, "Work date", "Date de travail")}
+          htmlFor="clock-work-date"
+          required
+        >
+          <Input
+            id="clock-work-date"
+            type="date"
+            value={workDate}
+            onChange={(event) => setWorkDate(event.target.value)}
+            required
+          />
         </Field>
         <div className="rounded-xl border border-brand/15 bg-brand-subtle/45 p-1.5">
           <div className="grid grid-cols-2 gap-1">
@@ -385,18 +426,38 @@ function ClockTerminal({ orgSlug, locale }: { orgSlug: string; locale: string })
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-3 lg:col-span-3">
-          <Button type="submit" loading={clock.isPending} disabled={!isValidNumber || !workDate}>
+          <Button
+            type="submit"
+            loading={clock.isPending}
+            disabled={!isValidNumber || !workDate}
+          >
             {action === "in" ? <LogIn /> : <LogOut />}
             {action === "in"
               ? copy(locale, "Record arrival", "Enregistrer l’arrivée")
               : copy(locale, "Record departure", "Enregistrer le départ")}
           </Button>
           <p className="text-xs text-ink-muted">
-            {copy(locale, "The official time is recorded securely.", "L’heure officielle est enregistrée de façon sécurisée.")}
+            {copy(
+              locale,
+              "The official time is recorded securely.",
+              "L’heure officielle est enregistrée de façon sécurisée.",
+            )}
           </p>
         </div>
-        {error ? <p className="text-xs text-critical lg:col-span-3" role="alert">{error}</p> : null}
-        {clock.isSuccess ? <p className="text-xs text-positive lg:col-span-3">{copy(locale, "Attendance recorded successfully.", "Pointage enregistré avec succès.")}</p> : null}
+        {error ? (
+          <p className="text-xs text-critical lg:col-span-3" role="alert">
+            {error}
+          </p>
+        ) : null}
+        {clock.isSuccess ? (
+          <p className="text-xs text-positive lg:col-span-3">
+            {copy(
+              locale,
+              "Attendance recorded successfully.",
+              "Pointage enregistré avec succès.",
+            )}
+          </p>
+        ) : null}
       </form>
     </section>
   );
@@ -557,6 +618,214 @@ function Timesheets({
 
 /* ---------------------------------------------------------------- roster -- */
 
+/**
+ * A company cannot have an assignment before its first recurring schedule.
+ * This is deliberately a complete creation path rather than an empty-state
+ * link: the old roster form copied the site from an existing schedule, which
+ * made the very first one impossible to create.
+ */
+function InitialScheduleSetup({
+  orgSlug,
+  locale,
+}: {
+  orgSlug: string;
+  locale: string;
+}) {
+  const queryClient = useQueryClient();
+  const [siteId, setSiteId] = useState("");
+  const [code, setCode] = useState("");
+  const [name, setName] = useState("");
+  const [weeklySchedule, setWeeklySchedule] =
+    useState<WeeklyScheduleDay[]>(defaultWeeklyPlan());
+  const sites = useQuery({
+    queryKey: ["sites", orgSlug],
+    queryFn: () =>
+      companySetupApi.listSites<{ sites: OrganizationSite[] }>(orgSlug),
+    select: (data) => data.sites.filter((site) => site.isActive !== false),
+  });
+  const availableSites = sites.data ?? [];
+  const selectedSiteId =
+    siteId || (availableSites.length === 1 ? availableSites[0]!.id : "");
+  const create = useMutation({
+    mutationFn: () =>
+      attendanceApi.createShift<{ shift: Shift }>(orgSlug, {
+        code,
+        name,
+        siteId: selectedSiteId,
+        startsAt: firstWorkingTime(weeklySchedule, "startsAt", "08:00"),
+        endsAt: firstWorkingTime(weeklySchedule, "endsAt", "17:00"),
+        weeklySchedule,
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["shifts", orgSlug] });
+    },
+  });
+  const error =
+    create.error instanceof ApiError
+      ? create.error.message
+      : create.error instanceof Error
+        ? create.error.message
+        : null;
+
+  if (sites.isPending) return <SkeletonCard rows={5} />;
+  if (sites.isError) {
+    return (
+      <ErrorState
+        description={(sites.error as ApiError)?.message}
+        onRetry={() => void sites.refetch()}
+      />
+    );
+  }
+  if (!availableSites.length) {
+    return (
+      <EmptyState
+        title={copy(
+          locale,
+          "No work site defined",
+          "Aucun site de travail défini",
+        )}
+        description={copy(
+          locale,
+          "Create an active site first. The schedule is always attached to a site so it cannot be used by another farm by mistake.",
+          "Créez d’abord un site actif. Chaque horaire est rattaché à un site afin de ne jamais être utilisé par erreur sur une autre ferme.",
+        )}
+        icon={Building2}
+      />
+    );
+  }
+
+  return (
+    <section className="overflow-hidden rounded-3xl border border-brand/25 bg-gradient-to-br from-surface-1 via-surface-1 to-brand-subtle/30 shadow-[0_22px_52px_-38px_rgba(15,23,42,.42)] dark:shadow-[0_22px_52px_-38px_rgba(0,0,0,.9)]">
+      <div className="flex flex-wrap items-start gap-4 border-b border-brand/15 p-5 sm:p-6">
+        <span className="grid size-11 shrink-0 place-items-center rounded-2xl border border-brand/20 bg-brand-subtle text-brand">
+          <CalendarClock className="size-5" aria-hidden />
+        </span>
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-[.14em] text-brand">
+            {copy(locale, "First step", "Première étape")}
+          </p>
+          <h2 className="mt-1 text-xl font-semibold tracking-tight text-ink">
+            {copy(
+              locale,
+              "Create the first work schedule",
+              "Créer le premier horaire de travail",
+            )}
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-ink-secondary">
+            {copy(
+              locale,
+              "Choose the farm or office, define the repeating weekly hours, then assign employees from the Roster tab.",
+              "Choisissez la ferme ou le bureau, définissez les heures hebdomadaires répétées, puis affectez les employés depuis l’onglet Affectations.",
+            )}
+          </p>
+        </div>
+      </div>
+      <form
+        className="grid gap-5 p-5 sm:grid-cols-2 sm:p-6"
+        onSubmit={(event) => {
+          event.preventDefault();
+          create.mutate();
+        }}
+      >
+        <Field
+          label={copy(locale, "Work site", "Site de travail")}
+          htmlFor="initial-shift-site"
+          required
+        >
+          <select
+            id="initial-shift-site"
+            value={selectedSiteId}
+            onChange={(event) => setSiteId(event.target.value)}
+            required
+            className="h-10 w-full rounded-lg border border-border-strong bg-surface-1 px-3 text-sm text-ink"
+          >
+            {availableSites.length > 1 ? (
+              <option value="">
+                {copy(locale, "Choose a site", "Choisissez un site")}
+              </option>
+            ) : null}
+            {availableSites.map((site) => (
+              <option key={site.id} value={site.id}>
+                {site.name} · {site.province.name}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field
+          label={copy(locale, "Unique code", "Code unique")}
+          htmlFor="initial-shift-code"
+          hint={copy(locale, "Example: matin_mundua", "Exemple : matin_mundua")}
+          required
+        >
+          <Input
+            id="initial-shift-code"
+            value={code}
+            onChange={(event) =>
+              setCode(
+                event.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "_"),
+              )
+            }
+            required
+          />
+        </Field>
+        <Field
+          className="sm:col-span-2"
+          label={copy(locale, "Schedule name", "Nom de l’horaire")}
+          htmlFor="initial-shift-name"
+          hint={copy(
+            locale,
+            "Example: Morning team",
+            "Exemple : Équipe du matin",
+          )}
+          required
+        >
+          <Input
+            id="initial-shift-name"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            required
+          />
+        </Field>
+        <div className="sm:col-span-2">
+          <WeeklyPlanEditor
+            plan={weeklySchedule}
+            onChange={setWeeklySchedule}
+            locale={locale}
+            idPrefix="initial-shift-week"
+          />
+        </div>
+        {error ? (
+          <p className="text-xs text-critical sm:col-span-2" role="alert">
+            {error}
+          </p>
+        ) : null}
+        <div className="flex flex-wrap items-center gap-3 border-t border-border pt-5 sm:col-span-2">
+          <Button
+            type="submit"
+            loading={create.isPending}
+            disabled={
+              !selectedSiteId ||
+              !code ||
+              !name ||
+              !weeklySchedule.some((day) => day.enabled)
+            }
+          >
+            <CalendarDays />
+            {copy(locale, "Create schedule", "Créer l’horaire")}
+          </Button>
+          <p className="text-xs text-ink-muted">
+            {copy(
+              locale,
+              "No employee is assigned yet. You choose them in the next step.",
+              "Aucun employé n’est encore affecté. Vous les choisirez à l’étape suivante.",
+            )}
+          </p>
+        </div>
+      </form>
+    </section>
+  );
+}
+
 function Roster({
   orgSlug,
   canRoster,
@@ -584,17 +853,23 @@ function Roster({
   const [shiftName, setShiftName] = useState("");
   const [shiftStartsAt, setShiftStartsAt] = useState("");
   const [shiftEndsAt, setShiftEndsAt] = useState("");
-  const [shiftWeeklySchedule, setShiftWeeklySchedule] = useState<WeeklyScheduleDay[]>(
-    defaultWeeklyPlan(),
+  const [shiftWeeklySchedule, setShiftWeeklySchedule] =
+    useState<WeeklyScheduleDay[]>(defaultWeeklyPlan());
+  const [changingAssignmentId, setChangingAssignmentId] = useState<
+    string | null
+  >(null);
+  const [exceptionAssignmentId, setExceptionAssignmentId] = useState<
+    string | null
+  >(null);
+  const [exceptionWorkDate, setExceptionWorkDate] = useState(() =>
+    new Date().toISOString().slice(0, 10),
   );
-  const [changingAssignmentId, setChangingAssignmentId] = useState<string | null>(null);
-  const [exceptionAssignmentId, setExceptionAssignmentId] = useState<string | null>(null);
-  const [exceptionWorkDate, setExceptionWorkDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [exceptionIsWorking, setExceptionIsWorking] = useState(true);
   const [exceptionStartsAt, setExceptionStartsAt] = useState("08:00");
   const [exceptionEndsAt, setExceptionEndsAt] = useState("17:00");
   const [exceptionBreakMinutes, setExceptionBreakMinutes] = useState(0);
-  const [exceptionNote, setExceptionNote] = useState("");  const [targetShiftId, setTargetShiftId] = useState("");
+  const [exceptionNote, setExceptionNote] = useState("");
+  const [targetShiftId, setTargetShiftId] = useState("");
   const [changeEffectiveFrom, setChangeEffectiveFrom] = useState(
     new Date().toISOString().slice(0, 10),
   );
@@ -603,9 +878,8 @@ function Roster({
   const [newShiftName, setNewShiftName] = useState("");
   const [newShiftStartsAt, setNewShiftStartsAt] = useState("08:00");
   const [newShiftEndsAt, setNewShiftEndsAt] = useState("17:00");
-  const [newWeeklySchedule, setNewWeeklySchedule] = useState<WeeklyScheduleDay[]>(
-    defaultWeeklyPlan(),
-  );
+  const [newWeeklySchedule, setNewWeeklySchedule] =
+    useState<WeeklyScheduleDay[]>(defaultWeeklyPlan());
 
   const shifts = useQuery({
     queryKey: ["shifts", orgSlug],
@@ -649,7 +923,11 @@ function Roster({
     mutationFn: () =>
       attendanceApi.updateShift(orgSlug, String(activeShiftId), {
         name: shiftName,
-        startsAt: firstWorkingTime(shiftWeeklySchedule, "startsAt", shiftStartsAt),
+        startsAt: firstWorkingTime(
+          shiftWeeklySchedule,
+          "startsAt",
+          shiftStartsAt,
+        ),
         endsAt: firstWorkingTime(shiftWeeklySchedule, "endsAt", shiftEndsAt),
         weeklySchedule: shiftWeeklySchedule,
       }),
@@ -677,28 +955,61 @@ function Roster({
   });
 
   const assignmentExceptions = useQuery({
-    queryKey: ["shift-assignment-exceptions", orgSlug, activeShiftId, exceptionAssignmentId],
-    queryFn: () => attendanceApi.listAssignmentExceptions<{ exceptions: ScheduleException[] }>(orgSlug, String(activeShiftId), String(exceptionAssignmentId)),
+    queryKey: [
+      "shift-assignment-exceptions",
+      orgSlug,
+      activeShiftId,
+      exceptionAssignmentId,
+    ],
+    queryFn: () =>
+      attendanceApi.listAssignmentExceptions<{
+        exceptions: ScheduleException[];
+      }>(orgSlug, String(activeShiftId), String(exceptionAssignmentId)),
     enabled: Boolean(activeShiftId && exceptionAssignmentId),
     select: (data) => data.exceptions,
   });
 
   const saveException = useMutation({
-    mutationFn: () => attendanceApi.saveAssignmentException<{ exception: ScheduleException }>(orgSlug, String(activeShiftId), String(exceptionAssignmentId), {
-      workDate: exceptionWorkDate,
-      isWorking: exceptionIsWorking,
-      ...(exceptionIsWorking ? { startsAt: exceptionStartsAt, endsAt: exceptionEndsAt, breakMinutes: exceptionBreakMinutes } : {}),
-      ...(exceptionNote.trim() ? { note: exceptionNote.trim() } : { note: null }),
-    }),
+    mutationFn: () =>
+      attendanceApi.saveAssignmentException<{ exception: ScheduleException }>(
+        orgSlug,
+        String(activeShiftId),
+        String(exceptionAssignmentId),
+        {
+          workDate: exceptionWorkDate,
+          isWorking: exceptionIsWorking,
+          ...(exceptionIsWorking
+            ? {
+                startsAt: exceptionStartsAt,
+                endsAt: exceptionEndsAt,
+                breakMinutes: exceptionBreakMinutes,
+              }
+            : {}),
+          ...(exceptionNote.trim()
+            ? { note: exceptionNote.trim() }
+            : { note: null }),
+        },
+      ),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["shift-assignment-exceptions", orgSlug] });
+      void queryClient.invalidateQueries({
+        queryKey: ["shift-assignment-exceptions", orgSlug],
+      });
       setExceptionNote("");
     },
   });
 
   const deleteException = useMutation({
-    mutationFn: (exceptionId: string) => attendanceApi.removeAssignmentException(orgSlug, String(activeShiftId), String(exceptionAssignmentId), exceptionId),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["shift-assignment-exceptions", orgSlug] }),
+    mutationFn: (exceptionId: string) =>
+      attendanceApi.removeAssignmentException(
+        orgSlug,
+        String(activeShiftId),
+        String(exceptionAssignmentId),
+        exceptionId,
+      ),
+    onSuccess: () =>
+      void queryClient.invalidateQueries({
+        queryKey: ["shift-assignment-exceptions", orgSlug],
+      }),
   });
   const createShift = useMutation({
     mutationFn: () => {
@@ -708,7 +1019,11 @@ function Roster({
         code: newShiftCode,
         name: newShiftName,
         siteId,
-        startsAt: firstWorkingTime(newWeeklySchedule, "startsAt", newShiftStartsAt),
+        startsAt: firstWorkingTime(
+          newWeeklySchedule,
+          "startsAt",
+          newShiftStartsAt,
+        ),
         endsAt: firstWorkingTime(newWeeklySchedule, "endsAt", newShiftEndsAt),
         weeklySchedule: newWeeklySchedule,
       });
@@ -735,6 +1050,9 @@ function Roster({
 
   const shiftList = shifts.data ?? [];
   if (shiftList.length === 0) {
+    if (canCreateShift) {
+      return <InitialScheduleSetup orgSlug={orgSlug} locale={locale} />;
+    }
     return (
       <EmptyState
         title={t("attendance.noShifts" as never)}
@@ -758,24 +1076,26 @@ function Roster({
   const scheduledAssignmentCount = assignmentRows.filter(
     (row) => assignmentState(row) === "scheduled",
   ).length;
-  const rosterAssignmentSummary = [
-    activeAssignmentCount
-      ? copy(
-          locale,
-          `${activeAssignmentCount} active`,
-          `${activeAssignmentCount} en cours`,
-        )
-      : null,
-    scheduledAssignmentCount
-      ? copy(
-          locale,
-          `${scheduledAssignmentCount} scheduled`,
-          `${scheduledAssignmentCount} à venir`,
-        )
-      : null,
-  ]
-    .filter(Boolean)
-    .join(" · ") || copy(locale, "No current assignment", "Aucune affectation en cours");
+  const rosterAssignmentSummary =
+    [
+      activeAssignmentCount
+        ? copy(
+            locale,
+            `${activeAssignmentCount} active`,
+            `${activeAssignmentCount} en cours`,
+          )
+        : null,
+      scheduledAssignmentCount
+        ? copy(
+            locale,
+            `${scheduledAssignmentCount} scheduled`,
+            `${scheduledAssignmentCount} à venir`,
+          )
+        : null,
+    ]
+      .filter(Boolean)
+      .join(" · ") ||
+    copy(locale, "No current assignment", "Aucune affectation en cours");
   const alreadyAssigned = new Set(
     assignmentRows
       .filter((row) => assignmentState(row) !== "ended")
@@ -825,7 +1145,9 @@ function Roster({
   );
 
   return (
-    <div className={`grid gap-5 ${createShiftOpen ? "" : "2xl:grid-cols-[minmax(300px,.82fr)_minmax(0,2fr)]"}`}>
+    <div
+      className={`grid gap-5 ${createShiftOpen ? "" : "2xl:grid-cols-[minmax(300px,.82fr)_minmax(0,2fr)]"}`}
+    >
       <section className="overflow-hidden rounded-3xl border border-border bg-gradient-to-br from-surface-1 via-surface-1 to-surface-2 shadow-[0_20px_48px_-34px_rgba(15,23,42,.38)] dark:shadow-[0_20px_48px_-34px_rgba(0,0,0,.85)]">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-gradient-to-r from-brand-subtle/45 via-surface-1 to-surface-1 p-4 sm:p-5">
           <div className="flex min-w-0 items-center gap-3">
@@ -845,7 +1167,11 @@ function Roster({
             </div>
           </div>
           {canCreateShift ? (
-            <Button size="sm" variant="outline" onClick={() => setCreateShiftOpen((open) => !open)}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setCreateShiftOpen((open) => !open)}
+            >
               {createShiftOpen
                 ? copy(locale, "Close form", "Fermer le formulaire")
                 : copy(locale, "Add schedule", "Ajouter un horaire")}
@@ -867,7 +1193,11 @@ function Roster({
                 </span>
                 <div>
                   <h3 className="text-base font-semibold text-ink">
-                    {copy(locale, "New weekly schedule", "Nouvel horaire hebdomadaire")}
+                    {copy(
+                      locale,
+                      "New weekly schedule",
+                      "Nouvel horaire hebdomadaire",
+                    )}
                   </h3>
                   <p className="mt-1 max-w-2xl text-xs leading-5 text-ink-secondary">
                     {copy(
@@ -882,11 +1212,41 @@ function Roster({
                 {copy(locale, "Repeats every week", "Se répète chaque semaine")}
               </span>
             </div>
-            <Field label={copy(locale, "Unique code", "Code unique")} htmlFor="new-shift-code" required>
-              <Input id="new-shift-code" value={newShiftCode} onChange={(event) => setNewShiftCode(event.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "_"))} placeholder="matin_0800" required />
+            <Field
+              label={copy(locale, "Unique code", "Code unique")}
+              htmlFor="new-shift-code"
+              required
+            >
+              <Input
+                id="new-shift-code"
+                value={newShiftCode}
+                onChange={(event) =>
+                  setNewShiftCode(
+                    event.target.value
+                      .toLowerCase()
+                      .replace(/[^a-z0-9_]/g, "_"),
+                  )
+                }
+                placeholder="matin_0800"
+                required
+              />
             </Field>
-            <Field label={copy(locale, "Schedule name", "Nom de l’horaire")} htmlFor="new-shift-name" required>
-              <Input id="new-shift-name" value={newShiftName} onChange={(event) => setNewShiftName(event.target.value)} placeholder={copy(locale, "Morning schedule", "Horaire du matin")} required />
+            <Field
+              label={copy(locale, "Schedule name", "Nom de l’horaire")}
+              htmlFor="new-shift-name"
+              required
+            >
+              <Input
+                id="new-shift-name"
+                value={newShiftName}
+                onChange={(event) => setNewShiftName(event.target.value)}
+                placeholder={copy(
+                  locale,
+                  "Morning schedule",
+                  "Horaire du matin",
+                )}
+                required
+              />
             </Field>
             <div className="md:col-span-2">
               <WeeklyPlanEditor
@@ -896,18 +1256,35 @@ function Roster({
                 idPrefix="new-shift-week"
               />
             </div>
-            {createShiftError ? <p className="text-xs text-critical md:col-span-2" role="alert">{createShiftError}</p> : null}
+            {createShiftError ? (
+              <p className="text-xs text-critical md:col-span-2" role="alert">
+                {createShiftError}
+              </p>
+            ) : null}
             <div className="flex flex-wrap items-center gap-2 md:col-span-2">
-              <Button type="submit" loading={createShift.isPending} disabled={!newShiftCode || !newShiftName || !newWeeklySchedule.some((day) => day.enabled)}>
+              <Button
+                type="submit"
+                loading={createShift.isPending}
+                disabled={
+                  !newShiftCode ||
+                  !newShiftName ||
+                  !newWeeklySchedule.some((day) => day.enabled)
+                }
+              >
                 <CalendarDays />
                 {copy(locale, "Create schedule", "Créer l’horaire")}
               </Button>
-              <Button type="button" variant="ghost" onClick={() => setCreateShiftOpen(false)}>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setCreateShiftOpen(false)}
+              >
                 {t("attendance.cancel" as never)}
               </Button>
             </div>
           </form>
-        ) : null}        <ul className="max-h-[60dvh] divide-y divide-border overflow-y-auto p-2">
+        ) : null}{" "}
+        <ul className="max-h-[60dvh] divide-y divide-border overflow-y-auto p-2">
           {shiftList.map((shift) => (
             <li key={shift.id}>
               <button
@@ -928,7 +1305,7 @@ function Roster({
                     {shiftHours(shift, locale)}
                   </span>
                 </div>
-                {shift.site?.name ?? shift.siteName ? (
+                {(shift.site?.name ?? shift.siteName) ? (
                   <p className="mt-2 flex items-center gap-1.5 truncate text-xs text-ink-muted">
                     <Building2 className="size-3.5 shrink-0" aria-hidden />
                     {shift.site?.name ?? shift.siteName}
@@ -951,7 +1328,8 @@ function Roster({
                 {copy(locale, "Selected schedule", "Horaire sélectionné")}
               </p>
               <h2 className="truncate text-base font-semibold text-ink">
-                {selectedShift?.name ?? t("attendance.assignedEmployees" as never)}
+                {selectedShift?.name ??
+                  t("attendance.assignedEmployees" as never)}
               </h2>
               <p className="mt-0.5 truncate text-xs text-ink-secondary">
                 {selectedShift?.site?.name ?? selectedShift?.siteName ?? "—"}
@@ -966,37 +1344,39 @@ function Roster({
                 {shiftHours(selectedShift, locale)}
               </span>
             ) : null}
-          {canRoster ? (
-            <div className="flex flex-wrap gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  if (!editingShift && selectedShift) {
-                    setShiftName(selectedShift.name);
-                    setShiftStartsAt(selectedShift.startsAt?.slice(0, 5) ?? "");
-                    setShiftEndsAt(selectedShift.endsAt?.slice(0, 5) ?? "");
-                    setShiftWeeklySchedule(
-                      normaliseWeeklyPlan(
-                        selectedShift.weeklySchedule,
-                        selectedShift.startsAt?.slice(0, 5),
-                        selectedShift.endsAt?.slice(0, 5),
-                      ),
-                    );
-                  }
-                  setEditingShift((open) => !open);
-                }}
-              >
-                {copy(locale, "Edit shift", "Modifier l’horaire")}
-              </Button>
-              <Button size="sm" onClick={() => setFormOpen((open) => !open)}>
-                <UserPlus />
-                {formOpen
-                  ? t("attendance.cancel" as never)
-                  : t("attendance.assign" as never)}
-              </Button>
-            </div>
-          ) : null}
+            {canRoster ? (
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    if (!editingShift && selectedShift) {
+                      setShiftName(selectedShift.name);
+                      setShiftStartsAt(
+                        selectedShift.startsAt?.slice(0, 5) ?? "",
+                      );
+                      setShiftEndsAt(selectedShift.endsAt?.slice(0, 5) ?? "");
+                      setShiftWeeklySchedule(
+                        normaliseWeeklyPlan(
+                          selectedShift.weeklySchedule,
+                          selectedShift.startsAt?.slice(0, 5),
+                          selectedShift.endsAt?.slice(0, 5),
+                        ),
+                      );
+                    }
+                    setEditingShift((open) => !open);
+                  }}
+                >
+                  {copy(locale, "Edit shift", "Modifier l’horaire")}
+                </Button>
+                <Button size="sm" onClick={() => setFormOpen((open) => !open)}>
+                  <UserPlus />
+                  {formOpen
+                    ? t("attendance.cancel" as never)
+                    : t("attendance.assign" as never)}
+                </Button>
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -1010,7 +1390,11 @@ function Roster({
           >
             <div className="sm:col-span-3">
               <p className="text-sm font-semibold text-ink">
-                {copy(locale, "Edit shared shift", "Modifier l’horaire partagé")}
+                {copy(
+                  locale,
+                  "Edit shared shift",
+                  "Modifier l’horaire partagé",
+                )}
               </p>
               <p className="mt-1 text-xs text-ink-secondary">
                 {copy(
@@ -1021,8 +1405,17 @@ function Roster({
               </p>
             </div>
             <div className="sm:col-span-3">
-              <Field label={copy(locale, "Shift name", "Nom de l’horaire")} htmlFor="edit-shift-name" required>
-                <Input id="edit-shift-name" value={shiftName} onChange={(event) => setShiftName(event.target.value)} required />
+              <Field
+                label={copy(locale, "Shift name", "Nom de l’horaire")}
+                htmlFor="edit-shift-name"
+                required
+              >
+                <Input
+                  id="edit-shift-name"
+                  value={shiftName}
+                  onChange={(event) => setShiftName(event.target.value)}
+                  required
+                />
               </Field>
             </div>
             <WeeklyPlanEditor
@@ -1031,12 +1424,26 @@ function Roster({
               locale={locale}
               idPrefix="edit-shift-week"
             />
-            {shiftUpdateError ? <p className="text-xs text-critical sm:col-span-3" role="alert">{shiftUpdateError}</p> : null}
+            {shiftUpdateError ? (
+              <p className="text-xs text-critical sm:col-span-3" role="alert">
+                {shiftUpdateError}
+              </p>
+            ) : null}
             <div className="flex flex-wrap gap-2 sm:col-span-3">
-              <Button type="submit" loading={updateShift.isPending} disabled={!shiftName || !shiftWeeklySchedule.some((day) => day.enabled)}>
+              <Button
+                type="submit"
+                loading={updateShift.isPending}
+                disabled={
+                  !shiftName || !shiftWeeklySchedule.some((day) => day.enabled)
+                }
+              >
                 {copy(locale, "Save shift", "Enregistrer l’horaire")}
               </Button>
-              <Button type="button" variant="ghost" onClick={() => setEditingShift(false)}>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setEditingShift(false)}
+              >
                 {t("attendance.cancel" as never)}
               </Button>
             </div>
@@ -1131,7 +1538,10 @@ function Roster({
         ) : (
           <ul className="grid gap-3 p-3 sm:p-4">
             {(assignments.data ?? []).map((row) => (
-              <li key={row.id} className="rounded-2xl border border-border bg-surface-1 p-4 shadow-[0_12px_28px_-26px_rgba(15,23,42,.45)] transition hover:border-brand/25 hover:bg-surface-2/45 dark:shadow-[0_12px_28px_-26px_rgba(0,0,0,.8)]">
+              <li
+                key={row.id}
+                className="rounded-2xl border border-border bg-surface-1 p-4 shadow-[0_12px_28px_-26px_rgba(15,23,42,.45)] transition hover:border-brand/25 hover:bg-surface-2/45 dark:shadow-[0_12px_28px_-26px_rgba(0,0,0,.8)]"
+              >
                 <div className="flex min-w-0 items-start gap-3">
                   <span className="grid size-10 shrink-0 place-items-center rounded-xl border border-brand/15 bg-brand-subtle text-xs font-bold text-brand">
                     {employeeInitials(row)}
@@ -1142,11 +1552,17 @@ function Roster({
                         {employeeName(row)}
                       </p>
                       {assignmentState(row) === "scheduled" ? (
-                        <Badge variant="info">{copy(locale, "Scheduled", "À venir")}</Badge>
+                        <Badge variant="info">
+                          {copy(locale, "Scheduled", "À venir")}
+                        </Badge>
                       ) : assignmentState(row) === "ended" ? (
-                        <Badge variant="outline">{copy(locale, "Ended", "Terminée")}</Badge>
+                        <Badge variant="outline">
+                          {copy(locale, "Ended", "Terminée")}
+                        </Badge>
                       ) : (
-                        <Badge variant="good">{copy(locale, "Active", "Active")}</Badge>
+                        <Badge variant="good">
+                          {copy(locale, "Active", "Active")}
+                        </Badge>
                       )}
                     </div>
                     {employeeNumber(row) ? (
@@ -1158,7 +1574,10 @@ function Roster({
                 </div>
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
                   <p className="text-xs text-ink-secondary">
-                    <span className="font-medium text-ink-secondary">{copy(locale, "Assigned", "Affecté")}</span>{" · "}
+                    <span className="font-medium text-ink-secondary">
+                      {copy(locale, "Assigned", "Affecté")}
+                    </span>
+                    {" · "}
                     {formatBusinessDay(row.effectiveFrom)}
                     {row.effectiveTo
                       ? ` → ${formatBusinessDay(row.effectiveTo)}`
@@ -1187,17 +1606,27 @@ function Roster({
                         const opening = exceptionAssignmentId !== row.id;
                         setExceptionAssignmentId(opening ? row.id : null);
                         if (opening) {
-                          setExceptionWorkDate(new Date().toISOString().slice(0, 10));
+                          setExceptionWorkDate(
+                            new Date().toISOString().slice(0, 10),
+                          );
                           setExceptionIsWorking(true);
-                          setExceptionStartsAt(selectedShift?.startsAt?.slice(0, 5) ?? "08:00");
-                          setExceptionEndsAt(selectedShift?.endsAt?.slice(0, 5) ?? "17:00");
+                          setExceptionStartsAt(
+                            selectedShift?.startsAt?.slice(0, 5) ?? "08:00",
+                          );
+                          setExceptionEndsAt(
+                            selectedShift?.endsAt?.slice(0, 5) ?? "17:00",
+                          );
                           setExceptionBreakMinutes(0);
                           setExceptionNote("");
                         }
                       }}
                     >
                       {exceptionAssignmentId === row.id
-                        ? copy(locale, "Close exceptions", "Fermer les exceptions")
+                        ? copy(
+                            locale,
+                            "Close exceptions",
+                            "Fermer les exceptions",
+                          )
                         : copy(locale, "Date exception", "Exception de date")}
                     </Button>
                   ) : null}
@@ -1212,52 +1641,237 @@ function Roster({
                     }}
                   >
                     <div className="sm:col-span-3">
-                      <p className="text-sm font-semibold text-ink">{copy(locale, "One-day schedule exception", "Exception de planning sur une date")}</p>
+                      <p className="text-sm font-semibold text-ink">
+                        {copy(
+                          locale,
+                          "One-day schedule exception",
+                          "Exception de planning sur une date",
+                        )}
+                      </p>
                       <p className="mt-1 text-xs leading-5 text-ink-secondary">
-                        {copy(locale, "Use this only for one date. It does not change this employee’s recurring weekly schedule or another employee’s schedule.", "Utilisez cette option uniquement pour une date. Elle ne modifie ni l’horaire hebdomadaire récurrent de cet employé, ni celui des autres employés.")}
+                        {copy(
+                          locale,
+                          "Use this only for one date. It does not change this employee’s recurring weekly schedule or another employee’s schedule.",
+                          "Utilisez cette option uniquement pour une date. Elle ne modifie ni l’horaire hebdomadaire récurrent de cet employé, ni celui des autres employés.",
+                        )}
                       </p>
                     </div>
-                    <Field label={copy(locale, "Exception date", "Date de l’exception")} htmlFor={`exception-date-${row.id}`} required>
+                    <Field
+                      label={copy(
+                        locale,
+                        "Exception date",
+                        "Date de l’exception",
+                      )}
+                      htmlFor={`exception-date-${row.id}`}
+                      required
+                    >
                       <Input
                         id={`exception-date-${row.id}`}
                         type="date"
                         min={row.effectiveFrom}
                         max={row.effectiveTo ?? undefined}
                         value={exceptionWorkDate}
-                        onChange={(event) => setExceptionWorkDate(event.target.value)}
+                        onChange={(event) =>
+                          setExceptionWorkDate(event.target.value)
+                        }
                         required
                       />
                     </Field>
                     <div className="sm:col-span-2">
-                      <p className="mb-1.5 text-xs font-medium text-ink-secondary">{copy(locale, "That day", "Pour cette journée")}</p>
+                      <p className="mb-1.5 text-xs font-medium text-ink-secondary">
+                        {copy(locale, "That day", "Pour cette journée")}
+                      </p>
                       <div className="grid grid-cols-2 gap-2 rounded-xl border border-border bg-surface-1 p-1.5">
-                        <Button type="button" size="sm" variant={exceptionIsWorking ? "primary" : "secondary"} onClick={() => setExceptionIsWorking(true)}>{copy(locale, "Working day", "Jour travaillé")}</Button>
-                        <Button type="button" size="sm" variant={!exceptionIsWorking ? "primary" : "secondary"} onClick={() => setExceptionIsWorking(false)}>{copy(locale, "Rest day", "Jour de repos")}</Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={exceptionIsWorking ? "primary" : "secondary"}
+                          onClick={() => setExceptionIsWorking(true)}
+                        >
+                          {copy(locale, "Working day", "Jour travaillé")}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={
+                            !exceptionIsWorking ? "primary" : "secondary"
+                          }
+                          onClick={() => setExceptionIsWorking(false)}
+                        >
+                          {copy(locale, "Rest day", "Jour de repos")}
+                        </Button>
                       </div>
                     </div>
-                    {exceptionIsWorking ? <>
-                      <Field label={copy(locale, "Start", "Début")} htmlFor={`exception-start-${row.id}`} required>
-                        <Input id={`exception-start-${row.id}`} type="time" value={exceptionStartsAt} onChange={(event) => setExceptionStartsAt(event.target.value)} required />
-                      </Field>
-                      <Field label={copy(locale, "End", "Fin")} htmlFor={`exception-end-${row.id}`} required>
-                        <Input id={`exception-end-${row.id}`} type="time" value={exceptionEndsAt} onChange={(event) => setExceptionEndsAt(event.target.value)} required />
-                      </Field>
-                      <Field label={copy(locale, "Break (minutes)", "Pause (minutes)")} htmlFor={`exception-break-${row.id}`}>
-                        <Input id={`exception-break-${row.id}`} type="number" min="0" max="720" value={exceptionBreakMinutes} onChange={(event) => setExceptionBreakMinutes(Number(event.target.value || 0))} />
-                      </Field>
-                    </> : null}
+                    {exceptionIsWorking ? (
+                      <>
+                        <Field
+                          label={copy(locale, "Start", "Début")}
+                          htmlFor={`exception-start-${row.id}`}
+                          required
+                        >
+                          <Input
+                            id={`exception-start-${row.id}`}
+                            type="time"
+                            value={exceptionStartsAt}
+                            onChange={(event) =>
+                              setExceptionStartsAt(event.target.value)
+                            }
+                            required
+                          />
+                        </Field>
+                        <Field
+                          label={copy(locale, "End", "Fin")}
+                          htmlFor={`exception-end-${row.id}`}
+                          required
+                        >
+                          <Input
+                            id={`exception-end-${row.id}`}
+                            type="time"
+                            value={exceptionEndsAt}
+                            onChange={(event) =>
+                              setExceptionEndsAt(event.target.value)
+                            }
+                            required
+                          />
+                        </Field>
+                        <Field
+                          label={copy(
+                            locale,
+                            "Break (minutes)",
+                            "Pause (minutes)",
+                          )}
+                          htmlFor={`exception-break-${row.id}`}
+                        >
+                          <Input
+                            id={`exception-break-${row.id}`}
+                            type="number"
+                            min="0"
+                            max="720"
+                            value={exceptionBreakMinutes}
+                            onChange={(event) =>
+                              setExceptionBreakMinutes(
+                                Number(event.target.value || 0),
+                              )
+                            }
+                          />
+                        </Field>
+                      </>
+                    ) : null}
                     <label className="grid gap-1 text-xs font-medium text-ink-secondary sm:col-span-3">
-                      {copy(locale, "Reason / internal note", "Motif / note interne")}
-                      <textarea className="control min-h-20 resize-y" maxLength={1000} value={exceptionNote} onChange={(event) => setExceptionNote(event.target.value)} placeholder={copy(locale, "Example: approved Sunday stock count", "Ex. inventaire approuvé du dimanche")} />
+                      {copy(
+                        locale,
+                        "Reason / internal note",
+                        "Motif / note interne",
+                      )}
+                      <textarea
+                        className="control min-h-20 resize-y"
+                        maxLength={1000}
+                        value={exceptionNote}
+                        onChange={(event) =>
+                          setExceptionNote(event.target.value)
+                        }
+                        placeholder={copy(
+                          locale,
+                          "Example: approved Sunday stock count",
+                          "Ex. inventaire approuvé du dimanche",
+                        )}
+                      />
                     </label>
-                    {saveException.error instanceof ApiError ? <p className="text-xs text-critical sm:col-span-3" role="alert">{saveException.error.message}</p> : null}
+                    {saveException.error instanceof ApiError ? (
+                      <p
+                        className="text-xs text-critical sm:col-span-3"
+                        role="alert"
+                      >
+                        {saveException.error.message}
+                      </p>
+                    ) : null}
                     <div className="flex flex-wrap gap-2 sm:col-span-3">
-                      <Button type="submit" loading={saveException.isPending} disabled={!exceptionWorkDate || (exceptionIsWorking && (!exceptionStartsAt || !exceptionEndsAt))}>{copy(locale, "Save exception", "Enregistrer l’exception")}</Button>
-                      <Button type="button" variant="ghost" onClick={() => setExceptionAssignmentId(null)}>{t("attendance.cancel" as never)}</Button>
+                      <Button
+                        type="submit"
+                        loading={saveException.isPending}
+                        disabled={
+                          !exceptionWorkDate ||
+                          (exceptionIsWorking &&
+                            (!exceptionStartsAt || !exceptionEndsAt))
+                        }
+                      >
+                        {copy(
+                          locale,
+                          "Save exception",
+                          "Enregistrer l’exception",
+                        )}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => setExceptionAssignmentId(null)}
+                      >
+                        {t("attendance.cancel" as never)}
+                      </Button>
                     </div>
                     <div className="border-t border-amber-500/15 pt-3 sm:col-span-3">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">{copy(locale, "Scheduled exceptions", "Exceptions enregistrées")}</p>
-                      {assignmentExceptions.isPending ? <p className="mt-2 text-xs text-ink-secondary">{copy(locale, "Loading…", "Chargement…")}</p> : assignmentExceptions.isError ? <p className="mt-2 text-xs text-critical">{(assignmentExceptions.error as ApiError)?.message}</p> : assignmentExceptions.data?.length ? <div className="mt-2 space-y-2">{assignmentExceptions.data.map((exception) => <div key={exception.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface-1 px-3 py-2.5"><div><p className="text-xs font-semibold text-ink">{formatBusinessDay(exception.workDate)} · {exception.isWorking ? `${exception.startsAt}–${exception.endsAt}` : copy(locale, "Rest day", "Jour de repos")}</p>{exception.note ? <p className="mt-0.5 text-xs text-ink-secondary">{exception.note}</p> : null}</div><Button type="button" size="sm" variant="ghost" className="text-critical hover:bg-critical/10 hover:text-critical" loading={deleteException.isPending && deleteException.variables === exception.id} onClick={() => deleteException.mutate(exception.id)}>{copy(locale, "Remove", "Retirer")}</Button></div>)}</div> : <p className="mt-2 text-xs text-ink-secondary">{copy(locale, "No date exception for this employee.", "Aucune exception de date pour cet employé.")}</p>}
+                      <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                        {copy(
+                          locale,
+                          "Scheduled exceptions",
+                          "Exceptions enregistrées",
+                        )}
+                      </p>
+                      {assignmentExceptions.isPending ? (
+                        <p className="mt-2 text-xs text-ink-secondary">
+                          {copy(locale, "Loading…", "Chargement…")}
+                        </p>
+                      ) : assignmentExceptions.isError ? (
+                        <p className="mt-2 text-xs text-critical">
+                          {(assignmentExceptions.error as ApiError)?.message}
+                        </p>
+                      ) : assignmentExceptions.data?.length ? (
+                        <div className="mt-2 space-y-2">
+                          {assignmentExceptions.data.map((exception) => (
+                            <div
+                              key={exception.id}
+                              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface-1 px-3 py-2.5"
+                            >
+                              <div>
+                                <p className="text-xs font-semibold text-ink">
+                                  {formatBusinessDay(exception.workDate)} ·{" "}
+                                  {exception.isWorking
+                                    ? `${exception.startsAt}–${exception.endsAt}`
+                                    : copy(locale, "Rest day", "Jour de repos")}
+                                </p>
+                                {exception.note ? (
+                                  <p className="mt-0.5 text-xs text-ink-secondary">
+                                    {exception.note}
+                                  </p>
+                                ) : null}
+                              </div>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                className="text-critical hover:bg-critical/10 hover:text-critical"
+                                loading={
+                                  deleteException.isPending &&
+                                  deleteException.variables === exception.id
+                                }
+                                onClick={() =>
+                                  deleteException.mutate(exception.id)
+                                }
+                              >
+                                {copy(locale, "Remove", "Retirer")}
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-2 text-xs text-ink-secondary">
+                          {copy(
+                            locale,
+                            "No date exception for this employee.",
+                            "Aucune exception de date pour cet employé.",
+                          )}
+                        </p>
+                      )}
                     </div>
                   </form>
                 ) : null}
@@ -1271,7 +1885,11 @@ function Roster({
                   >
                     <div className="sm:col-span-2">
                       <p className="text-sm font-semibold text-ink">
-                        {copy(locale, "Change this employee’s schedule", "Changer l’horaire de cet employé")}
+                        {copy(
+                          locale,
+                          "Change this employee’s schedule",
+                          "Changer l’horaire de cet employé",
+                        )}
                       </p>
                       <p className="mt-1 text-xs text-ink-secondary">
                         {copy(
@@ -1281,15 +1899,27 @@ function Roster({
                         )}
                       </p>
                     </div>
-                    <Field label={copy(locale, "New schedule", "Nouvel horaire")} htmlFor={`change-shift-${row.id}`} required>
+                    <Field
+                      label={copy(locale, "New schedule", "Nouvel horaire")}
+                      htmlFor={`change-shift-${row.id}`}
+                      required
+                    >
                       <select
                         id={`change-shift-${row.id}`}
                         value={targetShiftId}
-                        onChange={(event) => setTargetShiftId(event.target.value)}
+                        onChange={(event) =>
+                          setTargetShiftId(event.target.value)
+                        }
                         required
                         className="h-9 w-full rounded-md border border-border-strong bg-surface-1 px-3 text-sm text-ink"
                       >
-                        <option value="">{copy(locale, "Choose a schedule", "Choisissez un horaire")}</option>
+                        <option value="">
+                          {copy(
+                            locale,
+                            "Choose a schedule",
+                            "Choisissez un horaire",
+                          )}
+                        </option>
                         {availableReplacementShifts.map((shift) => (
                           <option key={shift.id} value={shift.id}>
                             {shift.name} · {shiftHours(shift, locale)}
@@ -1297,13 +1927,23 @@ function Roster({
                         ))}
                       </select>
                     </Field>
-                    <Field label={copy(locale, "New schedule starts", "Nouvel horaire à partir du")} htmlFor={`change-from-${row.id}`} required>
+                    <Field
+                      label={copy(
+                        locale,
+                        "New schedule starts",
+                        "Nouvel horaire à partir du",
+                      )}
+                      htmlFor={`change-from-${row.id}`}
+                      required
+                    >
                       <Input
                         id={`change-from-${row.id}`}
                         type="date"
                         min={dayAfter(row.effectiveFrom)}
                         value={changeEffectiveFrom}
-                        onChange={(event) => setChangeEffectiveFrom(event.target.value)}
+                        onChange={(event) =>
+                          setChangeEffectiveFrom(event.target.value)
+                        }
                         required
                       />
                     </Field>
@@ -1316,12 +1956,31 @@ function Roster({
                         )}
                       </p>
                     ) : null}
-                    {scheduleChangeError ? <p className="text-xs text-critical sm:col-span-2" role="alert">{scheduleChangeError}</p> : null}
+                    {scheduleChangeError ? (
+                      <p
+                        className="text-xs text-critical sm:col-span-2"
+                        role="alert"
+                      >
+                        {scheduleChangeError}
+                      </p>
+                    ) : null}
                     <div className="flex flex-wrap gap-2 sm:col-span-2">
-                      <Button type="submit" loading={changeAssignment.isPending} disabled={!targetShiftId || !changeEffectiveFrom}>
-                        {copy(locale, "Confirm schedule change", "Confirmer le changement")}
+                      <Button
+                        type="submit"
+                        loading={changeAssignment.isPending}
+                        disabled={!targetShiftId || !changeEffectiveFrom}
+                      >
+                        {copy(
+                          locale,
+                          "Confirm schedule change",
+                          "Confirmer le changement",
+                        )}
                       </Button>
-                      <Button type="button" variant="ghost" onClick={() => setChangingAssignmentId(null)}>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => setChangingAssignmentId(null)}
+                      >
                         {t("attendance.cancel" as never)}
                       </Button>
                     </div>
@@ -1349,7 +2008,9 @@ function WeeklyPlanEditor({
 }) {
   const labels = weekDayNames(locale);
   const changeDay = (day: number, patch: Partial<WeeklyScheduleDay>) =>
-    onChange(plan.map((item) => (item.day === day ? { ...item, ...patch } : item)));
+    onChange(
+      plan.map((item) => (item.day === day ? { ...item, ...patch } : item)),
+    );
 
   return (
     <fieldset className="rounded-2xl border border-border bg-gradient-to-br from-surface-1 via-surface-1 to-brand-subtle/20 p-4 shadow-inner sm:col-span-3 sm:p-5">
@@ -1383,7 +2044,9 @@ function WeeklyPlanEditor({
                 <input
                   type="checkbox"
                   checked={day.enabled}
-                  onChange={(event) => changeDay(day.day, { enabled: event.target.checked })}
+                  onChange={(event) =>
+                    changeDay(day.day, { enabled: event.target.checked })
+                  }
                   className="size-4 rounded border-border-strong accent-brand"
                 />
                 {labels[day.day - 1]}
@@ -1409,7 +2072,9 @@ function WeeklyPlanEditor({
                     aria-label={`${labels[day.day - 1]} ${copy(locale, "start", "début")}`}
                     type="time"
                     value={day.startsAt ?? "08:00"}
-                    onChange={(event) => changeDay(day.day, { startsAt: event.target.value })}
+                    onChange={(event) =>
+                      changeDay(day.day, { startsAt: event.target.value })
+                    }
                     required
                   />
                 </label>
@@ -1421,12 +2086,16 @@ function WeeklyPlanEditor({
                     aria-label={`${labels[day.day - 1]} ${copy(locale, "end", "fin")}`}
                     type="time"
                     value={day.endsAt ?? "17:00"}
-                    onChange={(event) => changeDay(day.day, { endsAt: event.target.value })}
+                    onChange={(event) =>
+                      changeDay(day.day, { endsAt: event.target.value })
+                    }
                     required
                   />
                 </label>
                 <label className="grid min-w-0 gap-1.5 text-xs font-semibold text-ink-secondary">
-                  <span>{copy(locale, "Break (minutes)", "Pause (minutes)")}</span>
+                  <span>
+                    {copy(locale, "Break (minutes)", "Pause (minutes)")}
+                  </span>
                   <Input
                     className="h-11 min-w-0 bg-surface-1 px-3 text-sm font-medium text-ink shadow-sm"
                     id={`${idPrefix}-${day.day}-break`}
@@ -1436,13 +2105,21 @@ function WeeklyPlanEditor({
                     min="0"
                     max="720"
                     value={day.breakMinutes ?? 0}
-                    onChange={(event) => changeDay(day.day, { breakMinutes: Number(event.target.value || 0) })}
+                    onChange={(event) =>
+                      changeDay(day.day, {
+                        breakMinutes: Number(event.target.value || 0),
+                      })
+                    }
                   />
                 </label>
               </div>
             ) : (
               <p className="mt-3 rounded-lg border border-dashed border-border bg-surface-1/45 px-3 py-2 text-xs text-ink-muted">
-                {copy(locale, "No attendance is expected for this day.", "Aucun pointage n’est attendu ce jour.")}
+                {copy(
+                  locale,
+                  "No attendance is expected for this day.",
+                  "Aucun pointage n’est attendu ce jour.",
+                )}
               </p>
             )}
           </div>
@@ -1458,7 +2135,8 @@ function WeeklyPlanEditor({
       </div>
     </fieldset>
   );
-}function Th({
+}
+function Th({
   children,
   align = "left",
 }: {

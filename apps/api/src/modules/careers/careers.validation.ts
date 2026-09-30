@@ -99,6 +99,10 @@ export const applicationUpdateInput = z.object({
     "withdrawn",
   ]),
   internalNotes: optionalText(4000),
+  // The recruiter may tailor the candidate-facing text, while private hiring
+  // notes remain only inside LiteHubs.
+  notifyCandidate: z.coerce.boolean().optional().default(false),
+  candidateMessage: optionalText(500),
 });
 
 /** Multipart form-data submitted by an unauthenticated candidate. */

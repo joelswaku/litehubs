@@ -219,6 +219,30 @@ describe("Employee profiles", () => {
     expect(supervisorList.body.employees[0].id).toBe(
       linkedEmployee.body.employee.id,
     );
+    expect(supervisorList.body.employees[0]).toMatchObject({
+      contact: {
+        phone: null,
+        emergencyContactName: null,
+        emergencyContactPhone: null,
+      },
+      address: {
+        line1: null,
+        line2: null,
+        city: null,
+        region: null,
+        postalCode: null,
+        country: null,
+      },
+      notes: null,
+      member: expect.objectContaining({ email: null }),
+    });
+
+    const supervisorEmployeePdf = await request(app)
+      .get(
+        `/api/v1/organizations/${organizationSlug}/hr-reports/employee.pdf?employeeId=${linkedEmployee.body.employee.id}`,
+      )
+      .set("Authorization", `Bearer ${supervisorToken}`);
+    expect(supervisorEmployeePdf.status).toBe(403);
 
     const hiddenEmployee = await request(app)
       .get(
@@ -232,9 +256,34 @@ describe("Employee profiles", () => {
         .patch(
           `/api/v1/organizations/${organizationSlug}/employees/${linkedEmployee.body.employee.id}`,
         )
-        .send({ phone: "+243800000002" }),
+        .send({
+          phone: "+243800000002",
+          lastName: "Mbuyi",
+          postName: "Kasongo",
+          firstName: "Jean",
+          addressLine1: "12 avenue de la Paix",
+          addressLine2: "Quartier Matonge",
+          addressCity: "Kinshasa",
+          addressRegion: "Kinshasa",
+          addressPostalCode: "00000",
+          addressCountry: "République démocratique du Congo",
+        }),
     );
     expect(updated.status).toBe(200);
     expect(updated.body.employee.contact.phone).toBe("+243800000002");
+    expect(updated.body.employee.fullName).toBe("Mbuyi Kasongo Jean");
+    expect(updated.body.employee.identity).toEqual({
+      lastName: "Mbuyi",
+      postName: "Kasongo",
+      firstName: "Jean",
+    });
+    expect(updated.body.employee.address).toMatchObject({
+      line1: "12 avenue de la Paix",
+      line2: "Quartier Matonge",
+      city: "Kinshasa",
+      region: "Kinshasa",
+      postalCode: "00000",
+      country: "République démocratique du Congo",
+    });
   });
 });

@@ -12,6 +12,9 @@ export const OWNER_MANAGEMENT_RESOURCES = [
   "operational-links",
   "phases",
   "phase-dependencies",
+  "risks",
+  "quality-checks",
+  "project-closeouts",
   "tasks",
   "task-dependencies",
   "budget-lines",
@@ -79,19 +82,128 @@ export const ownerManagementApi = {
     return get<T>(path(orgSlug, "feed-nutrition/overview"));
   },
   confirmFeedOrder<T>(orgSlug: string, orderId: string) {
-    return post<T>(path(orgSlug, `feed-nutrition/orders/${orderId}/confirm`), {});
+    return post<T>(
+      path(orgSlug, `feed-nutrition/orders/${orderId}/confirm`),
+      {},
+    );
   },
   cancelFeedOrder<T>(orgSlug: string, orderId: string) {
-    return post<T>(path(orgSlug, `feed-nutrition/orders/${orderId}/cancel`), {});
+    return post<T>(
+      path(orgSlug, `feed-nutrition/orders/${orderId}/cancel`),
+      {},
+    );
+  },
+  fleetOverview<T>(orgSlug: string) {
+    return get<T>(path(orgSlug, "fleet/overview"));
+  },
+  myFleetOverview<T>(orgSlug: string) {
+    return get<T>(orgUrl(orgSlug, "my-fleet"));
+  },
+  createFleetProfile<T>(
+    orgSlug: string,
+    body: {
+      assetId: string;
+      operationKind:
+        | "vehicle"
+        | "motorcycle"
+        | "tractor"
+        | "generator"
+        | "pump"
+        | "motorized_equipment";
+      fleetControllerMemberId?: string | null;
+      maintenanceControllerMemberId?: string | null;
+      requiresPreTrip?: boolean;
+      requiresPostTrip?: boolean;
+      requiresGateCheck?: boolean;
+      requiresOperatorLicence?: boolean;
+      requiredLicenceClass?: string | null;
+      dailyMeterRequired?: boolean;
+      preventDispatchWhenDue?: boolean;
+      fuelTankCapacityLitres?: number | null;
+      expectedConsumption?: number | null;
+      expectedConsumptionUnit?: "litres_per_100km" | "litres_per_hour" | null;
+      consumptionTolerancePercent?: number;
+      notes?: string | null;
+    },
+  ) {
+    return post<T>(path(orgSlug, "fleet/profiles"), body);
+  },
+  updateFleetProfile<T>(
+    orgSlug: string,
+    profileId: string,
+    body: {
+      operationKind:
+        | "vehicle"
+        | "motorcycle"
+        | "tractor"
+        | "generator"
+        | "pump"
+        | "motorized_equipment";
+      requiresPreTrip?: boolean;
+      requiresPostTrip?: boolean;
+      requiresGateCheck?: boolean;
+      requiresOperatorLicence?: boolean;
+      requiredLicenceClass?: string | null;
+      dailyMeterRequired?: boolean;
+      preventDispatchWhenDue?: boolean;
+      fuelTankCapacityLitres?: number | null;
+      expectedConsumption?: number | null;
+      expectedConsumptionUnit?: "litres_per_100km" | "litres_per_hour" | null;
+      consumptionTolerancePercent?: number;
+      isActive?: boolean;
+      notes?: string | null;
+    },
+  ) {
+    return patch<T>(path(orgSlug, `fleet/profiles/${profileId}`), body);
+  },
+  addFleetAuthorization<T>(
+    orgSlug: string,
+    profileId: string,
+    body: {
+      memberId: string;
+      responsibility:
+        | "driver"
+        | "operator"
+        | "fleet_controller"
+        | "gate_verifier"
+        | "maintenance_controller";
+      licenceDocumentId?: string | null;
+      licenceNumber?: string | null;
+      licenceExpiresOn?: string | null;
+      startsOn?: string | null;
+      endsOn?: string | null;
+      notes?: string | null;
+    },
+  ) {
+    return post<T>(path(orgSlug, `fleet/profiles/${profileId}/authorizations`), body);
+  },
+  startFleetRun<T>(orgSlug: string, body: ManagementBody) {
+    return post<T>(orgUrl(orgSlug, "my-fleet/runs/start"), body);
+  },
+  returnFleetRun<T>(orgSlug: string, runId: string, body: ManagementBody) {
+    return patch<T>(orgUrl(orgSlug, `my-fleet/runs/${runId}/return`), body);
   },
   dashboard<T>(orgSlug: string, query?: ManagementQuery) {
     return get<T>(path(orgSlug, `dashboard${queryString(query)}`));
   },
-  projectAnalytics<T>(orgSlug: string) {
-    return get<T>(path(orgSlug, "projects/analytics"));
+  projectAnalytics<T>(orgSlug: string, query?: ManagementQuery) {
+    return get<T>(path(orgSlug, `projects/analytics${queryString(query)}`));
   },
   projectSummary<T>(orgSlug: string, projectId: string) {
     return get<T>(path(orgSlug, `projects/${projectId}/summary`));
+  },
+  projectDecisionSimulation<T>(
+    orgSlug: string,
+    projectId: string,
+    body: {
+      eggPriceChangePercent?: number;
+      feedCostChangePercent?: number;
+      mortalityPercent?: number;
+      saleDelayDays?: number;
+      budgetChangePercent?: number;
+    },
+  ) {
+    return post<T>(path(orgSlug, `projects/${projectId}/simulate`), body);
   },
   projectTaskAssignees<T>(orgSlug: string, projectId: string) {
     return get<T>(path(orgSlug, `projects/${projectId}/task-assignees`));
@@ -118,7 +230,8 @@ export const ownerManagementApi = {
     },
   ) {
     return post<T>(path(orgSlug, "inventory-transfers"), body);
-  },  stockBalances<T>(orgSlug: string, query?: ManagementQuery) {
+  },
+  stockBalances<T>(orgSlug: string, query?: ManagementQuery) {
     return get<T>(path(orgSlug, `inventory-stock${queryString(query)}`));
   },
   get<T>(orgSlug: string, resource: OwnerManagementResource, recordId: string) {

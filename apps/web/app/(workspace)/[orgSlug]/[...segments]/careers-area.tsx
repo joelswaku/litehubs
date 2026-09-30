@@ -83,7 +83,10 @@ export function CareersArea({ orgSlug }: { orgSlug: string }) {
   const manageable = can(user, "careers.update");
   const [jobEditor, setJobEditor] = useState<any | null>(null);
   const [settingsEditor, setSettingsEditor] = useState<any | null>(null);
-  const [applicationFilter, setApplicationFilter] = useState("received");
+  // Show every candidate first. A default "received" filter hid applicants
+  // who had already moved to review or interview, while their job card still
+  // correctly counted them.
+  const [applicationFilter, setApplicationFilter] = useState("");
   const [applicationViewer, setApplicationViewer] = useState<any | null>(null);
   const refresh = () => {
     void client.invalidateQueries({ queryKey: ["careers", orgSlug] });
@@ -406,8 +409,8 @@ export function CareersArea({ orgSlug }: { orgSlug: string }) {
             <CardDescription className="mt-1">
               {tr(
                 fr,
-                "Seuls les utilisateurs autorisés dans le périmètre du site peuvent consulter les candidats et leur CV.",
-                "Only users authorized in the site scope can view applicants and their résumés.",
+                "Ouvrez un candidat, choisissez son étape puis adaptez son message e-mail et SMS avant l’envoi. Seuls les utilisateurs autorisés dans le périmètre du site peuvent consulter les candidats et leur CV.",
+                "Open a candidate, select their stage, then tailor their email and SMS before sending. Only users authorized in the site scope can view applicants and their résumés.",
               )}
             </CardDescription>
           </div>
@@ -1087,7 +1090,7 @@ function CandidateRow({ application, fr, onOpen }: any) {
             onOpen();
           }}
         >
-          {tr(fr, "Voir le dossier", "View application")}
+          {tr(fr, "Ouvrir et communiquer", "Open and communicate")}
           <ChevronRight className="size-3.5" />
         </Button>
       </div>
@@ -1123,12 +1126,23 @@ function CandidateDetail({
 }: any) {
   const [notes, setNotes] = useState(application.internalNotes ?? "");
   const [status, setStatus] = useState(application.status);
+  const [notifyCandidate, setNotifyCandidate] = useState(false);
+  const [candidateMessage, setCandidateMessage] = useState(() =>
+    candidateStatusMessage(application.status, application, fr),
+  );
   const resumeDownloadUrl = application.resume
     ? orgApiUrl(orgSlug, `careers/applications/${application.id}/resume`)
     : null;
   const isPdf = application.resume?.mimeType === "application/pdf";
   const [resumePreviewUrl, setResumePreviewUrl] = useState<string | null>(null);
   const [resumePreviewError, setResumePreviewError] = useState(false);
+
+  useEffect(() => {
+    setNotes(application.internalNotes ?? "");
+    setStatus(application.status);
+    setNotifyCandidate(false);
+    setCandidateMessage(candidateStatusMessage(application.status, application, fr));
+  }, [application.id, application.internalNotes, application.status, fr]);
 
   useEffect(() => {
     if (!isPdf) {
@@ -1318,30 +1332,107 @@ function CandidateDetail({
             <h3 className="text-sm font-semibold text-ink">
               {tr(fr, "Suivi de recrutement", "Recruitment follow-up")}
             </h3>
-            <div className="mt-4 grid gap-3 sm:grid-cols-[190px_1fr_auto]">
-              <select
-                className="control bg-surface-1"
-                value={status}
-                onChange={(event) => setStatus(event.target.value)}
-              >
-                {applicationStatuses.map((item) => (
-                  <option key={item} value={item}>
-                    {applicationLabel(item, fr)}
-                  </option>
-                ))}
-              </select>
-              <Input
-                value={notes}
-                placeholder={tr(fr, "Note interne", "Internal note")}
-                onChange={(event) => setNotes(event.target.value)}
-              />
+            <div className="mt-4 grid gap-3 sm:grid-cols-[190px_1fr]">
+              <Field label={tr(fr, "Étape de candidature", "Application stage")}>
+                <select
+                  className="control bg-surface-1"
+                  value={status}
+                  onChange={(event) => {
+                    const nextStatus = event.target.value;
+                    setStatus(nextStatus);
+                    setCandidateMessage(
+                      candidateStatusMessage(nextStatus, application, fr),
+                    );
+                    setNotifyCandidate(nextStatus !== application.status);
+                  }}
+                >
+                  {applicationStatuses.map((item) => (
+                    <option key={item} value={item}>
+                      {applicationLabel(item, fr)}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label={tr(fr, "Note interne", "Internal note")}>
+                <Input
+                  value={notes}
+                  placeholder={tr(
+                    fr,
+                    "Visible uniquement par l’équipe de recrutement",
+                    "Visible only to the recruitment team",
+                  )}
+                  onChange={(event) => setNotes(event.target.value)}
+                />
+              </Field>
+            </div>
+
+            <div className="mt-4 rounded-xl border border-border/70 bg-surface-1 p-4">
+              <label className="flex cursor-pointer items-start gap-3 text-sm font-medium text-ink">
+                <input
+                  className="mt-0.5 size-4 accent-emerald-600"
+                  type="checkbox"
+                  checked={notifyCandidate}
+                  onChange={(event) => setNotifyCandidate(event.target.checked)}
+                />
+                <span>
+                  {tr(
+                    fr,
+                    "Prévenir le candidat par e-mail et SMS",
+                    "Notify the candidate by email and SMS",
+                  )}
+                  <span className="mt-1 block text-xs font-normal leading-5 text-ink-secondary">
+                    {tr(
+                      fr,
+                      "Cette option est activée automatiquement lorsqu’une nouvelle étape est choisie.",
+                      "This option is enabled automatically when a new stage is selected.",
+                    )}
+                  </span>
+                </span>
+              </label>
+              {notifyCandidate ? (
+                <div className="mt-4">
+                  <Field
+                    label={tr(
+                      fr,
+                      "Message envoyé au candidat",
+                      "Message sent to the candidate",
+                    )}
+                  >
+                    <Textarea
+                      rows={4}
+                      maxLength={500}
+                      value={candidateMessage}
+                      onChange={(event) => setCandidateMessage(event.target.value)}
+                    />
+                  </Field>
+                  <p className="mt-2 text-xs leading-5 text-ink-secondary">
+                    {tr(
+                      fr,
+                      "Personnalisez ce message avant l’envoi. Ne mettez ni note interne, ni CV, ni information confidentielle : le SMS peut être visible sur l’écran verrouillé.",
+                      "Customize this message before sending. Do not include internal notes, résumé details, or confidential information: SMS can be visible on a lock screen.",
+                    )}
+                  </p>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="mt-4 flex justify-end">
               <Button
                 loading={saving}
                 onClick={() =>
-                  onUpdate({ status, internalNotes: notes || undefined })
+                  onUpdate({
+                    status,
+                    internalNotes: notes || undefined,
+                    notifyCandidate,
+                    candidateMessage: notifyCandidate
+                      ? candidateMessage || undefined
+                      : undefined,
+                  })
                 }
               >
-                {tr(fr, "Mettre à jour", "Update")}
+                {notifyCandidate
+                  ? tr(fr, "Mettre à jour et prévenir", "Update and notify")
+                  : tr(fr, "Mettre à jour", "Update")}
               </Button>
             </div>
           </section>
@@ -1381,6 +1472,34 @@ function applicationLabel(status: string, fr: boolean) {
   };
   const values = map[status] ?? [status, status];
   return tr(fr, values[0], values[1]);
+}
+
+function candidateStatusMessage(status: string, application: any, fr: boolean) {
+  const role = application.job?.title || tr(fr, "ce poste", "this role");
+  const location = application.site?.name
+    ? tr(fr, ` sur le site ${application.site.name}`, ` at ${application.site.name}`)
+    : "";
+  const frenchMessages: Record<string, string> = {
+    received: `Votre candidature pour « ${role} » est bien reçue. Notre équipe vous contactera si des documents ou informations complémentaires sont nécessaires.`,
+    reviewing: `Votre candidature pour « ${role} » est maintenant en cours d’examen par notre équipe.`,
+    shortlisted: `Votre candidature pour « ${role} » a été présélectionnée. Nous vous contacterons prochainement pour la suite.`,
+    interview: `Votre candidature pour « ${role} » est retenue pour un entretien${location}. Notre équipe vous communiquera les modalités.`,
+    offered: `Une offre relative au poste « ${role} » est disponible. Notre équipe vous contactera pour les prochaines étapes.`,
+    hired: `Félicitations, votre candidature pour « ${role} » a été retenue. Notre équipe vous contactera pour votre intégration.`,
+    rejected: `Après étude de votre candidature pour « ${role} », nous ne pouvons pas y donner une suite favorable. Nous vous remercions de votre intérêt.`,
+    withdrawn: `Votre candidature pour « ${role} » est maintenant enregistrée comme retirée.`,
+  };
+  const englishMessages: Record<string, string> = {
+    received: `Your application for ${role} was received. Our team will contact you if further documents or information are needed.`,
+    reviewing: `Your application for ${role} is now under review by our team.`,
+    shortlisted: `Your application for ${role} has been shortlisted. We will contact you soon about the next steps.`,
+    interview: `Your application for ${role} has been selected for an interview${location}. Our team will share the arrangements.`,
+    offered: `An offer for the ${role} position is available. Our team will contact you about the next steps.`,
+    hired: `Congratulations, your application for ${role} has been successful. Our team will contact you about onboarding.`,
+    rejected: `After reviewing your application for ${role}, we are unable to proceed further. Thank you for your interest.`,
+    withdrawn: `Your application for ${role} is now recorded as withdrawn.`,
+  };
+  return (fr ? frenchMessages : englishMessages)[status] ?? tr(fr, "Votre candidature a été mise à jour.", "Your application was updated.");
 }
 function FormField({
   label,

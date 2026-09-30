@@ -101,7 +101,7 @@ describe("role library defaults", () => {
       "owner",
       "general_manager",
       "provincial_manager",
-      "farm_manager",
+      "site_manager",
       "farm_operations_manager",
       "project_manager",
       "supervisor",

@@ -16,11 +16,19 @@ import {
   documentCategoryUpdateBody,
   equipmentCategoryCreateBody,
   equipmentCategoryUpdateBody,
+  fleetAuthorizationBody,
+  fleetProfileBody,
+  fleetProfileUpdateBody,
+  fleetProfileParams,
+  fleetRunParams,
+  fleetRunReturnBody,
+  fleetRunStartBody,
   inventoryMovementHistoryPdfQuery,
   inventoryStockQuery,
   inventoryStockTransferBody,
   myTaskUpdateBody,
   ownerManagementDashboardQuery,
+  projectAnalyticsQuery,
   ownerManagementDecisionParams,
   ownerManagementDocumentAccessParams,
   ownerManagementDocumentCategoryParams,
@@ -28,6 +36,7 @@ import {
   ownerManagementListQuery,
   ownerManagementRecordParams,
   ownerManagementProjectParams,
+  projectDecisionSimulationBody,
   purchaseRequestReturnToDraftBody,
   purchaseRequestReturnToDraftParams,
   procurementDocumentParams,
@@ -47,6 +56,9 @@ const permissionResource: Record<OwnerManagementResource, string> = {
   "operational-links": "projects",
   phases: "projects",
   "phase-dependencies": "projects",
+  risks: "projects",
+  "quality-checks": "procurement",
+  "project-closeouts": "projects",
   tasks: "tasks",
   "task-dependencies": "tasks",
   "budget-lines": "projects",
@@ -56,12 +68,15 @@ const permissionResource: Record<OwnerManagementResource, string> = {
   "inventory-items": "inventory.items",
   warehouses: "inventory.warehouses",
   "stock-movements": "inventory.movements",
-  "feed-batches": "inventory.items",
-  "feed-batch-inputs": "inventory.items",
-  "nutrition-profiles": "inventory.items",
-  "feed-recipes": "inventory.items",
-  "feed-recipe-lines": "inventory.items",
-  "feed-orders": "inventory.items",
+  // Feed formulation and manufacturing are a distinct responsibility. A
+  // storekeeper can still control physical stock, without silently gaining
+  // authority to change recipes or confirm a production run.
+  "feed-batches": "inventory.nutrition",
+  "feed-batch-inputs": "inventory.nutrition",
+  "nutrition-profiles": "inventory.nutrition",
+  "feed-recipes": "inventory.nutrition",
+  "feed-recipe-lines": "inventory.nutrition",
+  "feed-orders": "inventory.nutrition",
   "purchase-requests": "procurement",
   "purchase-request-lines": "procurement",
   "purchase-orders": "procurement",
@@ -118,6 +133,32 @@ function requireOwnerManagementPermission(
 }
 
 /**
+ * Fleet control is a controlled company-wide responsibility.  The owner may
+ * delegate it through the dedicated role, but a normal vehicle permission is
+ * never enough to configure dispatch controls or assign drivers.
+ */
+function requireFleetControl(action: "read" | "update"): RequestHandler {
+  return (req, _res, next) => {
+    try {
+      const code = `vehicles.fleet_control.${action}`;
+      if (
+        !req.membership!.isOwner &&
+        !req.membership!.permissions.includes(code)
+      )
+        throw new ForbiddenError(
+          "You do not have permission to control the fleet",
+          {
+            required: [code],
+          },
+        );
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
+}
+
+/**
  * Managers can read projects that fall inside their existing project/province
  * scope and record day-to-day project work. The portfolio itself, team
  * assignment, phases, and budget baseline remain owner decisions.
@@ -133,6 +174,7 @@ function requireProjectOwnerForRegistry(
       "project-members",
       "phases",
       "phase-dependencies",
+      "project-closeouts",
       "budget-lines",
     ];
     if (
@@ -165,22 +207,76 @@ function validateOwnerManagementBody(
 ownerManagementRoutes.get(
   "/organizations/:orgSlug/owner-management/feed-nutrition/overview",
   ...inOrganization,
-  requirePermission("inventory.items.read"),
+  requirePermission("inventory.nutrition.read"),
   controller.feedNutritionOverview,
 );
 ownerManagementRoutes.post(
   "/organizations/:orgSlug/owner-management/feed-nutrition/orders/:recordId/confirm",
   ...inOrganization,
-  requirePermission("inventory.items.update"),
+  requirePermission("inventory.nutrition.update"),
   validate({ params: ownerManagementDecisionParams }),
   controller.confirmFeedOrder,
 );
 ownerManagementRoutes.post(
   "/organizations/:orgSlug/owner-management/feed-nutrition/orders/:recordId/cancel",
   ...inOrganization,
-  requirePermission("inventory.items.update"),
+  requirePermission("inventory.nutrition.update"),
   validate({ params: ownerManagementDecisionParams }),
   controller.cancelFeedOrder,
+);
+
+// Fleet controls use dedicated routes instead of the generic registry. Drivers
+// can submit their own signed daily record, but do not receive company-wide
+// equipment, fuel or maintenance permissions.
+ownerManagementRoutes.get(
+  "/organizations/:orgSlug/owner-management/fleet/overview",
+  ...inOrganization,
+  requireFleetControl("read"),
+  controller.listFleetOverview,
+);
+ownerManagementRoutes.post(
+  "/organizations/:orgSlug/owner-management/fleet/profiles",
+  ...inOrganization,
+  requireFleetControl("update"),
+  validate({ body: fleetProfileBody }),
+  controller.createFleetProfile,
+);
+ownerManagementRoutes.patch(
+  "/organizations/:orgSlug/owner-management/fleet/profiles/:profileId",
+  ...inOrganization,
+  requireFleetControl("update"),
+  validate({ params: fleetProfileParams, body: fleetProfileUpdateBody }),
+  controller.updateFleetProfile,
+);
+ownerManagementRoutes.post(
+  "/organizations/:orgSlug/owner-management/fleet/profiles/:profileId/authorizations",
+  ...inOrganization,
+  requireFleetControl("update"),
+  validate({ params: fleetProfileParams, body: fleetAuthorizationBody }),
+  controller.addFleetAuthorization,
+);
+ownerManagementRoutes.get(
+  "/organizations/:orgSlug/my-fleet",
+  ...inOrganization,
+  controller.listMyFleetOverview,
+);
+ownerManagementRoutes.post(
+  "/organizations/:orgSlug/my-fleet/runs/start",
+  ...inOrganization,
+  validate({ body: fleetRunStartBody }),
+  controller.startFleetRun,
+);
+ownerManagementRoutes.patch(
+  "/organizations/:orgSlug/my-fleet/runs/:runId/return",
+  ...inOrganization,
+  validate({ params: fleetRunParams, body: fleetRunReturnBody }),
+  controller.returnFleetRun,
+);
+ownerManagementRoutes.get(
+  "/organizations/:orgSlug/my-fleet/runs/:runId/export.pdf",
+  ...inOrganization,
+  validate({ params: fleetRunParams }),
+  controller.exportFleetRunPdf,
 );
 
 ownerManagementRoutes.get(
@@ -196,6 +292,7 @@ ownerManagementRoutes.get(
   "/organizations/:orgSlug/owner-management/projects/analytics",
   ...inOrganization,
   requirePermission("projects.read"),
+  validate({ query: projectAnalyticsQuery }),
   controller.projectAnalytics,
 );
 
@@ -205,6 +302,17 @@ ownerManagementRoutes.get(
   requirePermission("projects.read"),
   validate({ params: ownerManagementProjectParams }),
   controller.projectSummary,
+);
+ownerManagementRoutes.post(
+  "/organizations/:orgSlug/owner-management/projects/:projectId/simulate",
+  ...inOrganization,
+  requireOwner,
+  requirePermission("projects.read"),
+  validate({
+    params: ownerManagementProjectParams,
+    body: projectDecisionSimulationBody,
+  }),
+  controller.projectDecisionSimulation,
 );
 
 ownerManagementRoutes.get(

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -37,6 +38,7 @@ import {
 } from "@/components/ui/states";
 import { ApiError, get, orgApiUrl, orgUrl, patch, post } from "@/lib/api";
 import { can } from "@/lib/permissions";
+import { cn } from "@/lib/utils";
 import { useLanguage } from "@/providers/language-provider";
 import { useSessionUser } from "@/stores/session-store";
 import { useUiStore } from "@/stores/ui-store";
@@ -68,6 +70,12 @@ type Assignment = {
   };
 };
 type Question = { id: string; question: string; options: string[] };
+type QuizSubmissionResult = {
+  score?: number | null;
+  passingScore?: number | null;
+  passed?: boolean | null;
+  awaitingGrading?: boolean;
+};
 type Lesson = {
   id: string;
   title: string;
@@ -197,14 +205,23 @@ const statusVariant = (
         : status === "awaiting_review"
           ? "warning"
           : "outline";
-const errorText = (error: unknown, fr: boolean) =>
-  error instanceof ApiError
-    ? (Object.values(error.fieldErrors).flat()[0] ?? error.message)
-    : label(
+const errorText = (error: unknown, fr: boolean) => {
+  if (error instanceof ApiError) {
+    const message = Object.values(error.fieldErrors).flat()[0] ?? error.message;
+    if (message === "No quiz attempts remain")
+      return label(
         fr,
-        "Unable to complete that action.",
-        "Impossible d’effectuer cette action.",
+        "All assessment attempts have been used. Ask your manager to authorize a new attempt.",
+        "Toutes les tentatives d’évaluation ont été utilisées. Demandez à votre responsable d’autoriser une nouvelle tentative.",
       );
+    return message;
+  }
+  return label(
+    fr,
+    "Unable to complete that action.",
+    "Impossible d’effectuer cette action.",
+  );
+};
 
 export function MyTrainingsArea({
   orgSlug,
@@ -1036,6 +1053,7 @@ function ProfessionalTrainingReader({
     outline.findIndex(({ lesson }) => lesson.progress.status !== "completed"),
   );
   const [lessonIndex, setLessonIndex] = useState(firstOpen < 0 ? 0 : firstOpen);
+  const [blockIndex, setBlockIndex] = useState(0);
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [answers, setAnswers] = useState<Record<string, unknown>>({});
   const heartbeatRef = useRef<Record<string, number>>({});
@@ -1082,9 +1100,13 @@ function ProfessionalTrainingReader({
       ),
     onSuccess: onRefresh,
   });
-  const quiz = useMutation({
+  const quiz = useMutation<
+    QuizSubmissionResult,
+    unknown,
+    { blockId: string; values: unknown[] }
+  >({
     mutationFn: ({ blockId, values }: { blockId: string; values: unknown[] }) =>
-      post(
+      post<QuizSubmissionResult>(
         orgUrl(
           orgSlug,
           `my-trainings/${assignmentId}/blocks/${blockId}/quiz-attempts`,
@@ -1095,6 +1117,20 @@ function ProfessionalTrainingReader({
   });
   const selected =
     outline[Math.min(lessonIndex, Math.max(0, outline.length - 1))];
+  const selectedBlocks = selected?.lesson.blocks ?? [];
+  const firstIncompleteBlockIndex = selectedBlocks.findIndex((block) =>
+    block.type === "acknowledgment"
+      ? !block.progress.acknowledgedAt
+      : !block.progress.completedAt,
+  );
+  const nextBlockIndex =
+    firstIncompleteBlockIndex >= 0
+      ? firstIncompleteBlockIndex
+      : Math.max(0, selectedBlocks.length - 1);
+  useEffect(() => {
+    if (!selected?.lesson.id) return;
+    setBlockIndex(nextBlockIndex);
+  }, [selected?.lesson.id, nextBlockIndex]);
   if (!selected)
     return (
       <EmptyState
@@ -1110,8 +1146,12 @@ function ProfessionalTrainingReader({
           "Le cours est en préparation.",
         )}
       />
-    );
+  );
   const { lesson, module } = selected;
+  const activeBlock =
+    lesson.blocks[
+      Math.min(blockIndex, Math.max(0, lesson.blocks.length - 1))
+    ];
   const requiredCount = outline.filter(
     ({ lesson: row }) => row.required,
   ).length;
@@ -1327,11 +1367,33 @@ function ProfessionalTrainingReader({
               {lesson.estimatedDurationMinutes} {label(fr, "min", "min")}
             </p>
           ) : null}
-          <div className="mt-6 space-y-5">
-            {lesson.blocks.map((block) => (
+          {activeBlock ? (
+            <div className="mt-6">
+              <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-brand/15 bg-brand/[.04] px-3 py-2 text-xs text-ink-secondary">
+                <span className="font-semibold text-brand">
+                  {label(
+                    fr,
+                    `Lesson step ${blockIndex + 1} of ${lesson.blocks.length}`,
+                    `Étape de la leçon ${blockIndex + 1} sur ${lesson.blocks.length}`,
+                  )}
+                </span>
+                <span>
+                  {activeBlock.progress.completedAt ||
+                  (activeBlock.type === "quiz" &&
+                    ["completed", "awaiting_review"].includes(
+                      course.assignment.status,
+                    ))
+                    ? label(fr, "This step is complete.", "Cette étape est terminée.")
+                    : label(
+                        fr,
+                        "Complete this step to continue.",
+                        "Terminez cette étape pour continuer.",
+                      )}
+                </span>
+              </div>
               <ProfessionalBlockReader
-                key={block.id}
-                block={block}
+                key={activeBlock.id}
+                block={activeBlock}
                 orgSlug={orgSlug}
                 assignmentId={assignmentId}
                 fr={fr}
@@ -1342,18 +1404,34 @@ function ProfessionalTrainingReader({
                   )
                 }
                 onProgress={(body) =>
-                  progress.mutate({ blockId: block.id, body })
+                  progress.mutate({ blockId: activeBlock.id, body })
                 }
                 progressLoading={progress.isPending}
-                onQuiz={(values) => quiz.mutate({ blockId: block.id, values })}
+                onQuiz={(values) =>
+                  quiz.mutate({ blockId: activeBlock.id, values })
+                }
                 quizLoading={quiz.isPending}
+                quizResult={quiz.data}
+                courseQuizPassed={[
+                  "completed",
+                  "awaiting_review",
+                ].includes(course.assignment.status)}
                 answers={answers}
                 setAnswers={setAnswers}
                 heartbeatRef={heartbeatRef}
                 focusMode={focusMode}
               />
-            ))}
-          </div>
+            </div>
+          ) : (
+            <EmptyState
+              title={label(fr, "No content in this lesson", "Aucun contenu dans cette leçon")}
+              description={label(
+                fr,
+                "Your manager is still preparing this lesson.",
+                "Votre responsable prépare encore cette leçon.",
+              )}
+            />
+          )}
           {progress.isError || quiz.isError ? (
             <p className="mt-4 text-sm text-critical">
               {errorText(progress.error ?? quiz.error, fr)}
@@ -1444,6 +1522,66 @@ function MetricCard({
   );
 }
 
+function QuizPassCelebration({
+  fr,
+  reduceMotion,
+}: {
+  fr: boolean;
+  reduceMotion: boolean;
+}) {
+  const transition = reduceMotion ? { duration: 0.15 } : { duration: 0.32 };
+  return (
+    <motion.section
+      key="quiz-pass-celebration"
+      role="status"
+      aria-live="polite"
+      initial={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.96, y: 10 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.98, y: -6 }}
+      transition={transition}
+      className="relative mt-4 overflow-hidden rounded-xl border border-positive/30 bg-positive/10 px-5 py-6 text-center"
+    >
+      <motion.span
+        aria-hidden="true"
+        className="absolute left-1/2 top-1/2 size-24 -translate-x-1/2 -translate-y-1/2 rounded-full border border-positive/30"
+        initial={{ opacity: 0.6, scale: 0.55 }}
+        animate={
+          reduceMotion
+            ? { opacity: 0.25, scale: 1 }
+            : { opacity: [0.55, 0], scale: [0.55, 1.5] }
+        }
+        transition={{ duration: reduceMotion ? 0.2 : 1.1, ease: "easeOut" }}
+      />
+      <motion.div
+        className="relative mx-auto flex size-14 items-center justify-center rounded-full bg-positive text-white shadow-lg shadow-positive/25"
+        initial={reduceMotion ? undefined : { scale: 0.65, rotate: -10 }}
+        animate={
+          reduceMotion
+            ? undefined
+            : { scale: [0.65, 1.12, 1], rotate: [-10, 4, 0] }
+        }
+        transition={{ duration: reduceMotion ? 0 : 0.52, ease: "easeOut" }}
+      >
+        <Award className="size-7" />
+      </motion.div>
+      <h4 className="relative mt-3 text-base font-semibold text-positive">
+        {label(
+          fr,
+          "Congratulations — assessment passed!",
+          "Félicitations — évaluation réussie !",
+        )}
+      </h4>
+      <p className="relative mt-1 text-sm text-ink-secondary">
+        {label(
+          fr,
+          "Your course is now waiting for supervisor validation.",
+          "Votre formation attend maintenant la validation du responsable.",
+        )}
+      </p>
+    </motion.section>
+  );
+}
+
 function ProfessionalBlockReader({
   block,
   orgSlug,
@@ -1454,6 +1592,8 @@ function ProfessionalBlockReader({
   progressLoading,
   onQuiz,
   quizLoading,
+  quizResult,
+  courseQuizPassed,
   answers,
   setAnswers,
   heartbeatRef,
@@ -1468,6 +1608,8 @@ function ProfessionalBlockReader({
   progressLoading: boolean;
   onQuiz: (values: unknown[]) => void;
   quizLoading: boolean;
+  quizResult?: QuizSubmissionResult;
+  courseQuizPassed: boolean;
   answers: Record<string, unknown>;
   setAnswers: (value: Record<string, unknown>) => void;
   heartbeatRef: React.MutableRefObject<Record<string, number>>;
@@ -1483,13 +1625,36 @@ function ProfessionalBlockReader({
   const questions = Array.isArray(content.questions)
     ? (content.questions as Array<Record<string, unknown>>)
     : [];
+  const quizHasUnansweredRequiredQuestion = questions.some(
+    (question, index) => {
+      const answer = answers[`${block.id}:${String(question.id ?? index)}`];
+      return question.type === "multiple_choice"
+        ? !Array.isArray(answer) || answer.length === 0
+        : answer === undefined || answer === null || answer === "";
+    },
+  );
   const secureUrl = block.documentId
     ? orgApiUrl(
         orgSlug,
         `my-trainings/${assignmentId}/blocks/${block.id}/content`,
       )
     : null;
-  const complete = Boolean(block.progress.completedAt);
+  const complete =
+    Boolean(block.progress.completedAt) ||
+    (block.type === "quiz" && courseQuizPassed);
+  const reduceMotion = useReducedMotion();
+  const [showQuizCelebration, setShowQuizCelebration] = useState(false);
+  useEffect(() => {
+    // Celebrate only after a successful submission in this session. A refresh of
+    // an already completed lesson stays quiet and shows the compact completion state.
+    if (!complete || !quizResult?.passed) return;
+    setShowQuizCelebration(true);
+    const timeout = window.setTimeout(
+      () => setShowQuizCelebration(false),
+      reduceMotion ? 900 : 2800,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [complete, quizResult?.passed, reduceMotion]);
   const action = (next: Record<string, unknown>) => onProgress(next);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const maxWatchedRef = useRef(
@@ -1766,7 +1931,18 @@ function ProfessionalBlockReader({
           </div>
         ) : null}
         {block.type === "quiz" && questions.length ? (
-          <div className="mt-4 space-y-5 rounded-xl border border-border p-4">
+          <AnimatePresence mode="wait" initial={false}>
+            {showQuizCelebration ? (
+              <QuizPassCelebration fr={fr} reduceMotion={Boolean(reduceMotion)} />
+            ) : (
+              <motion.div
+                key="quiz-reader"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: reduceMotion ? 0.1 : 0.2 }}
+                className="mt-4 space-y-5 rounded-xl border border-border p-4"
+              >
             <h4 className="font-semibold text-ink">
               {label(fr, "Knowledge assessment", "Évaluation des acquis")}
             </h4>
@@ -1777,7 +1953,16 @@ function ProfessionalBlockReader({
                 `Note requise : ${String(content.passingScore ?? 70)}%`,
               )}
             </p>
-            {questions.map((question, index) => {
+            {complete ? (
+              <div className="flex items-center gap-2 rounded-lg border border-positive/25 bg-positive/10 px-3 py-2 text-sm font-medium text-positive">
+                <CheckCircle2 className="size-4" />
+                {label(
+                  fr,
+                  "Assessment passed. Your completion is waiting for supervisor validation.",
+                  "Évaluation réussie. Votre formation attend la validation du responsable.",
+                )}
+              </div>
+            ) : questions.map((question, index) => {
               const key = `${block.id}:${String(question.id ?? index)}`;
               const options = Array.isArray(question.options)
                 ? question.options
@@ -1840,23 +2025,57 @@ function ProfessionalBlockReader({
                 </fieldset>
               );
             })}
-            <Button
-              disabled={disabled || complete}
-              loading={quizLoading}
-              onClick={() =>
-                onQuiz(
-                  questions.map(
-                    (question, index) =>
-                      answers[`${block.id}:${String(question.id ?? index)}`] ??
-                      null,
-                  ),
-                )
-              }
-            >
-              <ShieldCheck className="size-4" />
-              {label(fr, "Submit assessment", "Envoyer l’évaluation")}
-            </Button>
-          </div>
+            {!complete ? (
+              <Button
+                disabled={disabled || quizHasUnansweredRequiredQuestion}
+                loading={quizLoading}
+                onClick={() =>
+                  onQuiz(
+                    questions.map(
+                      (question, index) =>
+                        answers[
+                          `${block.id}:${String(question.id ?? index)}`
+                        ] ?? null,
+                    ),
+                  )
+                }
+              >
+                <ShieldCheck className="size-4" />
+                {label(fr, "Submit assessment", "Envoyer l’évaluation")}
+              </Button>
+            ) : null}
+            {quizHasUnansweredRequiredQuestion && !complete ? (
+              <p className="text-xs text-ink-secondary">
+                {label(
+                  fr,
+                  "Answer every question before submitting the assessment.",
+                  "Répondez à chaque question avant d’envoyer l’évaluation.",
+                )}
+              </p>
+            ) : null}
+            {quizResult && !quizResult.awaitingGrading && !complete ? (
+              <p
+                className={cn(
+                  "text-xs font-medium",
+                  quizResult.passed ? "text-positive" : "text-warning",
+                )}
+              >
+                {quizResult.passed
+                  ? label(
+                      fr,
+                      `Assessment passed — score ${Number(quizResult.score ?? 0)}%.`,
+                      `Évaluation réussie — score ${Number(quizResult.score ?? 0)} %.`,
+                    )
+                  : label(
+                      fr,
+                      `Score ${Number(quizResult.score ?? 0)}% — ${Number(quizResult.passingScore ?? 70)}% is required. Review the lesson, then try again if an attempt remains.`,
+                      `Score ${Number(quizResult.score ?? 0)} % — ${Number(quizResult.passingScore ?? 70)} % est requis. Relisez la leçon, puis réessayez s’il reste une tentative.`,
+                    )}
+              </p>
+            ) : null}
+              </motion.div>
+            )}
+          </AnimatePresence>
         ) : null}
         {!complete &&
         ![

@@ -21,6 +21,29 @@ export function PwaSupport() {
   const [isInstalled, setIsInstalled] = useState(false);
 
   useEffect(() => {
+    // Next development bundles use stable URLs. A cache-first service worker
+    // would therefore keep an older workspace screen after a normal refresh,
+    // until the person discovers Ctrl+F5. Development must always use the
+    // server's newest bundle; production keeps the offline application shell.
+    if (process.env.NODE_ENV !== "production") {
+      if ("serviceWorker" in navigator) {
+        void navigator.serviceWorker
+          .getRegistrations()
+          .then((registrations) =>
+            Promise.all(registrations.map((registration) => registration.unregister())),
+          );
+      }
+      if ("caches" in window) {
+        void caches.keys().then((keys) =>
+          Promise.all(
+            keys
+              .filter((key) => key.startsWith("litehubs-"))
+              .map((key) => caches.delete(key)),
+          ),
+        );
+      }
+      return;
+    }
     // Chromium may emit the install event before a user completes sign-in.
     // Listen immediately so the invitation is not lost, but do not render the
     // action until a LiteHubs session exists below.
@@ -66,7 +89,7 @@ export function PwaSupport() {
     };
   }, []);
 
-  if (!user || isInstalled) return null;
+  if (process.env.NODE_ENV !== "production" || !user || isInstalled) return null;
   return (
     <button
       type="button"

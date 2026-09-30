@@ -6,6 +6,7 @@ import { validate } from "../../middleware/validation.middleware";
 import * as controller from "./employee.controller";
 import {
   createEmployeeSchema,
+  employeeDossierDocumentSchema,
   employeeCreationAllowanceProvinceParams,
   employeeParams,
   organizationParams,
@@ -58,6 +59,26 @@ employeeRoutes.get(
   requireOrganization,
   requirePermission("employees.read"),
   controller.getEmployee,
+);
+
+// Identity, permits, contracts and payslips are one confidential employee
+// dossier. The service further limits this to Owner/HR Officer, even when a
+// caller can see the general employee directory.
+employeeRoutes.get(
+  "/organizations/:orgSlug/employees/:employeeId/dossier",
+  authenticate,
+  validate({ params: employeeParams }),
+  requireOrganization,
+  requirePermission("employees.read"),
+  controller.listEmployeeDossierDocuments,
+);
+employeeRoutes.post(
+  "/organizations/:orgSlug/employees/:employeeId/dossier/documents",
+  authenticate,
+  validate({ params: employeeParams, body: employeeDossierDocumentSchema }),
+  requireOrganization,
+  requirePermission("employees.update"),
+  controller.linkEmployeeDossierDocument,
 );
 
 employeeRoutes.patch(

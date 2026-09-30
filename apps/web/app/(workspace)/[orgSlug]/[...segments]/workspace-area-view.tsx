@@ -3,7 +3,12 @@
 import { ArrowLeft, CircleDashed, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { WORKSPACE_NAV } from "@/lib/navigation";
-import { canAccessEmployeeDirectory, canAny, isOwner } from "@/lib/permissions";
+import {
+  can,
+  canAccessEmployeeDirectory,
+  canAny,
+  isOwner,
+} from "@/lib/permissions";
 import { navTranslationKey } from "@/lib/i18n";
 import { useLanguage } from "@/providers/language-provider";
 import { useSessionUser } from "@/stores/session-store";
@@ -34,12 +39,14 @@ import { SecurityArea } from "./security-area";
 import { DocumentsArea } from "./documents-area";
 import { MyAccountArea } from "./my-account-area";
 import { ContractsArea } from "./contracts-area";
-import { AuditArea } from "./audit-area";
+import { AuditArea } from "./audit-log-area";
 import { NotificationsArea } from "./notifications-area";
 import { ReportsArea } from "./reports-area";
 import { SalesFinanceArea } from "./sales-finance-area";
 import { AppointmentsArea } from "./appointments-area";
 import { CareersArea } from "./careers-area";
+import { FleetArea } from "./fleet-area";
+import { CompanyRulesArea } from "./company-rules-area";
 
 export function WorkspaceAreaView({
   orgSlug,
@@ -52,13 +59,24 @@ export function WorkspaceAreaView({
   const user = useSessionUser();
   // Preserve the historic French singular URL while the canonical route remains
   // /appointments. Old bookmarks must not fall through to the generic screen.
+  // Keep older or French bookmarks working.  A link must never fall through
+  // to the generic "ready" screen merely because its route was renamed.
   const canonicalPath = [
     "/appointment",
     "/appointement",
     "/rendez-vous",
   ].includes(path)
     ? "/appointments"
-    : path;
+    : [
+          "/fleet",
+          "/vehicles",
+          "/vehicle-control",
+          "/engins",
+          "/engines",
+          "/engine-control",
+        ].includes(path)
+      ? "/fleet-control"
+      : path;
   const item = WORKSPACE_NAV.flatMap((group) => group.items).find(
     (entry) => entry.path === canonicalPath,
   );
@@ -75,6 +93,15 @@ export function WorkspaceAreaView({
   const title = item
     ? t(navTranslationKey(item.label))
     : canonicalPath.split("/").filter(Boolean).join(" · ");
+
+  // A designated fleet controller receives the company-wide screen. A driver
+  // or a person assigned to just one asset keeps the safe personal view.
+  if (
+    canonicalPath === "/fleet-control" &&
+    !isOwner(user) &&
+    !can(user, "vehicles.fleet_control.read")
+  )
+    return <FleetArea orgSlug={orgSlug} personal />;
 
   if (!allowed)
     return (
@@ -96,7 +123,8 @@ export function WorkspaceAreaView({
   if (path === "/agriculture") return <AgricultureArea orgSlug={orgSlug} />;
   if (path === "/veterinary") return <VeterinaryArea orgSlug={orgSlug} />;
   if (path === "/projects") return <ProjectsArea orgSlug={orgSlug} />;
-  if (path === "/project-analytics") return <ProjectAnalyticsArea orgSlug={orgSlug} />;
+  if (path === "/project-analytics")
+    return <ProjectAnalyticsArea orgSlug={orgSlug} />;
   if (path === "/reports") return <ReportsArea orgSlug={orgSlug} />;
   if (
     ["/sales", "/customers", "/invoices", "/finance", "/finance/cash"].includes(
@@ -132,6 +160,10 @@ export function WorkspaceAreaView({
   if (path === "/settings/sites") return <LocationsArea orgSlug={orgSlug} />;
   if (path === "/my-account") return <MyAccountArea orgSlug={orgSlug} />;
   if (path === "/my-tasks") return <MyTasksArea orgSlug={orgSlug} />;
+  if (canonicalPath === "/my-fleet")
+    return <FleetArea orgSlug={orgSlug} personal />;
+  if (canonicalPath === "/fleet-control")
+    return <FleetArea orgSlug={orgSlug} />;
   if (path === "/my-schedule")
     return <MyAccountArea orgSlug={orgSlug} initialSection="schedule" />;
   if (path === "/my-leave") return <LeaveArea orgSlug={orgSlug} personal />;
@@ -162,18 +194,30 @@ export function WorkspaceAreaView({
     );
   if (path === "/contracts") return <ContractsArea orgSlug={orgSlug} />;
   if (path === "/audit") return <AuditArea orgSlug={orgSlug} />;
+  if (path === "/company-rules") return <CompanyRulesArea orgSlug={orgSlug} />;
   if (path === "/my-performance")
     return <MyPerformanceArea orgSlug={orgSlug} />;
   if (path === "/performance") return <PerformanceArea orgSlug={orgSlug} />;
   if (path === "/payroll") return <PayrollArea orgSlug={orgSlug} />;
   if (path === "/disciplinary-actions")
     return <DisciplineArea orgSlug={orgSlug} />;
-  if (canonicalPath === "/feed-mill" || canonicalPath.startsWith("/feed-mill/")) {
+  if (
+    canonicalPath === "/feed-mill" ||
+    canonicalPath.startsWith("/feed-mill/")
+  ) {
     const candidate = canonicalPath.split("/")[2];
-    const feedTab = ["raw-materials", "recipes", "production-orders", "planning"].includes(candidate ?? "")
-      ? (candidate as "raw-materials" | "recipes" | "production-orders" | "planning")
+    const feedTab = [
+      "raw-materials",
+      "recipes",
+      "production-orders",
+      "planning",
+    ].includes(candidate ?? "")
+      ? (candidate as
+          "raw-materials" | "recipes" | "production-orders" | "planning")
       : "raw-materials";
-    return <OperationsArea orgSlug={orgSlug} area="feed-mill" feedTab={feedTab} />;
+    return (
+      <OperationsArea orgSlug={orgSlug} area="feed-mill" feedTab={feedTab} />
+    );
   }
   if (
     [

@@ -10,6 +10,7 @@ import {
   Boxes,
   Building2,
   CalendarClock,
+  CarFront,
   CircleUserRound,
   ClipboardCheck,
   ClipboardList,
@@ -48,7 +49,7 @@ import type { PermissionCode } from "./permissions";
  *
  * Keyed on permissions rather than role codes deliberately. Roles are
  * per-organization rows a customer can rename or redefine, so a nav keyed to
- * `role === "farm_manager"` breaks the first time someone edits their roles.
+ * `role === "site_manager"` breaks the first time someone edits their roles.
  * What a role can *do* is stable; what it is *called* is not.
  *
  * A group with no visible items is dropped whole, so nobody sees an empty
@@ -138,6 +139,14 @@ export const WORKSPACE_NAV: NavGroup[] = [
         path: "/my-tasks",
         icon: ClipboardList,
         employeeProfileOnly: true,
+      },
+      {
+        label: "My vehicle / engine",
+        path: "/my-fleet",
+        icon: CarFront,
+        // This is a personal, API-scoped screen. It also serves a fleet or
+        // maintenance controller who has an organisation membership but whose
+        // HR employee card has not yet been created.
       },
       {
         label: "My schedule",
@@ -331,35 +340,35 @@ export const WORKSPACE_NAV: NavGroup[] = [
         label: "Feed mill & nutrition",
         path: "/feed-mill",
         icon: Factory,
-        permission: "inventory.items.read",
+        permission: "inventory.nutrition.read",
       },
       {
         label: "Raw materials & harvests",
         parentPath: "/feed-mill",
         path: "/feed-mill/raw-materials",
         icon: Boxes,
-        permission: "inventory.items.read",
+        permission: "inventory.nutrition.read",
       },
       {
         label: "Formulations & recipes",
         parentPath: "/feed-mill",
         path: "/feed-mill/recipes",
         icon: ClipboardList,
-        permission: "inventory.items.read",
+        permission: "inventory.nutrition.read",
       },
       {
         label: "Production orders",
         parentPath: "/feed-mill",
         path: "/feed-mill/production-orders",
         icon: Factory,
-        permission: "inventory.items.read",
+        permission: "inventory.nutrition.read",
       },
       {
         label: "Planning & requirements",
         parentPath: "/feed-mill",
         path: "/feed-mill/planning",
         icon: Activity,
-        permission: "inventory.items.read",
+        permission: "inventory.nutrition.read",
       },
       {
         label: "Procurement",
@@ -378,6 +387,12 @@ export const WORKSPACE_NAV: NavGroup[] = [
         path: "/equipment",
         icon: Wrench,
         permission: "equipment.read",
+      },
+      {
+        label: "Fleet control",
+        path: "/fleet-control",
+        icon: CarFront,
+        permission: "vehicles.fleet_control.read",
       },
       {
         label: "Maintenance",
@@ -464,6 +479,11 @@ export const WORKSPACE_NAV: NavGroup[] = [
         path: "/audit",
         icon: ScrollText,
         permission: "audit.read",
+      },
+      {
+        label: "Company rules",
+        path: "/company-rules",
+        icon: BookOpenCheck,
       },
     ],
   },

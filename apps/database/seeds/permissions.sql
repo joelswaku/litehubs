@@ -50,14 +50,14 @@ FROM (VALUES
   -- stock and trade
   ('inventory.items'), ('inventory.warehouses'), ('inventory.stock'),
   ('inventory.movements'), ('inventory.transfers'), ('inventory.adjustments'),
-  ('inventory.stock_counts'),
+  ('inventory.stock_counts'), ('inventory.nutrition'),
   ('procurement'), ('suppliers'), ('customers'), ('sales'),
   -- money
   ('finance.accounts'), ('finance.transactions'), ('finance.cash_management'),
   ('finance.expenses'), ('finance.income'), ('finance.budgets'),
   ('finance.payables'), ('finance.receivables'), ('finance.reconciliation'),
   -- assets
-  ('equipment'), ('vehicles'), ('maintenance'), ('work_orders'),
+  ('equipment'), ('vehicles'), ('vehicles.fleet_control'), ('maintenance'), ('work_orders'),
   ('incidents'), ('losses'), ('security'),
   -- records
   ('reports'), ('documents'), ('contracts'), ('notifications'), ('audit'),

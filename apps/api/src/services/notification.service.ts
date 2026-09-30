@@ -37,7 +37,10 @@ function normalizeSmsRecipient(value: string): string | null {
   if (raw.startsWith("00")) raw = `+${raw.slice(2)}`;
   let digits = raw.startsWith("+") ? raw.slice(1) : raw;
   if (!/^\d+$/.test(digits)) return null;
-  if (!raw.startsWith("+") && !digits.startsWith(env.sms.defaultCountryCallingCode)) {
+  if (
+    !raw.startsWith("+") &&
+    !digits.startsWith(env.sms.defaultCountryCallingCode)
+  ) {
     digits = `${env.sms.defaultCountryCallingCode}${digits.replace(/^0/, "")}`;
   }
   return /^\d{8,15}$/.test(digits) ? digits : null;
@@ -58,35 +61,57 @@ export async function sendSms(message: SmsMessage): Promise<SmsSendResult> {
   const content = message.content.trim().replace(/\s+/g, " ");
   if (!content) return { sent: false, reason: "sms_content_empty", recipient };
   // Avoid silently spending an unexpected number of SMS credits on a malformed notification.
-  if (content.length > 612) return { sent: false, reason: "sms_content_too_long", recipient };
+  if (content.length > 612)
+    return { sent: false, reason: "sms_content_too_long", recipient };
 
   try {
-    const response = await fetch("https://api.brevo.com/v3/transactionalSMS/send", {
-      method: "POST",
-      headers: {
-        accept: "application/json",
-        "content-type": "application/json",
-        "api-key": env.sms.apiKey,
+    const response = await fetch(
+      "https://api.brevo.com/v3/transactionalSMS/send",
+      {
+        method: "POST",
+        headers: {
+          accept: "application/json",
+          "content-type": "application/json",
+          "api-key": env.sms.apiKey,
+        },
+        body: JSON.stringify({
+          sender: message.sender ?? env.sms.sender,
+          recipient,
+          content,
+          type: "transactional",
+          unicodeEnabled: true,
+        }),
+        signal: AbortSignal.timeout(12_000),
       },
-      body: JSON.stringify({
-        sender: message.sender ?? env.sms.sender,
-        recipient,
-        content,
-        type: "transactional",
-        unicodeEnabled: true,
-      }),
-      signal: AbortSignal.timeout(12_000),
-    });
-    const body = await response.json().catch(() => null) as { messageId?: string | number; code?: string; message?: string } | null;
+    );
+    const body = (await response.json().catch(() => null)) as {
+      messageId?: string | number;
+      code?: string;
+      message?: string;
+    } | null;
     if (!response.ok) {
-      logger.warn({ status: response.status, providerCode: body?.code, recipientSuffix: recipient.slice(-4) }, "Brevo SMS delivery rejected");
+      logger.warn(
+        {
+          status: response.status,
+          providerCode: body?.code,
+          recipientSuffix: recipient.slice(-4),
+        },
+        "Brevo SMS delivery rejected",
+      );
       return { sent: false, reason: "sms_provider_rejected", recipient };
     }
-    const messageId = body?.messageId === undefined ? undefined : String(body.messageId);
-    logger.info({ messageId, recipientSuffix: recipient.slice(-4) }, "Brevo transactional SMS accepted");
+    const messageId =
+      body?.messageId === undefined ? undefined : String(body.messageId);
+    logger.info(
+      { messageId, recipientSuffix: recipient.slice(-4) },
+      "Brevo transactional SMS accepted",
+    );
     return { sent: true, messageId, recipient };
   } catch (error) {
-    logger.error({ err: error, recipientSuffix: recipient.slice(-4) }, "Brevo SMS delivery failed");
+    logger.error(
+      { err: error, recipientSuffix: recipient.slice(-4) },
+      "Brevo SMS delivery failed",
+    );
     return { sent: false, reason: "sms_delivery_failed", recipient };
   }
 }
@@ -239,6 +264,19 @@ export async function sendPasswordResetEmail(
         ),
       ].join(""),
     ),
+  });
+}
+
+/** Password-reset SMS contains only the short-lived one-time link. It must
+ * never include a password, organisation data, or any account details. */
+export async function sendPasswordResetSms(
+  to: string,
+  resetUrl: string,
+  expiresInMinutes: number,
+): Promise<SmsSendResult> {
+  return sendSms({
+    to,
+    content: `LiteHubs · Réinitialisez votre mot de passe dans les ${expiresInMinutes} min : ${resetUrl} Si vous n’avez pas fait cette demande, ignorez ce SMS.`,
   });
 }
 

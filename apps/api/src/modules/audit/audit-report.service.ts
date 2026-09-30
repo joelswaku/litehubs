@@ -2,6 +2,7 @@ import PDFDocument from "pdfkit";
 import { withTenantContext } from "../../utils/tenant-query";
 import type { AuditQuery } from "./audit.validation";
 import { list, type AuditContext } from "./audit.service";
+import { auditAreaForTable } from "./audit-area";
 
 type OrganizationRow = { name: string };
 
@@ -10,6 +11,18 @@ const text = (value: unknown) =>
 
 const title = (value: string) =>
   value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+
+/** Audit snapshots intentionally retain field names while protecting private
+ * values. Include those names in the PDF so an exported review is useful
+ * without copying confidential data into a portable document. */
+const changedFields = (changes: Record<string, unknown> | null) => {
+  const fields = changes?.fields;
+  if (!Array.isArray(fields)) return [];
+  return fields
+    .filter((field): field is string => typeof field === "string")
+    .slice(0, 12)
+    .map(title);
+};
 
 const date = (value: unknown, french: boolean) => {
   const parsed = new Date(String(value));
@@ -21,13 +34,15 @@ const date = (value: unknown, french: boolean) => {
 };
 
 async function organizationName(context: AuditContext) {
-  return withTenantContext(context, async (client) =>
-    (
-      await client.query<OrganizationRow>(
-        "SELECT name FROM organizations WHERE id = $1",
-        [context.organizationId],
-      )
-    ).rows[0]?.name ?? "Organization",
+  return withTenantContext(
+    context,
+    async (client) =>
+      (
+        await client.query<OrganizationRow>(
+          "SELECT name FROM organizations WHERE id = $1",
+          [context.organizationId],
+        )
+      ).rows[0]?.name ?? "Organization",
   );
 }
 
@@ -46,10 +61,15 @@ export async function exportAuditPdf(
   query: AuditQuery,
   french: boolean,
 ): Promise<Buffer> {
-  const [organization, entries] = await Promise.all([
+  const [organization, listedEntries] = await Promise.all([
     organizationName(context),
     list(context, query),
   ]);
+  const entries = query.area
+    ? listedEntries.filter(
+        (entry) => auditAreaForTable(entry.entity.table) === query.area,
+      )
+    : listedEntries;
   const reportTitle = french ? "Journal d’audit" : "Audit log";
   const generated = date(new Date(), french);
 
@@ -65,12 +85,22 @@ export async function exportAuditPdf(
     document.on("error", reject);
 
     document.rect(0, 0, document.page.width, 88).fill("#10243f");
-    document.fillColor("#ffffff").font("Helvetica-Bold").fontSize(18).text(organization, 48, 30);
+    document
+      .fillColor("#ffffff")
+      .font("Helvetica-Bold")
+      .fontSize(18)
+      .text(organization, 48, 30);
     document
       .fillColor("#cbdff7")
       .font("Helvetica")
       .fontSize(9)
-      .text(french ? "Registre de traçabilité confidentiel" : "Confidential audit record", 48, 57);
+      .text(
+        french
+          ? "Registre de traçabilité confidentiel"
+          : "Confidential audit record",
+        48,
+        57,
+      );
     document
       .fillColor("#10243f")
       .font("Helvetica-Bold")
@@ -80,7 +110,11 @@ export async function exportAuditPdf(
       .fillColor("#64748b")
       .font("Helvetica")
       .fontSize(8)
-      .text(`${french ? "Généré le" : "Generated"} ${generated} · ${entries.length} ${french ? "événement(s)" : "event(s)"}`, 48, 138);
+      .text(
+        `${french ? "Généré le" : "Generated"} ${generated} · ${entries.length} ${french ? "événement(s)" : "event(s)"}`,
+        48,
+        138,
+      );
     document.y = 166;
 
     if (!entries.length) {
@@ -88,23 +122,38 @@ export async function exportAuditPdf(
         .fillColor("#64748b")
         .font("Helvetica-Oblique")
         .fontSize(10)
-        .text(french ? "Aucun événement ne correspond aux filtres actuels." : "No events match the current filters.");
+        .text(
+          french
+            ? "Aucun événement ne correspond aux filtres actuels."
+            : "No events match the current filters.",
+        );
     }
 
     for (const entry of entries) {
-      const entity = [title(entry.entity.table), entry.entity.label ?? entry.entity.id]
+      const entity = [
+        title(entry.entity.table),
+        entry.entity.label ?? entry.entity.id,
+      ]
         .filter(Boolean)
         .join(" · ");
-      const actor = entry.actor.name ?? entry.actor.email ?? (french ? "Système" : "System");
+      const actor =
+        entry.actor.name ??
+        entry.actor.email ??
+        (french ? "Système" : "System");
       const details = [
         `${date(entry.occurredAt, french)} · ${actor}`,
         `${title(entry.action)} · ${entity}`,
         `${french ? "Niveau" : "Severity"}: ${title(entry.severity)}`,
+        changedFields(entry.changes).length
+          ? `${french ? "Champs concernés" : "Fields affected"}: ${changedFields(entry.changes).join(", ")}`
+          : null,
         entry.route ? `${french ? "Route" : "Route"}: ${entry.route}` : null,
       ]
         .filter(Boolean)
         .join("\n");
-      const height = document.heightOfString(details, { width: document.page.width - 120 }) + 28;
+      const height =
+        document.heightOfString(details, { width: document.page.width - 120 }) +
+        28;
       addPageIfNeeded(document, height);
       const top = document.y;
       document
@@ -114,12 +163,17 @@ export async function exportAuditPdf(
         .fillColor("#10243f")
         .font("Helvetica-Bold")
         .fontSize(10)
-        .text(title(entry.action), 60, top + 11, { width: document.page.width - 120 });
+        .text(title(entry.action), 60, top + 11, {
+          width: document.page.width - 120,
+        });
       document
         .fillColor("#475569")
         .font("Helvetica")
         .fontSize(8.5)
-        .text(details, 60, top + 28, { width: document.page.width - 120, lineGap: 2 });
+        .text(details, 60, top + 28, {
+          width: document.page.width - 120,
+          lineGap: 2,
+        });
       document.y = top + height + 10;
     }
 

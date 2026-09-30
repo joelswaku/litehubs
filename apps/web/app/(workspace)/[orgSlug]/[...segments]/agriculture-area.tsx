@@ -140,7 +140,7 @@ const labels: Record<string, string> = {
   "Farm name": "Nom de la ferme",
   "Farm type": "Type de ferme",
   "Total area (ha)": "Superficie totale (ha)",
-  "Farm manager": "Responsable de la ferme",
+  "Site manager": "Responsable de site",
   Farm: "Ferme",
   "Choose a farm": "Sélectionner une ferme",
   "Field name": "Nom du champ",
@@ -379,7 +379,7 @@ export function AgricultureArea({ orgSlug }: { orgSlug: string }) {
           "owner",
           "general_manager",
           "provincial_manager",
-          "farm_manager",
+          "site_manager",
           "farm_operations_manager",
           "supervisor",
           "agriculture_supervisor",
@@ -1271,7 +1271,7 @@ function AgricultureFields({
         />
         <TextField
           name="managerName"
-          label="Farm manager"
+          label="Site manager"
           value={item?.managerName}
           fr={fr}
         />

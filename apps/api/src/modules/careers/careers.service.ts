@@ -5,7 +5,7 @@ import {
   readPrivateDocument,
   storePrivateDocument,
 } from "../../services/file-storage.service";
-import { sendMail } from "../../services/notification.service";
+import { sendMail, sendSms } from "../../services/notification.service";
 import { createNotificationInTransaction } from "../notifications/notifications.service";
 import {
   BadRequestError,
@@ -33,6 +33,7 @@ export interface CareersContext {
 
 type Scope = "organization" | "province" | "self";
 type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+const CANDIDATE_CONTACT_EMAIL = "contact@congoomega.com";
 
 const jobColumns = `j.id,j.organization_id,j.province_id,j.site_id,j.code,j.title,j.department_name,j.employment_type,j.experience_level,j.positions_open,j.short_summary,j.description,j.responsibilities,j.requirements,j.benefits,j.salary_summary,j.application_deadline::text,j.status,j.published_at,j.closed_at,j.created_at,j.updated_at,s.code AS site_code,s.name AS site_name,p.code AS province_code,p.name AS province_name,COUNT(a.id)::int AS application_count`;
 
@@ -78,6 +79,7 @@ function mapApplication(row: Row) {
     yearsExperience:
       row.years_experience === null ? null : Number(row.years_experience),
     availability: row.availability,
+    preferredLanguage: row.preferred_language === "en" ? "en" : "fr",
     status: row.status,
     internalNotes: row.internal_notes,
     submittedAt: row.submitted_at,
@@ -199,8 +201,8 @@ async function applicationById(
   applicationId: string,
 ) {
   const result = await client.query<Row>(
-    `SELECT a.*,j.code AS job_code,j.title AS job_title,s.code AS site_code,s.name AS site_name,p.code AS province_code,p.name AS province_name,reviewer.full_name AS reviewed_by_name,f.id AS resume_id,f.file_name AS resume_file_name,f.mime_type AS resume_mime_type,f.size_bytes AS resume_size_bytes,f.storage_path AS resume_storage_path
-       FROM career_applications a JOIN career_job_posts j ON j.organization_id=a.organization_id AND j.id=a.job_post_id JOIN sites s ON s.organization_id=a.organization_id AND s.id=a.site_id JOIN provinces p ON p.organization_id=a.organization_id AND p.id=a.province_id LEFT JOIN users reviewer ON reviewer.id=a.reviewed_by LEFT JOIN career_application_files f ON f.organization_id=a.organization_id AND f.application_id=a.id AND f.kind='resume' WHERE a.organization_id=$1 AND a.id=$2`,
+    `SELECT a.*,o.display_name AS organization_name,j.code AS job_code,j.title AS job_title,s.code AS site_code,s.name AS site_name,p.code AS province_code,p.name AS province_name,reviewer.full_name AS reviewed_by_name,f.id AS resume_id,f.file_name AS resume_file_name,f.mime_type AS resume_mime_type,f.size_bytes AS resume_size_bytes,f.storage_path AS resume_storage_path
+       FROM career_applications a JOIN organizations o ON o.id=a.organization_id JOIN career_job_posts j ON j.organization_id=a.organization_id AND j.id=a.job_post_id JOIN sites s ON s.organization_id=a.organization_id AND s.id=a.site_id JOIN provinces p ON p.organization_id=a.organization_id AND p.id=a.province_id LEFT JOIN users reviewer ON reviewer.id=a.reviewed_by LEFT JOIN career_application_files f ON f.organization_id=a.organization_id AND f.application_id=a.id AND f.kind='resume' WHERE a.organization_id=$1 AND a.id=$2`,
     [organizationId, applicationId],
   );
   if (!result.rowCount) throw new NotFoundError("Application not found");
@@ -464,7 +466,7 @@ export async function updateApplication(
   applicationId: string,
   input: ApplicationUpdateInput,
 ) {
-  return withTenantContext(context, async (client) => {
+  const updated = await withTenantContext(context, async (client) => {
     const current = await applicationById(
       client,
       context.organizationId,
@@ -487,12 +489,91 @@ export async function updateApplication(
       applicationId,
       `status_${input.status}`,
       context.userId,
-      { internalNotes: input.internalNotes ?? null },
+      {
+        previousStatus: current.status,
+        internalNotes: input.internalNotes ?? null,
+        candidateNotificationRequested: input.notifyCandidate,
+      },
     );
-    return mapApplication(
+    const application = mapApplication(
       await applicationById(client, context.organizationId, applicationId),
     );
+    const shouldNotify = input.notifyCandidate && Boolean(current.email || current.phone);
+    const message = (
+      input.candidateMessage ||
+      defaultCandidateStatusMessage({
+        status: input.status,
+        jobTitle: String(current.job_title ?? ""),
+        siteName: String(current.site_name ?? ""),
+        french: current.preferred_language !== "en",
+      })
+    ).trim();
+    if (shouldNotify && message) {
+      await event(
+        client,
+        context.organizationId,
+        applicationId,
+        "candidate_notification_queued",
+        context.userId,
+        {
+          status: input.status,
+          email: Boolean(current.email),
+          sms: Boolean(current.phone),
+          customMessage: Boolean(input.candidateMessage),
+          messageLength: message.length,
+        },
+      );
+    }
+    return {
+      application,
+      notification:
+        shouldNotify && message
+          ? {
+              applicationId,
+              organizationName:
+                String(current.organization_name ?? "LiteHubs").trim() ||
+                "LiteHubs",
+              email: String(current.email ?? ""),
+              phone: String(current.phone ?? ""),
+              fullName: String(current.full_name ?? ""),
+              jobTitle: String(current.job_title ?? ""),
+              siteName: String(current.site_name ?? ""),
+              status: input.status,
+              message,
+              french: current.preferred_language !== "en",
+            }
+          : null,
+    };
   });
+
+  if (updated.notification) {
+    const notification = updated.notification;
+    const [email, sms] = await Promise.all([
+      notification.email
+        ? sendMail(buildCandidateStatusEmail(notification))
+        : Promise.resolve({ sent: false, reason: "email_missing" }),
+      notification.phone
+        ? sendSms(buildCandidateStatusSms(notification))
+        : Promise.resolve({ sent: false, reason: "phone_missing" }),
+    ]);
+    await withTenantContext(context, async (client) =>
+      event(
+        client,
+        context.organizationId,
+        notification.applicationId,
+        "candidate_notification_dispatched",
+        context.userId,
+        {
+          status: notification.status,
+          emailSent: email.sent,
+          emailReason: email.sent ? undefined : email.reason,
+          smsSent: sms.sent,
+          smsReason: sms.sent ? undefined : sms.reason,
+        },
+      ),
+    );
+  }
+  return updated.application;
 }
 
 export async function resumeFor(
@@ -596,7 +677,7 @@ export async function publicApply(
       async (client) => {
         try {
           const insert = await client.query<Row>(
-            `INSERT INTO career_applications(organization_id,job_post_id,province_id,site_id,full_name,email,phone,city,cover_letter,years_experience,availability,consent_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now()) RETURNING id`,
+            `INSERT INTO career_applications(organization_id,job_post_id,province_id,site_id,full_name,email,phone,city,cover_letter,years_experience,availability,preferred_language,consent_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,now()) RETURNING id`,
             [
               job.organization_id,
               job.id,
@@ -609,6 +690,7 @@ export async function publicApply(
               input.coverLetter ?? null,
               input.yearsExperience ?? null,
               input.availability ?? null,
+              input.preferredLanguage,
             ],
           );
           const applicationId = insert.rows[0]!.id;
@@ -676,6 +758,10 @@ export async function publicApply(
         }),
       ),
       sendMail(buildApplicantConfirmationEmail(input, job)),
+      // Candidates provide a phone number in the public form.  The SMS is an
+      // acknowledgement only: never include the CV, application details or
+      // any hiring decision in a message that can be seen on a lock screen.
+      sendSms(buildApplicantConfirmationSms(input, job)),
     ]);
     return {
       applicationId: created.applicationId,
@@ -708,7 +794,9 @@ function buildApplicantConfirmationEmail(
         "",
         `Votre CV et vos informations restent accessibles uniquement à l’équipe de recrutement autorisée de ${organizationName}.`,
         "",
-        "L’équipe examinera votre dossier de manière confidentielle et vous contactera si votre profil correspond aux besoins du poste.",
+        "L’équipe examinera votre dossier de manière confidentielle et vous contactera si votre profil correspond aux besoins du poste ou si des documents et informations complémentaires sont nécessaires.",
+        "",
+        `Pour toute question concernant votre candidature, écrivez à ${CANDIDATE_CONTACT_EMAIL}.`,
         "",
         `Merci,\n${organizationName}`,
       ].join("\n")
@@ -719,7 +807,9 @@ function buildApplicantConfirmationEmail(
         "",
         `Your résumé and details are accessible only to ${organizationName}'s authorised recruitment team.`,
         "",
-        "The team will review your application confidentially and contact you if your profile matches the needs of the role.",
+        "The team will review your application confidentially and contact you if your profile matches the needs of the role or if further documents and information are needed.",
+        "",
+        `For questions about your application, email ${CANDIDATE_CONTACT_EMAIL}.`,
         "",
         `Thank you,\n${organizationName}`,
       ].join("\n");
@@ -746,11 +836,11 @@ function buildApplicantConfirmationEmail(
     ? `Votre CV et vos informations restent accessibles uniquement à l’équipe de recrutement autorisée de ${safe.organizationName}.`
     : `Your résumé and details are accessible only to ${safe.organizationName}'s authorised recruitment team.`;
   const next = french
-    ? "L’équipe examinera votre dossier de manière confidentielle et vous contactera si votre profil correspond aux besoins du poste."
-    : "The team will review your application confidentially and contact you if your profile matches the needs of the role.";
+    ? "L’équipe examinera votre dossier de manière confidentielle et vous contactera si votre profil correspond aux besoins du poste ou si des documents et informations complémentaires sont nécessaires."
+    : "The team will review your application confidentially and contact you if your profile matches the needs of the role or if further documents and information are needed.";
   const footer = french
-    ? "Cet e-mail automatique confirme uniquement la réception de votre candidature. Merci de ne pas y répondre."
-    : "This automated email only confirms receipt of your application. Please do not reply to it.";
+    ? `Pour toute question concernant votre candidature, écrivez à ${CANDIDATE_CONTACT_EMAIL}.`
+    : `For questions about your application, email ${CANDIDATE_CONTACT_EMAIL}.`;
 
   return {
     to: input.email,
@@ -788,6 +878,96 @@ function buildApplicantConfirmationEmail(
 </html>`,
   };
 }
+
+function buildApplicantConfirmationSms(input: PublicApplicationInput, job: Row) {
+  const french = input.preferredLanguage !== "en";
+  const organizationName =
+    String(job.display_name ?? "LiteHubs").trim() || "LiteHubs";
+  const title = String(job.title ?? "").trim().slice(0, 180);
+  const siteName = String(job.site_name ?? "").trim().slice(0, 120);
+  const content = french
+    ? `${organizationName} : votre candidature pour « ${title} » au site ${siteName} a été reçue. Nous vous contacterons si votre profil correspond ou si des documents complémentaires sont nécessaires. Questions : ${CANDIDATE_CONTACT_EMAIL}`
+    : `${organizationName}: your application for ${title} at ${siteName} was received. We will contact you if your profile matches or if further documents are needed. Questions: ${CANDIDATE_CONTACT_EMAIL}`;
+
+  return { to: input.phone, content: content.slice(0, 600) };
+}
+
+type CandidateStatusNotification = {
+  applicationId: string;
+  organizationName: string;
+  email: string;
+  phone: string;
+  fullName: string;
+  jobTitle: string;
+  siteName: string;
+  status: string;
+  message: string;
+  french: boolean;
+};
+
+function defaultCandidateStatusMessage({
+  status,
+  jobTitle,
+  siteName,
+  french,
+}: Pick<CandidateStatusNotification, "status" | "jobTitle" | "siteName" | "french">) {
+  const role = jobTitle || (french ? "ce poste" : "this role");
+  const location = siteName
+    ? french
+      ? ` sur le site ${siteName}`
+      : ` at ${siteName}`
+    : "";
+  const frenchMessages: Record<string, string> = {
+    received: `Votre candidature pour « ${role} » est bien reçue. Notre équipe vous contactera si des documents ou informations complémentaires sont nécessaires.`,
+    reviewing: `Votre candidature pour « ${role} » est maintenant en cours d’examen par notre équipe.`,
+    shortlisted: `Votre candidature pour « ${role} » a été présélectionnée. Nous vous contacterons prochainement pour la suite.`,
+    interview: `Votre candidature pour « ${role} » est retenue pour un entretien${location}. Notre équipe vous communiquera les modalités.`,
+    offered: `Une offre relative au poste « ${role} » est disponible. Notre équipe vous contactera pour les prochaines étapes.`,
+    hired: `Félicitations, votre candidature pour « ${role} » a été retenue. Notre équipe vous contactera pour votre intégration.`,
+    rejected: `Après étude de votre candidature pour « ${role} », nous ne pouvons pas y donner une suite favorable. Nous vous remercions de votre intérêt.`,
+    withdrawn: `Votre candidature pour « ${role} » est maintenant enregistrée comme retirée.`,
+  };
+  const englishMessages: Record<string, string> = {
+    received: `Your application for ${role} was received. Our team will contact you if further documents or information are needed.`,
+    reviewing: `Your application for ${role} is now under review by our team.`,
+    shortlisted: `Your application for ${role} has been shortlisted. We will contact you soon about the next steps.`,
+    interview: `Your application for ${role} has been selected for an interview${location}. Our team will share the arrangements.`,
+    offered: `An offer for the ${role} position is available. Our team will contact you about the next steps.`,
+    hired: `Congratulations, your application for ${role} has been successful. Our team will contact you about onboarding.`,
+    rejected: `After reviewing your application for ${role}, we are unable to proceed further. Thank you for your interest.`,
+    withdrawn: `Your application for ${role} is now recorded as withdrawn.`,
+  };
+  return (french ? frenchMessages : englishMessages)[status] ?? (french ? "Votre candidature a été mise à jour." : "Your application was updated.");
+}
+
+function buildCandidateStatusEmail(notification: CandidateStatusNotification) {
+  const subject = notification.french
+    ? `Mise à jour de votre candidature · ${notification.jobTitle}`
+    : `Update on your application · ${notification.jobTitle}`;
+  const greeting = notification.french
+    ? `Bonjour ${notification.fullName},`
+    : `Hello ${notification.fullName},`;
+  const footer = notification.french
+    ? `Pour toute question concernant votre candidature, écrivez à ${CANDIDATE_CONTACT_EMAIL}.`
+    : `For questions about your application, email ${CANDIDATE_CONTACT_EMAIL}.`;
+  const htmlMessage = escapeHtml(notification.message).replace(/\n/g, "<br />");
+  return {
+    to: notification.email,
+    subject,
+    text: [greeting, "", notification.message, "", footer].join("\n"),
+    html: `<!doctype html><html lang="${notification.french ? "fr" : "en"}"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>${escapeHtml(subject)}</title></head><body style="margin:0;padding:0;background:#f3f7f5;font-family:Arial,'Helvetica Neue',Helvetica,sans-serif;color:#172b23;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;background:#f3f7f5;"><tr><td align="center" style="padding:32px 16px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;background:#fff;border:1px solid #d8e5dc;border-radius:16px;overflow:hidden;"><tr><td style="padding:25px 32px;background:#114b32;color:#fff;font-size:21px;font-weight:800;">${escapeHtml(notification.organizationName)}</td></tr><tr><td style="padding:34px 32px 30px;"><div style="width:42px;height:5px;margin:0 0 20px;background:#29a36a;border-radius:99px;"></div><h1 style="margin:0 0 19px;color:#14251d;font-size:27px;line-height:1.25;">${escapeHtml(subject)}</h1><p style="margin:0 0 17px;color:#344b3d;font-size:15px;line-height:1.65;">${escapeHtml(greeting)}</p><p style="margin:0;color:#344b3d;font-size:15px;line-height:1.65;">${htmlMessage}</p></td></tr><tr><td style="padding:20px 32px;background:#f7faf8;border-top:1px solid #e1ebe5;color:#66776d;font-size:12px;line-height:1.55;">${escapeHtml(footer)}</td></tr></table></td></tr></table></body></html>`,
+  };
+}
+
+function buildCandidateStatusSms(notification: CandidateStatusNotification) {
+  return {
+    to: notification.phone,
+    content: `${notification.organizationName} : ${notification.message} Contact : ${CANDIDATE_CONTACT_EMAIL}`
+      .replace(/\s+/g, " ")
+      .slice(0, 600),
+  };
+}
+
 function escapeHtml(value: string) {
   return value.replace(
     /[&<>"']/g,

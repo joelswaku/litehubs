@@ -4,7 +4,9 @@ import { useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
+  ArrowLeft,
   Archive,
+  ChevronRight,
   Download,
   FileLock2,
   FileText,
@@ -94,17 +96,15 @@ export function DocumentsArea({ orgSlug }: { orgSlug: string }) {
   const { locale } = useLanguage();
   const fr = locale === "fr";
   const user = useSessionUser();
-  const [category, setCategory] = useState("all");
+  const [openFolder, setOpenFolder] = useState<string | null>(null);
   const [editor, setEditor] = useState<DocumentRow | "new" | null>(null);
-  const [documentToDelete, setDocumentToDelete] = useState<DocumentRow | null>(null);
+  const [documentToDelete, setDocumentToDelete] = useState<DocumentRow | null>(
+    null,
+  );
   const queryClient = useQueryClient();
   const documents = useQuery({
-    queryKey: ["company-documents", orgSlug, category],
-    queryFn: () =>
-      documentsApi.list<{ documents: DocumentRow[] }>(
-        orgSlug,
-        category === "all" ? undefined : { category },
-      ),
+    queryKey: ["company-documents", orgSlug],
+    queryFn: () => documentsApi.list<{ documents: DocumentRow[] }>(orgSlug),
     select: (data) => data.documents,
   });
   const summary = useQuery({
@@ -151,6 +151,16 @@ export function DocumentsArea({ orgSlug }: { orgSlug: string }) {
     }
     return map;
   }, [documents.data]);
+  const folderEntries = useMemo(
+    () =>
+      [...grouped.entries()].sort(([left], [right]) =>
+        title(left).localeCompare(title(right), locale),
+      ),
+    [grouped, locale],
+  );
+  const documentsInOpenFolder = openFolder
+    ? (grouped.get(openFolder) ?? [])
+    : [];
   if (documents.isPending)
     return (
       <main className="p-6">
@@ -259,115 +269,40 @@ export function DocumentsArea({ orgSlug }: { orgSlug: string }) {
                 )}
               </p>
             </div>
-            <Select name="category" value={category} onChange={setCategory}>
-              <option value="all">
+            {openFolder ? (
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => setOpenFolder(null)}
+              >
+                <ArrowLeft />
                 {copy(fr, "All folders", "Tous les dossiers")}
-              </option>
-              {categories.map((item) => (
-                <option key={item} value={item}>
-                  {title(item)}
-                </option>
-              ))}
-            </Select>
+              </Button>
+            ) : (
+              <span className="rounded-full border border-border bg-surface-2 px-3 py-1.5 text-xs font-semibold text-ink-secondary">
+                {folderEntries.length} {copy(fr, "folders", "dossier(s)")}
+              </span>
+            )}
           </div>
-          {grouped.size ? (
-            <div className="divide-y divide-border">
-              {[...grouped.entries()].map(([folder, items]) => (
-                <section key={folder} className="p-4">
-                  <div className="mb-3 flex items-center gap-2">
-                    <FolderOpen className="size-4 text-brand" />
-                    <h3 className="text-sm font-semibold text-ink">
-                      {title(folder)}
-                    </h3>
-                    <Badge variant="outline" icon={false}>
-                      {items.length}
-                    </Badge>
-                  </div>
-                  <div className="space-y-2">
-                    {items.map((document) => (
-                      <article
-                        key={document.id}
-                        className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface-2/60 p-3"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <p className="truncate text-sm font-semibold text-ink">
-                              {String(document.title)}
-                            </p>
-                            {document.isConfidential ? (
-                              <Badge variant="warning" icon={false}>
-                                <FileLock2 className="size-3" />
-                                {copy(fr, "Confidential", "Confidentiel")}
-                              </Badge>
-                            ) : null}
-                          </div>
-                          <p className="mt-1 truncate text-xs text-ink-secondary">
-                            {String(document.fileName)} ·{" "}
-                            {String(document.mimeType)} ·{" "}
-                            {size(document.sizeBytes)}
-                          </p>
-                          <p className="mt-1 text-xs text-ink-muted">
-                            {copy(fr, "Added", "Ajouté")}{" "}
-                            {date(document.createdAt, locale)}
-                            {document.uploadedByName
-                              ? ` · ${String(document.uploadedByName)}`
-                              : ""}
-                            {document.expiresOn
-                              ? ` · ${copy(fr, "Expires", "Expire")} ${date(document.expiresOn, locale)}`
-                              : ""}
-                          </p>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          <a
-                            href={orgApiUrl(
-                              orgSlug,
-                              `documents/${document.id}/preview`,
-                            )}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            <Button size="sm" variant="secondary">
-                              {copy(fr, "Preview", "Aperçu")}
-                            </Button>
-                          </a>
-                          <a
-                            href={orgApiUrl(
-                              orgSlug,
-                              `documents/${document.id}/download`,
-                            )}
-                          >
-                            <Button size="sm" variant="secondary">
-                              <Download />
-                              {copy(fr, "Download", "Télécharger")}
-                            </Button>
-                          </a>
-                          {can(user, "documents.update") ? (
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              onClick={() => setEditor(document)}
-                            >
-                              <Pencil />
-                              {copy(fr, "Edit", "Modifier")}
-                            </Button>
-                          ) : null}
-                          {can(user, "documents.delete") ? (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              loading={remove.isPending}
-                              onClick={() => setDocumentToDelete(document)}
-                            >
-                              <Trash2 className="text-critical" />
-                            </Button>
-                          ) : null}
-                        </div>
-                      </article>
-                    ))}
-                  </div>
-                </section>
-              ))}
-            </div>
+          {grouped.size && !openFolder ? (
+            <DocumentFolderGrid
+              entries={folderEntries}
+              fr={fr}
+              onOpen={setOpenFolder}
+            />
+          ) : openFolder ? (
+            <DocumentFolderContents
+              folder={openFolder}
+              documents={documentsInOpenFolder}
+              orgSlug={orgSlug}
+              fr={fr}
+              locale={locale}
+              canUpdate={can(user, "documents.update")}
+              canDelete={can(user, "documents.delete")}
+              deleting={remove.isPending}
+              onEdit={setEditor}
+              onDelete={setDocumentToDelete}
+            />
           ) : (
             <EmptyState
               icon={FileText}
@@ -450,6 +385,183 @@ export function DocumentsArea({ orgSlug }: { orgSlug: string }) {
     </main>
   );
 }
+
+function DocumentFolderGrid({
+  entries,
+  fr,
+  onOpen,
+}: {
+  entries: [string, DocumentRow[]][];
+  fr: boolean;
+  onOpen: (folder: string) => void;
+}) {
+  return (
+    <div className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
+      {entries.map(([folder, documents]) => (
+        <button
+          key={folder}
+          type="button"
+          onClick={() => onOpen(folder)}
+          className="group flex min-h-32 flex-col rounded-2xl border border-border bg-surface-1 p-4 text-left shadow-[0_12px_30px_-26px_rgba(15,23,42,.5)] transition hover:border-brand/35 hover:bg-brand-subtle/35 hover:shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <span className="grid size-10 shrink-0 place-items-center rounded-xl border border-brand/20 bg-brand-subtle text-brand">
+              <FolderOpen className="size-5" aria-hidden />
+            </span>
+            <ChevronRight
+              className="mt-1 size-4 text-ink-muted transition-transform group-hover:translate-x-0.5 group-hover:text-brand"
+              aria-hidden
+            />
+          </div>
+          <h3 className="mt-5 truncate text-sm font-semibold text-ink">
+            {title(folder)}
+          </h3>
+          <p className="mt-1 text-xs text-ink-secondary">
+            {documents.length} {copy(fr, "document(s)", "document(s)")}
+          </p>
+          <p className="mt-auto pt-4 text-xs font-semibold text-brand">
+            {copy(fr, "Open folder", "Ouvrir le dossier")}
+          </p>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function DocumentFolderContents({
+  folder,
+  documents,
+  orgSlug,
+  fr,
+  locale,
+  canUpdate,
+  canDelete,
+  deleting,
+  onEdit,
+  onDelete,
+}: {
+  folder: string;
+  documents: DocumentRow[];
+  orgSlug: string;
+  fr: boolean;
+  locale: string;
+  canUpdate: boolean;
+  canDelete: boolean;
+  deleting: boolean;
+  onEdit: (document: DocumentRow) => void;
+  onDelete: (document: DocumentRow) => void;
+}) {
+  return (
+    <section className="min-h-0">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-surface-2/45 px-4 py-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <FolderOpen className="size-4 shrink-0 text-brand" />
+          <h3 className="truncate text-sm font-semibold text-ink">
+            {title(folder)}
+          </h3>
+          <Badge variant="outline" icon={false}>
+            {documents.length}
+          </Badge>
+        </div>
+        <p className="text-xs text-ink-muted">
+          {copy(
+            fr,
+            "Scroll to browse this folder",
+            "Faites défiler pour parcourir ce dossier",
+          )}
+        </p>
+      </div>
+      {documents.length ? (
+        <div className="scrollbar-thin max-h-[65dvh] space-y-2 overflow-y-auto p-4">
+          {documents.map((document) => (
+            <article
+              key={document.id}
+              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface-2/60 p-3"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="truncate text-sm font-semibold text-ink">
+                    {String(document.title)}
+                  </p>
+                  {document.isConfidential ? (
+                    <Badge variant="warning" icon={false}>
+                      <FileLock2 className="size-3" />
+                      {copy(fr, "Confidential", "Confidentiel")}
+                    </Badge>
+                  ) : null}
+                </div>
+                <p className="mt-1 truncate text-xs text-ink-secondary">
+                  {String(document.fileName)} · {String(document.mimeType)} ·{" "}
+                  {size(document.sizeBytes)}
+                </p>
+                <p className="mt-1 text-xs text-ink-muted">
+                  {copy(fr, "Added", "Ajouté")}{" "}
+                  {date(document.createdAt, locale)}
+                  {document.uploadedByName
+                    ? ` · ${String(document.uploadedByName)}`
+                    : ""}
+                  {document.expiresOn
+                    ? ` · ${copy(fr, "Expires", "Expire")} ${date(document.expiresOn, locale)}`
+                    : ""}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <a
+                  href={orgApiUrl(orgSlug, `documents/${document.id}/preview`)}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <Button size="sm" variant="secondary">
+                    {copy(fr, "Preview", "Aperçu")}
+                  </Button>
+                </a>
+                <a
+                  href={orgApiUrl(orgSlug, `documents/${document.id}/download`)}
+                >
+                  <Button size="sm" variant="secondary">
+                    <Download />
+                    {copy(fr, "Download", "Télécharger")}
+                  </Button>
+                </a>
+                {canUpdate ? (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => onEdit(document)}
+                  >
+                    <Pencil />
+                    {copy(fr, "Edit", "Modifier")}
+                  </Button>
+                ) : null}
+                {canDelete ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    loading={deleting}
+                    onClick={() => onDelete(document)}
+                  >
+                    <Trash2 className="text-critical" />
+                  </Button>
+                ) : null}
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <EmptyState
+          icon={FolderOpen}
+          title={copy(fr, "This folder is empty", "Ce dossier est vide")}
+          description={copy(
+            fr,
+            "The documents may have been moved or deleted.",
+            "Les documents ont peut-être été déplacés ou supprimés.",
+          )}
+        />
+      )}
+    </section>
+  );
+}
+
 function DeleteDocumentDialog({
   document,
   fr,
@@ -471,7 +583,11 @@ function DeleteDocumentDialog({
     error instanceof ApiError
       ? error.message
       : error
-        ? copy(fr, "This document could not be deleted. Please try again.", "Impossible de supprimer ce document. R�essayez.")
+        ? copy(
+            fr,
+            "This document could not be deleted. Please try again.",
+            "Impossible de supprimer ce document. R�essayez.",
+          )
         : null;
   const documentTitle = text(document.title) || text(document.fileName) || "�";
 
@@ -499,10 +615,16 @@ function DeleteDocumentDialog({
               <p className="text-xs font-semibold uppercase tracking-[.14em] text-critical">
                 {copy(fr, "Permanent action", "Action d�finitive")}
               </p>
-              <h2 id="delete-document-title" className="mt-1 text-lg font-semibold text-ink">
+              <h2
+                id="delete-document-title"
+                className="mt-1 text-lg font-semibold text-ink"
+              >
                 {copy(fr, "Delete this document?", "Supprimer ce document ?")}
               </h2>
-              <p id="delete-document-description" className="mt-1 text-sm leading-6 text-ink-secondary">
+              <p
+                id="delete-document-description"
+                className="mt-1 text-sm leading-6 text-ink-secondary"
+              >
                 {copy(
                   fr,
                   "The private file and its company-library record will be removed permanently.",
@@ -511,7 +633,14 @@ function DeleteDocumentDialog({
               </p>
             </div>
           </div>
-          <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={onCancel} aria-label={copy(fr, "Close", "Fermer")}>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            disabled={busy}
+            onClick={onCancel}
+            aria-label={copy(fr, "Close", "Fermer")}
+          >
             <X aria-hidden />
           </Button>
         </header>
@@ -523,19 +652,24 @@ function DeleteDocumentDialog({
                 <FileText className="size-5" aria-hidden />
               </span>
               <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-ink">{documentTitle}</p>
+                <p className="truncate text-sm font-semibold text-ink">
+                  {documentTitle}
+                </p>
                 <p className="mt-1 truncate text-xs text-ink-secondary">
                   {text(document.fileName)} � {size(document.sizeBytes)}
                 </p>
                 <p className="mt-1 text-xs text-ink-muted">
-                  {copy(fr, "Added", "Ajout�")} {date(document.createdAt, locale)}
+                  {copy(fr, "Added", "Ajout�")}{" "}
+                  {date(document.createdAt, locale)}
                 </p>
               </div>
             </div>
           </div>
 
           <p className="rounded-xl border border-warning/25 bg-warning/10 px-3 py-3 text-xs leading-5 text-ink-secondary">
-            <strong className="text-ink">{copy(fr, "Please note: ", "Attention : ")}</strong>
+            <strong className="text-ink">
+              {copy(fr, "Please note: ", "Attention : ")}
+            </strong>
             {copy(
               fr,
               "this cannot be undone. Download a copy first if you may need this file later.",
@@ -544,17 +678,30 @@ function DeleteDocumentDialog({
           </p>
 
           {failure ? (
-            <p role="alert" className="rounded-xl border border-critical/30 bg-critical/10 px-3 py-3 text-xs text-critical">
+            <p
+              role="alert"
+              className="rounded-xl border border-critical/30 bg-critical/10 px-3 py-3 text-xs text-critical"
+            >
               {failure}
             </p>
           ) : null}
         </div>
 
         <footer className="flex flex-col-reverse gap-2 border-t border-border bg-surface-2/45 px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
-          <Button type="button" variant="secondary" disabled={busy} onClick={onCancel}>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={busy}
+            onClick={onCancel}
+          >
             {copy(fr, "Cancel", "Annuler")}
           </Button>
-          <Button type="button" variant="destructive" loading={busy} onClick={onConfirm}>
+          <Button
+            type="button"
+            variant="destructive"
+            loading={busy}
+            onClick={onConfirm}
+          >
             <Trash2 aria-hidden />
             {copy(fr, "Delete permanently", "Supprimer d�finitivement")}
           </Button>

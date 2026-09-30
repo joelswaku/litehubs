@@ -9,6 +9,9 @@ export const ownerManagementResources = [
   "operational-links",
   "phases",
   "phase-dependencies",
+  "risks",
+  "quality-checks",
+  "project-closeouts",
   "tasks",
   "task-dependencies",
   "budget-lines",
@@ -72,6 +75,249 @@ export const purchaseRequestReturnToDraftBody = z.object({
 export const ownerManagementProjectParams = organizationParams.extend({
   projectId: id,
 });
+
+/**
+ * Fleet work is deliberately separate from the generic owner-management
+ * registry. A driver may submit their own signed start/return record without
+ * receiving broad equipment permissions.
+ */
+const fleetBlankToNull = (value: unknown) =>
+  typeof value === "string" && value.trim() === "" ? null : value;
+const fleetOptionalId = z.preprocess(
+  fleetBlankToNull,
+  z.string().uuid("Enter a valid identifier").nullable().optional(),
+);
+const fleetOptionalDate = z.preprocess(
+  fleetBlankToNull,
+  z
+    .string()
+    .date("Enter a valid date in YYYY-MM-DD format")
+    .nullable()
+    .optional(),
+);
+const fleetInspectionAnswer = z
+  .object({
+    itemCode: z.string().trim().min(1).max(80),
+    itemLabel: z.string().trim().min(1).max(300),
+    result: z.enum(["pass", "fail", "not_applicable"]),
+    notes: z.string().trim().max(2_000).optional().nullable(),
+    photoDocumentId: fleetOptionalId,
+  })
+  .strict();
+
+export const fleetProfileParams = organizationParams.extend({
+  profileId: id,
+});
+export const fleetRunParams = organizationParams.extend({ runId: id });
+
+export const fleetProfileBody = z
+  .object({
+    assetId: id,
+    operationKind: z.enum([
+      "vehicle",
+      "motorcycle",
+      "tractor",
+      "generator",
+      "pump",
+      "motorized_equipment",
+    ]),
+    fleetControllerMemberId: fleetOptionalId,
+    maintenanceControllerMemberId: fleetOptionalId,
+    requiresPreTrip: z.boolean().optional(),
+    requiresPostTrip: z.boolean().optional(),
+    requiresGateCheck: z.boolean().optional(),
+    requiresOperatorLicence: z.boolean().optional(),
+    requiredLicenceClass: z.string().trim().max(120).optional().nullable(),
+    dailyMeterRequired: z.boolean().optional(),
+    preventDispatchWhenDue: z.boolean().optional(),
+    fuelTankCapacityLitres: z.number().positive().max(1_000_000).optional().nullable(),
+    expectedConsumption: z.number().positive().max(100_000).optional().nullable(),
+    expectedConsumptionUnit: z
+      .enum(["litres_per_100km", "litres_per_hour"])
+      .optional()
+      .nullable(),
+    consumptionTolerancePercent: z.number().min(0).max(200).optional(),
+    isActive: z.boolean().optional(),
+    notes: z.string().trim().max(4_000).optional().nullable(),
+  })
+  .strict()
+  .superRefine((profile, issue) => {
+    if (profile.expectedConsumption && !profile.expectedConsumptionUnit)
+      issue.addIssue({
+        code: "custom",
+        path: ["expectedConsumptionUnit"],
+        message: "Choose the unit used for the expected fuel consumption",
+      });
+    if (
+      profile.expectedConsumptionUnit === "litres_per_100km" &&
+      profile.operationKind !== "vehicle" &&
+      profile.operationKind !== "motorcycle" &&
+      profile.operationKind !== "tractor"
+    )
+      issue.addIssue({
+        code: "custom",
+        path: ["expectedConsumptionUnit"],
+        message: "Use litres per hour for a stationary motorized asset",
+      });
+  });
+export type FleetProfileInput = z.infer<typeof fleetProfileBody>;
+
+/** Asset identity is immutable after a controlled profile is created.  Editing
+ * a profile changes its safeguards, never moves its history to another asset. */
+export const fleetProfileUpdateBody = z
+  .object({
+    operationKind: z.enum([
+      "vehicle",
+      "motorcycle",
+      "tractor",
+      "generator",
+      "pump",
+      "motorized_equipment",
+    ]),
+    requiresPreTrip: z.boolean().optional(),
+    requiresPostTrip: z.boolean().optional(),
+    requiresGateCheck: z.boolean().optional(),
+    requiresOperatorLicence: z.boolean().optional(),
+    requiredLicenceClass: z.string().trim().max(120).optional().nullable(),
+    dailyMeterRequired: z.boolean().optional(),
+    preventDispatchWhenDue: z.boolean().optional(),
+    fuelTankCapacityLitres: z.number().positive().max(1_000_000).optional().nullable(),
+    expectedConsumption: z.number().positive().max(100_000).optional().nullable(),
+    expectedConsumptionUnit: z
+      .enum(["litres_per_100km", "litres_per_hour"])
+      .optional()
+      .nullable(),
+    consumptionTolerancePercent: z.number().min(0).max(200).optional(),
+    isActive: z.boolean().optional(),
+    notes: z.string().trim().max(4_000).optional().nullable(),
+  })
+  .strict()
+  .superRefine((profile, issue) => {
+    if (profile.expectedConsumption && !profile.expectedConsumptionUnit)
+      issue.addIssue({
+        code: "custom",
+        path: ["expectedConsumptionUnit"],
+        message: "Choose the unit used for the expected fuel consumption",
+      });
+    if (
+      profile.expectedConsumptionUnit === "litres_per_100km" &&
+      profile.operationKind !== "vehicle" &&
+      profile.operationKind !== "motorcycle" &&
+      profile.operationKind !== "tractor"
+    )
+      issue.addIssue({
+        code: "custom",
+        path: ["expectedConsumptionUnit"],
+        message: "Use litres per hour for a stationary motorized asset",
+      });
+  });
+export type FleetProfileUpdateInput = z.infer<typeof fleetProfileUpdateBody>;
+
+export const fleetAuthorizationBody = z
+  .object({
+    memberId: id,
+    responsibility: z.enum([
+      "driver",
+      "operator",
+      "fleet_controller",
+      "gate_verifier",
+      "maintenance_controller",
+    ]),
+    licenceDocumentId: fleetOptionalId,
+    licenceNumber: z.string().trim().max(160).optional().nullable(),
+    licenceExpiresOn: fleetOptionalDate,
+    startsOn: fleetOptionalDate,
+    endsOn: fleetOptionalDate,
+    isActive: z.boolean().optional(),
+    notes: z.string().trim().max(2_000).optional().nullable(),
+  })
+  .strict()
+  .superRefine((authorization, issue) => {
+    if (
+      authorization.startsOn &&
+      authorization.endsOn &&
+      authorization.endsOn < authorization.startsOn
+    )
+      issue.addIssue({
+        code: "custom",
+        path: ["endsOn"],
+        message: "Authorization end cannot be before its start date",
+      });
+  });
+export type FleetAuthorizationInput = z.infer<typeof fleetAuthorizationBody>;
+
+export const fleetRunStartBody = z
+  .object({
+    profileId: id,
+    // A controller may sign for an assigned driver. The selected operator
+    // remains the person who physically used the engine.
+    operatorMemberId: fleetOptionalId,
+    // Defaults to the secure server day for older clients. The current form
+    // always asks the person completing the sheet to choose this work date.
+    runDate: fleetOptionalDate,
+    projectId: fleetOptionalId,
+    projectTaskId: fleetOptionalId,
+    purpose: z.string().trim().min(3).max(1_000),
+    destination: z.string().trim().max(1_000).optional().nullable(),
+    startMeter: z.number().nonnegative().max(100_000_000).optional().nullable(),
+    openingFuelLitres: z.number().nonnegative().max(1_000_000).optional().nullable(),
+    gateVerifierMemberId: fleetOptionalId,
+    preTripResponses: z.array(fleetInspectionAnswer).max(80).default([]),
+  })
+  .strict();
+export type FleetRunStartInput = z.infer<typeof fleetRunStartBody>;
+
+export const fleetRunReturnBody = z
+  .object({
+    endMeter: z.number().nonnegative().max(100_000_000).optional().nullable(),
+    closingFuelLitres: z.number().nonnegative().max(1_000_000).optional().nullable(),
+    fuelAddedLitres: z.number().positive().max(1_000_000).optional().nullable(),
+    fuelAmount: z.number().nonnegative().max(100_000_000_000).optional().nullable(),
+    fuelCurrencyCode: z.enum(["CDF", "USD", "EUR"]).optional().nullable(),
+    fuelReceiptDocumentId: fleetOptionalId,
+    returnNotes: z.string().trim().max(4_000).optional().nullable(),
+    postTripResponses: z.array(fleetInspectionAnswer).max(80).default([]),
+  })
+  .strict()
+  .superRefine((run, issue) => {
+    if (run.fuelAmount !== undefined && run.fuelAmount !== null && !run.fuelAddedLitres)
+      issue.addIssue({
+        code: "custom",
+        path: ["fuelAddedLitres"],
+        message: "Enter the quantity of fuel when recording its amount",
+      });
+    if (run.fuelAddedLitres && !run.fuelCurrencyCode && run.fuelAmount)
+      issue.addIssue({
+        code: "custom",
+        path: ["fuelCurrencyCode"],
+        message: "Choose the fuel currency",
+      });
+  });
+export type FleetRunReturnInput = z.infer<typeof fleetRunReturnBody>;
+
+const simulationPercent = z
+  .number()
+  .finite("Enter a valid percentage")
+  .min(-100, "A percentage cannot be below -100%")
+  .max(1_000, "A percentage cannot exceed 1000%");
+export const projectDecisionSimulationBody = z
+  .object({
+    eggPriceChangePercent: simulationPercent.optional().default(0),
+    feedCostChangePercent: simulationPercent.optional().default(0),
+    mortalityPercent: z
+      .number()
+      .finite("Enter a valid mortality rate")
+      .min(0)
+      .max(100)
+      .optional()
+      .default(0),
+    saleDelayDays: z.number().int().min(0).max(3_650).optional().default(0),
+    budgetChangePercent: simulationPercent.optional().default(0),
+  })
+  .strict();
+export type ProjectDecisionSimulationInput = z.infer<
+  typeof projectDecisionSimulationBody
+>;
 
 export const procurementDocumentParams = organizationParams.extend({
   documentType: z.enum(["purchase-requests", "purchase-orders", "receipts"]),
@@ -199,9 +445,11 @@ export const equipmentCategoryUpdateBody = equipmentCategoryFields.refine(
   (value) => Object.keys(value).length > 0,
   "Provide at least one category value to update",
 );
-export const ownerManagementEquipmentCategoryParams = organizationParams.extend({
-  categoryId: id,
-});
+export const ownerManagementEquipmentCategoryParams = organizationParams.extend(
+  {
+    categoryId: id,
+  },
+);
 export type EquipmentCategoryCreateInput = z.infer<
   typeof equipmentCategoryCreateBody
 >;
@@ -269,6 +517,19 @@ export const ownerManagementDashboardQuery = z.object({
   projectId: id.optional(),
 });
 
+/** Filters for the portfolio only. They never expand the caller's existing
+ * project scope; the service first resolves visible projects, then narrows it. */
+export const projectAnalyticsQuery = z.object({
+  provinceId: id.optional(),
+  siteId: id.optional(),
+  projectType: z.string().trim().min(1).max(50).optional(),
+  managerId: id.optional(),
+  status: z.string().trim().min(1).max(50).optional(),
+  fromDate: z.string().date().optional(),
+  toDate: z.string().date().optional(),
+});
+export type ProjectAnalyticsQuery = z.infer<typeof projectAnalyticsQuery>;
+
 const recordInput = z
   .object({})
   .passthrough()
@@ -312,6 +573,102 @@ const optionalAmount = z.preprocess(
     .nullable()
     .optional(),
 );
+const optionalPercentage = z.preprocess(
+  blankToNull,
+  z
+    .number("Enter a percentage")
+    .finite("Enter a finite percentage")
+    .min(0, "Enter a percentage between 0 and 100")
+    .max(100, "Enter a percentage between 0 and 100")
+    .nullable()
+    .optional(),
+);
+
+const investmentLifecycleStages = [
+  "investment",
+  "commissioning",
+  "operating",
+  "closed",
+] as const;
+
+/**
+ * Benefit targets are intentionally structured instead of being a second
+ * budget. Amounts use the project currency and are simply the owner’s target
+ * baseline for the operational period after the investment is handed over.
+ */
+const projectBenefitTargetsInput = z
+  .object({
+    targetProductionQuantity: optionalAmount,
+    targetProductionUnit: optionalText(60),
+    targetProductionPeriod: z.preprocess(
+      blankToNull,
+      z.enum(["daily", "weekly", "monthly", "cycle"]).nullable().optional(),
+    ),
+    targetSalesAmount: optionalAmount,
+    targetMarginPercent: optionalPercentage,
+    targetMortalityPercent: optionalPercentage,
+    targetUnitCost: optionalAmount,
+  })
+  .strict()
+  .superRefine((target, issue) => {
+    const hasProductionQuantity = target.targetProductionQuantity != null;
+    const hasProductionUnit = target.targetProductionUnit != null;
+    const hasProductionPeriod = target.targetProductionPeriod != null;
+    if (hasProductionQuantity && !hasProductionUnit)
+      issue.addIssue({
+        code: "custom",
+        path: ["targetProductionUnit"],
+        message: "Choose the unit for the production target",
+      });
+    if (hasProductionQuantity && !hasProductionPeriod)
+      issue.addIssue({
+        code: "custom",
+        path: ["targetProductionPeriod"],
+        message: "Choose the period for the production target",
+      });
+    if (!hasProductionQuantity && (hasProductionUnit || hasProductionPeriod))
+      issue.addIssue({
+        code: "custom",
+        path: ["targetProductionQuantity"],
+        message: "Enter the production quantity for this target",
+      });
+  });
+
+const projectInvestmentProfileInput = z
+  .object({
+    startDate: optionalDate,
+    operationalStartDate: optionalDate,
+    benefitReviewDate: optionalDate,
+    benefitOwnerMemberId: optionalId,
+    lifecycleStage: z.preprocess(
+      blankToNull,
+      z.enum(investmentLifecycleStages).nullable().optional(),
+    ),
+    benefitTargets: projectBenefitTargetsInput.nullable().optional(),
+  })
+  .strict()
+  .superRefine((project, issue) => {
+    if (
+      project.startDate &&
+      project.operationalStartDate &&
+      project.operationalStartDate < project.startDate
+    )
+      issue.addIssue({
+        code: "custom",
+        path: ["operationalStartDate"],
+        message: "Operational start cannot be before the project start date",
+      });
+    if (
+      project.operationalStartDate &&
+      project.benefitReviewDate &&
+      project.benefitReviewDate < project.operationalStartDate
+    )
+      issue.addIssue({
+        code: "custom",
+        path: ["benefitReviewDate"],
+        message: "Benefit review cannot be before operational start",
+      });
+  });
 
 /**
  * A person working on an assigned task may update its status, report a blocker
@@ -443,6 +800,249 @@ const createTaskInput = taskInput
       });
   });
 
+const projectRiskInput = z
+  .object({
+    projectId: optionalId,
+    recordType: z.enum(["risk", "issue"]).optional(),
+    category: z
+      .enum([
+        "disease",
+        "supplier_delay",
+        "commodity_price",
+        "water",
+        "theft",
+        "permit",
+        "weather",
+        "other",
+      ])
+      .optional(),
+    title: z
+      .string()
+      .trim()
+      .min(1, "Risk title is required")
+      .max(500)
+      .optional(),
+    description: optionalText(),
+    probability: z.enum(["low", "medium", "high"]).optional(),
+    impact: z.enum(["low", "medium", "high", "critical"]).optional(),
+    ownerMemberId: optionalId,
+    triggerCondition: optionalText(2_000),
+    alertThreshold: optionalText(1_000),
+    preventionAction: optionalText(4_000),
+    contingencyAction: optionalText(4_000),
+    reviewDate: optionalDate,
+    status: z
+      .enum([
+        "open",
+        "monitoring",
+        "triggered",
+        "mitigating",
+        "accepted",
+        "closed",
+      ])
+      .optional(),
+    decision: z
+      .enum([
+        "pending",
+        "monitor",
+        "mitigate",
+        "avoid",
+        "transfer",
+        "accept",
+        "escalate",
+      ])
+      .optional(),
+    decisionTaken: optionalText(2_000),
+    decisionJustification: optionalText(4_000),
+    notes: optionalText(),
+  })
+  .strict()
+  .superRefine((risk, issue) => {
+    if (risk.decision && risk.decision !== "pending") {
+      if (!risk.decisionTaken)
+        issue.addIssue({
+          code: "custom",
+          path: ["decisionTaken"],
+          message: "Record the decision that was taken",
+        });
+      if (!risk.decisionJustification)
+        issue.addIssue({
+          code: "custom",
+          path: ["decisionJustification"],
+          message: "Explain the decision",
+        });
+    }
+  });
+
+const createProjectRiskInput = projectRiskInput
+  .required({
+    projectId: true,
+    title: true,
+    ownerMemberId: true,
+    triggerCondition: true,
+    alertThreshold: true,
+    preventionAction: true,
+    reviewDate: true,
+  })
+  .superRefine((risk, issue) => {
+    for (const [field, message] of [
+      ["projectId", "Choose the project"],
+      ["ownerMemberId", "Choose the person responsible for this risk"],
+      ["triggerCondition", "Describe what triggers this risk"],
+      ["alertThreshold", "Set an alert threshold"],
+      ["preventionAction", "Describe the preventive action"],
+      ["reviewDate", "Choose the review date"],
+    ] as const) {
+      const value = (risk as Record<string, unknown>)[field];
+      if (value == null || !String(value).trim())
+        issue.addIssue({ code: "custom", path: [field], message });
+    }
+  });
+
+const projectQualityCheckInput = z
+  .object({
+    projectId: optionalId,
+    receiptId: optionalId,
+    assetId: optionalId,
+    qualityStatus: z
+      .enum([
+        "pending",
+        "accepted",
+        "accepted_with_observations",
+        "rejected",
+        "returned",
+      ])
+      .optional(),
+    quantityMatches: z.boolean().optional(),
+    conditionAccepted: z.boolean().optional(),
+    documentsComplete: z.boolean().optional(),
+    functionalTestPassed: z.boolean().optional(),
+    safetyCheckPassed: z.boolean().optional(),
+    returnedQuantity: optionalAmount,
+    returnReason: optionalText(2_000),
+    warrantyProvider: optionalText(300),
+    warrantyReference: optionalText(300),
+    warrantyExpiresOn: optionalDate,
+    beforePhotoDocumentId: optionalId,
+    afterPhotoDocumentId: optionalId,
+    checkedByMemberId: optionalId,
+    checkedAt: z.preprocess(
+      blankToNull,
+      z.string().datetime().nullable().optional(),
+    ),
+    commissioningStatus: z
+      .enum(["not_required", "pending", "validated", "failed"])
+      .optional(),
+    commissionedByMemberId: optionalId,
+    commissionedAt: z.preprocess(
+      blankToNull,
+      z.string().datetime().nullable().optional(),
+    ),
+    commissioningNotes: optionalText(4_000),
+    notes: optionalText(),
+  })
+  .strict()
+  .superRefine((check, issue) => {
+    if (check.returnedQuantity && !check.returnReason)
+      issue.addIssue({
+        code: "custom",
+        path: ["returnReason"],
+        message: "Explain the returned quantity",
+      });
+    if (check.qualityStatus === "returned" && !check.returnedQuantity)
+      issue.addIssue({
+        code: "custom",
+        path: ["returnedQuantity"],
+        message: "Record the quantity returned to the supplier",
+      });
+    if (check.qualityStatus === "accepted") {
+      const incomplete = [
+        ["quantityMatches", check.quantityMatches],
+        ["conditionAccepted", check.conditionAccepted],
+        ["documentsComplete", check.documentsComplete],
+      ].find(([, completed]) => completed === false);
+      if (incomplete)
+        issue.addIssue({
+          code: "custom",
+          path: [String(incomplete[0])],
+          message: "Complete the required reception checks before accepting",
+        });
+    }
+    if (check.commissioningStatus === "validated") {
+      if (!check.functionalTestPassed)
+        issue.addIssue({
+          code: "custom",
+          path: ["functionalTestPassed"],
+          message: "Confirm the functional test before commissioning",
+        });
+      if (!check.safetyCheckPassed)
+        issue.addIssue({
+          code: "custom",
+          path: ["safetyCheckPassed"],
+          message: "Confirm the safety check before commissioning",
+        });
+    }
+  });
+
+const createProjectQualityCheckInput = projectQualityCheckInput
+  .required({ projectId: true })
+  .superRefine((check, issue) => {
+    if (!check.receiptId && !check.assetId)
+      issue.addIssue({
+        code: "custom",
+        path: ["receiptId"],
+        message: "Choose a receipt or an equipment asset to inspect",
+      });
+  });
+
+const projectCloseoutInput = z
+  .object({
+    projectId: optionalId,
+    status: z.enum(["draft", "completed"]).optional(),
+    expectedOutcomeAchieved: z.boolean().nullable().optional(),
+    achievementSummary: optionalText(6_000),
+    actualOutcome: optionalText(6_000),
+    lessonsLearned: optionalText(6_000),
+    handoverMemberId: optionalId,
+    commissioningValidated: z.boolean().optional(),
+    commissioningSummary: optionalText(6_000),
+    closeoutDocumentId: optionalId,
+    notes: optionalText(),
+  })
+  .strict()
+  .superRefine((closeout, issue) => {
+    if (closeout.status !== "completed") return;
+    if (closeout.expectedOutcomeAchieved == null)
+      issue.addIssue({
+        code: "custom",
+        path: ["expectedOutcomeAchieved"],
+        message: "Confirm whether the expected result was achieved",
+      });
+    for (const [field, value, message] of [
+      [
+        "achievementSummary",
+        closeout.achievementSummary,
+        "Describe the achieved result",
+      ],
+      [
+        "lessonsLearned",
+        closeout.lessonsLearned,
+        "Record what the team learned",
+      ],
+    ] as const)
+      if (!value) issue.addIssue({ code: "custom", path: [field], message });
+    if (!closeout.commissioningValidated)
+      issue.addIssue({
+        code: "custom",
+        path: ["commissioningValidated"],
+        message: "Confirm operational commissioning before closing the project",
+      });
+  });
+
+const createProjectCloseoutInput = projectCloseoutInput.required({
+  projectId: true,
+});
+
 /**
  * The service keeps a per-record allow-list for fields. This parser is kept
  * deliberately generic so the same API can support every connected owner
@@ -455,8 +1055,36 @@ export function parseOwnerManagementBody(
 ): Record<string, unknown> {
   if (resource === "tasks")
     return (mode === "create" ? createTaskInput : taskInput).parse(value);
+  if (resource === "risks")
+    return (
+      mode === "create" ? createProjectRiskInput : projectRiskInput
+    ).parse(value);
+  if (resource === "quality-checks")
+    return (
+      mode === "create"
+        ? createProjectQualityCheckInput
+        : projectQualityCheckInput
+    ).parse(value);
+  if (resource === "project-closeouts")
+    return (
+      mode === "create" ? createProjectCloseoutInput : projectCloseoutInput
+    ).parse(value);
 
   const parsed = recordInput.parse(value);
+  if (resource === "projects") {
+    // Keep the generic registry contract for established project fields, while
+    // validating every field introduced by the structured investment profile.
+    // This avoids returning opaque PostgreSQL errors for dates or KPI targets.
+    const profile = projectInvestmentProfileInput.parse({
+      startDate: parsed.startDate,
+      operationalStartDate: parsed.operationalStartDate,
+      benefitReviewDate: parsed.benefitReviewDate,
+      benefitOwnerMemberId: parsed.benefitOwnerMemberId,
+      lifecycleStage: parsed.lifecycleStage,
+      benefitTargets: parsed.benefitTargets,
+    });
+    return { ...parsed, ...profile };
+  }
   if (mode === "update" && Object.keys(parsed).length === 0) {
     throw new z.ZodError([
       {

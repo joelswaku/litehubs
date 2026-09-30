@@ -3,6 +3,7 @@ import * as service from "./company-setup.service";
 import type {
   CreateDepartmentInput,
   CreateInvitationInput,
+  CompanyRulesInput,
   CreateProvinceInput,
   CreateRoleInput,
   CreateSiteInput,
@@ -31,6 +32,36 @@ function parameter(req: Request, name: string): string {
 
 export const listProvinces: RequestHandler = async (req, res) => {
   res.json({ provinces: await service.listProvinces(contextOf(req)) });
+};
+
+export const getCompanyRules: RequestHandler = async (req, res) => {
+  res.json({ policy: await service.currentCompanyRules(contextOf(req)) });
+};
+
+export const downloadCompanyRulesPdf: RequestHandler = async (req, res) => {
+  const french = String(req.query.lang ?? "fr").toLowerCase() !== "en";
+  const pdf = await service.exportCompanyRulesPdf(contextOf(req), french);
+  res
+    .status(200)
+    .type("application/pdf")
+    .setHeader(
+      "Content-Disposition",
+      'attachment; filename="reglement-entreprise-congo-omega.pdf"',
+    )
+    .send(pdf);
+};
+
+export const listCompanyRulesVersions: RequestHandler = async (req, res) => {
+  res.json({ versions: await service.listCompanyRulesVersions(contextOf(req)) });
+};
+
+export const publishCompanyRules: RequestHandler = async (req, res) => {
+  res.status(201).json({
+    policy: await service.publishCompanyRules(
+      contextOf(req),
+      req.body as CompanyRulesInput,
+    ),
+  });
 };
 
 export const createProvince: RequestHandler = async (req, res) => {

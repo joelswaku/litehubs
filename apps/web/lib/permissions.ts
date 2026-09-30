@@ -152,7 +152,7 @@ export function dashboardLayoutFor(
       user,
       "provincial_manager",
       "farm_operations_manager",
-      "farm_manager",
+      "site_manager",
       "project_manager",
     )
   )
@@ -170,7 +170,15 @@ export function dashboardLayoutFor(
   )
     return "supervisor";
   if (
-    hasRole(user, "accountant", "hr_officer", "storekeeper", "security_officer")
+    hasRole(
+      user,
+      "accountant",
+      "hr_officer",
+      "storekeeper",
+      "security_officer",
+      "feed_mill_manager",
+      "fleet_controller",
+    )
   )
     return "back_office";
   if (hasRole(user, "employee")) return "employee";
@@ -205,6 +213,8 @@ export function dashboardLayoutFor(
       "payroll.read",
       "inventory.stock.read",
       "security.read",
+      "inventory.nutrition.read",
+      "vehicles.fleet_control.read",
     )
   ) {
     return "back_office";

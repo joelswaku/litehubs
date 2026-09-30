@@ -42,6 +42,13 @@ const PLATFORM_TABLES = new Set([
   "role_presets",
   "role_preset_permissions",
   "industries",
+  // Platform-only lifecycle records. They reference an organization in order
+  // to execute an owner-approved deletion or purge, but they are never
+  // exposed inside a tenant workspace and are operated solely by platform
+  // workers.
+  "platform_contact_requests",
+  "platform_organization_deletion_audit",
+  "platform_organization_file_purge_jobs",
 ]);
 
 /** Tenant tables whose tenant key is `id` rather than `organization_id`. */

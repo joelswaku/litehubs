@@ -144,6 +144,12 @@ export const createInvitationSchema = z.object({
   deliveryMethod: z.enum(["email", "sms", "both"]).default("email"),
 });
 
+export const companyRulesInputSchema = z.object({
+  title: z.string().trim().min(4).max(180),
+  content: z.string().trim().min(80).max(100_000),
+  changeNote: z.string().trim().min(3).max(600).optional(),
+});
+
 export type CreateProvinceInput = z.infer<typeof createProvinceSchema>;
 export type UpdateProvinceInput = z.infer<typeof updateProvinceSchema>;
 export type CreateSiteInput = z.infer<typeof createSiteSchema>;
@@ -157,3 +163,4 @@ export type ReplaceMemberProvincesInput = z.infer<
   typeof replaceMemberProvincesSchema
 >;
 export type CreateInvitationInput = z.infer<typeof createInvitationSchema>;
+export type CompanyRulesInput = z.infer<typeof companyRulesInputSchema>;

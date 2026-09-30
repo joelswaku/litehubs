@@ -731,6 +731,30 @@ const systemRoleCopy: Record<
         "Receives visitors and manages appointments and the live queue in scope.",
     },
   },
+  feed_mill_manager: {
+    fr: {
+      name: "Responsable Provenderie",
+      description:
+        "Gère les recettes, la fabrication d’aliment et les besoins nutritionnels, sans modifier les achats ni le stock physique.",
+    },
+    en: {
+      name: "Feed mill manager",
+      description:
+        "Manages feed recipes, production orders and nutrition planning without changing purchasing or physical stock.",
+    },
+  },
+  fleet_controller: {
+    fr: {
+      name: "Responsable flotte & engins",
+      description:
+        "Contrôle les engins, les affectations, les fiches quotidiennes et les alertes de sécurité.",
+    },
+    en: {
+      name: "Fleet & equipment controller",
+      description:
+        "Controls fleet equipment, assignments, daily sheets and safety alerts.",
+    },
+  },
 };
 
 const roleName = (role: Pick<OrganizationRole, "code" | "name">, fr: boolean) =>

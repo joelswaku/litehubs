@@ -48,7 +48,12 @@ export type OperationsAreaKind =
   | "maintenance"
   | "feed-mill";
 type Row = Record<string, unknown> & { id: string };
-type Place = { id: string; name: string; code?: string | null; provinceId?: string | null };
+type Place = {
+  id: string;
+  name: string;
+  code?: string | null;
+  provinceId?: string | null;
+};
 type Employee = {
   id: string;
   fullName: string;
@@ -57,7 +62,14 @@ type Employee = {
 };
 type Option = { value: string; label: string };
 type FieldType =
-  "text" | "number" | "date" | "textarea" | "select" | "combobox" | "checkbox" | "file";
+  | "text"
+  | "number"
+  | "date"
+  | "textarea"
+  | "select"
+  | "combobox"
+  | "checkbox"
+  | "file";
 type FormField = {
   key: string;
   label: string;
@@ -113,22 +125,60 @@ const feedIngredientCategory = (category: unknown) => {
 };
 const feedFinishedCategory = (category: unknown) => {
   const value = text(category).toLowerCase();
-  return [FEED_INVENTORY_CATEGORIES.finished.toLowerCase(), "aliment fabriqué", "aliment fabrique", "finished feed"].includes(value);
+  return [
+    FEED_INVENTORY_CATEGORIES.finished.toLowerCase(),
+    "aliment fabriqué",
+    "aliment fabrique",
+    "finished feed",
+  ].includes(value);
 };
 const inventoryCategoryName = (category: unknown, fr: boolean) => {
   const value = text(category);
   if (value === FEED_INVENTORY_CATEGORIES.rawMaterial)
-    return copy(fr, "Feed mill · raw material", "Provenderie · matière première");
+    return copy(
+      fr,
+      "Feed mill · raw material",
+      "Provenderie · matière première",
+    );
   if (value === FEED_INVENTORY_CATEGORIES.additive)
-    return copy(fr, "Feed mill · additive / mineral", "Provenderie · additif / minéral");
+    return copy(
+      fr,
+      "Feed mill · additive / mineral",
+      "Provenderie · additif / minéral",
+    );
   if (value === FEED_INVENTORY_CATEGORIES.finished)
-    return copy(fr, "Feed mill · finished feed", "Provenderie · aliment fabriqué");
+    return copy(
+      fr,
+      "Feed mill · finished feed",
+      "Provenderie · aliment fabriqué",
+    );
   return value || copy(fr, "Uncategorised", "Sans catégorie");
 };
 const feedInventoryCategoryOptions = (fr: boolean): Option[] => [
-  { value: FEED_INVENTORY_CATEGORIES.rawMaterial, label: copy(fr, "Feed mill · raw material", "Provenderie · matière première") },
-  { value: FEED_INVENTORY_CATEGORIES.additive, label: copy(fr, "Feed mill · additive / mineral", "Provenderie · additif / minéral") },
-  { value: FEED_INVENTORY_CATEGORIES.finished, label: copy(fr, "Feed mill · finished feed", "Provenderie · aliment fabriqué") },
+  {
+    value: FEED_INVENTORY_CATEGORIES.rawMaterial,
+    label: copy(
+      fr,
+      "Feed mill · raw material",
+      "Provenderie · matière première",
+    ),
+  },
+  {
+    value: FEED_INVENTORY_CATEGORIES.additive,
+    label: copy(
+      fr,
+      "Feed mill · additive / mineral",
+      "Provenderie · additif / minéral",
+    ),
+  },
+  {
+    value: FEED_INVENTORY_CATEGORIES.finished,
+    label: copy(
+      fr,
+      "Feed mill · finished feed",
+      "Provenderie · aliment fabriqué",
+    ),
+  },
 ];
 const procurementUnitOptions = (fr: boolean): Option[] => {
   const units: Array<[string, string]> = [
@@ -257,31 +307,36 @@ const receiptStatusInfo = (value: unknown, fr: boolean): ReceiptStatusInfo => {
         draft: {
           step: "1 · Préparer",
           label: "Brouillon",
-          detail: "Ajoutez les quantités réellement livrées et le bon de livraison avant de confirmer.",
+          detail:
+            "Ajoutez les quantités réellement livrées et le bon de livraison avant de confirmer.",
           impact: "Aucun impact budgétaire",
         },
         received: {
           step: "2 · Confirmer",
           label: "Réception confirmée",
-          detail: "Les quantités acceptées sont figées. La réception passe de l’engagé au dépensé ; le paiement fournisseur reste séparé.",
+          detail:
+            "Les quantités acceptées sont figées. La réception passe de l’engagé au dépensé ; le paiement fournisseur reste séparé.",
           impact: "Budget mis à jour",
         },
         verified: {
           step: "3 · Vérifier",
           label: "Réception vérifiée",
-          detail: "Le contrôle documentaire ou physique est terminé. Cette vérification n’ajoute aucun second montant.",
+          detail:
+            "Le contrôle documentaire ou physique est terminé. Cette vérification n’ajoute aucun second montant.",
           impact: "Aucun double comptage",
         },
         rejected: {
           step: "Clôturée",
           label: "Livraison refusée",
-          detail: "La livraison a été refusée avant confirmation. Les quantités restent à livrer sur le bon de commande.",
+          detail:
+            "La livraison a été refusée avant confirmation. Les quantités restent à livrer sur le bon de commande.",
           impact: "Aucun impact budgétaire",
         },
         cancelled: {
           step: "Clôturée",
           label: "Réception annulée",
-          detail: "Le BR est annulé. Sans paiement ni actif durable lié, son impact est retiré et le bon de commande reste à suivre.",
+          detail:
+            "Le BR est annulé. Sans paiement ni actif durable lié, son impact est retiré et le bon de commande reste à suivre.",
           impact: "Impact de réception annulé",
         },
       }
@@ -289,31 +344,36 @@ const receiptStatusInfo = (value: unknown, fr: boolean): ReceiptStatusInfo => {
         draft: {
           step: "1 · Prepare",
           label: "Draft",
-          detail: "Add the actual delivered quantities and delivery note before confirming.",
+          detail:
+            "Add the actual delivered quantities and delivery note before confirming.",
           impact: "No budget impact",
         },
         received: {
           step: "2 · Confirm",
           label: "Receipt confirmed",
-          detail: "Accepted quantities are locked. The receipt moves the amount from committed to spent; supplier payment remains separate.",
+          detail:
+            "Accepted quantities are locked. The receipt moves the amount from committed to spent; supplier payment remains separate.",
           impact: "Budget updated",
         },
         verified: {
           step: "3 · Verify",
           label: "Receipt verified",
-          detail: "The physical or document review is complete. Verification never adds a second amount.",
+          detail:
+            "The physical or document review is complete. Verification never adds a second amount.",
           impact: "No double-counting",
         },
         rejected: {
           step: "Closed",
           label: "Delivery refused",
-          detail: "The delivery was refused before confirmation. The purchase order remains open for delivery.",
+          detail:
+            "The delivery was refused before confirmation. The purchase order remains open for delivery.",
           impact: "No budget impact",
         },
         cancelled: {
           step: "Closed",
           label: "Receipt cancelled",
-          detail: "This BR is cancelled. With no payment or durable asset linked, its receipt impact is removed and the purchase order remains to be followed up.",
+          detail:
+            "This BR is cancelled. With no payment or durable asset linked, its receipt impact is removed and the purchase order remains to be followed up.",
           impact: "Receipt impact cancelled",
         },
       };
@@ -347,6 +407,9 @@ const permissions: Record<OwnerManagementResource, string> = {
   "operational-links": "projects",
   phases: "projects",
   "phase-dependencies": "projects",
+  risks: "projects",
+  "quality-checks": "procurement",
+  "project-closeouts": "projects",
   tasks: "tasks",
   "task-dependencies": "tasks",
   "budget-lines": "projects",
@@ -356,12 +419,12 @@ const permissions: Record<OwnerManagementResource, string> = {
   "inventory-items": "inventory.items",
   warehouses: "inventory.warehouses",
   "stock-movements": "inventory.movements",
-  "feed-batches": "inventory.items",
-  "feed-batch-inputs": "inventory.items",
-  "nutrition-profiles": "inventory.items",
-  "feed-recipes": "inventory.items",
-  "feed-recipe-lines": "inventory.items",
-  "feed-orders": "inventory.items",
+  "feed-batches": "inventory.nutrition",
+  "feed-batch-inputs": "inventory.nutrition",
+  "nutrition-profiles": "inventory.nutrition",
+  "feed-recipes": "inventory.nutrition",
+  "feed-recipe-lines": "inventory.nutrition",
+  "feed-orders": "inventory.nutrition",
   "purchase-requests": "procurement",
   "purchase-request-lines": "procurement",
   "purchase-orders": "procurement",
@@ -577,7 +640,9 @@ function ReturnPurchaseRequestDialog({
   const requestNumber = text(request.requestNumber) || text(request.id);
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const correctionNote = text(new FormData(event.currentTarget).get("correctionNote"));
+    const correctionNote = text(
+      new FormData(event.currentTarget).get("correctionNote"),
+    );
     onConfirm(correctionNote || undefined);
   };
   return (
@@ -594,7 +659,10 @@ function ReturnPurchaseRequestDialog({
         <p className="text-xs font-semibold uppercase tracking-[.12em] text-brand">
           {copy(fr, "Purchase request", "Demande d’achat")}
         </p>
-        <h2 id="return-request-title" className="mt-1 text-xl font-semibold text-ink">
+        <h2
+          id="return-request-title"
+          className="mt-1 text-xl font-semibold text-ink"
+        >
           {copy(fr, "Return to draft", "Retourner au brouillon")}
         </h2>
         <p className="mt-3 text-sm leading-6 text-ink-secondary">
@@ -607,7 +675,11 @@ function ReturnPurchaseRequestDialog({
         <div className="mt-5">
           <Field
             htmlFor="correctionNote"
-            label={copy(fr, "Correction note (optional)", "Message de correction (facultatif)")}
+            label={copy(
+              fr,
+              "Correction note (optional)",
+              "Message de correction (facultatif)",
+            )}
             hint={copy(
               fr,
               "Explain precisely what must be corrected.",
@@ -618,14 +690,26 @@ function ReturnPurchaseRequestDialog({
           </Field>
         </div>
         {error ? (
-          <p className="mt-4 rounded-lg bg-critical/10 px-3 py-2 text-sm text-critical" role="alert">
+          <p
+            className="mt-4 rounded-lg bg-critical/10 px-3 py-2 text-sm text-critical"
+            role="alert"
+          >
             {error instanceof Error
               ? error.message
-              : copy(fr, "Could not return this request to draft", "Impossible de retourner cette demande au brouillon")}
+              : copy(
+                  fr,
+                  "Could not return this request to draft",
+                  "Impossible de retourner cette demande au brouillon",
+                )}
           </p>
         ) : null}
         <div className="mt-6 flex flex-wrap justify-end gap-2">
-          <Button type="button" variant="secondary" onClick={onClose} disabled={pending}>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={onClose}
+            disabled={pending}
+          >
             {copy(fr, "Cancel", "Annuler")}
           </Button>
           <Button type="submit" disabled={pending}>
@@ -656,7 +740,10 @@ function ReceiptStatusDialog({
   fr: boolean;
 }) {
   const reference = text(receipt.receiptNumber) || text(receipt.id);
-  const copyForStatus: Record<ReceiptTransition, { title: string; description: string; action: string }> = fr
+  const copyForStatus: Record<
+    ReceiptTransition,
+    { title: string; description: string; action: string }
+  > = fr
     ? {
         received: {
           title: "Confirmer la réception",
@@ -727,12 +814,18 @@ function ReceiptStatusDialog({
         className="w-full max-w-lg rounded-2xl border border-border bg-surface-1 p-5 shadow-2xl sm:p-6"
       >
         <p className="text-xs font-semibold uppercase tracking-[.12em] text-brand">
-          {copy(fr, "Goods receipt · ", "Réception · ")}{reference}
+          {copy(fr, "Goods receipt · ", "Réception · ")}
+          {reference}
         </p>
-        <h2 id="receipt-status-title" className="mt-1 text-xl font-semibold text-ink">
+        <h2
+          id="receipt-status-title"
+          className="mt-1 text-xl font-semibold text-ink"
+        >
           {content.title}
         </h2>
-        <p className="mt-3 text-sm leading-6 text-ink-secondary">{content.description}</p>
+        <p className="mt-3 text-sm leading-6 text-ink-secondary">
+          {content.description}
+        </p>
         <div className="mt-5">
           <Field
             htmlFor="notes"
@@ -743,18 +836,34 @@ function ReceiptStatusDialog({
               "Utile pour expliquer un refus, une annulation ou le résultat de la vérification.",
             )}
           >
-            <Textarea name="notes" defaultValue={text(receipt.notes)} maxLength={2000} />
+            <Textarea
+              name="notes"
+              defaultValue={text(receipt.notes)}
+              maxLength={2000}
+            />
           </Field>
         </div>
         {error ? (
-          <p className="mt-4 rounded-lg bg-critical/10 px-3 py-2 text-sm text-critical" role="alert">
+          <p
+            className="mt-4 rounded-lg bg-critical/10 px-3 py-2 text-sm text-critical"
+            role="alert"
+          >
             {error instanceof Error
               ? error.message
-              : copy(fr, "Could not update this BR", "Impossible de mettre à jour ce BR")}
+              : copy(
+                  fr,
+                  "Could not update this BR",
+                  "Impossible de mettre à jour ce BR",
+                )}
           </p>
         ) : null}
         <div className="mt-6 flex flex-wrap justify-end gap-2">
-          <Button type="button" variant="secondary" onClick={onClose} disabled={pending}>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={onClose}
+            disabled={pending}
+          >
             {copy(fr, "Cancel", "Fermer")}
           </Button>
           <Button type="submit" disabled={pending}>
@@ -847,7 +956,11 @@ function Editor({
         ) : null}
         <div className="mt-5 grid gap-4 sm:grid-cols-2">
           {fields.map((field) => {
-            const value = row?.[field.key] ?? defaults?.[field.key] ?? field.defaultValue ?? "";
+            const value =
+              row?.[field.key] ??
+              defaults?.[field.key] ??
+              field.defaultValue ??
+              "";
             const control =
               field.type === "textarea" ? (
                 <Textarea
@@ -923,7 +1036,9 @@ function Editor({
                 hint={field.hint}
                 error={errors[field.key]?.[0]}
                 className={
-                  (field.type === "textarea" || field.type === "file") ? "sm:col-span-2" : undefined
+                  field.type === "textarea" || field.type === "file"
+                    ? "sm:col-span-2"
+                    : undefined
                 }
               >
                 {control}
@@ -964,7 +1079,13 @@ function Rows({
 }) {
   if (!rows.length) return <>{empty}</>;
   return (
-    <div className={variant === "cards" ? `max-h-[34rem] space-y-3 overflow-y-auto pr-1 ${className ?? ""}` : `divide-y divide-border ${className ?? ""}`}>
+    <div
+      className={
+        variant === "cards"
+          ? `max-h-[34rem] space-y-3 overflow-y-auto pr-1 ${className ?? ""}`
+          : `divide-y divide-border ${className ?? ""}`
+      }
+    >
       {rows.map((row, index) => {
         const key = text(row.id) || `row-${index}`;
         if (variant === "cards" && renderCard)
@@ -984,7 +1105,11 @@ function Rows({
             key={key}
             type="button"
             onClick={() => open?.(row)}
-            className={variant === "cards" ? "group flex w-full items-start justify-between gap-3 rounded-xl border border-border bg-surface-1 px-4 py-3.5 text-left shadow-sm transition hover:-translate-y-px hover:border-brand/35 hover:bg-surface-2 hover:shadow-md" : "flex w-full items-start justify-between gap-3 py-3 text-left hover:bg-surface-2/70"}
+            className={
+              variant === "cards"
+                ? "group flex w-full items-start justify-between gap-3 rounded-xl border border-border bg-surface-1 px-4 py-3.5 text-left shadow-sm transition hover:-translate-y-px hover:border-brand/35 hover:bg-surface-2 hover:shadow-md"
+                : "flex w-full items-start justify-between gap-3 py-3 text-left hover:bg-surface-2/70"
+            }
           >
             <span className="min-w-0 flex-1">
               <span className="block truncate text-sm font-semibold text-ink">
@@ -1008,7 +1133,9 @@ function Rows({
               </span>
             </span>
             {open ? (
-              <span className="shrink-0 text-xs font-semibold text-brand group-hover:underline">{openLabel}</span>
+              <span className="shrink-0 text-xs font-semibold text-brand group-hover:underline">
+                {openLabel}
+              </span>
             ) : null}
           </button>
         );
@@ -1063,9 +1190,16 @@ function ProcurementRecordsPanel({
   const pageSize = 4;
   const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
   const safePage = Math.min(page, pageCount - 1);
-  const visibleRows = rows.slice(safePage * pageSize, (safePage + 1) * pageSize);
+  const visibleRows = rows.slice(
+    safePage * pageSize,
+    (safePage + 1) * pageSize,
+  );
   const Icon =
-    type === "request" ? ClipboardList : type === "order" ? ShoppingCart : Truck;
+    type === "request"
+      ? ClipboardList
+      : type === "order"
+        ? ShoppingCart
+        : Truck;
   const dateLabel =
     type === "request"
       ? copy(fr, "Required", "Nécessaire")
@@ -1082,7 +1216,9 @@ function ProcurementRecordsPanel({
           </span>
           <div>
             <h2 className="text-base font-semibold text-ink">{title}</h2>
-            <p className="mt-1 max-w-xl text-xs leading-5 text-ink-secondary">{description}</p>
+            <p className="mt-1 max-w-xl text-xs leading-5 text-ink-secondary">
+              {description}
+            </p>
           </div>
         </div>
         {onCreate ? (
@@ -1106,7 +1242,8 @@ function ProcurementRecordsPanel({
               text(row.name) ||
               "—";
             const status = text(row.status);
-            const receiptStatus = type === "receipt" ? receiptStatusInfo(status, fr) : null;
+            const receiptStatus =
+              type === "receipt" ? receiptStatusInfo(status, fr) : null;
             const connectedRows = relatedRows.filter(
               (item) => text(item[relationKey]) === text(row.id),
             );
@@ -1140,9 +1277,13 @@ function ProcurementRecordsPanel({
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold tracking-[-0.01em] text-ink">{heading}</p>
+                    <p className="truncate text-sm font-semibold tracking-[-0.01em] text-ink">
+                      {heading}
+                    </p>
                     {descriptionText ? (
-                      <p className="mt-1 line-clamp-2 text-xs leading-5 text-ink-secondary">{descriptionText}</p>
+                      <p className="mt-1 line-clamp-2 text-xs leading-5 text-ink-secondary">
+                        {descriptionText}
+                      </p>
                     ) : null}
                   </div>
                   <Badge variant={tone(status)}>
@@ -1160,7 +1301,8 @@ function ProcurementRecordsPanel({
                     <span className="rounded-md bg-brand/7 px-2 py-1 font-medium text-brand">
                       {type === "receipt"
                         ? copy(fr, "BR owner", "Responsable du BR")
-                        : copy(fr, "Ordered by", "Commandé par")} · {responsibleName}
+                        : copy(fr, "Ordered by", "Commandé par")}{" "}
+                      · {responsibleName}
                     </span>
                   ) : null}
                   {projectLabel ? (
@@ -1222,7 +1364,11 @@ function ProcurementRecordsPanel({
                           ? copy(fr, "Requested items", "Articles demandés")
                           : type === "order"
                             ? copy(fr, "Ordered items", "Articles commandés")
-                            : copy(fr, "Received items", "Articles réceptionnés")}
+                            : copy(
+                                fr,
+                                "Received items",
+                                "Articles réceptionnés",
+                              )}
                       </span>
                       <span className="text-xs font-semibold text-brand">
                         {expandedRecordId === text(row.id)
@@ -1235,20 +1381,26 @@ function ProcurementRecordsPanel({
                         ? connectedRows
                         : connectedRows.slice(0, 2)
                       ).map((item, itemIndex) => {
-                        const itemName = text(item.description) || text(item.name) || "—";
+                        const itemName =
+                          text(item.description) || text(item.name) || "—";
                         const quantity =
                           type === "request"
                             ? item.requestedQuantity
                             : type === "order"
                               ? item.orderedQuantity
                               : item.receivedQuantity;
-                        const canEditItem = type === "request" && status === "draft" && onEditItem;
+                        const canEditItem =
+                          type === "request" &&
+                          status === "draft" &&
+                          onEditItem;
                         return (
                           <div
                             key={text(item.id) || `${key}-item-${itemIndex}`}
                             className="flex items-center justify-between gap-3 rounded-md px-1 py-1 text-xs"
                           >
-                            <span className="min-w-0 truncate text-ink-secondary">{itemName}</span>
+                            <span className="min-w-0 truncate text-ink-secondary">
+                              {itemName}
+                            </span>
                             <span className="flex shrink-0 items-center gap-2 font-medium text-ink">
                               <span>
                                 {quantity === null || quantity === undefined
@@ -1256,7 +1408,11 @@ function ProcurementRecordsPanel({
                                   : `${amount(quantity)} ${text(item.unit) || copy(fr, "unit", "unité")}`}
                               </span>
                               {canEditItem ? (
-                                <Button size="sm" variant="ghost" onClick={() => onEditItem(item)}>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => onEditItem(item)}
+                                >
                                   {copy(fr, "Edit", "Modifier")}
                                 </Button>
                               ) : null}
@@ -1264,13 +1420,16 @@ function ProcurementRecordsPanel({
                           </div>
                         );
                       })}
-                      {connectedRows.length > 2 && expandedRecordId !== text(row.id) ? (
+                      {connectedRows.length > 2 &&
+                      expandedRecordId !== text(row.id) ? (
                         <button
                           type="button"
                           onClick={() => setExpandedRecordId(text(row.id))}
                           className="pt-1 text-xs font-medium text-brand hover:underline"
                         >
-                          +{connectedRows.length - 2} {copy(fr, "more item(s)", "autre(s) article(s)")} · {copy(fr, "Open all", "Ouvrir tout")}
+                          +{connectedRows.length - 2}{" "}
+                          {copy(fr, "more item(s)", "autre(s) article(s)")} ·{" "}
+                          {copy(fr, "Open all", "Ouvrir tout")}
                         </button>
                       ) : null}
                     </div>
@@ -1281,38 +1440,88 @@ function ProcurementRecordsPanel({
                     {type === "receipt" && onReceiptStatusChange ? (
                       <>
                         {canAddItem ? (
-                          <Button size="sm" variant="secondary" onClick={() => onAddItem?.(row)}>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => onAddItem?.(row)}
+                          >
                             <Plus className="size-3.5" />
-                            {copy(fr, "Add received item", "Ajouter l’article reçu")}
+                            {copy(
+                              fr,
+                              "Add received item",
+                              "Ajouter l’article reçu",
+                            )}
                           </Button>
                         ) : null}
                         {status === "draft" ? (
                           <>
-                            <Button size="sm" onClick={() => onReceiptStatusChange(row, "received")}>
+                            <Button
+                              size="sm"
+                              onClick={() =>
+                                onReceiptStatusChange(row, "received")
+                              }
+                            >
                               <CheckCircle2 className="size-3.5" />
-                              {copy(fr, "Confirm receipt", "Confirmer la réception")}
+                              {copy(
+                                fr,
+                                "Confirm receipt",
+                                "Confirmer la réception",
+                              )}
                             </Button>
-                            <Button size="sm" variant="ghost" onClick={() => onReceiptStatusChange(row, "rejected")}>
-                              {copy(fr, "Refuse delivery", "Refuser la livraison")}
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() =>
+                                onReceiptStatusChange(row, "rejected")
+                              }
+                            >
+                              {copy(
+                                fr,
+                                "Refuse delivery",
+                                "Refuser la livraison",
+                              )}
                             </Button>
-                            <Button size="sm" variant="ghost" onClick={() => onReceiptStatusChange(row, "cancelled")}>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() =>
+                                onReceiptStatusChange(row, "cancelled")
+                              }
+                            >
                               {copy(fr, "Cancel BR", "Annuler le BR")}
                             </Button>
                           </>
                         ) : null}
                         {status === "received" ? (
                           <>
-                            <Button size="sm" onClick={() => onReceiptStatusChange(row, "verified")}>
+                            <Button
+                              size="sm"
+                              onClick={() =>
+                                onReceiptStatusChange(row, "verified")
+                              }
+                            >
                               <CheckCircle2 className="size-3.5" />
                               {copy(fr, "Verify BR", "Vérifier le BR")}
                             </Button>
-                            <Button size="sm" variant="ghost" onClick={() => onReceiptStatusChange(row, "cancelled")}>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() =>
+                                onReceiptStatusChange(row, "cancelled")
+                              }
+                            >
                               {copy(fr, "Cancel BR", "Annuler le BR")}
                             </Button>
                           </>
                         ) : null}
                         {status === "verified" ? (
-                          <Button size="sm" variant="ghost" onClick={() => onReceiptStatusChange(row, "cancelled")}>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() =>
+                              onReceiptStatusChange(row, "cancelled")
+                            }
+                          >
                             {copy(fr, "Cancel BR", "Annuler le BR")}
                           </Button>
                         ) : null}
@@ -1323,21 +1532,38 @@ function ProcurementRecordsPanel({
                         ) : null}
                       </>
                     ) : canAddItem ? (
-                      <Button size="sm" variant="secondary" onClick={() => onAddItem?.(row)}>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => onAddItem?.(row)}
+                      >
                         <Plus className="size-3.5" />
                         {copy(fr, "Add item", "Ajouter un article")}
                       </Button>
                     ) : canReturn ? (
-                      <Button size="sm" variant="secondary" onClick={() => onReturnToDraft?.(row)}>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => onReturnToDraft?.(row)}
+                      >
                         {copy(fr, "Return to draft", "Retourner au brouillon")}
                       </Button>
-                    ) : status === "submitted" || status === "pending_approval" ? (
+                    ) : status === "submitted" ||
+                      status === "pending_approval" ? (
                       <span className="text-xs text-ink-muted">
-                        {copy(fr, "Locked while approval is pending", "Verrouillée pendant l’approbation")}
+                        {copy(
+                          fr,
+                          "Locked while approval is pending",
+                          "Verrouillée pendant l’approbation",
+                        )}
                       </span>
                     ) : (
                       <span className="text-xs text-ink-muted">
-                        {copy(fr, "No action required", "Aucune action requise")}
+                        {copy(
+                          fr,
+                          "No action required",
+                          "Aucune action requise",
+                        )}
                       </span>
                     )}
                     {canDownload && text(row.id) ? (
@@ -1363,7 +1589,11 @@ function ProcurementRecordsPanel({
                     {type === "request"
                       ? copy(fr, "Business need", "Besoin d’achat")
                       : type === "order"
-                        ? copy(fr, "Supplier commitment", "Engagement fournisseur")
+                        ? copy(
+                            fr,
+                            "Supplier commitment",
+                            "Engagement fournisseur",
+                          )
                         : copy(fr, "Stock receiving", "Réception de stock")}
                   </span>
                 </div>
@@ -1377,14 +1607,27 @@ function ProcurementRecordsPanel({
         <div className="flex items-center justify-between gap-3 border-t border-border bg-surface-2/35 px-4 py-3 sm:px-5">
           <p className="text-xs text-ink-muted">
             {copy(fr, "Showing", "Affichage")} {safePage * pageSize + 1}–
-            {Math.min((safePage + 1) * pageSize, rows.length)} {copy(fr, "of", "sur")} {rows.length}
+            {Math.min((safePage + 1) * pageSize, rows.length)}{" "}
+            {copy(fr, "of", "sur")} {rows.length}
           </p>
           <div className="flex items-center gap-2">
-            <Button size="sm" variant="ghost" disabled={safePage === 0} onClick={() => setPage(safePage - 1)}>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={safePage === 0}
+              onClick={() => setPage(safePage - 1)}
+            >
               {copy(fr, "Previous", "Précédent")}
             </Button>
-            <span className="text-xs font-medium text-ink-secondary">{safePage + 1}/{pageCount}</span>
-            <Button size="sm" variant="ghost" disabled={safePage + 1 >= pageCount} onClick={() => setPage(safePage + 1)}>
+            <span className="text-xs font-medium text-ink-secondary">
+              {safePage + 1}/{pageCount}
+            </span>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={safePage + 1 >= pageCount}
+              onClick={() => setPage(safePage + 1)}
+            >
               {copy(fr, "Next", "Suivant")}
             </Button>
           </div>
@@ -1457,9 +1700,19 @@ function Resource({
       body: ManagementBody;
       files?: Record<string, File>;
     }) => {
-      const result = editor && editor !== "new"
-        ? await ownerManagementApi.update<{ record: Row }>(orgSlug, resource, editor.id, body)
-        : await ownerManagementApi.create<{ record: Row }>(orgSlug, resource, body);
+      const result =
+        editor && editor !== "new"
+          ? await ownerManagementApi.update<{ record: Row }>(
+              orgSlug,
+              resource,
+              editor.id,
+              body,
+            )
+          : await ownerManagementApi.create<{ record: Row }>(
+              orgSlug,
+              resource,
+              body,
+            );
       if (afterSave && result.record) await afterSave(result.record, files);
       return result;
     },
@@ -1517,8 +1770,16 @@ function Resource({
         <Editor
           title={
             editor === "new"
-              ? copy(fr, `Add ${formTitle ?? title}`, `Ajouter ${formTitle ?? title}`)
-              : copy(fr, `Edit ${formTitle ?? title}`, `Modifier ${formTitle ?? title}`)
+              ? copy(
+                  fr,
+                  `Add ${formTitle ?? title}`,
+                  `Ajouter ${formTitle ?? title}`,
+                )
+              : copy(
+                  fr,
+                  `Edit ${formTitle ?? title}`,
+                  `Modifier ${formTitle ?? title}`,
+                )
           }
           subtitle={formTitle ?? title}
           row={editor === "new" ? undefined : editor}
@@ -1576,7 +1837,11 @@ function EquipmentAssetCard({
             type="button"
             onClick={() => setPreviewOpen(true)}
             className="relative size-20 shrink-0 overflow-hidden rounded-lg border border-border bg-surface-3 focus:outline-none focus:ring-2 focus:ring-brand/40 sm:size-24"
-            aria-label={copy(fr, `Open photo of ${heading}`, `Ouvrir la photo de ${heading}`)}
+            aria-label={copy(
+              fr,
+              `Open photo of ${heading}`,
+              `Ouvrir la photo de ${heading}`,
+            )}
           >
             <img
               src={previewUrl}
@@ -1591,17 +1856,29 @@ function EquipmentAssetCard({
         ) : (
           <div
             className="grid size-20 shrink-0 place-items-center rounded-lg border border-dashed border-border bg-brand/[0.045] text-brand sm:size-24"
-            aria-label={copy(fr, "No equipment photo", "Aucune photo d’équipement")}
+            aria-label={copy(
+              fr,
+              "No equipment photo",
+              "Aucune photo d’équipement",
+            )}
           >
             <ImageIcon className="size-6" />
           </div>
         )}
-        <button type="button" onClick={open} className="min-w-0 flex-1 text-left focus:outline-none">
+        <button
+          type="button"
+          onClick={open}
+          className="min-w-0 flex-1 text-left focus:outline-none"
+        >
           <span className="flex items-start justify-between gap-3">
             <span className="min-w-0">
-              <span className="block truncate text-sm font-semibold text-ink">{heading}</span>
+              <span className="block truncate text-sm font-semibold text-ink">
+                {heading}
+              </span>
               {text(asset.assetNumber) ? (
-                <span className="mt-0.5 block text-xs font-medium text-brand">{text(asset.assetNumber)}</span>
+                <span className="mt-0.5 block text-xs font-medium text-brand">
+                  {text(asset.assetNumber)}
+                </span>
               ) : null}
             </span>
             <span className="shrink-0 text-xs font-semibold text-brand group-hover:underline">
@@ -1611,7 +1888,8 @@ function EquipmentAssetCard({
           <span className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-secondary">
             {fields.map((field) => {
               const value = asset[field];
-              if (value === null || value === undefined || value === "") return null;
+              if (value === null || value === undefined || value === "")
+                return null;
               return (
                 <span key={`${asset.id}-${field}`}>
                   {field === "status" ? (
@@ -1625,7 +1903,11 @@ function EquipmentAssetCard({
           </span>
           {!photo && !images.isLoading ? (
             <span className="mt-2 block text-xs text-ink-muted">
-              {copy(fr, "No photo yet — open to add one.", "Aucune photo — ouvrez pour en ajouter une.")}
+              {copy(
+                fr,
+                "No photo yet — open to add one.",
+                "Aucune photo — ouvrez pour en ajouter une.",
+              )}
             </span>
           ) : null}
         </button>
@@ -1647,7 +1929,10 @@ function EquipmentAssetCard({
                 <p className="text-xs font-semibold uppercase tracking-[.13em] text-brand">
                   {copy(fr, "Equipment photo", "Photo de l’équipement")}
                 </p>
-                <h2 id={`equipment-photo-${asset.id}`} className="mt-1 truncate text-lg font-semibold text-ink">
+                <h2
+                  id={`equipment-photo-${asset.id}`}
+                  className="mt-1 truncate text-lg font-semibold text-ink"
+                >
                   {heading}
                 </h2>
               </div>
@@ -1711,15 +1996,22 @@ function EquipmentAssetDetailDialog({
       text(image.documentType) === "equipment_photo" ||
       text(image.title).endsWith(" · photo"),
   );
-  const photoUrl = photo ? orgApiUrl(orgSlug, `files/${photo.id}/preview`) : null;
-  const project = projects.find((item) => text(item.id) === text(asset.projectId));
+  const photoUrl = photo
+    ? orgApiUrl(orgSlug, `files/${photo.id}/preview`)
+    : null;
+  const project = projects.find(
+    (item) => text(item.id) === text(asset.projectId),
+  );
   const siteId = text(asset.siteId) || text(project?.siteId);
   const provinceId = text(asset.provinceId) || text(project?.provinceId);
   const site = sites.find((item) => text(item.id) === siteId);
   const province = provinces.find((item) => text(item.id) === provinceId);
-  const supplier = suppliers.find((item) => text(item.id) === text(asset.supplierId));
+  const supplier = suppliers.find(
+    (item) => text(item.id) === text(asset.supplierId),
+  );
   const responsible = employees.find(
-    (employee) => text(employee.member?.memberId) === text(asset.assignedMemberId),
+    (employee) =>
+      text(employee.member?.memberId) === text(asset.assignedMemberId),
   );
   const heading = text(asset.name) || text(asset.assetNumber) || "—";
   const statusLabels: Record<string, [string, string]> = {
@@ -1761,23 +2053,41 @@ function EquipmentAssetDetailDialog({
   const supplierName = text(asset.supplierName) || text(supplier?.name) || "—";
   const responsibleName =
     text(asset.assignedMemberName) || text(responsible?.fullName) || "—";
-  const detailGroups: Array<{ title: string; details: Array<[string, string]> }> = [
+  const detailGroups: Array<{
+    title: string;
+    details: Array<[string, string]>;
+  }> = [
     {
       title: copy(fr, "Equipment identity", "Identité de l’équipement"),
       details: [
-        [copy(fr, "Asset number", "Numéro d’actif"), text(asset.assetNumber) || "—"],
+        [
+          copy(fr, "Asset number", "Numéro d’actif"),
+          text(asset.assetNumber) || "—",
+        ],
         [copy(fr, "Category", "Catégorie"), text(asset.category) || "—"],
-        [copy(fr, "Status", "Statut"), localizedValue(asset.status, statusLabels)],
-        [copy(fr, "Condition", "État"), localizedValue(asset.condition, conditionLabels)],
+        [
+          copy(fr, "Status", "Statut"),
+          localizedValue(asset.status, statusLabels),
+        ],
+        [
+          copy(fr, "Condition", "État"),
+          localizedValue(asset.condition, conditionLabels),
+        ],
         [copy(fr, "Brand", "Marque"), text(asset.brand) || "—"],
         [copy(fr, "Model", "Modèle"), text(asset.model) || "—"],
-        [copy(fr, "Serial number", "Numéro de série"), text(asset.serialNumber) || "—"],
+        [
+          copy(fr, "Serial number", "Numéro de série"),
+          text(asset.serialNumber) || "—",
+        ],
       ],
     },
     {
       title: copy(fr, "Location and responsibility", "Lieu et responsabilité"),
       details: [
-        [copy(fr, "Project", "Projet"), projectCode ? `${projectName} · ${projectCode}` : projectName],
+        [
+          copy(fr, "Project", "Projet"),
+          projectCode ? `${projectName} · ${projectCode}` : projectName,
+        ],
         [copy(fr, "Province", "Province"), provinceName],
         [copy(fr, "Site / farm", "Site / ferme"), siteName],
         [copy(fr, "Current location", "Emplacement actuel"), location || "—"],
@@ -1811,16 +2121,25 @@ function EquipmentAssetDetailDialog({
             <p className="text-xs font-semibold uppercase tracking-[.13em] text-brand">
               {copy(fr, "Equipment record", "Fiche équipement")}
             </p>
-            <h2 id={`equipment-detail-${asset.id}`} className="mt-1 truncate text-xl font-semibold text-ink sm:text-2xl">
+            <h2
+              id={`equipment-detail-${asset.id}`}
+              className="mt-1 truncate text-xl font-semibold text-ink sm:text-2xl"
+            >
               {heading}
             </h2>
             <p className="mt-1 text-sm text-ink-secondary">
-              {text(asset.assetNumber) || copy(fr, "Company equipment", "Équipement de l’entreprise")}
+              {text(asset.assetNumber) ||
+                copy(fr, "Company equipment", "Équipement de l’entreprise")}
             </p>
           </div>
           <div className="flex items-center gap-2">
             {onEdit ? (
-              <Button type="button" size="sm" variant="secondary" onClick={onEdit}>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                onClick={onEdit}
+              >
                 <Settings2 />
                 {copy(fr, "Edit", "Modifier")}
               </Button>
@@ -1850,7 +2169,11 @@ function EquipmentAssetDetailDialog({
                   <div>
                     <ImageIcon className="mx-auto size-9" />
                     <p className="mt-2 text-sm font-semibold">
-                      {copy(fr, "No equipment photo", "Aucune photo d’équipement")}
+                      {copy(
+                        fr,
+                        "No equipment photo",
+                        "Aucune photo d’équipement",
+                      )}
                     </p>
                   </div>
                 </div>
@@ -1864,13 +2187,25 @@ function EquipmentAssetDetailDialog({
             </section>
             <div className="space-y-5">
               {detailGroups.map((group) => (
-                <section key={group.title} className="rounded-2xl border border-border bg-surface-1 p-4">
-                  <h3 className="text-sm font-semibold text-ink">{group.title}</h3>
+                <section
+                  key={group.title}
+                  className="rounded-2xl border border-border bg-surface-1 p-4"
+                >
+                  <h3 className="text-sm font-semibold text-ink">
+                    {group.title}
+                  </h3>
                   <dl className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                     {group.details.map(([label, value]) => (
-                      <div key={label} className="min-w-0 rounded-xl bg-surface-2 px-3 py-2.5">
-                        <dt className="text-xs font-medium text-ink-muted">{label}</dt>
-                        <dd className="mt-1 break-words text-sm font-semibold text-ink">{value}</dd>
+                      <div
+                        key={label}
+                        className="min-w-0 rounded-xl bg-surface-2 px-3 py-2.5"
+                      >
+                        <dt className="text-xs font-medium text-ink-muted">
+                          {label}
+                        </dt>
+                        <dd className="mt-1 break-words text-sm font-semibold text-ink">
+                          {value}
+                        </dd>
                       </div>
                     ))}
                   </dl>
@@ -1880,7 +2215,9 @@ function EquipmentAssetDetailDialog({
           </div>
           {text(asset.notes) ? (
             <section className="mt-5 rounded-2xl border border-border bg-surface-2 p-4">
-              <h3 className="text-sm font-semibold text-ink">{copy(fr, "Notes", "Notes")}</h3>
+              <h3 className="text-sm font-semibold text-ink">
+                {copy(fr, "Notes", "Notes")}
+              </h3>
               <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-ink-secondary">
                 {text(asset.notes)}
               </p>
@@ -1897,6 +2234,7 @@ function SidebarTaskDetailDialog({
   fr,
   onClose,
   onEdit,
+  canUploadEvidence,
   onPreview,
 }: {
   orgSlug: string;
@@ -1904,14 +2242,45 @@ function SidebarTaskDetailDialog({
   fr: boolean;
   onClose: () => void;
   onEdit?: () => void;
+  canUploadEvidence: boolean;
   onPreview: (document: Row) => void;
 }) {
+  const client = useQueryClient();
+  const [evidenceError, setEvidenceError] = useState<string | null>(null);
   const documents = useQuery({
     queryKey: ["operations", orgSlug, "task-documents", task.id],
     queryFn: () =>
       ownerManagementApi.taskDocuments<{ documents: Row[] }>(orgSlug, task.id),
     select: (data) => data.documents,
     enabled: Boolean(task.projectId),
+  });
+  const evidenceUpload = useMutation({
+    mutationFn: async (file: File) => {
+      const form = new FormData();
+      form.set("file", file);
+      const taskTitle = text(task.title) || copy(fr, "Task", "Tâche");
+      form.set("title", `${taskTitle.slice(0, 170)} · evidence`);
+      await api.post(orgApiUrl(orgSlug, `task-evidence/${task.id}`), form, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+    },
+    onSuccess: async () => {
+      setEvidenceError(null);
+      await client.invalidateQueries({
+        queryKey: ["operations", orgSlug, "task-documents", task.id],
+      });
+    },
+    onError: (error: unknown) => {
+      setEvidenceError(
+        error instanceof ApiError
+          ? error.message
+          : copy(
+              fr,
+              "The document could not be uploaded. Try again.",
+              "Le document n’a pas pu être téléversé. Réessayez.",
+            ),
+      );
+    },
   });
   const value = (...keys: string[]) =>
     keys
@@ -1923,42 +2292,220 @@ function SidebarTaskDetailDialog({
     return `${amount(amountValue).toLocaleString(fr ? "fr-FR" : "en-US")} ${currency}`.trim();
   };
   const details: Array<[string, string]> = [
-    [copy(fr, "Project", "Projet"), text(value("projectName", "projectCode")) || copy(fr, "Company task", "Tâche d’entreprise")],
-    [copy(fr, "Project phase", "Phase du projet"), text(value("phaseName", "projectPhaseName")) || "—"],
-    [copy(fr, "Assigned employee", "Employé affecté"), text(value("assignedEmployeeName", "assignedMemberName", "assigneeName")) || "—"],
+    [
+      copy(fr, "Project", "Projet"),
+      text(value("projectName", "projectCode")) ||
+        copy(fr, "Company task", "Tâche d’entreprise"),
+    ],
+    [
+      copy(fr, "Project phase", "Phase du projet"),
+      text(value("phaseName", "projectPhaseName")) || "—",
+    ],
+    [
+      copy(fr, "Assigned employee", "Employé affecté"),
+      text(
+        value("assignedEmployeeName", "assignedMemberName", "assigneeName"),
+      ) || "—",
+    ],
     [copy(fr, "Start date", "Date de début"), date(value("startDate"))],
     [copy(fr, "Due date", "Échéance"), date(value("dueDate"))],
     [copy(fr, "Estimated cost", "Coût estimé"), money(value("estimatedCost"))],
     [copy(fr, "Actual cost", "Coût réel"), money(value("actualCost"))],
   ];
   return (
-    <div className="fixed inset-0 z-[80] overflow-y-auto bg-ink/55 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="sidebar-task-detail-title">
+    <div
+      className="fixed inset-0 z-[80] overflow-y-auto bg-ink/55 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="sidebar-task-detail-title"
+    >
       <section className="mx-auto my-6 w-full max-w-4xl overflow-hidden rounded-2xl border border-border bg-surface-1 shadow-2xl">
         <header className="flex flex-wrap items-start justify-between gap-4 border-b border-border bg-surface-2 px-5 py-4">
           <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-[.13em] text-brand">{copy(fr, "Project task", "Tâche du projet")}</p>
-            <h2 id="sidebar-task-detail-title" className="mt-1 truncate text-xl font-semibold text-ink">{text(task.title) || copy(fr, "Untitled task", "Tâche sans titre")}</h2>
-            <p className="mt-1 text-xs text-ink-secondary">{text(task.code) || "—"} · {nice(task.taskType || "work")}</p>
+            <p className="text-xs font-semibold uppercase tracking-[.13em] text-brand">
+              {copy(fr, "Project task", "Tâche du projet")}
+            </p>
+            <h2
+              id="sidebar-task-detail-title"
+              className="mt-1 truncate text-xl font-semibold text-ink"
+            >
+              {text(task.title) ||
+                copy(fr, "Untitled task", "Tâche sans titre")}
+            </h2>
+            <p className="mt-1 text-xs text-ink-secondary">
+              {text(task.code) || "—"} · {nice(task.taskType || "work")}
+            </p>
           </div>
           <div className="flex items-center gap-2">
-            {onEdit ? <Button type="button" size="sm" variant="secondary" onClick={onEdit}><Settings2 />{copy(fr, "Edit", "Modifier")}</Button> : null}
-            <Button type="button" size="icon-sm" variant="ghost" onClick={onClose} aria-label={copy(fr, "Close", "Fermer")}><X /></Button>
+            {onEdit ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                onClick={onEdit}
+              >
+                <Settings2 />
+                {copy(fr, "Edit", "Modifier")}
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              size="icon-sm"
+              variant="ghost"
+              onClick={onClose}
+              aria-label={copy(fr, "Close", "Fermer")}
+            >
+              <X />
+            </Button>
           </div>
         </header>
         <div className="max-h-[78vh] overflow-y-auto p-5">
           <div className="flex flex-wrap gap-2">
             <Badge variant={tone(task.status)}>{nice(task.status)}</Badge>
             <Badge variant={tone(task.priority)}>{nice(task.priority)}</Badge>
-            <Badge variant="neutral">{Math.round(amount(task.progressPercent))}%</Badge>
+            <Badge variant="neutral">
+              {Math.round(amount(task.progressPercent))}%
+            </Badge>
           </div>
           <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {details.map(([label, detail]) => <div key={label} className="rounded-xl border border-border bg-surface-2 p-3"><p className="text-xs font-medium text-ink-muted">{label}</p><p className="mt-1 truncate text-sm font-semibold text-ink">{detail || "—"}</p></div>)}
+            {details.map(([label, detail]) => (
+              <div
+                key={label}
+                className="rounded-xl border border-border bg-surface-2 p-3"
+              >
+                <p className="text-xs font-medium text-ink-muted">{label}</p>
+                <p className="mt-1 truncate text-sm font-semibold text-ink">
+                  {detail || "—"}
+                </p>
+              </div>
+            ))}
           </div>
-          {text(task.blockedReason) ? <section className="mt-5 rounded-xl border border-warning/35 bg-warning/10 p-4"><h3 className="text-sm font-semibold text-ink">{copy(fr, "Blocked by / reason", "Blocage / raison")}</h3><p className="mt-1 text-sm text-ink-secondary">{text(task.blockedReason)}</p></section> : null}
-          {text(task.description) || text(task.notes) ? <section className="mt-5 rounded-xl border border-border bg-surface-2 p-4"><h3 className="text-sm font-semibold text-ink">{copy(fr, "Description and notes", "Description et notes")}</h3><p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-ink-secondary">{text(task.description) || text(task.notes)}</p></section> : null}
+          {text(task.blockedReason) ? (
+            <section className="mt-5 rounded-xl border border-warning/35 bg-warning/10 p-4">
+              <h3 className="text-sm font-semibold text-ink">
+                {copy(fr, "Blocked by / reason", "Blocage / raison")}
+              </h3>
+              <p className="mt-1 text-sm text-ink-secondary">
+                {text(task.blockedReason)}
+              </p>
+            </section>
+          ) : null}
+          {text(task.description) || text(task.notes) ? (
+            <section className="mt-5 rounded-xl border border-border bg-surface-2 p-4">
+              <h3 className="text-sm font-semibold text-ink">
+                {copy(fr, "Description and notes", "Description et notes")}
+              </h3>
+              <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-ink-secondary">
+                {text(task.description) || text(task.notes)}
+              </p>
+            </section>
+          ) : null}
           <section className="mt-5 rounded-xl border border-border bg-surface-2 p-4">
-            <div className="flex items-center justify-between gap-3"><div><h3 className="text-sm font-semibold text-ink">{copy(fr, "Attached documents", "Documents joints")}</h3><p className="mt-1 text-xs text-ink-secondary">{copy(fr, "Open a file to preview it without leaving this task.", "Ouvrez un fichier pour le prévisualiser sans quitter cette tâche.")}</p></div><FileText className="size-5 text-brand" /></div>
-            {!task.projectId ? <p className="mt-4 rounded-lg border border-dashed border-border p-3 text-sm text-ink-secondary">{copy(fr, "This normal company task has no project documents.", "Cette tâche normale n’a pas de documents de projet.")}</p> : documents.isPending ? <Skeleton className="mt-4 h-16" /> : documents.data?.length ? <div className="mt-4 divide-y divide-border rounded-lg border border-border bg-surface-1">{documents.data.map((document) => <button key={document.id} type="button" onClick={() => onPreview(document)} className="flex w-full items-center justify-between gap-3 px-3 py-3 text-left hover:bg-surface-2"><span className="min-w-0"><span className="block truncate text-sm font-medium text-ink">{text(document.title) || "—"}</span><span className="mt-1 block truncate text-xs text-ink-secondary">{text(document.documentCategoryName || document.documentType) || "—"} · {text(document.mimeType) || "—"}</span></span><ArrowUpRight className="size-4 shrink-0 text-brand" /></button>)}</div> : <p className="mt-4 rounded-lg border border-dashed border-border p-3 text-sm text-ink-secondary">{copy(fr, "No document is linked to this task.", "Aucun document n’est lié à cette tâche.")}</p>}
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-ink">
+                  {copy(fr, "Attached documents", "Documents joints")}
+                </h3>
+                <p className="mt-1 text-xs text-ink-secondary">
+                  {copy(
+                    fr,
+                    "Open a file to preview it without leaving this task.",
+                    "Ouvrez un fichier pour le prévisualiser sans quitter cette tâche.",
+                  )}
+                </p>
+              </div>
+              <FileText className="size-5 text-brand" />
+            </div>
+            {task.projectId && canUploadEvidence ? (
+              <div className="mt-4 rounded-lg border border-dashed border-brand/35 bg-brand/5 p-3">
+                <label
+                  htmlFor={`task-evidence-${task.id}`}
+                  className="block text-sm font-semibold text-ink"
+                >
+                  {copy(fr, "Add a document", "Ajouter un document")}
+                </label>
+                <p className="mt-1 text-xs leading-5 text-ink-secondary">
+                  {copy(
+                    fr,
+                    "PDF or image. It is saved in the project documents and linked to this task only once.",
+                    "PDF ou image. Il est enregistré dans les Documents du projet et lié une seule fois à cette tâche.",
+                  )}
+                </p>
+                <Input
+                  id={`task-evidence-${task.id}`}
+                  className="mt-3"
+                  type="file"
+                  accept="application/pdf,image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif"
+                  disabled={evidenceUpload.isPending}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) evidenceUpload.mutate(file);
+                    event.target.value = "";
+                  }}
+                />
+                {evidenceUpload.isPending ? (
+                  <p className="mt-2 text-xs text-ink-secondary">
+                    {copy(
+                      fr,
+                      "Uploading document…",
+                      "Téléversement du document…",
+                    )}
+                  </p>
+                ) : null}
+                {evidenceError ? (
+                  <p
+                    role="alert"
+                    className="mt-2 text-xs font-medium text-critical"
+                  >
+                    {evidenceError}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+            {!task.projectId ? (
+              <p className="mt-4 rounded-lg border border-dashed border-border p-3 text-sm text-ink-secondary">
+                {copy(
+                  fr,
+                  "This normal company task has no project documents.",
+                  "Cette tâche normale n’a pas de documents de projet.",
+                )}
+              </p>
+            ) : documents.isPending ? (
+              <Skeleton className="mt-4 h-16" />
+            ) : documents.data?.length ? (
+              <div className="mt-4 divide-y divide-border rounded-lg border border-border bg-surface-1">
+                {documents.data.map((document) => (
+                  <button
+                    key={document.id}
+                    type="button"
+                    onClick={() => onPreview(document)}
+                    className="flex w-full items-center justify-between gap-3 px-3 py-3 text-left hover:bg-surface-2"
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-medium text-ink">
+                        {text(document.title) || "—"}
+                      </span>
+                      <span className="mt-1 block truncate text-xs text-ink-secondary">
+                        {text(
+                          document.documentCategoryName ||
+                            document.documentType,
+                        ) || "—"}{" "}
+                        · {text(document.mimeType) || "—"}
+                      </span>
+                    </span>
+                    <ArrowUpRight className="size-4 shrink-0 text-brand" />
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-4 rounded-lg border border-dashed border-border p-3 text-sm text-ink-secondary">
+                {copy(
+                  fr,
+                  "No document is linked to this task.",
+                  "Aucun document n’est lié à cette tâche.",
+                )}
+              </p>
+            )}
           </section>
         </div>
       </section>
@@ -1966,15 +2513,85 @@ function SidebarTaskDetailDialog({
   );
 }
 
-function TaskDocumentPreviewDialog({ orgSlug, document, fr, onClose }: { orgSlug: string; document: Row; fr: boolean; onClose: () => void }) {
+function TaskDocumentPreviewDialog({
+  orgSlug,
+  document,
+  fr,
+  onClose,
+}: {
+  orgSlug: string;
+  document: Row;
+  fr: boolean;
+  onClose: () => void;
+}) {
   const previewUrl = orgApiUrl(orgSlug, `files/${document.id}/preview`);
   const downloadUrl = orgApiUrl(orgSlug, `files/${document.id}/download`);
   const mimeType = text(document.mimeType);
   return (
-    <div className="fixed inset-0 z-[90] grid place-items-center bg-ink/60 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="task-document-preview-title">
+    <div
+      className="fixed inset-0 z-[90] grid place-items-center bg-ink/60 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="task-document-preview-title"
+    >
       <section className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-border bg-surface-1 shadow-2xl">
-        <header className="flex items-start justify-between gap-3 border-b border-border bg-surface-2 px-5 py-4"><div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-[.13em] text-brand">{copy(fr, "Task document", "Document de tâche")}</p><h2 id="task-document-preview-title" className="mt-1 truncate text-lg font-semibold text-ink">{text(document.title) || "—"}</h2></div><div className="flex gap-2"><a href={downloadUrl} className="inline-flex h-8 items-center rounded-md border border-border px-3 text-xs font-semibold text-brand hover:bg-surface-3">{copy(fr, "Download", "Télécharger")}</a><Button type="button" size="icon-sm" variant="ghost" onClick={onClose} aria-label={copy(fr, "Close", "Fermer")}><X /></Button></div></header>
-        <div className="min-h-0 flex-1 overflow-auto bg-surface-3 p-4">{mimeType.startsWith("image/") ? <img src={previewUrl} alt={text(document.title)} className="mx-auto max-h-[72vh] max-w-full rounded-lg bg-white object-contain shadow" /> : mimeType === "application/pdf" ? <iframe title={text(document.title)} src={previewUrl} className="h-[72vh] w-full rounded-lg border border-border bg-white" /> : <a href={downloadUrl} className="mx-auto flex max-w-md flex-col items-center rounded-xl border border-dashed border-border bg-surface-1 p-8 text-center text-sm text-ink-secondary"><Download className="size-8 text-brand" />{copy(fr, "Preview is unavailable for this file type. Download the file to open it.", "L’aperçu n’est pas disponible pour ce type de fichier. Téléchargez-le pour l’ouvrir.")}</a>}</div>
+        <header className="flex items-start justify-between gap-3 border-b border-border bg-surface-2 px-5 py-4">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-[.13em] text-brand">
+              {copy(fr, "Task document", "Document de tâche")}
+            </p>
+            <h2
+              id="task-document-preview-title"
+              className="mt-1 truncate text-lg font-semibold text-ink"
+            >
+              {text(document.title) || "—"}
+            </h2>
+          </div>
+          <div className="flex gap-2">
+            <a
+              href={downloadUrl}
+              className="inline-flex h-8 items-center rounded-md border border-border px-3 text-xs font-semibold text-brand hover:bg-surface-3"
+            >
+              {copy(fr, "Download", "Télécharger")}
+            </a>
+            <Button
+              type="button"
+              size="icon-sm"
+              variant="ghost"
+              onClick={onClose}
+              aria-label={copy(fr, "Close", "Fermer")}
+            >
+              <X />
+            </Button>
+          </div>
+        </header>
+        <div className="min-h-0 flex-1 overflow-auto bg-surface-3 p-4">
+          {mimeType.startsWith("image/") ? (
+            <img
+              src={previewUrl}
+              alt={text(document.title)}
+              className="mx-auto max-h-[72vh] max-w-full rounded-lg bg-white object-contain shadow"
+            />
+          ) : mimeType === "application/pdf" ? (
+            <iframe
+              title={text(document.title)}
+              src={previewUrl}
+              className="h-[72vh] w-full rounded-lg border border-border bg-white"
+            />
+          ) : (
+            <a
+              href={downloadUrl}
+              className="mx-auto flex max-w-md flex-col items-center rounded-xl border border-dashed border-border bg-surface-1 p-8 text-center text-sm text-ink-secondary"
+            >
+              <Download className="size-8 text-brand" />
+              {copy(
+                fr,
+                "Preview is unavailable for this file type. Download the file to open it.",
+                "L’aperçu n’est pas disponible pour ce type de fichier. Téléchargez-le pour l’ouvrir.",
+              )}
+            </a>
+          )}
+        </div>
       </section>
     </div>
   );
@@ -2114,14 +2731,18 @@ function TasksWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
       people.find((person) => person.value === text(task.assignedMemberId))
         ?.label) ??
     copy(fr, "Unassigned", "Non affectée");
-  const taskProjectOptions = selectOptions(projects.data ?? [], ["name", "code"]);
+  const taskProjectOptions = selectOptions(projects.data ?? [], [
+    "name",
+    "code",
+  ]);
   const selectedProjectId =
     projectFilter !== "all" && projectFilter !== "company"
       ? projectFilter
       : null;
   const newTaskDefaults: ManagementBody | undefined = selectedProjectId
     ? { projectId: selectedProjectId, taskType: "work", status: "not_started" }
-    : undefined;  const query = search.trim().toLocaleLowerCase();
+    : undefined;
+  const query = search.trim().toLocaleLowerCase();
   const rows = viewRows.filter((task) => {
     const matchesSearch = !query
       ? true
@@ -2371,11 +2992,23 @@ function TasksWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
             <select
               value={projectFilter}
               onChange={(event) => setProjectFilter(event.target.value)}
-              aria-label={copy(fr, "Filter tasks by project", "Filtrer les tâches par projet")}
+              aria-label={copy(
+                fr,
+                "Filter tasks by project",
+                "Filtrer les tâches par projet",
+              )}
               className="h-10 min-w-0 rounded-lg border border-white/30 bg-white px-3 text-sm font-medium text-ink shadow-sm outline-none transition focus:border-white focus:ring-2 focus:ring-white/50 sm:w-64"
             >
-              <option value="all">{copy(fr, "All projects", "Tous les projets")}</option>
-              <option value="company">{copy(fr, "Company tasks only", "Tâches d’entreprise seulement")}</option>
+              <option value="all">
+                {copy(fr, "All projects", "Tous les projets")}
+              </option>
+              <option value="company">
+                {copy(
+                  fr,
+                  "Company tasks only",
+                  "Tâches d’entreprise seulement",
+                )}
+              </option>
               {taskProjectOptions.map((project) => (
                 <option key={project.value} value={project.value}>
                   {project.label}
@@ -2500,7 +3133,6 @@ function TasksWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
                 </option>
               ))}
             </select>
-
           </div>
         </div>
       </section>
@@ -2722,7 +3354,7 @@ function TasksWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
                           </p>
                         ) : null}
 
-                <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
+                        <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
                           <div>
                             {task.projectId ? (
                               <button
@@ -2754,9 +3386,9 @@ function TasksWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
                               size="sm"
                               variant="secondary"
                               onClick={(event) => {
-                              event.stopPropagation();
-                              setSelectedTask(task);
-                            }}
+                                event.stopPropagation();
+                                setSelectedTask(task);
+                              }}
                             >
                               {copy(fr, "Open", "Ouvrir")}
                             </Button>
@@ -2904,6 +3536,7 @@ function TasksWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
           task={selectedTask}
           fr={fr}
           onClose={() => setSelectedTask(null)}
+          canUploadEvidence={can(user, "tasks.update")}
           onEdit={
             can(user, "tasks.update")
               ? () => {
@@ -2974,11 +3607,13 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
   const [inventoryProjectFilter, setInventoryProjectFilter] = useState("all");
   const [inventoryProvinceFilter, setInventoryProvinceFilter] = useState("all");
   const [inventorySiteFilter, setInventorySiteFilter] = useState("all");
-  const [inventoryWarehouseFilter, setInventoryWarehouseFilter] = useState("all");
+  const [inventoryWarehouseFilter, setInventoryWarehouseFilter] =
+    useState("all");
   const [inventoryCategoryFilter, setInventoryCategoryFilter] = useState("all");
   const [inventoryLowStock, setInventoryLowStock] = useState(false);
   const [stockPage, setStockPage] = useState(0);
-  const [movementDefaults, setMovementDefaults] = useState<ManagementBody | null>(null);
+  const [movementDefaults, setMovementDefaults] =
+    useState<ManagementBody | null>(null);
   const [transferOpen, setTransferOpen] = useState(false);
   const [movementHistoryDate, setMovementHistoryDate] = useState(today());
   const [inventoryCreateTarget, setInventoryCreateTarget] = useState<
@@ -3019,7 +3654,7 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
   const selectedInventoryProject =
     inventoryProjectFilter === "all"
       ? null
-      : projectById.get(inventoryProjectFilter) ?? null;
+      : (projectById.get(inventoryProjectFilter) ?? null);
   const projectProvinceId = text(selectedInventoryProject?.provinceId);
   const projectSiteId = text(selectedInventoryProject?.siteId);
   const effectiveInventoryProvinceId =
@@ -3073,18 +3708,19 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
         .map((category) => [category.value.toLocaleLowerCase(), category]),
     ).values(),
   ).sort((left, right) => left.label.localeCompare(right.label));
-  const filteredBalances = (balances.data ?? []).filter((balance) =>
-    (inventoryCategoryFilter === "all" ||
-      text(balance.itemCategory) === inventoryCategoryFilter) &&
-    matchesInventoryQuery(
-      balance.itemName,
-      balance.itemCode,
-      balance.itemCategory,
-      balance.warehouseName,
-      balance.warehouseCode,
-      balance.siteName,
-      balance.provinceName,
-    ),
+  const filteredBalances = (balances.data ?? []).filter(
+    (balance) =>
+      (inventoryCategoryFilter === "all" ||
+        text(balance.itemCategory) === inventoryCategoryFilter) &&
+      matchesInventoryQuery(
+        balance.itemName,
+        balance.itemCode,
+        balance.itemCategory,
+        balance.warehouseName,
+        balance.warehouseCode,
+        balance.siteName,
+        balance.provinceName,
+      ),
   );
   const stockGridColumns = canRecordStockMovement
     ? "md:grid-cols-[minmax(0,1.7fr)_minmax(0,1.3fr)_minmax(7rem,.85fr)_minmax(6rem,.75fr)_minmax(6rem,.75fr)_minmax(6.5rem,.75fr)]"
@@ -3159,7 +3795,9 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
       )
     );
   });
-  const movementHistoryPdfParams = new URLSearchParams({ date: movementHistoryDate });
+  const movementHistoryPdfParams = new URLSearchParams({
+    date: movementHistoryDate,
+  });
   if (inventoryWarehouseFilter !== "all")
     movementHistoryPdfParams.set("warehouseId", inventoryWarehouseFilter);
   if (effectiveInventoryProvinceId)
@@ -3172,12 +3810,12 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
   );
   const hasInventoryFilters = Boolean(
     inventorySearch ||
-      inventoryProjectFilter !== "all" ||
-      inventoryProvinceFilter !== "all" ||
-      inventorySiteFilter !== "all" ||
-      inventoryWarehouseFilter !== "all" ||
-      inventoryCategoryFilter !== "all" ||
-      inventoryLowStock,
+    inventoryProjectFilter !== "all" ||
+    inventoryProvinceFilter !== "all" ||
+    inventorySiteFilter !== "all" ||
+    inventoryWarehouseFilter !== "all" ||
+    inventoryCategoryFilter !== "all" ||
+    inventoryLowStock,
   );
   const recordMovement = useMutation({
     mutationFn: (body: ManagementBody) =>
@@ -3201,7 +3839,8 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
       setTransferOpen(false);
       void client.invalidateQueries({ queryKey: ["operations", orgSlug] });
     },
-  });  const itemFields: FormField[] = [
+  });
+  const itemFields: FormField[] = [
     {
       key: "code",
       label: copy(fr, "Item code / SKU", "Code article / SKU"),
@@ -3298,7 +3937,11 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
       type: "select",
       required: true,
       options: selectOptions(warehouses.data ?? [], ["name", "code"]),
-      emptyLabel: copy(fr, "No storage locations available", "Aucun emplacement disponible"),
+      emptyLabel: copy(
+        fr,
+        "No storage locations available",
+        "Aucun emplacement disponible",
+      ),
     },
     {
       key: "itemId",
@@ -3306,7 +3949,11 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
       type: "select",
       required: true,
       options: selectOptions(items.data ?? [], ["name", "code"]),
-      emptyLabel: copy(fr, "No inventory items available", "Aucun article disponible"),
+      emptyLabel: copy(
+        fr,
+        "No inventory items available",
+        "Aucun article disponible",
+      ),
     },
     {
       key: "movementType",
@@ -3314,8 +3961,18 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
       type: "select",
       required: true,
       defaultValue: "receipt",
-      hint: copy(fr, "Choose the action that actually happened. Use an adjustment only to correct a stock count.", "Choisissez l’action réellement effectuée. Utilisez un ajustement uniquement pour corriger un comptage."),
-      options: ["receipt", "issue", "return", "adjustment_in", "adjustment_out"].map((value) => ({ value, label: inventoryMovementLabel(value, fr) })),
+      hint: copy(
+        fr,
+        "Choose the action that actually happened. Use an adjustment only to correct a stock count.",
+        "Choisissez l’action réellement effectuée. Utilisez un ajustement uniquement pour corriger un comptage.",
+      ),
+      options: [
+        "receipt",
+        "issue",
+        "return",
+        "adjustment_in",
+        "adjustment_out",
+      ].map((value) => ({ value, label: inventoryMovementLabel(value, fr) })),
     },
     {
       key: "quantityDelta",
@@ -3323,7 +3980,11 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
       type: "number",
       required: true,
       step: "0.001",
-      hint: copy(fr, "Enter a positive quantity. The movement type applies the direction automatically.", "Saisissez une quantité positive. Le type de mouvement applique le sens automatiquement."),
+      hint: copy(
+        fr,
+        "Enter a positive quantity. The movement type applies the direction automatically.",
+        "Saisissez une quantité positive. Le type de mouvement applique le sens automatiquement.",
+      ),
     },
     {
       key: "movementDate",
@@ -3340,7 +4001,11 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
       type: "select",
       required: true,
       options: transferWarehouseOptions,
-      emptyLabel: copy(fr, "No warehouse available", "Aucun entrepôt disponible"),
+      emptyLabel: copy(
+        fr,
+        "No warehouse available",
+        "Aucun entrepôt disponible",
+      ),
     },
     {
       key: "destinationWarehouseId",
@@ -3348,7 +4013,11 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
       type: "select",
       required: true,
       options: transferWarehouseOptions,
-      emptyLabel: copy(fr, "No warehouse available", "Aucun entrepôt disponible"),
+      emptyLabel: copy(
+        fr,
+        "No warehouse available",
+        "Aucun entrepôt disponible",
+      ),
       hint: copy(
         fr,
         "Choose a different warehouse. It may be at another site or in another province you are allowed to manage.",
@@ -3361,7 +4030,11 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
       type: "select",
       required: true,
       options: selectOptions(items.data ?? [], ["name", "code"]),
-      emptyLabel: copy(fr, "No inventory item available", "Aucun article disponible"),
+      emptyLabel: copy(
+        fr,
+        "No inventory item available",
+        "Aucun article disponible",
+      ),
     },
     {
       key: "quantity",
@@ -3402,7 +4075,10 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
           <div className="flex flex-wrap gap-2">
             {canRecordStockMovement ? (
               <a
-                href={orgApiUrl(orgSlug, "owner-management/inventory/stock-issue-form.pdf")}
+                href={orgApiUrl(
+                  orgSlug,
+                  "owner-management/inventory/stock-issue-form.pdf",
+                )}
                 className="inline-flex h-9 items-center gap-1.5 rounded-md border border-ink bg-ink px-3 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-ink/90"
               >
                 <Download className="size-3.5" />
@@ -3411,7 +4087,10 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
             ) : null}
             {canRecordStockMovement ? (
               <a
-                href={orgApiUrl(orgSlug, "owner-management/inventory/stock-transfer-form.pdf")}
+                href={orgApiUrl(
+                  orgSlug,
+                  "owner-management/inventory/stock-transfer-form.pdf",
+                )}
                 className="inline-flex h-9 items-center gap-1.5 rounded-md border border-brand bg-brand px-3 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-brand/90"
               >
                 <Download className="size-3.5" />
@@ -3431,13 +4110,19 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
               </Button>
             ) : null}
             {canCreateInventoryItem ? (
-              <Button variant="secondary" onClick={() => openInventoryCreate("item")}>
+              <Button
+                variant="secondary"
+                onClick={() => openInventoryCreate("item")}
+              >
                 <Plus />
                 {copy(fr, "Add item", "Ajouter un article")}
               </Button>
             ) : null}
             {canCreateWarehouse ? (
-              <Button variant="secondary" onClick={() => openInventoryCreate("warehouse")}>
+              <Button
+                variant="secondary"
+                onClick={() => openInventoryCreate("warehouse")}
+              >
                 <Plus />
                 {copy(fr, "Add warehouse", "Ajouter un entrepôt")}
               </Button>
@@ -3495,7 +4180,11 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
             value={inventorySearch}
             onChange={(event) => setInventorySearch(event.target.value)}
             placeholder={copy(fr, "Search stock…", "Rechercher dans le stock…")}
-            aria-label={copy(fr, "Search inventory", "Rechercher dans l’inventaire")}
+            aria-label={copy(
+              fr,
+              "Search inventory",
+              "Rechercher dans l’inventaire",
+            )}
           />
           <select
             value={inventoryProjectFilter}
@@ -3503,12 +4192,16 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
             className="h-9 rounded-md border border-border-strong bg-surface-1 px-3 text-sm text-ink"
             aria-label={copy(fr, "Filter by project", "Filtrer par projet")}
           >
-            <option value="all">{copy(fr, "All projects", "Tous les projets")}</option>
-            {selectOptions(projects.data ?? [], ["name", "code"]).map((project) => (
-              <option key={project.value} value={project.value}>
-                {project.label}
-              </option>
-            ))}
+            <option value="all">
+              {copy(fr, "All projects", "Tous les projets")}
+            </option>
+            {selectOptions(projects.data ?? [], ["name", "code"]).map(
+              (project) => (
+                <option key={project.value} value={project.value}>
+                  {project.label}
+                </option>
+              ),
+            )}
           </select>
           <select
             value={inventoryProvinceFilter}
@@ -3516,12 +4209,16 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
             className="h-9 rounded-md border border-border-strong bg-surface-1 px-3 text-sm text-ink"
             aria-label={copy(fr, "Filter by province", "Filtrer par province")}
           >
-            <option value="all">{copy(fr, "All provinces", "Toutes les provinces")}</option>
-            {selectOptions(refs.provinces.data ?? [], ["name", "code"]).map((province) => (
-              <option key={province.value} value={province.value}>
-                {province.label}
-              </option>
-            ))}
+            <option value="all">
+              {copy(fr, "All provinces", "Toutes les provinces")}
+            </option>
+            {selectOptions(refs.provinces.data ?? [], ["name", "code"]).map(
+              (province) => (
+                <option key={province.value} value={province.value}>
+                  {province.label}
+                </option>
+              ),
+            )}
           </select>
           <select
             value={inventorySiteFilter}
@@ -3529,25 +4226,35 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
             className="h-9 rounded-md border border-border-strong bg-surface-1 px-3 text-sm text-ink"
             aria-label={copy(fr, "Filter by site", "Filtrer par site")}
           >
-            <option value="all">{copy(fr, "All sites", "Tous les sites")}</option>
-            {selectOptions(refs.sites.data ?? [], ["name", "code"]).map((site) => (
-              <option key={site.value} value={site.value}>
-                {site.label}
-              </option>
-            ))}
+            <option value="all">
+              {copy(fr, "All sites", "Tous les sites")}
+            </option>
+            {selectOptions(refs.sites.data ?? [], ["name", "code"]).map(
+              (site) => (
+                <option key={site.value} value={site.value}>
+                  {site.label}
+                </option>
+              ),
+            )}
           </select>
           <select
             value={inventoryWarehouseFilter}
-            onChange={(event) => setInventoryWarehouseFilter(event.target.value)}
+            onChange={(event) =>
+              setInventoryWarehouseFilter(event.target.value)
+            }
             className="h-9 rounded-md border border-border-strong bg-surface-1 px-3 text-sm text-ink"
             aria-label={copy(fr, "Filter by warehouse", "Filtrer par entrepôt")}
           >
-            <option value="all">{copy(fr, "All storage", "Tous les entrepôts")}</option>
-            {selectOptions(warehouses.data ?? [], ["name", "code"]).map((warehouse) => (
-              <option key={warehouse.value} value={warehouse.value}>
-                {warehouse.label}
-              </option>
-            ))}
+            <option value="all">
+              {copy(fr, "All storage", "Tous les entrepôts")}
+            </option>
+            {selectOptions(warehouses.data ?? [], ["name", "code"]).map(
+              (warehouse) => (
+                <option key={warehouse.value} value={warehouse.value}>
+                  {warehouse.label}
+                </option>
+              ),
+            )}
           </select>
           <select
             value={inventoryCategoryFilter}
@@ -3555,7 +4262,9 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
             className="h-9 rounded-md border border-border-strong bg-surface-1 px-3 text-sm text-ink"
             aria-label={copy(fr, "Filter by category", "Filtrer par catégorie")}
           >
-            <option value="all">{copy(fr, "All categories", "Toutes les catégories")}</option>
+            <option value="all">
+              {copy(fr, "All categories", "Toutes les catégories")}
+            </option>
             {inventoryCategoryOptions.map((category) => (
               <option key={category.value} value={category.value}>
                 {category.label}
@@ -3607,14 +4316,24 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
         >
           {filteredBalances.length ? (
             <div className="overflow-hidden rounded-2xl border border-border bg-surface-1 shadow-[0_14px_32px_-28px_rgb(15_23_42_/_0.75)]">
-              <div className={`hidden ${stockGridColumns} gap-4 border-b border-border bg-surface-2/70 px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-muted md:grid`}>
+              <div
+                className={`hidden ${stockGridColumns} gap-4 border-b border-border bg-surface-2/70 px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-muted md:grid`}
+              >
                 <span>{copy(fr, "Item", "Article")}</span>
                 <span>{copy(fr, "Storage location", "Entrepôt et site")}</span>
-                <span className="text-right">{copy(fr, "Available", "Disponible")}</span>
-                <span className="text-right">{copy(fr, "On hand", "En stock")}</span>
-                <span className="text-right">{copy(fr, "Reserved", "Réservé")}</span>
+                <span className="text-right">
+                  {copy(fr, "Available", "Disponible")}
+                </span>
+                <span className="text-right">
+                  {copy(fr, "On hand", "En stock")}
+                </span>
+                <span className="text-right">
+                  {copy(fr, "Reserved", "Réservé")}
+                </span>
                 {canRecordStockMovement ? (
-                  <span className="text-right">{copy(fr, "Action", "Action")}</span>
+                  <span className="text-right">
+                    {copy(fr, "Action", "Action")}
+                  </span>
                 ) : null}
               </div>
               <div className="max-h-[34rem] divide-y divide-border overflow-y-auto overscroll-contain">
@@ -3641,7 +4360,9 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
                           {text(balance.itemName)}
                         </p>
                         <p className="mt-1 truncate text-xs text-ink-secondary">
-                          {text(balance.itemCode) || text(balance.itemCategory) || copy(fr, "Inventory item", "Article de stock")}
+                          {text(balance.itemCode) ||
+                            text(balance.itemCategory) ||
+                            copy(fr, "Inventory item", "Article de stock")}
                         </p>
                       </div>
                       <div className="min-w-0">
@@ -3650,28 +4371,41 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
                         </p>
                         <p className="mt-1 truncate text-xs text-ink-secondary">
                           {text(balance.siteName)}
-                          {text(balance.provinceName) ? ` · ${text(balance.provinceName)}` : ""}
+                          {text(balance.provinceName)
+                            ? ` · ${text(balance.provinceName)}`
+                            : ""}
                         </p>
                       </div>
                       <div className="flex items-baseline justify-between gap-3 md:block md:text-right">
                         <span className="text-xs font-medium text-ink-muted md:hidden">
                           {copy(fr, "Available", "Disponible")}
                         </span>
-                        <p className={`inline-flex items-baseline gap-1 rounded-lg border px-2.5 py-1 text-base font-semibold ${availableTone}`}>
-                          {available.toLocaleString()} <span className="text-xs font-medium opacity-80">{unit}</span>
+                        <p
+                          className={`inline-flex items-baseline gap-1 rounded-lg border px-2.5 py-1 text-base font-semibold ${availableTone}`}
+                        >
+                          {available.toLocaleString()}{" "}
+                          <span className="text-xs font-medium opacity-80">
+                            {unit}
+                          </span>
                         </p>
                       </div>
                       <div className="flex items-baseline justify-between gap-3 md:block md:text-right">
                         <span className="text-xs font-medium text-ink-muted md:hidden">
                           {copy(fr, "On hand", "En stock")}
                         </span>
-                        <p className="inline-flex rounded-lg border border-brand/20 bg-brand/10 px-2.5 py-1 text-sm font-semibold text-brand">{onHand.toLocaleString()}</p>
+                        <p className="inline-flex rounded-lg border border-brand/20 bg-brand/10 px-2.5 py-1 text-sm font-semibold text-brand">
+                          {onHand.toLocaleString()}
+                        </p>
                       </div>
                       <div className="flex items-baseline justify-between gap-3 md:block md:text-right">
                         <span className="text-xs font-medium text-ink-muted md:hidden">
                           {copy(fr, "Reserved", "Réservé")}
                         </span>
-                        <p className={`inline-flex rounded-lg border px-2.5 py-1 text-sm font-semibold ${reservedTone}`}>{reserved.toLocaleString()}</p>
+                        <p
+                          className={`inline-flex rounded-lg border px-2.5 py-1 text-sm font-semibold ${reservedTone}`}
+                        >
+                          {reserved.toLocaleString()}
+                        </p>
                       </div>
                       {canRecordStockMovement ? (
                         <div className="flex justify-end md:justify-end">
@@ -3697,7 +4431,8 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
               {filteredBalances.length > stockPageSize ? (
                 <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-surface-2/45 px-4 py-3">
                   <p className="text-xs text-ink-secondary">
-                    {copy(fr, "Showing", "Affichage")} {stockStart}–{stockEnd} {copy(fr, "of", "sur")} {filteredBalances.length}
+                    {copy(fr, "Showing", "Affichage")} {stockStart}–{stockEnd}{" "}
+                    {copy(fr, "of", "sur")} {filteredBalances.length}
                   </p>
                   <div className="flex items-center gap-2">
                     <Button
@@ -3762,7 +4497,11 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
             fr={fr}
             rowsVariant="cards"
             rowsClassName="max-h-[30rem]"
-            createOpenSignal={inventoryCreateTarget === "item" ? inventoryCreateVersion : undefined}
+            createOpenSignal={
+              inventoryCreateTarget === "item"
+                ? inventoryCreateVersion
+                : undefined
+            }
             hideCreateAction
           />
         </QueryState>
@@ -3792,7 +4531,11 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
             fr={fr}
             rowsVariant="cards"
             rowsClassName="max-h-[30rem]"
-            createOpenSignal={inventoryCreateTarget === "warehouse" ? inventoryCreateVersion : undefined}
+            createOpenSignal={
+              inventoryCreateTarget === "warehouse"
+                ? inventoryCreateVersion
+                : undefined
+            }
             hideCreateAction
           />
         </QueryState>
@@ -3813,18 +4556,31 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
             <div className="flex flex-wrap items-end gap-2">
               <label className="grid gap-1 text-xs font-medium text-ink-secondary">
                 <span>{copy(fr, "PDF day", "Journée du PDF")}</span>
-                <Input type="date" value={movementHistoryDate} onChange={(event) => setMovementHistoryDate(event.target.value)} className="h-8 w-auto" />
+                <Input
+                  type="date"
+                  value={movementHistoryDate}
+                  onChange={(event) =>
+                    setMovementHistoryDate(event.target.value)
+                  }
+                  className="h-8 w-auto"
+                />
               </label>
-              <a href={movementHistoryPdfUrl} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-brand/25 bg-brand/5 px-2.5 text-xs font-semibold text-brand transition-colors hover:bg-brand/10">
+              <a
+                href={movementHistoryPdfUrl}
+                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-brand/25 bg-brand/5 px-2.5 text-xs font-semibold text-brand transition-colors hover:bg-brand/10"
+              >
                 <Download className="size-3.5" />
                 {copy(fr, "Download PDF", "Télécharger le PDF")}
               </a>
             </div>
-          }        >
+          }
+        >
           {filteredMovements.length ? (
             <div className="max-h-[28rem] divide-y divide-border overflow-y-auto pr-1">
               {filteredMovements.map((movement) => {
-                const outbound = inventoryMovementIsOutbound(movement.movementType);
+                const outbound = inventoryMovementIsOutbound(
+                  movement.movementType,
+                );
                 const item = itemById.get(text(movement.itemId));
                 const warehouse = warehouseById.get(text(movement.warehouseId));
                 const transferCounterpart =
@@ -3832,7 +4588,8 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
                     ? (movements.data ?? []).find(
                         (candidate) =>
                           text(candidate.id) !== text(movement.id) &&
-                          text(candidate.referenceId) === text(movement.referenceId),
+                          text(candidate.referenceId) ===
+                            text(movement.referenceId),
                       )
                     : null;
                 const counterpartWarehouse = transferCounterpart
@@ -3850,17 +4607,26 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
                         {inventoryMovementLabel(movement.movementType, fr)}
                       </p>
                       <p className="mt-0.5 truncate text-xs text-ink-secondary">
-                        {text(item?.name) || copy(fr, "Stock item", "Article de stock")}
+                        {text(item?.name) ||
+                          copy(fr, "Stock item", "Article de stock")}
                         {warehouse ? ` · ${text(warehouse.name)}` : ""}
-                        {movement.movementDate ? ` · ${date(movement.movementDate)}` : ""}
-                        {text(movement.performedByName) ? ` · ${copy(fr, "by", "par")} ${text(movement.performedByName)}` : ""}
-                        {movement.createdAt ? ` · ${dateTime(movement.createdAt, fr)}` : ""}
+                        {movement.movementDate
+                          ? ` · ${date(movement.movementDate)}`
+                          : ""}
+                        {text(movement.performedByName)
+                          ? ` · ${copy(fr, "by", "par")} ${text(movement.performedByName)}`
+                          : ""}
+                        {movement.createdAt
+                          ? ` · ${dateTime(movement.createdAt, fr)}`
+                          : ""}
                         {counterpartWarehouse
                           ? ` · ${outbound ? copy(fr, "to", "vers") : copy(fr, "from", "depuis")} ${text(counterpartWarehouse.name)}`
                           : ""}
                       </p>
                       {text(movement.notes) ? (
-                        <p className="mt-1 text-xs text-ink-muted">{text(movement.notes)}</p>
+                        <p className="mt-1 text-xs text-ink-muted">
+                          {text(movement.notes)}
+                        </p>
                       ) : null}
                     </div>
                     <span
@@ -3870,7 +4636,8 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
                           : "bg-brand/10 text-brand"
                       }`}
                     >
-                      {outbound ? "−" : "+"}{quantity.toLocaleString(fr ? "fr-FR" : "en-US")} {unit}
+                      {outbound ? "−" : "+"}
+                      {quantity.toLocaleString(fr ? "fr-FR" : "en-US")} {unit}
                     </span>
                   </article>
                 );
@@ -3935,9 +4702,9 @@ function FeedManufacturingPanel({
 }) {
   const user = useSessionUser();
   const client = useQueryClient();
-  const canRead = can(user, "inventory.items.read");
-  const canCreate = can(user, "inventory.items.create");
-  const canUpdate = can(user, "inventory.items.update");
+  const canRead = can(user, "inventory.nutrition.read");
+  const canCreate = can(user, "inventory.nutrition.create");
+  const canUpdate = can(user, "inventory.nutrition.update");
   const batches = useRows(orgSlug, "feed-batches", canRead);
   const inputs = useRows(orgSlug, "feed-batch-inputs", canRead);
   const harvests = useQuery({
@@ -3951,9 +4718,7 @@ function FeedManufacturingPanel({
     enabled: canRead && can(user, "agriculture.harvest.read"),
   });
   const [dialog, setDialog] = useState<
-    | { kind: "batch" }
-    | { kind: "ingredient"; batch: Row }
-    | null
+    { kind: "batch" } | { kind: "ingredient"; batch: Row } | null
   >(null);
   const visibleBatches = (batches.data ?? []).filter(
     (batch) => !siteFilter || text(batch.siteId) === siteFilter,
@@ -3989,8 +4754,13 @@ function FeedManufacturingPanel({
     },
   });
   const changeStatus = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: "confirmed" | "cancelled" }) =>
-      ownerManagementApi.update(orgSlug, "feed-batches", id, { status }),
+    mutationFn: ({
+      id,
+      status,
+    }: {
+      id: string;
+      status: "confirmed" | "cancelled";
+    }) => ownerManagementApi.update(orgSlug, "feed-batches", id, { status }),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["operations", orgSlug] });
       void client.invalidateQueries({ queryKey: ["sales", orgSlug] });
@@ -4015,11 +4785,21 @@ function FeedManufacturingPanel({
         const site = siteById.get(text(warehouse.siteId));
         return {
           value: text(warehouse.id),
-          label: [text(warehouse.name), text(site?.name)].filter(Boolean).join(" · "),
+          label: [text(warehouse.name), text(site?.name)]
+            .filter(Boolean)
+            .join(" · "),
         };
       }),
-      emptyLabel: copy(fr, "No warehouse available", "Aucun entrepôt disponible"),
-      hint: copy(fr, "This warehouse receives the finished bags.", "Cet entrepôt recevra les sacs fabriqués."),
+      emptyLabel: copy(
+        fr,
+        "No warehouse available",
+        "Aucun entrepôt disponible",
+      ),
+      hint: copy(
+        fr,
+        "This warehouse receives the finished bags.",
+        "Cet entrepôt recevra les sacs fabriqués.",
+      ),
     },
     {
       key: "projectId",
@@ -4027,13 +4807,21 @@ function FeedManufacturingPanel({
       type: "select",
       options: selectOptions(projects, ["name", "code"]),
       noneLabel: copy(fr, "No project", "Aucun projet"),
-      hint: copy(fr, "Optional. Use it when the harvest and feed belong to one investment.", "Facultatif. Utilisez-le lorsque la récolte et l’aliment appartiennent au même investissement."),
+      hint: copy(
+        fr,
+        "Optional. Use it when the harvest and feed belong to one investment.",
+        "Facultatif. Utilisez-le lorsque la récolte et l’aliment appartiennent au même investissement.",
+      ),
     },
     {
       key: "feedName",
       label: copy(fr, "Finished feed name", "Nom de l’aliment fabriqué"),
       required: true,
-      hint: copy(fr, "An inventory item in kilograms is created automatically when the batch is confirmed.", "Un article de stock en kilogrammes est créé automatiquement à la confirmation."),
+      hint: copy(
+        fr,
+        "An inventory item in kilograms is created automatically when the batch is confirmed.",
+        "Un article de stock en kilogrammes est créé automatiquement à la confirmation.",
+      ),
     },
     {
       key: "targetSpecies",
@@ -4044,7 +4832,10 @@ function FeedManufacturingPanel({
       options: [
         { value: "poultry", label: copy(fr, "Poultry", "Volaille") },
         { value: "pigs", label: copy(fr, "Pigs", "Porcs") },
-        { value: "mixed", label: copy(fr, "Poultry and pigs", "Volaille et porcs") },
+        {
+          value: "mixed",
+          label: copy(fr, "Poultry and pigs", "Volaille et porcs"),
+        },
       ],
     },
     {
@@ -4095,10 +4886,20 @@ function FeedManufacturingPanel({
       required: true,
       defaultValue: "harvest",
       options: [
-        { value: "harvest", label: copy(fr, "Agricultural harvest", "Récolte agricole") },
-        { value: "inventory", label: copy(fr, "Existing stock", "Stock existant") },
+        {
+          value: "harvest",
+          label: copy(fr, "Agricultural harvest", "Récolte agricole"),
+        },
+        {
+          value: "inventory",
+          label: copy(fr, "Existing stock", "Stock existant"),
+        },
       ],
-      hint: copy(fr, "For a harvest, choose only the harvest below. For stock, choose only the item and its warehouse.", "Pour une récolte, choisissez seulement la récolte ci-dessous. Pour le stock, choisissez seulement l’article et son entrepôt."),
+      hint: copy(
+        fr,
+        "For a harvest, choose only the harvest below. For stock, choose only the item and its warehouse.",
+        "Pour une récolte, choisissez seulement la récolte ci-dessous. Pour le stock, choisissez seulement l’article et son entrepôt.",
+      ),
     },
     {
       key: "harvestRecordId",
@@ -4106,7 +4907,11 @@ function FeedManufacturingPanel({
       type: "select",
       options: harvestOptions,
       noneLabel: copy(fr, "No harvest selected", "Aucune récolte sélectionnée"),
-      emptyLabel: copy(fr, "No kilogram harvest available", "Aucune récolte en kilogrammes disponible"),
+      emptyLabel: copy(
+        fr,
+        "No kilogram harvest available",
+        "Aucune récolte en kilogrammes disponible",
+      ),
     },
     {
       key: "inventoryItemId",
@@ -4114,8 +4919,15 @@ function FeedManufacturingPanel({
       type: "select",
       options: items
         .filter((item) => text(item.unit).toLowerCase() === "kg")
-        .map((item) => ({ value: text(item.id), label: `${text(item.name)} · kg` })),
-      noneLabel: copy(fr, "No stock item selected", "Aucun article de stock sélectionné"),
+        .map((item) => ({
+          value: text(item.id),
+          label: `${text(item.name)} · kg`,
+        })),
+      noneLabel: copy(
+        fr,
+        "No stock item selected",
+        "Aucun article de stock sélectionné",
+      ),
     },
     {
       key: "warehouseId",
@@ -4123,9 +4935,18 @@ function FeedManufacturingPanel({
       type: "select",
       options: warehouses.map((warehouse) => {
         const site = siteById.get(text(warehouse.siteId));
-        return { value: text(warehouse.id), label: [text(warehouse.name), text(site?.name)].filter(Boolean).join(" · ") };
+        return {
+          value: text(warehouse.id),
+          label: [text(warehouse.name), text(site?.name)]
+            .filter(Boolean)
+            .join(" · "),
+        };
       }),
-      noneLabel: copy(fr, "No warehouse selected", "Aucun entrepôt sélectionné"),
+      noneLabel: copy(
+        fr,
+        "No warehouse selected",
+        "Aucun entrepôt sélectionné",
+      ),
     },
     {
       key: "quantityKg",
@@ -4139,7 +4960,11 @@ function FeedManufacturingPanel({
       label: copy(fr, "Unit cost (optional)", "Coût unitaire (facultatif)"),
       type: "number",
       step: "0.01",
-      hint: copy(fr, "Leave blank to use the stock item’s standard cost; use a cost here to value an own harvest.", "Laissez vide pour utiliser le coût standard du stock ; saisissez le coût d’une récolte interne ici si nécessaire."),
+      hint: copy(
+        fr,
+        "Leave blank to use the stock item’s standard cost; use a cost here to value an own harvest.",
+        "Laissez vide pour utiliser le coût standard du stock ; saisissez le coût d’une récolte interne ici si nécessaire.",
+      ),
     },
     { key: "notes", label: copy(fr, "Notes", "Notes"), type: "textarea" },
   ];
@@ -4150,7 +4975,9 @@ function FeedManufacturingPanel({
       confirmed: ["Confirmed", "Confirmée"],
       cancelled: ["Cancelled", "Annulée"],
     };
-    return fr ? (labels[value]?.[1] ?? nice(value)) : (labels[value]?.[0] ?? nice(value));
+    return fr
+      ? (labels[value]?.[1] ?? nice(value))
+      : (labels[value]?.[0] ?? nice(value));
   };
   return (
     <Panel
@@ -4171,22 +4998,61 @@ function FeedManufacturingPanel({
     >
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
         {[
-          [copy(fr, "1. Harvest", "1. Récolte"), copy(fr, "Maize, soy, cassava or another crop measured in kg.", "Maïs, soja, manioc ou autre récolte en kg.")],
-          [copy(fr, "2. Batch", "2. Fabrication"), copy(fr, "Record ingredients and the real kilograms produced.", "Enregistrez les ingrédients et les kilogrammes réellement produits.")],
-          [copy(fr, "3. Bags for feed", "3. Sacs pour l’élevage"), copy(fr, "The confirmed product enters stock and is then issued to livestock.", "Le produit confirmé entre en stock puis est distribué à l’élevage.")],
+          [
+            copy(fr, "1. Harvest", "1. Récolte"),
+            copy(
+              fr,
+              "Maize, soy, cassava or another crop measured in kg.",
+              "Maïs, soja, manioc ou autre récolte en kg.",
+            ),
+          ],
+          [
+            copy(fr, "2. Batch", "2. Fabrication"),
+            copy(
+              fr,
+              "Record ingredients and the real kilograms produced.",
+              "Enregistrez les ingrédients et les kilogrammes réellement produits.",
+            ),
+          ],
+          [
+            copy(fr, "3. Bags for feed", "3. Sacs pour l’élevage"),
+            copy(
+              fr,
+              "The confirmed product enters stock and is then issued to livestock.",
+              "Le produit confirmé entre en stock puis est distribué à l’élevage.",
+            ),
+          ],
         ].map(([title, description]) => (
-          <div key={title} className="rounded-xl border border-brand/15 bg-brand/[0.045] p-3">
+          <div
+            key={title}
+            className="rounded-xl border border-brand/15 bg-brand/[0.045] p-3"
+          >
             <p className="text-sm font-semibold text-ink">{title}</p>
-            <p className="mt-1 text-xs leading-5 text-ink-secondary">{description}</p>
+            <p className="mt-1 text-xs leading-5 text-ink-secondary">
+              {description}
+            </p>
           </div>
         ))}
       </div>
       {batches.isPending ? <Skeleton className="mt-4 h-32" /> : null}
-      {batches.isError ? <ErrorState title={copy(fr, "Could not load feed batches", "Impossible de charger les lots d’aliment")} onRetry={() => void batches.refetch()} /> : null}
+      {batches.isError ? (
+        <ErrorState
+          title={copy(
+            fr,
+            "Could not load feed batches",
+            "Impossible de charger les lots d’aliment",
+          )}
+          onRetry={() => void batches.refetch()}
+        />
+      ) : null}
       {!batches.isPending && !batches.isError && !visibleBatches.length ? (
         <EmptyState
           title={copy(fr, "No feed batch", "Aucun lot d’aliment")}
-          description={copy(fr, "Create a draft, add harvested or stocked ingredients, then confirm the number of bags produced.", "Créez un brouillon, ajoutez les ingrédients récoltés ou en stock, puis confirmez les sacs produits.")}
+          description={copy(
+            fr,
+            "Create a draft, add harvested or stocked ingredients, then confirm the number of bags produced.",
+            "Créez un brouillon, ajoutez les ingrédients récoltés ou en stock, puis confirmez les sacs produits.",
+          )}
         />
       ) : null}
       {visibleBatches.length ? (
@@ -4197,48 +5063,252 @@ function FeedManufacturingPanel({
             const outputWarehouse = warehouseById.get(text(batch.warehouseId));
             const isDraft = text(batch.status || "draft") === "draft";
             return (
-              <article key={text(batch.id)} className="rounded-2xl border border-border bg-surface-2/45 p-4 shadow-sm">
+              <article
+                key={text(batch.id)}
+                className="rounded-2xl border border-border bg-surface-2/45 p-4 shadow-sm"
+              >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="font-semibold text-ink">{text(batch.feedName)}</p>
-                      <Badge variant={text(batch.status) === "confirmed" ? "good" : text(batch.status) === "cancelled" ? "serious" : "warning"}>{statusLabel(batch.status)}</Badge>
+                      <p className="font-semibold text-ink">
+                        {text(batch.feedName)}
+                      </p>
+                      <Badge
+                        variant={
+                          text(batch.status) === "confirmed"
+                            ? "good"
+                            : text(batch.status) === "cancelled"
+                              ? "serious"
+                              : "warning"
+                        }
+                      >
+                        {statusLabel(batch.status)}
+                      </Badge>
                     </div>
-                    <p className="mt-1 text-xs text-ink-secondary">{text(batch.batchNumber)} · {date(batch.productionDate)} · {text(outputWarehouse?.name) || copy(fr, "Warehouse pending", "Entrepôt à confirmer")}</p>
+                    <p className="mt-1 text-xs text-ink-secondary">
+                      {text(batch.batchNumber)} · {date(batch.productionDate)} ·{" "}
+                      {text(outputWarehouse?.name) ||
+                        copy(fr, "Warehouse pending", "Entrepôt à confirmer")}
+                    </p>
                   </div>
                   <div className="flex flex-wrap justify-end gap-2">
-                    {isDraft && canCreate ? <Button size="sm" variant="secondary" onClick={() => setDialog({ kind: "ingredient", batch })}><Plus />{copy(fr, "Add ingredient", "Ajouter un ingrédient")}</Button> : null}
-                    {isDraft && canUpdate && batchInputs.length ? <Button size="sm" onClick={() => changeStatus.mutate({ id: text(batch.id), status: "confirmed" })} loading={changeStatus.isPending}>{copy(fr, "Confirm batch", "Confirmer la fabrication")}</Button> : null}
-                    {text(batch.status) === "confirmed" && canUpdate ? <Button size="sm" variant="secondary" onClick={() => changeStatus.mutate({ id: text(batch.id), status: "cancelled" })} loading={changeStatus.isPending}>{copy(fr, "Cancel batch", "Annuler le lot")}</Button> : null}
+                    {isDraft && canCreate ? (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => setDialog({ kind: "ingredient", batch })}
+                      >
+                        <Plus />
+                        {copy(fr, "Add ingredient", "Ajouter un ingrédient")}
+                      </Button>
+                    ) : null}
+                    {isDraft && canUpdate && batchInputs.length ? (
+                      <Button
+                        size="sm"
+                        onClick={() =>
+                          changeStatus.mutate({
+                            id: text(batch.id),
+                            status: "confirmed",
+                          })
+                        }
+                        loading={changeStatus.isPending}
+                      >
+                        {copy(fr, "Confirm batch", "Confirmer la fabrication")}
+                      </Button>
+                    ) : null}
+                    {text(batch.status) === "confirmed" && canUpdate ? (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() =>
+                          changeStatus.mutate({
+                            id: text(batch.id),
+                            status: "cancelled",
+                          })
+                        }
+                        loading={changeStatus.isPending}
+                      >
+                        {copy(fr, "Cancel batch", "Annuler le lot")}
+                      </Button>
+                    ) : null}
                   </div>
                 </div>
                 <div className="mt-4 grid gap-2 sm:grid-cols-4">
-                  <div className="rounded-xl border border-brand/15 bg-brand/10 px-3 py-2"><p className="text-[11px] font-semibold uppercase tracking-wide text-brand">{copy(fr, "Output", "Produit")}</p><p className="mt-1 text-sm font-bold text-ink">{amount(batch.outputQuantityKg).toLocaleString(fr ? "fr-FR" : "en-US")} kg</p></div>
-                  <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.08] px-3 py-2"><p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">{copy(fr, "Bags", "Sacs")}</p><p className="mt-1 text-sm font-bold text-ink">{amount(batch.bagCount).toLocaleString(fr ? "fr-FR" : "en-US")} × {amount(batch.bagWeightKg)} kg</p></div>
-                  <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.08] px-3 py-2"><p className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">{copy(fr, "Ingredients", "Ingrédients")}</p><p className="mt-1 text-sm font-bold text-ink">{batchInputs.length}</p></div>
-                  <div className="rounded-xl border border-border bg-surface-1 px-3 py-2"><p className="text-[11px] font-semibold uppercase tracking-wide text-ink-muted">{copy(fr, "Stock item", "Article de stock")}</p><p className="mt-1 truncate text-sm font-semibold text-ink">{text(output?.name) || (isDraft ? copy(fr, "Created on confirmation", "Créé à la confirmation") : "—")}</p></div>
+                  <div className="rounded-xl border border-brand/15 bg-brand/10 px-3 py-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-brand">
+                      {copy(fr, "Output", "Produit")}
+                    </p>
+                    <p className="mt-1 text-sm font-bold text-ink">
+                      {amount(batch.outputQuantityKg).toLocaleString(
+                        fr ? "fr-FR" : "en-US",
+                      )}{" "}
+                      kg
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.08] px-3 py-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
+                      {copy(fr, "Bags", "Sacs")}
+                    </p>
+                    <p className="mt-1 text-sm font-bold text-ink">
+                      {amount(batch.bagCount).toLocaleString(
+                        fr ? "fr-FR" : "en-US",
+                      )}{" "}
+                      × {amount(batch.bagWeightKg)} kg
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.08] px-3 py-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">
+                      {copy(fr, "Ingredients", "Ingrédients")}
+                    </p>
+                    <p className="mt-1 text-sm font-bold text-ink">
+                      {batchInputs.length}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-border bg-surface-1 px-3 py-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
+                      {copy(fr, "Stock item", "Article de stock")}
+                    </p>
+                    <p className="mt-1 truncate text-sm font-semibold text-ink">
+                      {text(output?.name) ||
+                        (isDraft
+                          ? copy(
+                              fr,
+                              "Created on confirmation",
+                              "Créé à la confirmation",
+                            )
+                          : "—")}
+                    </p>
+                  </div>
                 </div>
-                {batchInputs.length ? <div className="mt-3 divide-y divide-border rounded-xl border border-border bg-surface-1 px-3">{batchInputs.map((input) => { const stock = itemById.get(text(input.inventoryItemId)); const harvest = (harvests.data ?? []).find((entry) => text(entry.id) === text(input.harvestRecordId)); return <div key={text(input.id)} className="flex flex-wrap items-center justify-between gap-2 py-2.5 text-sm"><span className="min-w-0 truncate font-medium text-ink">{text(input.sourceType) === "harvest" ? [text(harvest?.cropName), text(harvest?.plantingName)].filter(Boolean).join(" · ") || copy(fr, "Agricultural harvest", "Récolte agricole") : text(stock?.name) || copy(fr, "Stocked ingredient", "Ingrédient en stock")}</span><span className="shrink-0 rounded-md bg-surface-2 px-2 py-1 text-xs font-semibold text-ink-secondary">{amount(input.quantityKg).toLocaleString(fr ? "fr-FR" : "en-US")} kg</span></div>; })}</div> : <p className="mt-3 rounded-xl border border-dashed border-warning/35 bg-warning/5 px-3 py-2 text-xs leading-5 text-warning-ink">{copy(fr, "Add at least one ingredient before confirming this batch.", "Ajoutez au moins un ingrédient avant de confirmer ce lot.")}</p>}
+                {batchInputs.length ? (
+                  <div className="mt-3 divide-y divide-border rounded-xl border border-border bg-surface-1 px-3">
+                    {batchInputs.map((input) => {
+                      const stock = itemById.get(text(input.inventoryItemId));
+                      const harvest = (harvests.data ?? []).find(
+                        (entry) =>
+                          text(entry.id) === text(input.harvestRecordId),
+                      );
+                      return (
+                        <div
+                          key={text(input.id)}
+                          className="flex flex-wrap items-center justify-between gap-2 py-2.5 text-sm"
+                        >
+                          <span className="min-w-0 truncate font-medium text-ink">
+                            {text(input.sourceType) === "harvest"
+                              ? [
+                                  text(harvest?.cropName),
+                                  text(harvest?.plantingName),
+                                ]
+                                  .filter(Boolean)
+                                  .join(" · ") ||
+                                copy(
+                                  fr,
+                                  "Agricultural harvest",
+                                  "Récolte agricole",
+                                )
+                              : text(stock?.name) ||
+                                copy(
+                                  fr,
+                                  "Stocked ingredient",
+                                  "Ingrédient en stock",
+                                )}
+                          </span>
+                          <span className="shrink-0 rounded-md bg-surface-2 px-2 py-1 text-xs font-semibold text-ink-secondary">
+                            {amount(input.quantityKg).toLocaleString(
+                              fr ? "fr-FR" : "en-US",
+                            )}{" "}
+                            kg
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="mt-3 rounded-xl border border-dashed border-warning/35 bg-warning/5 px-3 py-2 text-xs leading-5 text-warning-ink">
+                    {copy(
+                      fr,
+                      "Add at least one ingredient before confirming this batch.",
+                      "Ajoutez au moins un ingrédient avant de confirmer ce lot.",
+                    )}
+                  </p>
+                )}
               </article>
             );
           })}
         </div>
       ) : null}
-      {dialog?.kind === "batch" ? <Editor title={copy(fr, "Make feed", "Fabriquer un aliment")} subtitle={copy(fr, "Inventory", "Inventaire")} fields={batchFields} pending={batchSave.isPending} error={batchSave.error} close={() => setDialog(null)} save={batchSave.mutate} fr={fr} /> : null}
-      {dialog?.kind === "ingredient" ? <Editor title={copy(fr, "Add feed ingredient", "Ajouter un ingrédient")} subtitle={`${text(dialog.batch.batchNumber)} · ${text(dialog.batch.feedName)}`} defaults={{ batchId: text(dialog.batch.id) }} fields={ingredientFields(dialog.batch)} pending={ingredientSave.isPending} error={ingredientSave.error} close={() => setDialog(null)} save={(body) => ingredientSave.mutate({ ...body, batchId: text(dialog.batch.id) })} fr={fr} /> : null}
+      {dialog?.kind === "batch" ? (
+        <Editor
+          title={copy(fr, "Make feed", "Fabriquer un aliment")}
+          subtitle={copy(fr, "Inventory", "Inventaire")}
+          fields={batchFields}
+          pending={batchSave.isPending}
+          error={batchSave.error}
+          close={() => setDialog(null)}
+          save={batchSave.mutate}
+          fr={fr}
+        />
+      ) : null}
+      {dialog?.kind === "ingredient" ? (
+        <Editor
+          title={copy(fr, "Add feed ingredient", "Ajouter un ingrédient")}
+          subtitle={`${text(dialog.batch.batchNumber)} · ${text(dialog.batch.feedName)}`}
+          defaults={{ batchId: text(dialog.batch.id) }}
+          fields={ingredientFields(dialog.batch)}
+          pending={ingredientSave.isPending}
+          error={ingredientSave.error}
+          close={() => setDialog(null)}
+          save={(body) =>
+            ingredientSave.mutate({ ...body, batchId: text(dialog.batch.id) })
+          }
+          fr={fr}
+        />
+      ) : null}
     </Panel>
   );
 }
 type FeedNutritionOverview = {
-  totals: { dailyKg: number; sevenDaysKg: number; thirtyDaysKg: number; heads: number };
+  totals: {
+    dailyKg: number;
+    sevenDaysKg: number;
+    thirtyDaysKg: number;
+    heads: number;
+  };
   requirements: Array<{
-    species: "poultry" | "pigs"; sourceId: string | null; sourceName: string;
-    siteName: string; profileCode: string | null; profileName: string; headCount: number;
-    dailyKg: number; sevenDaysKg: number; thirtyDaysKg: number; rationMode: "rationed" | "ad_libitum" | null;
+    species: "poultry" | "pigs";
+    sourceId: string | null;
+    sourceName: string;
+    siteName: string;
+    profileCode: string | null;
+    profileName: string;
+    headCount: number;
+    dailyKg: number;
+    sevenDaysKg: number;
+    thirtyDaysKg: number;
+    rationMode: "rationed" | "ad_libitum" | null;
   }>;
-  profiles: Array<{ id: string; code: string; species: string; stage: string; daily_ration_kg: string; ration_mode: string; benchmark_fcr: string | null }>;
-  fcr: Array<{ kind: string; feedKg: number; outputKg: number; fcr: number | null; benchmark: number; warning: boolean }>;
-  finishedFeedStock: { quantityKg: number; inventoryValue: number; autonomyDays: number | null };
+  profiles: Array<{
+    id: string;
+    code: string;
+    species: string;
+    stage: string;
+    daily_ration_kg: string;
+    ration_mode: string;
+    benchmark_fcr: string | null;
+  }>;
+  fcr: Array<{
+    kind: string;
+    feedKg: number;
+    outputKg: number;
+    fcr: number | null;
+    benchmark: number;
+    warning: boolean;
+  }>;
+  finishedFeedStock: {
+    quantityKg: number;
+    inventoryValue: number;
+    autonomyDays: number | null;
+  };
   activeRecipes: number;
   openProductionOrders: number;
   alerts: Array<{ kind: string; priority: string; message: string }>;
@@ -4249,7 +5319,8 @@ const feedUnitToKg = (unit: unknown) => {
   const value = text(unit).toLowerCase();
   if (["kg", "kilogram", "kilogramme"].includes(value)) return 1;
   if (["g", "gram", "gramme"].includes(value)) return 0.001;
-  if (["bag_50", "sac_50", "50kg", "50 kg", "sac 50 kg"].includes(value)) return 50;
+  if (["bag_50", "sac_50", "50kg", "50 kg", "sac 50 kg"].includes(value))
+    return 50;
   // A recipe can only use a measured feed ingredient. Unknown units such as
   // feuille/pièce must never be treated as kilograms.
   return 0;
@@ -4266,11 +5337,19 @@ function FeedMillWorkspace({
 }) {
   const user = useSessionUser();
   const client = useQueryClient();
-  const canRead = can(user, "inventory.items.read");
-  const canCreate = can(user, "inventory.items.create");
-  const canUpdate = can(user, "inventory.items.update");
-  const items = useRows(orgSlug, "inventory-items", canRead);
-  const warehouses = useRows(orgSlug, "warehouses", can(user, "inventory.warehouses.read"));
+  const canRead = can(user, "inventory.nutrition.read");
+  const canCreate = can(user, "inventory.nutrition.create");
+  const canUpdate = can(user, "inventory.nutrition.update");
+  const items = useRows(
+    orgSlug,
+    "inventory-items",
+    can(user, "inventory.items.read"),
+  );
+  const warehouses = useRows(
+    orgSlug,
+    "warehouses",
+    can(user, "inventory.warehouses.read"),
+  );
   const projects = useRows(orgSlug, "projects", can(user, "projects.read"));
   const recipes = useRows(orgSlug, "feed-recipes", canRead);
   const recipeLines = useRows(orgSlug, "feed-recipe-lines", canRead);
@@ -4278,7 +5357,8 @@ function FeedMillWorkspace({
   const refs = useReferences(orgSlug, can(user, "sites.read"));
   const overview = useQuery({
     queryKey: ["feed-nutrition", orgSlug, "overview"],
-    queryFn: () => ownerManagementApi.feedNutritionOverview<FeedNutritionOverview>(orgSlug),
+    queryFn: () =>
+      ownerManagementApi.feedNutritionOverview<FeedNutritionOverview>(orgSlug),
     enabled: canRead,
   });
   const [dialog, setDialog] = useState<
@@ -4294,12 +5374,21 @@ function FeedMillWorkspace({
   // explicitly say that this is a feed-mill ingredient. Construction, spare
   // parts, and products for sale remain visible only in Inventory.
   const feedIngredients = (items.data ?? []).filter(
-    (item) => feedUnitToKg(item.unit) > 0 && feedIngredientCategory(item.category),
+    (item) =>
+      feedUnitToKg(item.unit) > 0 && feedIngredientCategory(item.category),
   );
-  const finishedFeedItems = (items.data ?? []).filter((item) => feedFinishedCategory(item.category));
-  const itemById = new Map((items.data ?? []).map((item) => [text(item.id), item]));
-  const siteById = new Map((refs.sites.data ?? []).map((site) => [text(site.id), site]));
-  const recipeById = new Map((recipes.data ?? []).map((recipe) => [text(recipe.id), recipe]));
+  const finishedFeedItems = (items.data ?? []).filter((item) =>
+    feedFinishedCategory(item.category),
+  );
+  const itemById = new Map(
+    (items.data ?? []).map((item) => [text(item.id), item]),
+  );
+  const siteById = new Map(
+    (refs.sites.data ?? []).map((site) => [text(site.id), site]),
+  );
+  const recipeById = new Map(
+    (recipes.data ?? []).map((recipe) => [text(recipe.id), recipe]),
+  );
   const linesByRecipe = new Map<string, Row[]>();
   for (const line of recipeLines.data ?? []) {
     const recipeId = text(line.recipeId);
@@ -4307,7 +5396,8 @@ function FeedMillWorkspace({
     linesByRecipe.set(recipeId, [...(linesByRecipe.get(recipeId) ?? []), line]);
   }
   const saveRecipe = useMutation({
-    mutationFn: (body: ManagementBody) => ownerManagementApi.create(orgSlug, "feed-recipes", body),
+    mutationFn: (body: ManagementBody) =>
+      ownerManagementApi.create(orgSlug, "feed-recipes", body),
     onSuccess: () => {
       setDialog(null);
       void client.invalidateQueries({ queryKey: ["operations", orgSlug] });
@@ -4315,7 +5405,8 @@ function FeedMillWorkspace({
     },
   });
   const saveRecipeLine = useMutation({
-    mutationFn: (body: ManagementBody) => ownerManagementApi.create(orgSlug, "feed-recipe-lines", body),
+    mutationFn: (body: ManagementBody) =>
+      ownerManagementApi.create(orgSlug, "feed-recipe-lines", body),
     onSuccess: () => {
       setDialog(null);
       void client.invalidateQueries({ queryKey: ["operations", orgSlug] });
@@ -4323,7 +5414,8 @@ function FeedMillWorkspace({
     },
   });
   const saveOrder = useMutation({
-    mutationFn: (body: ManagementBody) => ownerManagementApi.create(orgSlug, "feed-orders", body),
+    mutationFn: (body: ManagementBody) =>
+      ownerManagementApi.create(orgSlug, "feed-orders", body),
     onSuccess: () => {
       setDialog(null);
       void client.invalidateQueries({ queryKey: ["operations", orgSlug] });
@@ -4331,7 +5423,8 @@ function FeedMillWorkspace({
     },
   });
   const confirmOrder = useMutation({
-    mutationFn: (id: string) => ownerManagementApi.confirmFeedOrder(orgSlug, id),
+    mutationFn: (id: string) =>
+      ownerManagementApi.confirmFeedOrder(orgSlug, id),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["operations", orgSlug] });
       void client.invalidateQueries({ queryKey: ["feed-nutrition", orgSlug] });
@@ -4347,98 +5440,953 @@ function FeedMillWorkspace({
     },
   });
   const tabs: Array<{ key: typeof tab; label: string; href: string }> = [
-    { key: "raw-materials", label: copy(fr, "Raw materials & harvests", "Matières premières & récoltes"), href: `/${orgSlug}/feed-mill/raw-materials` },
-    { key: "recipes", label: copy(fr, "Formulations & recipes", "Formulation & recettes"), href: `/${orgSlug}/feed-mill/recipes` },
-    { key: "production-orders", label: copy(fr, "Production orders", "Ordres de fabrication"), href: `/${orgSlug}/feed-mill/production-orders` },
-    { key: "planning", label: copy(fr, "Planning & requirements", "Planification & besoins"), href: `/${orgSlug}/feed-mill/planning` },
+    {
+      key: "raw-materials",
+      label: copy(
+        fr,
+        "Raw materials & harvests",
+        "Matières premières & récoltes",
+      ),
+      href: `/${orgSlug}/feed-mill/raw-materials`,
+    },
+    {
+      key: "recipes",
+      label: copy(fr, "Formulations & recipes", "Formulation & recettes"),
+      href: `/${orgSlug}/feed-mill/recipes`,
+    },
+    {
+      key: "production-orders",
+      label: copy(fr, "Production orders", "Ordres de fabrication"),
+      href: `/${orgSlug}/feed-mill/production-orders`,
+    },
+    {
+      key: "planning",
+      label: copy(fr, "Planning & requirements", "Planification & besoins"),
+      href: `/${orgSlug}/feed-mill/planning`,
+    },
   ];
   const recipeFields: FormField[] = [
-    { key: "name", label: copy(fr, "Recipe name", "Nom de la recette"), required: true },
-    { key: "targetSpecies", label: copy(fr, "Target species", "Espèce ciblée"), type: "select", required: true, defaultValue: "poultry", options: [{ value: "poultry", label: copy(fr, "Poultry", "Volaille") }, { value: "pigs", label: copy(fr, "Pigs", "Porcs") }, { value: "mixed", label: copy(fr, "Both", "Les deux") }] },
-    { key: "feedStage", label: copy(fr, "Feed stage", "Stade alimentaire"), hint: copy(fr, "For example: starter, grower, finisher or layer.", "Exemple : démarrage, croissance, finition ou ponte.") },
-    { key: "baseQuantityKg", label: copy(fr, "Standard batch (kg)", "Lot standard (kg)"), type: "number", step: "0.001", required: true, defaultValue: 100, hint: copy(fr, "Recipes can be made per 100 kg or per tonne.", "La recette peut être définie pour 100 kg ou une tonne.") },
-    { key: "overheadPerKg", label: copy(fr, "Grinding/mixing cost per kg", "Coût broyage/mélange par kg"), type: "number", step: "0.0001", defaultValue: 0, hint: copy(fr, "Labour, electricity, milling or bags; included in the finished-feed cost.", "Main-d’œuvre, électricité, broyage ou sacs ; inclus dans le coût de l’aliment fini.") },
+    {
+      key: "name",
+      label: copy(fr, "Recipe name", "Nom de la recette"),
+      required: true,
+    },
+    {
+      key: "targetSpecies",
+      label: copy(fr, "Target species", "Espèce ciblée"),
+      type: "select",
+      required: true,
+      defaultValue: "poultry",
+      options: [
+        { value: "poultry", label: copy(fr, "Poultry", "Volaille") },
+        { value: "pigs", label: copy(fr, "Pigs", "Porcs") },
+        { value: "mixed", label: copy(fr, "Both", "Les deux") },
+      ],
+    },
+    {
+      key: "feedStage",
+      label: copy(fr, "Feed stage", "Stade alimentaire"),
+      hint: copy(
+        fr,
+        "For example: starter, grower, finisher or layer.",
+        "Exemple : démarrage, croissance, finition ou ponte.",
+      ),
+    },
+    {
+      key: "baseQuantityKg",
+      label: copy(fr, "Standard batch (kg)", "Lot standard (kg)"),
+      type: "number",
+      step: "0.001",
+      required: true,
+      defaultValue: 100,
+      hint: copy(
+        fr,
+        "Recipes can be made per 100 kg or per tonne.",
+        "La recette peut être définie pour 100 kg ou une tonne.",
+      ),
+    },
+    {
+      key: "overheadPerKg",
+      label: copy(
+        fr,
+        "Grinding/mixing cost per kg",
+        "Coût broyage/mélange par kg",
+      ),
+      type: "number",
+      step: "0.0001",
+      defaultValue: 0,
+      hint: copy(
+        fr,
+        "Labour, electricity, milling or bags; included in the finished-feed cost.",
+        "Main-d’œuvre, électricité, broyage ou sacs ; inclus dans le coût de l’aliment fini.",
+      ),
+    },
     { key: "notes", label: copy(fr, "Notes", "Notes"), type: "textarea" },
   ];
   const lineFields = (recipe: Row): FormField[] => [
-    { key: "inventoryItemId", label: copy(fr, "Stocked ingredient", "Ingrédient en stock"), type: "select", options: feedIngredients.map((item) => ({ value: text(item.id), label: `${text(item.name)} · ${inventoryCategoryName(item.category, fr)} · ${text(item.unit)}` })), noneLabel: copy(fr, "Choose later", "Choisir plus tard"), hint: copy(fr, "Link the exact stock item so confirmation can deduct it automatically.", "Liez l’article exact afin que la confirmation le déduise automatiquement.") },
-    { key: "ingredientName", label: copy(fr, "Ingredient name", "Nom de l’ingrédient"), required: true },
-    { key: "unit", label: copy(fr, "Recipe unit", "Unité de recette"), type: "select", required: true, defaultValue: "kg", options: [{ value: "kg", label: "kg" }, { value: "g", label: "g" }, { value: "bag_50", label: copy(fr, "50 kg bag", "Sac de 50 kg") }] },
-    { key: "quantityPerBase", label: `${copy(fr, "Quantity for", "Quantité pour")} ${amount(recipe.baseQuantityKg || 100).toLocaleString(fr ? "fr-FR" : "en-US")} kg`, type: "number", required: true, step: "0.0001" },
-    { key: "unitCostOverride", label: copy(fr, "Cost override (optional)", "Coût personnalisé (facultatif)"), type: "number", step: "0.0001", hint: copy(fr, "Leave empty to use the weighted inventory cost.", "Laissez vide pour utiliser le coût pondéré du stock.") },
+    {
+      key: "inventoryItemId",
+      label: copy(fr, "Stocked ingredient", "Ingrédient en stock"),
+      type: "select",
+      options: feedIngredients.map((item) => ({
+        value: text(item.id),
+        label: `${text(item.name)} · ${inventoryCategoryName(item.category, fr)} · ${text(item.unit)}`,
+      })),
+      noneLabel: copy(fr, "Choose later", "Choisir plus tard"),
+      hint: copy(
+        fr,
+        "Link the exact stock item so confirmation can deduct it automatically.",
+        "Liez l’article exact afin que la confirmation le déduise automatiquement.",
+      ),
+    },
+    {
+      key: "ingredientName",
+      label: copy(fr, "Ingredient name", "Nom de l’ingrédient"),
+      required: true,
+    },
+    {
+      key: "unit",
+      label: copy(fr, "Recipe unit", "Unité de recette"),
+      type: "select",
+      required: true,
+      defaultValue: "kg",
+      options: [
+        { value: "kg", label: "kg" },
+        { value: "g", label: "g" },
+        { value: "bag_50", label: copy(fr, "50 kg bag", "Sac de 50 kg") },
+      ],
+    },
+    {
+      key: "quantityPerBase",
+      label: `${copy(fr, "Quantity for", "Quantité pour")} ${amount(recipe.baseQuantityKg || 100).toLocaleString(fr ? "fr-FR" : "en-US")} kg`,
+      type: "number",
+      required: true,
+      step: "0.0001",
+    },
+    {
+      key: "unitCostOverride",
+      label: copy(
+        fr,
+        "Cost override (optional)",
+        "Coût personnalisé (facultatif)",
+      ),
+      type: "number",
+      step: "0.0001",
+      hint: copy(
+        fr,
+        "Leave empty to use the weighted inventory cost.",
+        "Laissez vide pour utiliser le coût pondéré du stock.",
+      ),
+    },
     { key: "notes", label: copy(fr, "Notes", "Notes"), type: "textarea" },
   ];
   const orderFields: FormField[] = [
-    { key: "recipeId", label: copy(fr, "Recipe", "Recette"), type: "select", required: true, options: (recipes.data ?? []).filter((recipe) => recipe.isActive !== false).map((recipe) => ({ value: text(recipe.id), label: `${text(recipe.name)} · ${amount(recipe.baseQuantityKg || 100)} kg` })), emptyLabel: copy(fr, "Create a recipe first", "Créez d’abord une recette") },
-    { key: "siteId", label: copy(fr, "Production site", "Site de fabrication"), type: "select", required: true, options: selectOptions(refs.sites.data ?? [], ["name", "code"]), emptyLabel: copy(fr, "No site available", "Aucun site disponible") },
-    { key: "inputWarehouseId", label: copy(fr, "Ingredient warehouse", "Entrepôt des ingrédients"), type: "select", required: true, options: (warehouses.data ?? []).map((warehouse) => ({ value: text(warehouse.id), label: `${text(warehouse.name)} · ${text(siteById.get(text(warehouse.siteId))?.name)}` })), emptyLabel: copy(fr, "Create a warehouse first", "Créez d’abord un entrepôt") },
-    { key: "outputWarehouseId", label: copy(fr, "Finished-feed warehouse", "Entrepôt de l’aliment fini"), type: "select", required: true, options: (warehouses.data ?? []).map((warehouse) => ({ value: text(warehouse.id), label: `${text(warehouse.name)} · ${text(siteById.get(text(warehouse.siteId))?.name)}` })), emptyLabel: copy(fr, "Create a warehouse first", "Créez d’abord un entrepôt") },
-    { key: "projectId", label: copy(fr, "Linked project", "Projet lié"), type: "select", options: selectOptions(projects.data ?? [], ["name", "code"]), noneLabel: copy(fr, "No project", "Aucun projet") },
-    { key: "plannedQuantityKg", label: copy(fr, "Target quantity (kg)", "Quantité à produire (kg)"), type: "number", step: "0.001", required: true },
-    { key: "bagWeightKg", label: copy(fr, "Bag weight (kg)", "Poids par sac (kg)"), type: "number", step: "0.001", required: true, defaultValue: 50 },
-    { key: "overheadTotal", label: copy(fr, "Additional production cost", "Coût complémentaire de fabrication"), type: "number", step: "0.01", defaultValue: 0, hint: copy(fr, "Optional total for this one run; recipe overhead is also applied.", "Total facultatif pour cet OF ; le coût de recette est aussi appliqué.") },
-    { key: "productionDate", label: copy(fr, "Production date", "Date de fabrication"), type: "date", required: true, defaultValue: today() },
+    {
+      key: "recipeId",
+      label: copy(fr, "Recipe", "Recette"),
+      type: "select",
+      required: true,
+      options: (recipes.data ?? [])
+        .filter((recipe) => recipe.isActive !== false)
+        .map((recipe) => ({
+          value: text(recipe.id),
+          label: `${text(recipe.name)} · ${amount(recipe.baseQuantityKg || 100)} kg`,
+        })),
+      emptyLabel: copy(
+        fr,
+        "Create a recipe first",
+        "Créez d’abord une recette",
+      ),
+    },
+    {
+      key: "siteId",
+      label: copy(fr, "Production site", "Site de fabrication"),
+      type: "select",
+      required: true,
+      options: selectOptions(refs.sites.data ?? [], ["name", "code"]),
+      emptyLabel: copy(fr, "No site available", "Aucun site disponible"),
+    },
+    {
+      key: "inputWarehouseId",
+      label: copy(fr, "Ingredient warehouse", "Entrepôt des ingrédients"),
+      type: "select",
+      required: true,
+      options: (warehouses.data ?? []).map((warehouse) => ({
+        value: text(warehouse.id),
+        label: `${text(warehouse.name)} · ${text(siteById.get(text(warehouse.siteId))?.name)}`,
+      })),
+      emptyLabel: copy(
+        fr,
+        "Create a warehouse first",
+        "Créez d’abord un entrepôt",
+      ),
+    },
+    {
+      key: "outputWarehouseId",
+      label: copy(fr, "Finished-feed warehouse", "Entrepôt de l’aliment fini"),
+      type: "select",
+      required: true,
+      options: (warehouses.data ?? []).map((warehouse) => ({
+        value: text(warehouse.id),
+        label: `${text(warehouse.name)} · ${text(siteById.get(text(warehouse.siteId))?.name)}`,
+      })),
+      emptyLabel: copy(
+        fr,
+        "Create a warehouse first",
+        "Créez d’abord un entrepôt",
+      ),
+    },
+    {
+      key: "projectId",
+      label: copy(fr, "Linked project", "Projet lié"),
+      type: "select",
+      options: selectOptions(projects.data ?? [], ["name", "code"]),
+      noneLabel: copy(fr, "No project", "Aucun projet"),
+    },
+    {
+      key: "plannedQuantityKg",
+      label: copy(fr, "Target quantity (kg)", "Quantité à produire (kg)"),
+      type: "number",
+      step: "0.001",
+      required: true,
+    },
+    {
+      key: "bagWeightKg",
+      label: copy(fr, "Bag weight (kg)", "Poids par sac (kg)"),
+      type: "number",
+      step: "0.001",
+      required: true,
+      defaultValue: 50,
+    },
+    {
+      key: "overheadTotal",
+      label: copy(
+        fr,
+        "Additional production cost",
+        "Coût complémentaire de fabrication",
+      ),
+      type: "number",
+      step: "0.01",
+      defaultValue: 0,
+      hint: copy(
+        fr,
+        "Optional total for this one run; recipe overhead is also applied.",
+        "Total facultatif pour cet OF ; le coût de recette est aussi appliqué.",
+      ),
+    },
+    {
+      key: "productionDate",
+      label: copy(fr, "Production date", "Date de fabrication"),
+      type: "date",
+      required: true,
+      defaultValue: today(),
+    },
     { key: "notes", label: copy(fr, "Notes", "Notes"), type: "textarea" },
   ];
   const makeRecipeCost = (recipe: Row, targetKg: number) => {
     const base = amount(recipe.baseQuantityKg || 100);
     const ratio = base > 0 ? targetKg / base : 0;
-    const ingredientCost = (linesByRecipe.get(text(recipe.id)) ?? []).reduce((total, line) => {
-      const item = itemById.get(text(line.inventoryItemId));
-      const lineKg = amount(line.quantityPerBase) * feedUnitToKg(line.unit) * ratio;
-      const nativeCost = line.unitCostOverride == null ? amount(item?.standardUnitCost) : amount(line.unitCostOverride);
-      const unitKg = feedUnitToKg(item?.unit || line.unit);
-      return total + lineKg * (unitKg > 0 ? nativeCost / unitKg : 0);
-    }, 0);
+    const ingredientCost = (linesByRecipe.get(text(recipe.id)) ?? []).reduce(
+      (total, line) => {
+        const item = itemById.get(text(line.inventoryItemId));
+        const lineKg =
+          amount(line.quantityPerBase) * feedUnitToKg(line.unit) * ratio;
+        const nativeCost =
+          line.unitCostOverride == null
+            ? amount(item?.standardUnitCost)
+            : amount(line.unitCostOverride);
+        const unitKg = feedUnitToKg(item?.unit || line.unit);
+        return total + lineKg * (unitKg > 0 ? nativeCost / unitKg : 0);
+      },
+      0,
+    );
     return ingredientCost + targetKg * amount(recipe.overheadPerKg);
   };
-  const unitLabel = (value: unknown) => text(value) === "bag_50" ? copy(fr, "50 kg bag", "Sac de 50 kg") : text(value);
+  const unitLabel = (value: unknown) =>
+    text(value) === "bag_50"
+      ? copy(fr, "50 kg bag", "Sac de 50 kg")
+      : text(value);
   const statusLabel = (value: unknown) => {
     const key = text(value) || "draft";
-    const labels: Record<string, [string, string]> = { draft: ["Draft", "Brouillon"], in_progress: ["In progress", "En cours"], confirmed: ["Confirmed", "Confirmé"], cancelled: ["Cancelled", "Annulé"] };
-    return fr ? (labels[key]?.[1] ?? nice(key)) : (labels[key]?.[0] ?? nice(key));
+    const labels: Record<string, [string, string]> = {
+      draft: ["Draft", "Brouillon"],
+      in_progress: ["In progress", "En cours"],
+      confirmed: ["Confirmed", "Confirmé"],
+      cancelled: ["Cancelled", "Annulé"],
+    };
+    return fr
+      ? (labels[key]?.[1] ?? nice(key))
+      : (labels[key]?.[0] ?? nice(key));
   };
   return (
     <main className="feed-mill-workspace mx-auto max-w-7xl space-y-5 p-4 text-ink sm:p-6 lg:p-8">
-      <Header icon={Factory} title={copy(fr, "Feed mill & nutrition", "Provenderie & nutrition")} description={copy(fr, "Plan farm-wide feeding, turn harvests and raw materials into traceable feed, then distribute the finished bags to poultry and pigs.", "Planifiez l’alimentation de toute l’exploitation, transformez récoltes et matières premières en aliment traçable, puis distribuez les sacs finis aux volailles et aux porcs.")} />
-      <nav className="feed-mill-tabs flex max-w-full gap-2 overflow-x-auto rounded-2xl border border-slate-300 bg-white p-2 shadow-sm dark:border-white/15 dark:bg-[#1a1a19]" aria-label={copy(fr, "Feed-mill sections", "Sections de la provenderie")}>
-        {tabs.map((item) => <a key={item.key} href={item.href} className={`shrink-0 rounded-xl px-3 py-2 text-sm font-semibold transition-colors ${tab === item.key ? "bg-[#184f95] text-white shadow-sm hover:bg-[#0d366b] dark:bg-[#6da7ec] dark:text-[#0b0b0b] dark:hover:bg-[#86b6ef]" : "bg-white text-slate-800 hover:bg-blue-50 hover:text-[#0d366b] dark:bg-[#1a1a19] dark:text-slate-100 dark:hover:bg-white/10 dark:hover:text-white"}`}>{item.label}</a>)}
+      <Header
+        icon={Factory}
+        title={copy(fr, "Feed mill & nutrition", "Provenderie & nutrition")}
+        description={copy(
+          fr,
+          "Plan farm-wide feeding, turn harvests and raw materials into traceable feed, then distribute the finished bags to poultry and pigs.",
+          "Planifiez l’alimentation de toute l’exploitation, transformez récoltes et matières premières en aliment traçable, puis distribuez les sacs finis aux volailles et aux porcs.",
+        )}
+      />
+      <nav
+        className="feed-mill-tabs flex max-w-full gap-2 overflow-x-auto rounded-2xl border border-slate-300 bg-white p-2 shadow-sm dark:border-white/15 dark:bg-[#1a1a19]"
+        aria-label={copy(
+          fr,
+          "Feed-mill sections",
+          "Sections de la provenderie",
+        )}
+      >
+        {tabs.map((item) => (
+          <a
+            key={item.key}
+            href={item.href}
+            className={`shrink-0 rounded-xl px-3 py-2 text-sm font-semibold transition-colors ${tab === item.key ? "bg-[#184f95] text-white shadow-sm hover:bg-[#0d366b] dark:bg-[#6da7ec] dark:text-[#0b0b0b] dark:hover:bg-[#86b6ef]" : "bg-white text-slate-800 hover:bg-blue-50 hover:text-[#0d366b] dark:bg-[#1a1a19] dark:text-slate-100 dark:hover:bg-white/10 dark:hover:text-white"}`}
+          >
+            {item.label}
+          </a>
+        ))}
       </nav>
-      {tab === "raw-materials" ? <>
-        <div className="grid gap-4 md:grid-cols-3">
-          <Metric label={copy(fr, "Feed-stock items", "Articles d’aliment en stock")} value={String(finishedFeedItems.length)} />
-          <Metric label={copy(fr, "Ingredient warehouses", "Entrepôts d’ingrédients")} value={String((warehouses.data ?? []).length)} />
-          <Metric label={copy(fr, "Feed autonomy", "Autonomie d’aliment")} value={overview.data?.finishedFeedStock.autonomyDays == null ? "—" : `${overview.data.finishedFeedStock.autonomyDays.toFixed(1)} ${copy(fr, "days", "jours")}`} warning={(overview.data?.finishedFeedStock.autonomyDays ?? 99) < 3} />
-        </div>
-        <Panel title={copy(fr, "Raw materials & harvests", "Matières premières & récoltes")} description={copy(fr, "Only stock explicitly classified for the Feed mill appears here. Use one of these stocked ingredients in a recipe so its exact quantity is deducted at confirmation.", "Seuls les stocks explicitement classés pour la Provenderie apparaissent ici. Utilisez l’un de ces ingrédients dans une recette afin que sa quantité exacte soit déduite à la confirmation.")}>
-          <div className="mb-4 rounded-xl border border-emerald-500/25 bg-emerald-500/[.08] px-3 py-3 text-sm text-ink dark:bg-emerald-400/10"><p className="font-semibold">{copy(fr, "How an ingredient enters this list", "Comment un ingrédient entre dans cette liste")}</p><p className="mt-1 text-ink-secondary">{copy(fr, "In Inventory, choose Feed mill · raw material for maize, soy, cassava or bran; choose Feed mill · additive / mineral for premix, salt, limestone, lysine or methionine. Construction items, such as roofing sheets, never appear here.", "Dans Stocks, choisissez Provenderie · matière première pour le maïs, le soja, le manioc ou le son ; choisissez Provenderie · additif / minéral pour le prémix, le sel, le calcaire, la lysine ou la méthionine. Les articles de construction, comme les tôles, n’apparaissent jamais ici.")}</p></div>
-          {feedIngredients.length ? <div className="max-h-[34rem] divide-y divide-border overflow-y-auto rounded-2xl border border-border bg-surface-1">{feedIngredients.map((item) => <div key={text(item.id)} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"><div><p className="font-semibold text-ink">{text(item.name)}</p><p className="text-xs text-ink-secondary">{inventoryCategoryName(item.category, fr)} · {text(item.unit)}</p></div><span className="rounded-lg bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-800 dark:text-emerald-200">{copy(fr, "Feed-mill ingredient", "Ingrédient de provenderie")}</span></div>)}</div> : <EmptyState title={copy(fr, "No feed ingredient yet", "Aucun ingrédient de provenderie")} description={copy(fr, "In Inventory, create or edit an item, give it a mass unit (kg, g or 50 kg bag), then choose Feed mill · raw material or Feed mill · additive / mineral.", "Dans Stocks, créez ou modifiez un article, donnez-lui une unité de masse (kg, g ou sac de 50 kg), puis choisissez Provenderie · matière première ou Provenderie · additif / minéral.")} />}
+      {tab === "raw-materials" ? (
+        <>
+          <div className="grid gap-4 md:grid-cols-3">
+            <Metric
+              label={copy(
+                fr,
+                "Feed-stock items",
+                "Articles d’aliment en stock",
+              )}
+              value={String(finishedFeedItems.length)}
+            />
+            <Metric
+              label={copy(
+                fr,
+                "Ingredient warehouses",
+                "Entrepôts d’ingrédients",
+              )}
+              value={String((warehouses.data ?? []).length)}
+            />
+            <Metric
+              label={copy(fr, "Feed autonomy", "Autonomie d’aliment")}
+              value={
+                overview.data?.finishedFeedStock.autonomyDays == null
+                  ? "—"
+                  : `${overview.data.finishedFeedStock.autonomyDays.toFixed(1)} ${copy(fr, "days", "jours")}`
+              }
+              warning={
+                (overview.data?.finishedFeedStock.autonomyDays ?? 99) < 3
+              }
+            />
+          </div>
+          <Panel
+            title={copy(
+              fr,
+              "Raw materials & harvests",
+              "Matières premières & récoltes",
+            )}
+            description={copy(
+              fr,
+              "Only stock explicitly classified for the Feed mill appears here. Use one of these stocked ingredients in a recipe so its exact quantity is deducted at confirmation.",
+              "Seuls les stocks explicitement classés pour la Provenderie apparaissent ici. Utilisez l’un de ces ingrédients dans une recette afin que sa quantité exacte soit déduite à la confirmation.",
+            )}
+          >
+            <div className="mb-4 rounded-xl border border-emerald-500/25 bg-emerald-500/[.08] px-3 py-3 text-sm text-ink dark:bg-emerald-400/10">
+              <p className="font-semibold">
+                {copy(
+                  fr,
+                  "How an ingredient enters this list",
+                  "Comment un ingrédient entre dans cette liste",
+                )}
+              </p>
+              <p className="mt-1 text-ink-secondary">
+                {copy(
+                  fr,
+                  "In Inventory, choose Feed mill · raw material for maize, soy, cassava or bran; choose Feed mill · additive / mineral for premix, salt, limestone, lysine or methionine. Construction items, such as roofing sheets, never appear here.",
+                  "Dans Stocks, choisissez Provenderie · matière première pour le maïs, le soja, le manioc ou le son ; choisissez Provenderie · additif / minéral pour le prémix, le sel, le calcaire, la lysine ou la méthionine. Les articles de construction, comme les tôles, n’apparaissent jamais ici.",
+                )}
+              </p>
+            </div>
+            {feedIngredients.length ? (
+              <div className="max-h-[34rem] divide-y divide-border overflow-y-auto rounded-2xl border border-border bg-surface-1">
+                {feedIngredients.map((item) => (
+                  <div
+                    key={text(item.id)}
+                    className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
+                  >
+                    <div>
+                      <p className="font-semibold text-ink">
+                        {text(item.name)}
+                      </p>
+                      <p className="text-xs text-ink-secondary">
+                        {inventoryCategoryName(item.category, fr)} ·{" "}
+                        {text(item.unit)}
+                      </p>
+                    </div>
+                    <span className="rounded-lg bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-800 dark:text-emerald-200">
+                      {copy(
+                        fr,
+                        "Feed-mill ingredient",
+                        "Ingrédient de provenderie",
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <EmptyState
+                title={copy(
+                  fr,
+                  "No feed ingredient yet",
+                  "Aucun ingrédient de provenderie",
+                )}
+                description={copy(
+                  fr,
+                  "In Inventory, create or edit an item, give it a mass unit (kg, g or 50 kg bag), then choose Feed mill · raw material or Feed mill · additive / mineral.",
+                  "Dans Stocks, créez ou modifiez un article, donnez-lui une unité de masse (kg, g ou sac de 50 kg), puis choisissez Provenderie · matière première ou Provenderie · additif / minéral.",
+                )}
+              />
+            )}
+          </Panel>
+        </>
+      ) : null}
+      {tab === "recipes" ? (
+        <Panel
+          title={copy(fr, "Formulations & recipes", "Formulation & recettes")}
+          description={copy(
+            fr,
+            "Define a standard formula once, then see its exact scaled quantities and estimated cost for any production run. Macro ingredients use kg or 50 kg bags; minerals and premix can use grams.",
+            "Définissez une formule standard, puis consultez ses quantités exactes et son coût estimé pour chaque fabrication. Les macronutriments utilisent kg ou sacs de 50 kg ; les minéraux et prémix peuvent utiliser les grammes.",
+          )}
+          action={
+            canCreate ? (
+              <Button onClick={() => setDialog({ kind: "recipe" })}>
+                <Plus />
+                {copy(fr, "New recipe", "Nouvelle recette")}
+              </Button>
+            ) : undefined
+          }
+        >
+          {recipes.isPending ? <Skeleton className="h-40" /> : null}
+          {recipes.isError ? (
+            <ErrorState
+              title={copy(
+                fr,
+                "Could not load recipes",
+                "Impossible de charger les recettes",
+              )}
+              onRetry={() => void recipes.refetch()}
+            />
+          ) : null}
+          {!recipes.isPending &&
+          !recipes.isError &&
+          !(recipes.data ?? []).length ? (
+            <EmptyState
+              title={copy(fr, "No feed recipe", "Aucune recette d’aliment")}
+              description={copy(
+                fr,
+                "Create a recipe per 100 kg or one tonne, then add each ingredient.",
+                "Créez une recette pour 100 kg ou une tonne, puis ajoutez chaque ingrédient.",
+              )}
+            />
+          ) : null}
+          <div className="mt-4 grid gap-4 xl:grid-cols-2">
+            {(recipes.data ?? []).map((recipe) => {
+              const target =
+                Number(
+                  previewKg[text(recipe.id)] ?? recipe.baseQuantityKg ?? 100,
+                ) || amount(recipe.baseQuantityKg || 100);
+              const estimatedCost = makeRecipeCost(recipe, target);
+              const recipeLines = linesByRecipe.get(text(recipe.id)) ?? [];
+              return (
+                <article
+                  key={text(recipe.id)}
+                  className="feed-mill-card rounded-2xl border border-slate-300 bg-white p-4 text-slate-950 shadow-sm dark:border-white/10 dark:bg-[#222221] dark:text-white"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-ink">
+                        {text(recipe.name)}
+                      </p>
+                      <p className="mt-1 text-xs text-ink-secondary">
+                        {text(recipe.code)} ·{" "}
+                        {text(recipe.targetSpecies) === "pigs"
+                          ? copy(fr, "Pigs", "Porcs")
+                          : text(recipe.targetSpecies) === "mixed"
+                            ? copy(fr, "Mixed", "Mixte")
+                            : copy(fr, "Poultry", "Volaille")}{" "}
+                        · {text(recipe.feedStage) || "—"}
+                      </p>
+                    </div>
+                    {canCreate ? (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => setDialog({ kind: "line", recipe })}
+                      >
+                        <Plus />
+                        {copy(fr, "Ingredient", "Ingrédient")}
+                      </Button>
+                    ) : null}
+                  </div>
+                  <div className="mt-4 grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                    <Field
+                      htmlFor={`recipe-preview-${text(recipe.id)}`}
+                      label={copy(
+                        fr,
+                        "Production target (kg)",
+                        "Objectif de production (kg)",
+                      )}
+                    >
+                      <Input
+                        id={`recipe-preview-${text(recipe.id)}`}
+                        type="number"
+                        min="0.001"
+                        step="0.001"
+                        value={String(target)}
+                        onChange={(event) =>
+                          setPreviewKg((current) => ({
+                            ...current,
+                            [text(recipe.id)]: event.target.value,
+                          }))
+                        }
+                      />
+                    </Field>
+                    <div className="rounded-xl border border-blue-300 bg-blue-50 px-3 py-2.5 dark:border-blue-400/30 dark:bg-blue-400/15">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-[#0d366b] dark:text-blue-200">
+                        {copy(fr, "Estimated cost", "Coût estimé")}
+                      </p>
+                      <p className="mt-1 text-lg font-bold text-ink">
+                        {estimatedCost.toLocaleString(fr ? "fr-FR" : "en-US", {
+                          maximumFractionDigits: 2,
+                        })}
+                      </p>
+                      <p className="text-xs text-ink-secondary">
+                        {target > 0
+                          ? `${(estimatedCost / target).toLocaleString(fr ? "fr-FR" : "en-US", { maximumFractionDigits: 2 })} / kg · ${((estimatedCost * 50) / target).toLocaleString(fr ? "fr-FR" : "en-US", { maximumFractionDigits: 2 })} / 50 kg`
+                          : "—"}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-4 divide-y divide-border rounded-xl border border-border bg-surface-1 px-3">
+                    {recipeLines.length ? (
+                      recipeLines.map((line) => {
+                        const ingredient = itemById.get(
+                          text(line.inventoryItemId),
+                        );
+                        const scaledKg =
+                          amount(line.quantityPerBase) *
+                          feedUnitToKg(line.unit) *
+                          (target /
+                            Math.max(amount(recipe.baseQuantityKg), 0.001));
+                        return (
+                          <div
+                            key={text(line.id)}
+                            className="flex flex-wrap items-center justify-between gap-2 py-2.5"
+                          >
+                            <div>
+                              <p className="text-sm font-medium text-ink">
+                                {text(line.ingredientName) ||
+                                  text(ingredient?.name)}
+                              </p>
+                              <p className="text-xs text-ink-secondary">
+                                {amount(line.quantityPerBase).toLocaleString(
+                                  fr ? "fr-FR" : "en-US",
+                                )}{" "}
+                                {unitLabel(line.unit)} /{" "}
+                                {amount(recipe.baseQuantityKg)} kg
+                              </p>
+                            </div>
+                            <span className="rounded-md bg-surface-2 px-2 py-1 text-xs font-semibold text-ink-secondary">
+                              {scaledKg.toLocaleString(fr ? "fr-FR" : "en-US", {
+                                maximumFractionDigits: 3,
+                              })}{" "}
+                              kg
+                            </span>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <p className="py-3 text-sm text-ink-secondary">
+                        {copy(
+                          fr,
+                          "No ingredients yet.",
+                          "Aucun ingrédient pour le moment.",
+                        )}
+                      </p>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
         </Panel>
-      </> : null}
-      {tab === "recipes" ? <Panel title={copy(fr, "Formulations & recipes", "Formulation & recettes")} description={copy(fr, "Define a standard formula once, then see its exact scaled quantities and estimated cost for any production run. Macro ingredients use kg or 50 kg bags; minerals and premix can use grams.", "Définissez une formule standard, puis consultez ses quantités exactes et son coût estimé pour chaque fabrication. Les macronutriments utilisent kg ou sacs de 50 kg ; les minéraux et prémix peuvent utiliser les grammes.")} action={canCreate ? <Button onClick={() => setDialog({ kind: "recipe" })}><Plus />{copy(fr, "New recipe", "Nouvelle recette")}</Button> : undefined}>
-        {recipes.isPending ? <Skeleton className="h-40" /> : null}
-        {recipes.isError ? <ErrorState title={copy(fr, "Could not load recipes", "Impossible de charger les recettes")} onRetry={() => void recipes.refetch()} /> : null}
-        {!recipes.isPending && !recipes.isError && !(recipes.data ?? []).length ? <EmptyState title={copy(fr, "No feed recipe", "Aucune recette d’aliment")} description={copy(fr, "Create a recipe per 100 kg or one tonne, then add each ingredient.", "Créez une recette pour 100 kg ou une tonne, puis ajoutez chaque ingrédient.")} /> : null}
-        <div className="mt-4 grid gap-4 xl:grid-cols-2">{(recipes.data ?? []).map((recipe) => {
-          const target = Number(previewKg[text(recipe.id)] ?? recipe.baseQuantityKg ?? 100) || amount(recipe.baseQuantityKg || 100);
-          const estimatedCost = makeRecipeCost(recipe, target);
-          const recipeLines = linesByRecipe.get(text(recipe.id)) ?? [];
-          return <article key={text(recipe.id)} className="feed-mill-card rounded-2xl border border-slate-300 bg-white p-4 text-slate-950 shadow-sm dark:border-white/10 dark:bg-[#222221] dark:text-white"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-semibold text-ink">{text(recipe.name)}</p><p className="mt-1 text-xs text-ink-secondary">{text(recipe.code)} · {text(recipe.targetSpecies) === "pigs" ? copy(fr, "Pigs", "Porcs") : text(recipe.targetSpecies) === "mixed" ? copy(fr, "Mixed", "Mixte") : copy(fr, "Poultry", "Volaille")} · {text(recipe.feedStage) || "—"}</p></div>{canCreate ? <Button size="sm" variant="secondary" onClick={() => setDialog({ kind: "line", recipe })}><Plus />{copy(fr, "Ingredient", "Ingrédient")}</Button> : null}</div><div className="mt-4 grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"><Field htmlFor={`recipe-preview-${text(recipe.id)}`} label={copy(fr, "Production target (kg)", "Objectif de production (kg)")}><Input id={`recipe-preview-${text(recipe.id)}`} type="number" min="0.001" step="0.001" value={String(target)} onChange={(event) => setPreviewKg((current) => ({ ...current, [text(recipe.id)]: event.target.value }))} /></Field><div className="rounded-xl border border-blue-300 bg-blue-50 px-3 py-2.5 dark:border-blue-400/30 dark:bg-blue-400/15"><p className="text-[11px] font-semibold uppercase tracking-wide text-[#0d366b] dark:text-blue-200">{copy(fr, "Estimated cost", "Coût estimé")}</p><p className="mt-1 text-lg font-bold text-ink">{estimatedCost.toLocaleString(fr ? "fr-FR" : "en-US", { maximumFractionDigits: 2 })}</p><p className="text-xs text-ink-secondary">{target > 0 ? `${(estimatedCost / target).toLocaleString(fr ? "fr-FR" : "en-US", { maximumFractionDigits: 2 })} / kg · ${(estimatedCost * 50 / target).toLocaleString(fr ? "fr-FR" : "en-US", { maximumFractionDigits: 2 })} / 50 kg` : "—"}</p></div></div><div className="mt-4 divide-y divide-border rounded-xl border border-border bg-surface-1 px-3">{recipeLines.length ? recipeLines.map((line) => { const ingredient = itemById.get(text(line.inventoryItemId)); const scaledKg = amount(line.quantityPerBase) * feedUnitToKg(line.unit) * (target / Math.max(amount(recipe.baseQuantityKg), 0.001)); return <div key={text(line.id)} className="flex flex-wrap items-center justify-between gap-2 py-2.5"><div><p className="text-sm font-medium text-ink">{text(line.ingredientName) || text(ingredient?.name)}</p><p className="text-xs text-ink-secondary">{amount(line.quantityPerBase).toLocaleString(fr ? "fr-FR" : "en-US")} {unitLabel(line.unit)} / {amount(recipe.baseQuantityKg)} kg</p></div><span className="rounded-md bg-surface-2 px-2 py-1 text-xs font-semibold text-ink-secondary">{scaledKg.toLocaleString(fr ? "fr-FR" : "en-US", { maximumFractionDigits: 3 })} kg</span></div>; }) : <p className="py-3 text-sm text-ink-secondary">{copy(fr, "No ingredients yet.", "Aucun ingrédient pour le moment.")}</p>}</div></article>;
-        })}</div>
-      </Panel> : null}
-      {tab === "production-orders" ? <>
-        <Panel title={copy(fr, "Production orders / OF", "Ordres de fabrication / OF")} description={copy(fr, "An OF scales the recipe to the chosen batch target. Confirmation issues its exact inputs and receives finished feed only once in the same inventory ledger.", "Un OF adapte la recette à la quantité choisie. Sa confirmation sort les ingrédients exacts et réceptionne l’aliment fini une seule fois dans le même stock.")} action={canCreate ? <Button onClick={() => setDialog({ kind: "order" })}><Plus />{copy(fr, "New production order", "Nouvel ordre de fabrication")}</Button> : undefined}>
-          {orders.isPending ? <Skeleton className="h-40" /> : null}{orders.isError ? <ErrorState title={copy(fr, "Could not load production orders", "Impossible de charger les ordres de fabrication")} onRetry={() => void orders.refetch()} /> : null}
-          {!orders.isPending && !orders.isError && !(orders.data ?? []).length ? <EmptyState title={copy(fr, "No production order", "Aucun ordre de fabrication")} description={copy(fr, "Create a recipe, add its ingredients, then create an OF for the required quantity.", "Créez une recette, ajoutez ses ingrédients, puis créez un OF pour la quantité requise.")} /> : null}
-          <div className="mt-4 max-h-[40rem] space-y-3 overflow-y-auto pr-1">{(orders.data ?? []).map((order) => { const recipe = recipeById.get(text(order.recipeId)); const confirmed = text(order.status) === "confirmed"; const draft = text(order.status || "draft") === "draft"; return <article key={text(order.id)} className="feed-mill-card rounded-2xl border border-slate-300 bg-white p-4 text-slate-950 shadow-sm dark:border-white/10 dark:bg-[#222221] dark:text-white"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex flex-wrap items-center gap-2"><p className="font-semibold text-ink">{text(order.orderNumber)}</p><Badge variant={confirmed ? "good" : text(order.status) === "cancelled" ? "serious" : "warning"}>{statusLabel(order.status)}</Badge></div><p className="mt-1 text-sm text-ink-secondary">{text(recipe?.name) || copy(fr, "Recipe unavailable", "Recette indisponible")} · {amount(order.plannedQuantityKg).toLocaleString(fr ? "fr-FR" : "en-US")} kg · {date(order.productionDate)}</p></div><div className="flex flex-wrap gap-2">{draft && canUpdate ? <Button size="sm" onClick={() => confirmOrder.mutate(text(order.id))} loading={confirmOrder.isPending}>{copy(fr, "Confirm manufacture", "Confirmer la fabrication")}</Button> : null}{confirmed && canUpdate ? <Button size="sm" variant="secondary" onClick={() => cancelOrder.mutate(text(order.id))} loading={cancelOrder.isPending}>{copy(fr, "Cancel OF", "Annuler l’OF")}</Button> : null}</div></div><div className="mt-3 grid gap-2 sm:grid-cols-3"><div className="rounded-xl border border-blue-300 bg-blue-50 px-3 py-2 dark:border-blue-400/30 dark:bg-blue-400/15"><p className="text-[11px] font-semibold uppercase tracking-wide text-[#0d366b] dark:text-blue-200">{copy(fr, "Target", "Objectif")}</p><p className="mt-1 font-bold text-ink">{amount(order.plannedQuantityKg).toLocaleString(fr ? "fr-FR" : "en-US")} kg</p></div><div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[.08] px-3 py-2"><p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">{copy(fr, "Produced", "Produit")}</p><p className="mt-1 font-bold text-ink">{order.actualQuantityKg == null ? "—" : `${amount(order.actualQuantityKg).toLocaleString(fr ? "fr-FR" : "en-US")} kg`}</p></div><div className="rounded-xl border border-border bg-surface-1 px-3 py-2"><p className="text-[11px] font-semibold uppercase tracking-wide text-ink-muted">{copy(fr, "Bags", "Sacs")}</p><p className="mt-1 font-bold text-ink">{amount(order.bagWeightKg || 50)} kg / {copy(fr, "bag", "sac")}</p></div></div></article>; })}</div>
-        </Panel>
-      </> : null}
-      {tab === "planning" ? <>
-        <QueryState query={overview}><div className="space-y-4"><div className="grid gap-4 md:grid-cols-4"><Metric label={copy(fr, "24-hour requirement", "Besoin 24 h")} value={`${(overview.data?.totals.dailyKg ?? 0).toLocaleString(fr ? "fr-FR" : "en-US", { maximumFractionDigits: 1 })} kg`} /><Metric label={copy(fr, "7-day requirement", "Besoin 7 jours")} value={`${(overview.data?.totals.sevenDaysKg ?? 0).toLocaleString(fr ? "fr-FR" : "en-US", { maximumFractionDigits: 1 })} kg`} /><Metric label={copy(fr, "30-day requirement", "Besoin 30 jours")} value={`${(overview.data?.totals.thirtyDaysKg ?? 0).toLocaleString(fr ? "fr-FR" : "en-US", { maximumFractionDigits: 1 })} kg`} /><Metric label={copy(fr, "Finished-feed autonomy", "Autonomie aliment fini")} value={overview.data?.finishedFeedStock.autonomyDays == null ? "—" : `${overview.data.finishedFeedStock.autonomyDays.toFixed(1)} ${copy(fr, "days", "jours")}`} warning={(overview.data?.finishedFeedStock.autonomyDays ?? 99) < 3} /></div><Panel title={copy(fr, "Farm-wide feed requirements", "Besoins d’aliment de l’exploitation")} description={copy(fr, "The current need uses active flock/group counts and the standard profile matched to their type and age. Adjust the profiles if your farm uses a different ration.", "Le besoin actuel utilise les effectifs actifs des lots/groupes et le profil standard correspondant au type et à l’âge. Ajustez les profils si votre ferme utilise une ration différente.")}><div className="max-h-[34rem] divide-y divide-border overflow-y-auto rounded-2xl border border-border bg-surface-1">{(overview.data?.requirements ?? []).map((need, index) => <div key={`${need.species}-${need.sourceId ?? need.sourceName}-${index}`} className="grid gap-2 px-4 py-3 sm:grid-cols-[minmax(0,1.6fr)_repeat(3,minmax(0,.7fr))]"><div><p className="font-semibold text-ink">{need.sourceName}</p><p className="text-xs text-ink-secondary">{need.species === "poultry" ? copy(fr, "Poultry", "Volaille") : copy(fr, "Pigs", "Porcs")} · {need.siteName} · {need.profileName}{need.rationMode === "ad_libitum" ? ` · ${copy(fr, "ad libitum", "à volonté")}` : ""}</p></div><p className="text-sm font-semibold text-ink">{need.headCount} {copy(fr, "head", "têtes")}</p><p className="text-sm font-semibold text-ink">{need.dailyKg.toLocaleString(fr ? "fr-FR" : "en-US", { maximumFractionDigits: 2 })} kg / 24 h</p><p className="text-sm font-semibold text-ink">{need.thirtyDaysKg.toLocaleString(fr ? "fr-FR" : "en-US", { maximumFractionDigits: 1 })} kg / 30 j</p></div>)}{!(overview.data?.requirements ?? []).length ? <p className="px-4 py-5 text-sm text-ink-secondary">{copy(fr, "No active poultry or pig groups are available yet.", "Aucun lot de volaille ou groupe porcin actif n’est encore disponible.")}</p> : null}</div></Panel><Panel title={copy(fr, "Feed conversion and monitored signals", "Conversion alimentaire et signaux surveillés")} description={copy(fr, "FCR compares recorded feed to real output. A value more than 10% above the benchmark is flagged for review.", "L’IC compare l’aliment enregistré au résultat réel. Une valeur supérieure de plus de 10 % au repère est signalée.")}><div className="grid gap-3 md:grid-cols-3">{(overview.data?.fcr ?? []).map((metric) => <div key={metric.kind} className={`rounded-xl border p-3 ${metric.warning ? "border-warning/40 bg-warning/10" : "border-border bg-surface-2/40"}`}><p className="text-sm font-semibold text-ink">{metric.kind === "pigs" ? copy(fr, "Pigs", "Porcs") : metric.kind === "layers" ? copy(fr, "Layers", "Pondeuses") : copy(fr, "Broilers", "Poulets de chair")}</p><p className="mt-2 text-2xl font-bold text-ink">{metric.fcr == null ? "—" : metric.fcr.toFixed(2)}</p><p className="text-xs text-ink-secondary">{copy(fr, "Benchmark", "Repère")} {metric.benchmark.toFixed(2)} · {metric.feedKg.toFixed(1)} kg {copy(fr, "feed recorded", "d’aliment enregistré")}</p></div>)}</div>{(overview.data?.alerts ?? []).length ? <div className="mt-4 space-y-2">{overview.data?.alerts.map((alert, index) => <p key={`${alert.kind}-${index}`} className="rounded-xl border border-warning/35 bg-warning/10 px-3 py-2 text-sm font-medium text-warning-ink">{alert.message}</p>)}</div> : <p className="mt-4 rounded-xl border border-emerald-500/25 bg-emerald-500/[.08] px-3 py-2 text-sm text-emerald-800 dark:text-emerald-200">{overview.data?.assistant}</p>}</Panel></div></QueryState>
-      </> : null}
-      {dialog?.kind === "recipe" ? <Editor title={copy(fr, "New feed recipe", "Nouvelle recette d’aliment")} subtitle={copy(fr, "Feed mill & nutrition", "Provenderie & nutrition")} fields={recipeFields} pending={saveRecipe.isPending} error={saveRecipe.error} close={() => setDialog(null)} save={saveRecipe.mutate} fr={fr} /> : null}
-      {dialog?.kind === "line" ? <Editor title={copy(fr, "Add recipe ingredient", "Ajouter un ingrédient à la recette")} subtitle={`${text(dialog.recipe.name)} · ${amount(dialog.recipe.baseQuantityKg || 100)} kg`} fields={lineFields(dialog.recipe)} pending={saveRecipeLine.isPending} error={saveRecipeLine.error} close={() => setDialog(null)} save={(body) => saveRecipeLine.mutate({ ...body, recipeId: text(dialog.recipe.id) })} fr={fr} /> : null}
-      {dialog?.kind === "order" ? <Editor title={copy(fr, "New production order", "Nouvel ordre de fabrication")} subtitle={copy(fr, "Feed mill & nutrition", "Provenderie & nutrition")} fields={orderFields} pending={saveOrder.isPending} error={saveOrder.error} close={() => setDialog(null)} save={saveOrder.mutate} fr={fr} /> : null}
+      ) : null}
+      {tab === "production-orders" ? (
+        <>
+          <Panel
+            title={copy(
+              fr,
+              "Production orders / OF",
+              "Ordres de fabrication / OF",
+            )}
+            description={copy(
+              fr,
+              "An OF scales the recipe to the chosen batch target. Confirmation issues its exact inputs and receives finished feed only once in the same inventory ledger.",
+              "Un OF adapte la recette à la quantité choisie. Sa confirmation sort les ingrédients exacts et réceptionne l’aliment fini une seule fois dans le même stock.",
+            )}
+            action={
+              canCreate ? (
+                <Button onClick={() => setDialog({ kind: "order" })}>
+                  <Plus />
+                  {copy(
+                    fr,
+                    "New production order",
+                    "Nouvel ordre de fabrication",
+                  )}
+                </Button>
+              ) : undefined
+            }
+          >
+            {orders.isPending ? <Skeleton className="h-40" /> : null}
+            {orders.isError ? (
+              <ErrorState
+                title={copy(
+                  fr,
+                  "Could not load production orders",
+                  "Impossible de charger les ordres de fabrication",
+                )}
+                onRetry={() => void orders.refetch()}
+              />
+            ) : null}
+            {!orders.isPending &&
+            !orders.isError &&
+            !(orders.data ?? []).length ? (
+              <EmptyState
+                title={copy(
+                  fr,
+                  "No production order",
+                  "Aucun ordre de fabrication",
+                )}
+                description={copy(
+                  fr,
+                  "Create a recipe, add its ingredients, then create an OF for the required quantity.",
+                  "Créez une recette, ajoutez ses ingrédients, puis créez un OF pour la quantité requise.",
+                )}
+              />
+            ) : null}
+            <div className="mt-4 max-h-[40rem] space-y-3 overflow-y-auto pr-1">
+              {(orders.data ?? []).map((order) => {
+                const recipe = recipeById.get(text(order.recipeId));
+                const confirmed = text(order.status) === "confirmed";
+                const draft = text(order.status || "draft") === "draft";
+                return (
+                  <article
+                    key={text(order.id)}
+                    className="feed-mill-card rounded-2xl border border-slate-300 bg-white p-4 text-slate-950 shadow-sm dark:border-white/10 dark:bg-[#222221] dark:text-white"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-semibold text-ink">
+                            {text(order.orderNumber)}
+                          </p>
+                          <Badge
+                            variant={
+                              confirmed
+                                ? "good"
+                                : text(order.status) === "cancelled"
+                                  ? "serious"
+                                  : "warning"
+                            }
+                          >
+                            {statusLabel(order.status)}
+                          </Badge>
+                        </div>
+                        <p className="mt-1 text-sm text-ink-secondary">
+                          {text(recipe?.name) ||
+                            copy(
+                              fr,
+                              "Recipe unavailable",
+                              "Recette indisponible",
+                            )}{" "}
+                          ·{" "}
+                          {amount(order.plannedQuantityKg).toLocaleString(
+                            fr ? "fr-FR" : "en-US",
+                          )}{" "}
+                          kg · {date(order.productionDate)}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {draft && canUpdate ? (
+                          <Button
+                            size="sm"
+                            onClick={() => confirmOrder.mutate(text(order.id))}
+                            loading={confirmOrder.isPending}
+                          >
+                            {copy(
+                              fr,
+                              "Confirm manufacture",
+                              "Confirmer la fabrication",
+                            )}
+                          </Button>
+                        ) : null}
+                        {confirmed && canUpdate ? (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => cancelOrder.mutate(text(order.id))}
+                            loading={cancelOrder.isPending}
+                          >
+                            {copy(fr, "Cancel OF", "Annuler l’OF")}
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                      <div className="rounded-xl border border-blue-300 bg-blue-50 px-3 py-2 dark:border-blue-400/30 dark:bg-blue-400/15">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-[#0d366b] dark:text-blue-200">
+                          {copy(fr, "Target", "Objectif")}
+                        </p>
+                        <p className="mt-1 font-bold text-ink">
+                          {amount(order.plannedQuantityKg).toLocaleString(
+                            fr ? "fr-FR" : "en-US",
+                          )}{" "}
+                          kg
+                        </p>
+                      </div>
+                      <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[.08] px-3 py-2">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
+                          {copy(fr, "Produced", "Produit")}
+                        </p>
+                        <p className="mt-1 font-bold text-ink">
+                          {order.actualQuantityKg == null
+                            ? "—"
+                            : `${amount(order.actualQuantityKg).toLocaleString(fr ? "fr-FR" : "en-US")} kg`}
+                        </p>
+                      </div>
+                      <div className="rounded-xl border border-border bg-surface-1 px-3 py-2">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
+                          {copy(fr, "Bags", "Sacs")}
+                        </p>
+                        <p className="mt-1 font-bold text-ink">
+                          {amount(order.bagWeightKg || 50)} kg /{" "}
+                          {copy(fr, "bag", "sac")}
+                        </p>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </Panel>
+        </>
+      ) : null}
+      {tab === "planning" ? (
+        <>
+          <QueryState query={overview}>
+            <div className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-4">
+                <Metric
+                  label={copy(fr, "24-hour requirement", "Besoin 24 h")}
+                  value={`${(overview.data?.totals.dailyKg ?? 0).toLocaleString(fr ? "fr-FR" : "en-US", { maximumFractionDigits: 1 })} kg`}
+                />
+                <Metric
+                  label={copy(fr, "7-day requirement", "Besoin 7 jours")}
+                  value={`${(overview.data?.totals.sevenDaysKg ?? 0).toLocaleString(fr ? "fr-FR" : "en-US", { maximumFractionDigits: 1 })} kg`}
+                />
+                <Metric
+                  label={copy(fr, "30-day requirement", "Besoin 30 jours")}
+                  value={`${(overview.data?.totals.thirtyDaysKg ?? 0).toLocaleString(fr ? "fr-FR" : "en-US", { maximumFractionDigits: 1 })} kg`}
+                />
+                <Metric
+                  label={copy(
+                    fr,
+                    "Finished-feed autonomy",
+                    "Autonomie aliment fini",
+                  )}
+                  value={
+                    overview.data?.finishedFeedStock.autonomyDays == null
+                      ? "—"
+                      : `${overview.data.finishedFeedStock.autonomyDays.toFixed(1)} ${copy(fr, "days", "jours")}`
+                  }
+                  warning={
+                    (overview.data?.finishedFeedStock.autonomyDays ?? 99) < 3
+                  }
+                />
+              </div>
+              <Panel
+                title={copy(
+                  fr,
+                  "Farm-wide feed requirements",
+                  "Besoins d’aliment de l’exploitation",
+                )}
+                description={copy(
+                  fr,
+                  "The current need uses active flock/group counts and the standard profile matched to their type and age. Adjust the profiles if your farm uses a different ration.",
+                  "Le besoin actuel utilise les effectifs actifs des lots/groupes et le profil standard correspondant au type et à l’âge. Ajustez les profils si votre ferme utilise une ration différente.",
+                )}
+              >
+                <div className="max-h-[34rem] divide-y divide-border overflow-y-auto rounded-2xl border border-border bg-surface-1">
+                  {(overview.data?.requirements ?? []).map((need, index) => (
+                    <div
+                      key={`${need.species}-${need.sourceId ?? need.sourceName}-${index}`}
+                      className="grid gap-2 px-4 py-3 sm:grid-cols-[minmax(0,1.6fr)_repeat(3,minmax(0,.7fr))]"
+                    >
+                      <div>
+                        <p className="font-semibold text-ink">
+                          {need.sourceName}
+                        </p>
+                        <p className="text-xs text-ink-secondary">
+                          {need.species === "poultry"
+                            ? copy(fr, "Poultry", "Volaille")
+                            : copy(fr, "Pigs", "Porcs")}{" "}
+                          · {need.siteName} · {need.profileName}
+                          {need.rationMode === "ad_libitum"
+                            ? ` · ${copy(fr, "ad libitum", "à volonté")}`
+                            : ""}
+                        </p>
+                      </div>
+                      <p className="text-sm font-semibold text-ink">
+                        {need.headCount} {copy(fr, "head", "têtes")}
+                      </p>
+                      <p className="text-sm font-semibold text-ink">
+                        {need.dailyKg.toLocaleString(fr ? "fr-FR" : "en-US", {
+                          maximumFractionDigits: 2,
+                        })}{" "}
+                        kg / 24 h
+                      </p>
+                      <p className="text-sm font-semibold text-ink">
+                        {need.thirtyDaysKg.toLocaleString(
+                          fr ? "fr-FR" : "en-US",
+                          { maximumFractionDigits: 1 },
+                        )}{" "}
+                        kg / 30 j
+                      </p>
+                    </div>
+                  ))}
+                  {!(overview.data?.requirements ?? []).length ? (
+                    <p className="px-4 py-5 text-sm text-ink-secondary">
+                      {copy(
+                        fr,
+                        "No active poultry or pig groups are available yet.",
+                        "Aucun lot de volaille ou groupe porcin actif n’est encore disponible.",
+                      )}
+                    </p>
+                  ) : null}
+                </div>
+              </Panel>
+              <Panel
+                title={copy(
+                  fr,
+                  "Feed conversion and monitored signals",
+                  "Conversion alimentaire et signaux surveillés",
+                )}
+                description={copy(
+                  fr,
+                  "FCR compares recorded feed to real output. A value more than 10% above the benchmark is flagged for review.",
+                  "L’IC compare l’aliment enregistré au résultat réel. Une valeur supérieure de plus de 10 % au repère est signalée.",
+                )}
+              >
+                <div className="grid gap-3 md:grid-cols-3">
+                  {(overview.data?.fcr ?? []).map((metric) => (
+                    <div
+                      key={metric.kind}
+                      className={`rounded-xl border p-3 ${metric.warning ? "border-warning/40 bg-warning/10" : "border-border bg-surface-2/40"}`}
+                    >
+                      <p className="text-sm font-semibold text-ink">
+                        {metric.kind === "pigs"
+                          ? copy(fr, "Pigs", "Porcs")
+                          : metric.kind === "layers"
+                            ? copy(fr, "Layers", "Pondeuses")
+                            : copy(fr, "Broilers", "Poulets de chair")}
+                      </p>
+                      <p className="mt-2 text-2xl font-bold text-ink">
+                        {metric.fcr == null ? "—" : metric.fcr.toFixed(2)}
+                      </p>
+                      <p className="text-xs text-ink-secondary">
+                        {copy(fr, "Benchmark", "Repère")}{" "}
+                        {metric.benchmark.toFixed(2)} ·{" "}
+                        {metric.feedKg.toFixed(1)} kg{" "}
+                        {copy(fr, "feed recorded", "d’aliment enregistré")}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+                {(overview.data?.alerts ?? []).length ? (
+                  <div className="mt-4 space-y-2">
+                    {overview.data?.alerts.map((alert, index) => (
+                      <p
+                        key={`${alert.kind}-${index}`}
+                        className="rounded-xl border border-warning/35 bg-warning/10 px-3 py-2 text-sm font-medium text-warning-ink"
+                      >
+                        {alert.message}
+                      </p>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-4 rounded-xl border border-emerald-500/25 bg-emerald-500/[.08] px-3 py-2 text-sm text-emerald-800 dark:text-emerald-200">
+                    {overview.data?.assistant}
+                  </p>
+                )}
+              </Panel>
+            </div>
+          </QueryState>
+        </>
+      ) : null}
+      {dialog?.kind === "recipe" ? (
+        <Editor
+          title={copy(fr, "New feed recipe", "Nouvelle recette d’aliment")}
+          subtitle={copy(
+            fr,
+            "Feed mill & nutrition",
+            "Provenderie & nutrition",
+          )}
+          fields={recipeFields}
+          pending={saveRecipe.isPending}
+          error={saveRecipe.error}
+          close={() => setDialog(null)}
+          save={saveRecipe.mutate}
+          fr={fr}
+        />
+      ) : null}
+      {dialog?.kind === "line" ? (
+        <Editor
+          title={copy(
+            fr,
+            "Add recipe ingredient",
+            "Ajouter un ingrédient à la recette",
+          )}
+          subtitle={`${text(dialog.recipe.name)} · ${amount(dialog.recipe.baseQuantityKg || 100)} kg`}
+          fields={lineFields(dialog.recipe)}
+          pending={saveRecipeLine.isPending}
+          error={saveRecipeLine.error}
+          close={() => setDialog(null)}
+          save={(body) =>
+            saveRecipeLine.mutate({ ...body, recipeId: text(dialog.recipe.id) })
+          }
+          fr={fr}
+        />
+      ) : null}
+      {dialog?.kind === "order" ? (
+        <Editor
+          title={copy(
+            fr,
+            "New production order",
+            "Nouvel ordre de fabrication",
+          )}
+          subtitle={copy(
+            fr,
+            "Feed mill & nutrition",
+            "Provenderie & nutrition",
+          )}
+          fields={orderFields}
+          pending={saveOrder.isPending}
+          error={saveOrder.error}
+          close={() => setDialog(null)}
+          save={saveOrder.mutate}
+          fr={fr}
+        />
+      ) : null}
     </main>
   );
 }
@@ -4627,8 +6575,15 @@ function ProcurementWorkspace({
     },
   });
   const update = useMutation({
-    mutationFn: ({ resource, id, body }: { resource: OwnerManagementResource; id: string; body: ManagementBody }) =>
-      ownerManagementApi.update(orgSlug, resource, id, body),
+    mutationFn: ({
+      resource,
+      id,
+      body,
+    }: {
+      resource: OwnerManagementResource;
+      id: string;
+      body: ManagementBody;
+    }) => ownerManagementApi.update(orgSlug, resource, id, body),
     onSuccess: () => {
       setRequestForLine(null);
       setEditingLine(null);
@@ -4637,7 +6592,15 @@ function ProcurementWorkspace({
     },
   });
   const transitionReceipt = useMutation({
-    mutationFn: ({ receipt, status, notes }: { receipt: Row; status: ReceiptTransition; notes?: string }) =>
+    mutationFn: ({
+      receipt,
+      status,
+      notes,
+    }: {
+      receipt: Row;
+      status: ReceiptTransition;
+      notes?: string;
+    }) =>
       ownerManagementApi.update(orgSlug, "receipts", receipt.id, {
         status,
         ...(notes ? { notes } : {}),
@@ -4648,7 +6611,13 @@ function ProcurementWorkspace({
     },
   });
   const returnToDraft = useMutation({
-    mutationFn: ({ request, correctionNote }: { request: Row; correctionNote?: string }) =>
+    mutationFn: ({
+      request,
+      correctionNote,
+    }: {
+      request: Row;
+      correctionNote?: string;
+    }) =>
       api.post(
         orgUrl(
           orgSlug,
@@ -4661,10 +6630,23 @@ function ProcurementWorkspace({
       void client.invalidateQueries({ queryKey: ["operations", orgSlug] });
     },
   });
-  const [receiptDocumentMessage, setReceiptDocumentMessage] = useState<{ text: string; tone: "success" | "error" } | null>(null);
+  const [receiptDocumentMessage, setReceiptDocumentMessage] = useState<{
+    text: string;
+    tone: "success" | "error";
+  } | null>(null);
   const createReceiptWithEvidence = useMutation({
-    mutationFn: async ({ body, file }: { body: ManagementBody; file?: File }) => {
-      const created = await ownerManagementApi.create<{ record: Row }>(orgSlug, "receipts", body);
+    mutationFn: async ({
+      body,
+      file,
+    }: {
+      body: ManagementBody;
+      file?: File;
+    }) => {
+      const created = await ownerManagementApi.create<{ record: Row }>(
+        orgSlug,
+        "receipts",
+        body,
+      );
       if (!file || !created.record?.id) return { attachmentError: null };
       const form = new FormData();
       form.set("file", file);
@@ -4680,7 +6662,11 @@ function ProcurementWorkspace({
           attachmentError:
             error instanceof Error
               ? error.message
-              : copy(fr, "The BR was saved, but the document could not be attached.", "Le BR a été enregistré, mais le document n’a pas pu être joint."),
+              : copy(
+                  fr,
+                  "The BR was saved, but the document could not be attached.",
+                  "Le BR a été enregistré, mais le document n’a pas pu être joint.",
+                ),
         };
       }
     },
@@ -4699,7 +6685,8 @@ function ProcurementWorkspace({
               ),
               tone: "success",
             },
-      );      void client.invalidateQueries({ queryKey: ["operations", orgSlug] });
+      );
+      void client.invalidateQueries({ queryKey: ["operations", orgSlug] });
     },
   });
   const projectOptions = selectOptions(projects.data ?? [], ["name", "code"]);
@@ -4716,7 +6703,8 @@ function ProcurementWorkspace({
     if (directLabel) return directLabel;
     const projectId = text(row.projectId);
     return projectId
-      ? projectLabels.get(projectId) || copy(fr, "Project unavailable", "Projet indisponible")
+      ? projectLabels.get(projectId) ||
+          copy(fr, "Project unavailable", "Projet indisponible")
       : copy(fr, "Company purchase", "Achat sans projet");
   };
   const matchesProjectFilter = (row: Row) =>
@@ -4759,12 +6747,12 @@ function ProcurementWorkspace({
       (order) => text(order.purchaseRequestId) === text(request.id),
     );
     return (
-      ["submitted", "approved", "partially_approved", "rejected"].includes(requestStatus) &&
-      !hasPurchaseOrder
+      ["submitted", "approved", "partially_approved", "rejected"].includes(
+        requestStatus,
+      ) && !hasPurchaseOrder
     );
   };
   const requestFields: FormField[] = [
-
     {
       key: "projectId",
       label: copy(fr, "Project", "Projet"),
@@ -4897,7 +6885,6 @@ function ProcurementWorkspace({
     },
   ];
   const orderFields: FormField[] = [
-
     {
       key: "projectId",
       label: copy(fr, "Project", "Projet"),
@@ -5043,7 +7030,6 @@ function ProcurementWorkspace({
     },
   ];
   const receiptFields: FormField[] = [
-
     {
       key: "purchaseOrderId",
       label: copy(fr, "Purchase order", "Bon de commande"),
@@ -5082,7 +7068,11 @@ function ProcurementWorkspace({
       ? [
           {
             key: "receiptEvidence",
-            label: copy(fr, "Photo, invoice or delivery document", "Photo, facture ou document de livraison"),
+            label: copy(
+              fr,
+              "Photo, invoice or delivery document",
+              "Photo, facture ou document de livraison",
+            ),
             type: "file" as const,
             accept: "application/pdf,image/*,.doc,.docx,.xls,.xlsx,.csv",
             hint: copy(
@@ -5174,7 +7164,11 @@ function ProcurementWorkspace({
             resource: "purchase-request-lines" as const,
             title: editingLine
               ? copy(fr, "Edit requested item", "Modifier l’article demandé")
-              : copy(fr, "Add requested item", "Ajouter un article à la demande"),
+              : copy(
+                  fr,
+                  "Add requested item",
+                  "Ajouter un article à la demande",
+                ),
             fields: requestLineFields,
           }
         : kind === "order"
@@ -5219,7 +7213,13 @@ function ProcurementWorkspace({
                   }
                 : null;
   const openKind = (
-    next: "request" | "request-line" | "order" | "order-line" | "receipt" | "receipt-line",
+    next:
+      | "request"
+      | "request-line"
+      | "order"
+      | "order-line"
+      | "receipt"
+      | "receipt-line",
     requestId?: string,
   ) => {
     setEditingLine(null);
@@ -5246,23 +7246,39 @@ function ProcurementWorkspace({
           isOwner(user) || can(user, "procurement.create") ? (
             <div className="flex flex-wrap items-center gap-2">
               {isOwner(user) ? (
-                <div className="flex flex-wrap items-center gap-1.5" aria-label={copy(fr, "Owner PDF forms", "Formulaires PDF propriétaire")}>
+                <div
+                  className="flex flex-wrap items-center gap-1.5"
+                  aria-label={copy(
+                    fr,
+                    "Owner PDF forms",
+                    "Formulaires PDF propriétaire",
+                  )}
+                >
                   <a
-                    href={orgApiUrl(orgSlug, "owner-management/procurement/purchase-request-form.pdf")}
+                    href={orgApiUrl(
+                      orgSlug,
+                      "owner-management/procurement/purchase-request-form.pdf",
+                    )}
                     className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-white/35 bg-white/10 px-3 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white/60"
                   >
                     <Download className="size-3.5" />
                     {copy(fr, "Request form", "Formulaire DA")}
                   </a>
                   <a
-                    href={orgApiUrl(orgSlug, "owner-management/procurement/purchase-order-form.pdf")}
+                    href={orgApiUrl(
+                      orgSlug,
+                      "owner-management/procurement/purchase-order-form.pdf",
+                    )}
                     className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-white/35 bg-white/10 px-3 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white/60"
                   >
                     <Download className="size-3.5" />
                     {copy(fr, "Purchase-order form", "Formulaire BC")}
                   </a>
                   <a
-                    href={orgApiUrl(orgSlug, "owner-management/procurement/receipt-form.pdf")}
+                    href={orgApiUrl(
+                      orgSlug,
+                      "owner-management/procurement/receipt-form.pdf",
+                    )}
                     className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-white/35 bg-white/10 px-3 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white/60"
                   >
                     <Download className="size-3.5" />
@@ -5299,15 +7315,33 @@ function ProcurementWorkspace({
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <a href={orgApiUrl(orgSlug, "owner-management/procurement/purchase-request-form.pdf")} className="inline-flex h-10 items-center gap-2 rounded-lg border border-brand/25 bg-brand/5 px-3.5 text-sm font-semibold text-brand transition hover:bg-brand/10">
+              <a
+                href={orgApiUrl(
+                  orgSlug,
+                  "owner-management/procurement/purchase-request-form.pdf",
+                )}
+                className="inline-flex h-10 items-center gap-2 rounded-lg border border-brand/25 bg-brand/5 px-3.5 text-sm font-semibold text-brand transition hover:bg-brand/10"
+              >
                 <Download className="size-4" />
                 {copy(fr, "Purchase request form", "Formulaire DA")}
               </a>
-              <a href={orgApiUrl(orgSlug, "owner-management/procurement/purchase-order-form.pdf")} className="inline-flex h-10 items-center gap-2 rounded-lg border border-brand/25 bg-brand/5 px-3.5 text-sm font-semibold text-brand transition hover:bg-brand/10">
+              <a
+                href={orgApiUrl(
+                  orgSlug,
+                  "owner-management/procurement/purchase-order-form.pdf",
+                )}
+                className="inline-flex h-10 items-center gap-2 rounded-lg border border-brand/25 bg-brand/5 px-3.5 text-sm font-semibold text-brand transition hover:bg-brand/10"
+              >
                 <Download className="size-4" />
                 {copy(fr, "Purchase-order form", "Formulaire BC")}
               </a>
-              <a href={orgApiUrl(orgSlug, "owner-management/procurement/receipt-form.pdf")} className="inline-flex h-10 items-center gap-2 rounded-lg border border-brand/25 bg-brand/5 px-3.5 text-sm font-semibold text-brand transition hover:bg-brand/10">
+              <a
+                href={orgApiUrl(
+                  orgSlug,
+                  "owner-management/procurement/receipt-form.pdf",
+                )}
+                className="inline-flex h-10 items-center gap-2 rounded-lg border border-brand/25 bg-brand/5 px-3.5 text-sm font-semibold text-brand transition hover:bg-brand/10"
+              >
                 <Download className="size-4" />
                 {copy(fr, "Receiving form", "Formulaire BR")}
               </a>
@@ -5345,7 +7379,9 @@ function ProcurementWorkspace({
             onChange={(event) => setProjectFilter(event.target.value)}
             className="h-10 rounded-lg border border-border-strong bg-surface-1 px-3 text-sm text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/20"
           >
-            <option value="all">{copy(fr, "All projects", "Tous les projets")}</option>
+            <option value="all">
+              {copy(fr, "All projects", "Tous les projets")}
+            </option>
             {projectOptions.map((project) => (
               <option key={project.value} value={project.value}>
                 {project.label}
@@ -5355,14 +7391,27 @@ function ProcurementWorkspace({
         </label>
       </section>
       <div className="grid gap-4 md:grid-cols-3">
-        <Metric label={copy(fr, "Purchase requests", "Demandes d’achat")} value={String(visibleRequests.length)} />
-        <Metric label={copy(fr, "Purchase orders", "Bons de commande")} value={String(visibleOrders.length)} />
-        <Metric label={copy(fr, "Receipts", "Réceptions")} value={String(visibleReceipts.length)} />
+        <Metric
+          label={copy(fr, "Purchase requests", "Demandes d’achat")}
+          value={String(visibleRequests.length)}
+        />
+        <Metric
+          label={copy(fr, "Purchase orders", "Bons de commande")}
+          value={String(visibleOrders.length)}
+        />
+        <Metric
+          label={copy(fr, "Receipts", "Réceptions")}
+          value={String(visibleReceipts.length)}
+        />
       </div>
       <div className="grid gap-5 xl:grid-cols-3">
         <ProcurementRecordsPanel
           title={copy(fr, "Purchase requests", "Demandes d’achat")}
-          description={copy(fr, "Start with a business need, add its articles, then submit it for approval.", "Créez le besoin, ajoutez ses articles, puis soumettez-le à approbation.")}
+          description={copy(
+            fr,
+            "Start with a business need, add its articles, then submit it for approval.",
+            "Créez le besoin, ajoutez ses articles, puis soumettez-le à approbation.",
+          )}
           type="request"
           rows={visibleRequests}
           relatedRows={requestLines.data ?? []}
@@ -5370,9 +7419,19 @@ function ProcurementWorkspace({
           relatedLabel={copy(fr, "item(s)", "article(s)")}
           empty={copy(fr, "No purchase requests", "Aucune demande d’achat")}
           createLabel={copy(fr, "New request", "Nouvelle demande")}
-          onCreate={can(user, "procurement.create") ? () => openKind("request") : undefined}
-          onAddItem={can(user, "procurement.create") ? (request) => openKind("request-line", request.id) : undefined}
-          onEditItem={can(user, "procurement.update") ? openLineEdit : undefined}
+          onCreate={
+            can(user, "procurement.create")
+              ? () => openKind("request")
+              : undefined
+          }
+          onAddItem={
+            can(user, "procurement.create")
+              ? (request) => openKind("request-line", request.id)
+              : undefined
+          }
+          onEditItem={
+            can(user, "procurement.update") ? openLineEdit : undefined
+          }
           onReturnToDraft={
             isOwner(user) && can(user, "procurement.update")
               ? setRequestToReturn
@@ -5386,7 +7445,11 @@ function ProcurementWorkspace({
         />
         <ProcurementRecordsPanel
           title={copy(fr, "Purchase orders", "Bons de commande")}
-          description={copy(fr, "Create a supplier order only after a purchase request is approved.", "Créez une commande fournisseur seulement après approbation d’une demande.")}
+          description={copy(
+            fr,
+            "Create a supplier order only after a purchase request is approved.",
+            "Créez une commande fournisseur seulement après approbation d’une demande.",
+          )}
           type="order"
           rows={visibleOrders}
           relatedRows={orderLines.data ?? []}
@@ -5394,7 +7457,11 @@ function ProcurementWorkspace({
           relatedLabel={copy(fr, "line(s)", "ligne(s)")}
           empty={copy(fr, "No purchase orders", "Aucun bon de commande")}
           createLabel={copy(fr, "New order", "Nouveau bon")}
-          onCreate={can(user, "procurement.create") ? () => openKind("order") : undefined}
+          onCreate={
+            can(user, "procurement.create")
+              ? () => openKind("order")
+              : undefined
+          }
           projectLabelForRow={projectLabelForRow}
           orgSlug={orgSlug}
           canDownload={isOwner(user)}
@@ -5414,8 +7481,16 @@ function ProcurementWorkspace({
           relatedLabel={copy(fr, "line(s)", "ligne(s)")}
           empty={copy(fr, "No receipts", "Aucune réception")}
           createLabel={copy(fr, "New receiving", "Nouvelle réception")}
-          onCreate={can(user, "procurement.create") ? () => openKind("receipt") : undefined}
-          onAddItem={can(user, "procurement.create") ? (receipt) => openKind("receipt-line", receipt.id) : undefined}
+          onCreate={
+            can(user, "procurement.create")
+              ? () => openKind("receipt")
+              : undefined
+          }
+          onAddItem={
+            can(user, "procurement.create")
+              ? (receipt) => openKind("receipt-line", receipt.id)
+              : undefined
+          }
           projectLabelForRow={projectLabelForRow}
           onReceiptStatusChange={
             can(user, "procurement.update")
@@ -5483,8 +7558,14 @@ function ProcurementWorkspace({
                   ? { receiptId: requestForLine }
                   : undefined
           }
-          pending={create.isPending || update.isPending || createReceiptWithEvidence.isPending}
-          error={createReceiptWithEvidence.error ?? create.error ?? update.error}
+          pending={
+            create.isPending ||
+            update.isPending ||
+            createReceiptWithEvidence.isPending
+          }
+          error={
+            createReceiptWithEvidence.error ?? create.error ?? update.error
+          }
           close={() => {
             setRequestForLine(null);
             setEditingLine(null);
@@ -5550,7 +7631,10 @@ function EquipmentWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
   );
   const [assetSearch, setAssetSearch] = useState("");
   const [assetDetail, setAssetDetail] = useState<Row | null>(null);
-  const [assetEditSignal, setAssetEditSignal] = useState<{ requestId: number; row: Row } | null>(null);
+  const [assetEditSignal, setAssetEditSignal] = useState<{
+    requestId: number;
+    row: Row;
+  } | null>(null);
   const [assetProjectFilter, setAssetProjectFilter] = useState("all");
   const [assetProvinceFilter, setAssetProvinceFilter] = useState("all");
   const [assetSiteFilter, setAssetSiteFilter] = useState("all");
@@ -5615,19 +7699,25 @@ function EquipmentWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
   });
   const assetCategoryOptions = Array.from(
     new Map(
-      [...(equipmentCategories.data?.categories ?? []), ...(assets.data ?? []).map((asset) => ({ name: text(asset.category) }))]
+      [
+        ...(equipmentCategories.data?.categories ?? []),
+        ...(assets.data ?? []).map((asset) => ({ name: text(asset.category) })),
+      ]
         .map((category) => text(category.name))
         .filter(Boolean)
-        .map((name) => [name.toLocaleLowerCase(), { value: name, label: name }]),
+        .map((name) => [
+          name.toLocaleLowerCase(),
+          { value: name, label: name },
+        ]),
     ).values(),
   ).sort((left, right) => left.label.localeCompare(right.label));
   const hasAssetFilters = Boolean(
     assetSearch ||
-      assetProjectFilter !== "all" ||
-      assetProvinceFilter !== "all" ||
-      assetSiteFilter !== "all" ||
-      assetStatusFilter !== "all" ||
-      assetCategoryFilter !== "all",
+    assetProjectFilter !== "all" ||
+    assetProvinceFilter !== "all" ||
+    assetSiteFilter !== "all" ||
+    assetStatusFilter !== "all" ||
+    assetCategoryFilter !== "all",
   );
   const assetFields: FormField[] = [
     {
@@ -5837,7 +7927,11 @@ function EquipmentWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
               {copy(fr, "Equipment scope", "Périmètre des équipements")}
             </p>
             <h2 className="mt-1 text-base font-semibold text-ink">
-              {copy(fr, "Find equipment by location or project", "Retrouvez l’équipement par lieu ou projet")}
+              {copy(
+                fr,
+                "Find equipment by location or project",
+                "Retrouvez l’équipement par lieu ou projet",
+              )}
             </h2>
             <p className="mt-1 text-sm text-ink-secondary">
               {hasAssetFilters
@@ -5874,7 +7968,11 @@ function EquipmentWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
           <Input
             value={assetSearch}
             onChange={(event) => setAssetSearch(event.target.value)}
-            placeholder={copy(fr, "Search equipment…", "Rechercher un équipement…")}
+            placeholder={copy(
+              fr,
+              "Search equipment…",
+              "Rechercher un équipement…",
+            )}
             className="xl:col-span-1"
           />
           <select
@@ -5883,7 +7981,9 @@ function EquipmentWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
             className="h-9 rounded-md border border-border-strong bg-surface-1 px-3 text-sm text-ink"
             aria-label={copy(fr, "Filter by category", "Filtrer par catégorie")}
           >
-            <option value="all">{copy(fr, "All categories", "Toutes les catégories")}</option>
+            <option value="all">
+              {copy(fr, "All categories", "Toutes les catégories")}
+            </option>
             {assetCategoryOptions.map((category) => (
               <option key={category.value} value={category.value}>
                 {category.label}
@@ -5896,13 +7996,19 @@ function EquipmentWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
             className="h-9 rounded-md border border-border-strong bg-surface-1 px-3 text-sm text-ink"
             aria-label={copy(fr, "Filter by project", "Filtrer par projet")}
           >
-            <option value="all">{copy(fr, "All projects", "Tous les projets")}</option>
-            <option value="none">{copy(fr, "No project", "Sans projet")}</option>
-            {selectOptions(projects.data ?? [], ["name", "code"]).map((project) => (
-              <option key={project.value} value={project.value}>
-                {project.label}
-              </option>
-            ))}
+            <option value="all">
+              {copy(fr, "All projects", "Tous les projets")}
+            </option>
+            <option value="none">
+              {copy(fr, "No project", "Sans projet")}
+            </option>
+            {selectOptions(projects.data ?? [], ["name", "code"]).map(
+              (project) => (
+                <option key={project.value} value={project.value}>
+                  {project.label}
+                </option>
+              ),
+            )}
           </select>
           <select
             value={assetProvinceFilter}
@@ -5910,12 +8016,16 @@ function EquipmentWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
             className="h-9 rounded-md border border-border-strong bg-surface-1 px-3 text-sm text-ink"
             aria-label={copy(fr, "Filter by province", "Filtrer par province")}
           >
-            <option value="all">{copy(fr, "All provinces", "Toutes les provinces")}</option>
-            {selectOptions(refs.provinces.data ?? [], ["name", "code"]).map((province) => (
-              <option key={province.value} value={province.value}>
-                {province.label}
-              </option>
-            ))}
+            <option value="all">
+              {copy(fr, "All provinces", "Toutes les provinces")}
+            </option>
+            {selectOptions(refs.provinces.data ?? [], ["name", "code"]).map(
+              (province) => (
+                <option key={province.value} value={province.value}>
+                  {province.label}
+                </option>
+              ),
+            )}
           </select>
           <select
             value={assetSiteFilter}
@@ -5923,12 +8033,16 @@ function EquipmentWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
             className="h-9 rounded-md border border-border-strong bg-surface-1 px-3 text-sm text-ink"
             aria-label={copy(fr, "Filter by site", "Filtrer par site")}
           >
-            <option value="all">{copy(fr, "All sites", "Tous les sites")}</option>
-            {selectOptions(refs.sites.data ?? [], ["name", "code"]).map((site) => (
-              <option key={site.value} value={site.value}>
-                {site.label}
-              </option>
-            ))}
+            <option value="all">
+              {copy(fr, "All sites", "Tous les sites")}
+            </option>
+            {selectOptions(refs.sites.data ?? [], ["name", "code"]).map(
+              (site) => (
+                <option key={site.value} value={site.value}>
+                  {site.label}
+                </option>
+              ),
+            )}
           </select>
           <select
             value={assetStatusFilter}
@@ -5936,9 +8050,23 @@ function EquipmentWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
             className="h-9 rounded-md border border-border-strong bg-surface-1 px-3 text-sm text-ink"
             aria-label={copy(fr, "Filter by status", "Filtrer par statut")}
           >
-            <option value="all">{copy(fr, "All statuses", "Tous les statuts")}</option>
-            {["available", "assigned", "in_use", "under_maintenance", "out_of_service", "damaged", "retired", "sold", "lost"].map((status) => (
-              <option key={status} value={status}>{nice(status)}</option>
+            <option value="all">
+              {copy(fr, "All statuses", "Tous les statuts")}
+            </option>
+            {[
+              "available",
+              "assigned",
+              "in_use",
+              "under_maintenance",
+              "out_of_service",
+              "damaged",
+              "retired",
+              "sold",
+              "lost",
+            ].map((status) => (
+              <option key={status} value={status}>
+                {nice(status)}
+              </option>
             ))}
           </select>
         </div>
@@ -5977,7 +8105,10 @@ function EquipmentWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
                       requestAnimationFrame(() =>
                         document
                           .getElementById("equipment-register")
-                          ?.scrollIntoView({ behavior: "smooth", block: "start" }),
+                          ?.scrollIntoView({
+                            behavior: "smooth",
+                            block: "start",
+                          }),
                       );
                     }}
                     className={`rounded-lg border px-3 py-2 text-sm font-semibold transition ${selected ? "border-brand bg-brand text-white shadow-sm" : "border-border bg-surface-2 text-ink hover:border-brand/45 hover:bg-brand-subtle"}`}
@@ -5996,7 +8127,11 @@ function EquipmentWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
                       "Category update pending",
                       "Mise à jour des catégories en attente",
                     )
-                  : copy(fr, "No category yet", "Aucune catégorie pour le moment")
+                  : copy(
+                      fr,
+                      "No category yet",
+                      "Aucune catégorie pour le moment",
+                    )
               }
               description={
                 equipmentCategories.data?.categoryStoreReady === false
@@ -6029,78 +8164,80 @@ function EquipmentWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
         <div id="equipment-register">
           <QueryState query={assets}>
             <Resource
-            orgSlug={orgSlug}
-            resource="assets"
-            title={copy(fr, "Equipment register", "Registre des équipements")}
-            description={copy(
-              fr,
-              "Add tractors, generators, pumps, machines, vehicles, and tools.",
-              "Ajoutez tracteurs, générateurs, pompes, machines, véhicules et outils.",
-            )}
-            rows={filteredAssets}
-            rowsVariant="cards"
-            renderCard={(asset, open) => (
-              <EquipmentAssetCard
-                orgSlug={orgSlug}
-                asset={asset}
-                fields={["category", "status", "condition", "purchaseDate"]}
-                open={open}
-                fr={fr}
-              />
-            )}
-            openDetail={(asset) => setAssetDetail(asset)}
-            editSignal={assetEditSignal}
-            afterSave={async (asset, files) => {
-              const photo = files?.photo;
-              if (!photo) return;
-              const current = await get<{ images: Row[] }>(
-                orgUrl(orgSlug, `images/owner-management/assets/${asset.id}`),
-              );
-              const form = new FormData();
-              form.set("file", photo);
-              form.set(
-                "title",
-                `${text(asset.name) || text(asset.assetNumber) || "Equipment"} · ${copy(fr, "photo", "photo")}`,
-              );
-              form.set(
-                "altText",
-                text(asset.name) ||
-                  text(asset.assetNumber) ||
-                  copy(fr, "Equipment photo", "Photo de l’équipement"),
-              );
-              form.set("imageType", "equipment_photo");
-              await api.post(
-                orgUrl(orgSlug, `images/owner-management/assets/${asset.id}`),
-                form,
-                { headers: { "Content-Type": "multipart/form-data" } },
-              );
-              await Promise.all(
-                current.images
-                  .filter(
-                    (image) =>
-                      text(image.documentType) === "equipment_photo" ||
-                      text(image.title).endsWith(" · photo"),
-                  )
-                  .map((image) => api.delete(orgUrl(orgSlug, `images/${image.id}`))),
-              );
-              await queryClient.invalidateQueries({
-                queryKey: ["equipment-images", orgSlug, asset.id],
-              });
-            }}
-            fields={[
-              "assetNumber",
-              "category",
-              "status",
-              "condition",
-              "purchaseDate",
-            ]}
-            form={assetFields}
-            emptyTitle={copy(fr, "No equipment", "Aucun équipement")}
-            emptyDescription={copy(
-              fr,
-              "Add the first company asset.",
-              "Ajoutez le premier actif de l’entreprise.",
-            )}
+              orgSlug={orgSlug}
+              resource="assets"
+              title={copy(fr, "Equipment register", "Registre des équipements")}
+              description={copy(
+                fr,
+                "Add tractors, generators, pumps, machines, vehicles, and tools.",
+                "Ajoutez tracteurs, générateurs, pompes, machines, véhicules et outils.",
+              )}
+              rows={filteredAssets}
+              rowsVariant="cards"
+              renderCard={(asset, open) => (
+                <EquipmentAssetCard
+                  orgSlug={orgSlug}
+                  asset={asset}
+                  fields={["category", "status", "condition", "purchaseDate"]}
+                  open={open}
+                  fr={fr}
+                />
+              )}
+              openDetail={(asset) => setAssetDetail(asset)}
+              editSignal={assetEditSignal}
+              afterSave={async (asset, files) => {
+                const photo = files?.photo;
+                if (!photo) return;
+                const current = await get<{ images: Row[] }>(
+                  orgUrl(orgSlug, `images/owner-management/assets/${asset.id}`),
+                );
+                const form = new FormData();
+                form.set("file", photo);
+                form.set(
+                  "title",
+                  `${text(asset.name) || text(asset.assetNumber) || "Equipment"} · ${copy(fr, "photo", "photo")}`,
+                );
+                form.set(
+                  "altText",
+                  text(asset.name) ||
+                    text(asset.assetNumber) ||
+                    copy(fr, "Equipment photo", "Photo de l’équipement"),
+                );
+                form.set("imageType", "equipment_photo");
+                await api.post(
+                  orgUrl(orgSlug, `images/owner-management/assets/${asset.id}`),
+                  form,
+                  { headers: { "Content-Type": "multipart/form-data" } },
+                );
+                await Promise.all(
+                  current.images
+                    .filter(
+                      (image) =>
+                        text(image.documentType) === "equipment_photo" ||
+                        text(image.title).endsWith(" · photo"),
+                    )
+                    .map((image) =>
+                      api.delete(orgUrl(orgSlug, `images/${image.id}`)),
+                    ),
+                );
+                await queryClient.invalidateQueries({
+                  queryKey: ["equipment-images", orgSlug, asset.id],
+                });
+              }}
+              fields={[
+                "assetNumber",
+                "category",
+                "status",
+                "condition",
+                "purchaseDate",
+              ]}
+              form={assetFields}
+              emptyTitle={copy(fr, "No equipment", "Aucun équipement")}
+              emptyDescription={copy(
+                fr,
+                "Add the first company asset.",
+                "Ajoutez le premier actif de l’entreprise.",
+              )}
               fr={fr}
             />
           </QueryState>
@@ -6147,7 +8284,10 @@ function EquipmentWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
           onEdit={
             can(user, "equipment.update")
               ? () => {
-                  setAssetEditSignal({ requestId: Date.now(), row: assetDetail });
+                  setAssetEditSignal({
+                    requestId: Date.now(),
+                    row: assetDetail,
+                  });
                   setAssetDetail(null);
                 }
               : undefined
@@ -6156,7 +8296,11 @@ function EquipmentWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
       ) : null}
       {addingCategory ? (
         <Editor
-          title={copy(fr, "Add equipment category", "Ajouter une catégorie d’équipement")}
+          title={copy(
+            fr,
+            "Add equipment category",
+            "Ajouter une catégorie d’équipement",
+          )}
           subtitle={copy(fr, "Equipment categories", "Catégories d’équipement")}
           fields={[
             {
@@ -6309,9 +8453,64 @@ function MaintenanceWorkspace({
       ),
     },
     {
+      key: "intervalMeter",
+      label: copy(fr, "Interval (meter)", "Intervalle (compteur)"),
+      type: "number",
+      step: "0.01",
+      hint: copy(
+        fr,
+        "Kilometres or engine-hours, according to the asset.",
+        "Kilomètres ou heures moteur, selon l’actif.",
+      ),
+    },
+    {
       key: "nextDueDate",
       label: copy(fr, "Next due date", "Prochaine échéance"),
       type: "date",
+    },
+    {
+      key: "nextDueMeter",
+      label: copy(fr, "Next due meter", "Prochain compteur"),
+      type: "number",
+      step: "0.01",
+    },
+    {
+      key: "serviceCategory",
+      label: copy(fr, "Service category", "Catégorie de service"),
+      type: "select",
+      options: [
+        "oil_change",
+        "filters",
+        "brakes",
+        "tyres",
+        "cooling",
+        "safety_inspection",
+        "manufacturer_service",
+        "other",
+      ].map((value) => ({ value, label: nice(value) })),
+    },
+    {
+      key: "warningWindowDays",
+      label: copy(fr, "Alert before (days)", "Alerter avant (jours)"),
+      type: "number",
+      defaultValue: 7,
+    },
+    {
+      key: "warningWindowMeter",
+      label: copy(fr, "Alert before (meter)", "Alerter avant (compteur)"),
+      type: "number",
+      step: "0.01",
+    },
+    {
+      key: "blocksDispatchWhenDue",
+      label: copy(fr, "Block departure when due", "Bloquer la sortie quand dû"),
+      type: "checkbox",
+      defaultValue: false,
+      hint: copy(
+        fr,
+        "Use for safety-critical oil, brake, tyre, or manufacturer service.",
+        "À utiliser pour l’huile, les freins, pneus ou service constructeur critique.",
+      ),
     },
     {
       key: "estimatedCost",
@@ -6492,6 +8691,8 @@ function MaintenanceWorkspace({
               "maintenanceType",
               "nextDueDate",
               "intervalDays",
+              "nextDueMeter",
+              "blocksDispatchWhenDue",
               "estimatedCost",
             ]}
             form={planFields}

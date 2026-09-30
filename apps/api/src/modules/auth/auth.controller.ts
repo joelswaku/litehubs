@@ -3,7 +3,7 @@ import { env } from "../../config/env";
 import { ForbiddenError, UnauthorizedError } from "../../utils/errors";
 import * as authService from "./auth.service";
 import type { AuthenticatedUser, IssuedTokens } from "./auth.types";
-import type { RegisterInput } from "./auth.validation";
+import type { ForgotPasswordInput, RegisterInput } from "./auth.validation";
 
 export const ACCESS_COOKIE = "access_token";
 export const REFRESH_COOKIE = "refresh_token";
@@ -257,12 +257,17 @@ export const me: RequestHandler = async (req, res) => {
 };
 
 export const forgotPassword: RequestHandler = async (req, res) => {
-  const { email } = req.body as { email: string };
-  await authService.requestPasswordReset(email, contextOf(req));
+  const { identifier, deliveryMethod } = req.body as ForgotPasswordInput;
+  await authService.requestPasswordReset(
+    identifier,
+    contextOf(req),
+    deliveryMethod,
+  );
 
   // Always the same response, so the endpoint cannot enumerate accounts.
   res.status(202).json({
-    message: "If that email is registered, a reset link has been sent.",
+    message:
+      "If the contact details match an account, a reset link has been sent.",
   });
 };
 

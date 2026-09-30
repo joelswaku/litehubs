@@ -574,7 +574,7 @@ export function PigsArea({ orgSlug }: { orgSlug: string }) {
           "owner",
           "general_manager",
           "provincial_manager",
-          "farm_manager",
+          "site_manager",
           "farm_operations_manager",
           "supervisor",
           "pig_supervisor",

@@ -8,6 +8,7 @@ import {
 import { withTenantContext } from "../../utils/tenant-query";
 import type {
   CreateEmployeeInput,
+  EmployeeDossierDocumentInput,
   UpdateEmployeeInput,
 } from "./employee.validation";
 
@@ -24,6 +25,9 @@ interface EmployeeRow {
   employee_number: string;
   position_category: string;
   full_name: string;
+  last_name: string | null;
+  post_name: string | null;
+  first_name: string | null;
   job_title: string;
   province_id: string | null;
   province_code: string | null;
@@ -41,6 +45,12 @@ interface EmployeeRow {
   employment_type: string;
   start_date: string | null;
   phone: string | null;
+  address_line1: string | null;
+  address_line2: string | null;
+  address_city: string | null;
+  address_region: string | null;
+  address_postal_code: string | null;
+  address_country: string | null;
   emergency_contact_name: string | null;
   emergency_contact_phone: string | null;
   notes: string | null;
@@ -68,12 +78,32 @@ interface EmployeeCreationAllowanceRow {
   updated_at: Date;
 }
 
+interface EmployeeDossierDocumentRow {
+  id: string;
+  title: string | null;
+  file_name: string;
+  mime_type: string;
+  size_bytes: string | number;
+  category: string;
+  document_kind: string;
+  credential_number: string | null;
+  issued_on: string | null;
+  dossier_expires_on: string | null;
+  verified_at: Date | string | null;
+  verified_by_name: string | null;
+  notes: string | null;
+  created_at: Date | string;
+}
+
 const employeeFields = [
   "e.id",
   "e.member_id",
   "e.employee_number",
   "e.position_category",
   "e.full_name",
+  "e.last_name",
+  "e.post_name",
+  "e.first_name",
   "e.job_title",
   "e.province_id",
   "p.code AS province_code",
@@ -91,6 +121,12 @@ const employeeFields = [
   "e.employment_type",
   "e.start_date",
   "e.phone",
+  "e.address_line1",
+  "e.address_line2",
+  "e.address_city",
+  "e.address_region",
+  "e.address_postal_code",
+  "e.address_country",
   "e.emergency_contact_name",
   "e.emergency_contact_phone",
   "e.notes",
@@ -117,18 +153,33 @@ function mapEmployeeCreationAllowance(row: EmployeeCreationAllowanceRow) {
   };
 }
 
-function mapEmployee(row: EmployeeRow) {
+/**
+ * Employee contact data, home address and account email are personnel data.
+ * Operational leaders may need to identify a colleague in their permitted
+ * province, but they must not receive that colleague's private profile merely
+ * because they can assign work or inspect attendance.
+ */
+function mapEmployee(
+  row: EmployeeRow,
+  options: { includePrivateData?: boolean } = {},
+) {
+  const includePrivateData = options.includePrivateData ?? true;
   return {
     id: row.id,
     employeeNumber: row.employee_number,
     fullName: row.full_name,
+    identity: {
+      lastName: row.last_name,
+      postName: row.post_name,
+      firstName: row.first_name,
+    },
     jobTitle: row.job_title,
     positionCategory: row.position_category,
     member: row.member_id
       ? {
           memberId: row.member_id,
           userId: row.member_user_id,
-          email: row.member_email,
+          email: includePrivateData ? row.member_email : null,
           fullName: row.member_full_name,
         }
       : null,
@@ -155,14 +206,59 @@ function mapEmployee(row: EmployeeRow) {
       startDate: row.start_date,
     },
     contact: {
-      phone: row.phone,
-      emergencyContactName: row.emergency_contact_name,
-      emergencyContactPhone: row.emergency_contact_phone,
+      phone: includePrivateData ? row.phone : null,
+      emergencyContactName: includePrivateData
+        ? row.emergency_contact_name
+        : null,
+      emergencyContactPhone: includePrivateData
+        ? row.emergency_contact_phone
+        : null,
     },
-    notes: row.notes,
+    address: {
+      line1: includePrivateData ? row.address_line1 : null,
+      line2: includePrivateData ? row.address_line2 : null,
+      city: includePrivateData ? row.address_city : null,
+      region: includePrivateData ? row.address_region : null,
+      postalCode: includePrivateData ? row.address_postal_code : null,
+      country: includePrivateData ? row.address_country : null,
+    },
+    notes: includePrivateData ? row.notes : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+/** Owner and HR Officer are the only roles allowed to open personnel data. */
+async function canReadPrivateEmployeeData(
+  client: PoolClient,
+  context: EmployeeContext,
+): Promise<boolean> {
+  if (context.isOwner) return true;
+  const result = await client.query<{ allowed: boolean }>(
+    `SELECT EXISTS(
+       SELECT 1
+         FROM member_roles mr
+         JOIN roles r ON r.organization_id=mr.organization_id AND r.id=mr.role_id
+        WHERE mr.organization_id=$1
+          AND mr.member_id=$2
+          AND r.code='hr_officer'
+     ) AS allowed`,
+    [context.organizationId, context.memberId],
+  );
+  return Boolean(result.rows[0]?.allowed);
+}
+
+function displayEmployeeName(input: {
+  fullName?: string | null;
+  lastName?: string | null;
+  postName?: string | null;
+  firstName?: string | null;
+}): string {
+  const structured = [input.lastName, input.postName, input.firstName]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .join(" ")
+    .trim();
+  return structured || input.fullName?.trim() || "";
 }
 
 function translateConflict(error: unknown): never {
@@ -529,13 +625,14 @@ function employeeListSql(provinceOnly: boolean): string {
 export async function listEmployees(context: EmployeeContext) {
   return withTenantContext(context, async (client) => {
     const companyWide = await organizationScope(client, context);
+    const includePrivateData = await canReadPrivateEmployeeData(client, context);
     const result = await client.query<EmployeeRow>(
       employeeListSql(!companyWide),
       companyWide
         ? [context.organizationId]
         : [context.organizationId, context.memberId],
     );
-    return result.rows.map(mapEmployee);
+    return result.rows.map((row) => mapEmployee(row, { includePrivateData }));
   });
 }
 
@@ -543,9 +640,134 @@ export async function getEmployee(
   context: EmployeeContext,
   employeeId: string,
 ) {
-  return withTenantContext(context, async (client) =>
-    mapEmployee(await assertEmployeeAccess(client, context, employeeId)),
-  );
+  return withTenantContext(context, async (client) => {
+    const [employee, includePrivateData] = await Promise.all([
+      assertEmployeeAccess(client, context, employeeId),
+      canReadPrivateEmployeeData(client, context),
+    ]);
+    return mapEmployee(employee, { includePrivateData });
+  });
+}
+
+async function assertDossierAccess(
+  client: PoolClient,
+  context: EmployeeContext,
+) {
+  if (!(await canReadPrivateEmployeeData(client, context)))
+    throw new ForbiddenError(
+      "Only the workspace owner or HR Officer can open an employee dossier",
+    );
+}
+
+/**
+ * An employee dossier is an index over the private company file store. The
+ * document is never copied: contract, permit, payroll and identity evidence
+ * remain one file with one access policy and one audit trail.
+ */
+export async function listEmployeeDossierDocuments(
+  context: EmployeeContext,
+  employeeId: string,
+) {
+  return withTenantContext(context, async (client) => {
+    await assertDossierAccess(client, context);
+    await assertEmployeeAccess(client, context, employeeId);
+    const result = await client.query<EmployeeDossierDocumentRow>(
+      `SELECT DISTINCT ON (d.id)
+          d.id,d.title,d.file_name,d.mime_type,d.size_bytes,d.category,d.expires_on,
+          d.created_at,d.updated_at,
+          COALESCE(ed.document_kind,CASE WHEN d.category='licence' THEN 'driving_licence' ELSE 'other' END) AS document_kind,
+          ed.credential_number,ed.issued_on,COALESCE(ed.expires_on,d.expires_on) AS dossier_expires_on,
+          ed.verified_at,verifier_user.full_name AS verified_by_name,ed.notes
+         FROM documents d
+         LEFT JOIN management_employee_dossier_documents ed
+           ON ed.organization_id=d.organization_id AND ed.document_id=d.id
+         LEFT JOIN organization_members verifier_member
+           ON verifier_member.organization_id=ed.organization_id AND verifier_member.id=ed.verified_by_member_id
+         LEFT JOIN users verifier_user ON verifier_user.id=verifier_member.user_id
+        WHERE d.organization_id=$1
+          AND (ed.employee_id=$2 OR (d.subject_table='employees' AND d.subject_id=$2))
+        ORDER BY d.id,d.created_at DESC`,
+      [context.organizationId, employeeId],
+    );
+    return result.rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      fileName: row.file_name,
+      mimeType: row.mime_type,
+      sizeBytes: row.size_bytes,
+      category: row.category,
+      documentKind: row.document_kind,
+      credentialNumber: row.credential_number,
+      issuedOn: row.issued_on,
+      expiresOn: row.dossier_expires_on,
+      verifiedAt: row.verified_at,
+      verifiedByName: row.verified_by_name,
+      notes: row.notes,
+      createdAt: row.created_at,
+    }));
+  });
+}
+
+export async function linkEmployeeDossierDocument(
+  context: EmployeeContext,
+  employeeId: string,
+  input: EmployeeDossierDocumentInput,
+) {
+  return withTenantContext(context, async (client) => {
+    await assertDossierAccess(client, context);
+    await assertEmployeeAccess(client, context, employeeId);
+    const document = await client.query<{ id: string }>(
+      "SELECT id FROM documents WHERE organization_id=$1 AND id=$2 FOR UPDATE",
+      [context.organizationId, input.documentId],
+    );
+    if (!document.rowCount)
+      throw new BadRequestError("Choose a document in this company", {
+        field: "documentId",
+      });
+    const existing = await client.query<{ employee_id: string }>(
+      "SELECT employee_id FROM management_employee_dossier_documents WHERE organization_id=$1 AND document_id=$2",
+      [context.organizationId, input.documentId],
+    );
+    if (existing.rows[0] && existing.rows[0].employee_id !== employeeId)
+      throw new ConflictError(
+        "This file already belongs to another employee dossier",
+        { field: "documentId" },
+      );
+    // These files contain identity, licence, payroll or contracts. Marking the
+    // original document confidential protects it in the ordinary library too.
+    await client.query(
+      `UPDATE documents SET subject_table='employees',subject_id=$3,category='employee',is_confidential=true,updated_at=now()
+        WHERE organization_id=$1 AND id=$2`,
+      [context.organizationId, input.documentId, employeeId],
+    );
+    await client.query(
+      `INSERT INTO management_employee_dossier_documents
+        (organization_id,employee_id,document_id,document_kind,credential_number,issued_on,expires_on,verified_by_member_id,verified_at,notes)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,now(),$9)
+       ON CONFLICT(organization_id,document_id) DO UPDATE SET
+         document_kind=EXCLUDED.document_kind,credential_number=EXCLUDED.credential_number,
+         issued_on=EXCLUDED.issued_on,expires_on=EXCLUDED.expires_on,
+         verified_by_member_id=EXCLUDED.verified_by_member_id,verified_at=EXCLUDED.verified_at,
+         notes=EXCLUDED.notes,updated_at=now()`,
+      [
+        context.organizationId,
+        employeeId,
+        input.documentId,
+        input.documentKind,
+        input.credentialNumber ?? null,
+        input.issuedOn ?? null,
+        input.expiresOn ?? null,
+        context.memberId,
+        input.notes ?? null,
+      ],
+    );
+    return {
+      employeeId,
+      documentId: input.documentId,
+      documentKind: input.documentKind,
+      verifiedAt: new Date().toISOString(),
+    };
+  });
 }
 
 type MyAccountShiftRow = {
@@ -921,17 +1143,21 @@ export async function createEmployee(
         context,
         positionCategory,
       );
+      const fullName = displayEmployeeName(input);
       const result = await client.query<{ id: string }>(
         [
-          "INSERT INTO employees (organization_id, member_id, employee_number, full_name, job_title, position_category, province_id, site_id, department_id, employment_status, employment_type, start_date, phone, emergency_contact_name, emergency_contact_phone, notes, created_by_member_id)",
-          "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)",
+          "INSERT INTO employees (organization_id, member_id, employee_number, full_name, last_name, post_name, first_name, job_title, position_category, province_id, site_id, department_id, employment_status, employment_type, start_date, phone, address_line1, address_line2, address_city, address_region, address_postal_code, address_country, emergency_contact_name, emergency_contact_phone, notes, created_by_member_id)",
+          "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)",
           "RETURNING id",
         ].join("\n"),
         [
           context.organizationId,
           memberId,
           employeeNumber,
-          input.fullName,
+          fullName,
+          input.lastName ?? null,
+          input.postName ?? null,
+          input.firstName ?? null,
           input.jobTitle,
           positionCategory,
           location.provinceId,
@@ -941,6 +1167,12 @@ export async function createEmployee(
           input.employmentType,
           input.startDate ?? null,
           input.phone ?? null,
+          input.addressLine1 ?? null,
+          input.addressLine2 ?? null,
+          input.addressCity ?? null,
+          input.addressRegion ?? null,
+          input.addressPostalCode ?? null,
+          input.addressCountry ?? null,
           input.emergencyContactName ?? null,
           input.emergencyContactPhone ?? null,
           input.notes ?? null,
@@ -1032,6 +1264,23 @@ export async function updateEmployee(
       // An employee number is permanent. Role changes update the displayed HR
       // level, not the identifier used by attendance and historical records.
       const employeeNumber = current.employee_number;
+      const lastName =
+        input.lastName === undefined ? current.last_name : input.lastName;
+      const postName =
+        input.postName === undefined ? current.post_name : input.postName;
+      const firstName =
+        input.firstName === undefined ? current.first_name : input.firstName;
+      const fullName =
+        input.lastName !== undefined ||
+        input.postName !== undefined ||
+        input.firstName !== undefined
+          ? displayEmployeeName({
+              fullName: input.fullName ?? current.full_name,
+              lastName,
+              postName,
+              firstName,
+            })
+          : (input.fullName ?? current.full_name);
       const location = await resolveLocation(client, context, {
         provinceId:
           input.provinceId === undefined
@@ -1046,7 +1295,7 @@ export async function updateEmployee(
       await client.query(
         [
           "UPDATE employees",
-          "SET member_id = $3, employee_number = $4, full_name = $5, job_title = $6, position_category = $7, province_id = $8, site_id = $9, department_id = $10, employment_status = $11, employment_type = $12, start_date = $13, phone = $14, emergency_contact_name = $15, emergency_contact_phone = $16, notes = $17",
+          "SET member_id = $3, employee_number = $4, full_name = $5, last_name = $6, post_name = $7, first_name = $8, job_title = $9, position_category = $10, province_id = $11, site_id = $12, department_id = $13, employment_status = $14, employment_type = $15, start_date = $16, phone = $17, address_line1 = $18, address_line2 = $19, address_city = $20, address_region = $21, address_postal_code = $22, address_country = $23, emergency_contact_name = $24, emergency_contact_phone = $25, notes = $26",
           "WHERE organization_id = $1 AND id = $2",
         ].join("\n"),
         [
@@ -1054,7 +1303,10 @@ export async function updateEmployee(
           employeeId,
           memberId,
           employeeNumber,
-          input.fullName ?? current.full_name,
+          fullName,
+          lastName,
+          postName,
+          firstName,
           input.jobTitle ?? current.job_title,
           positionCategory,
           location.provinceId,
@@ -1064,6 +1316,24 @@ export async function updateEmployee(
           input.employmentType ?? current.employment_type,
           input.startDate === undefined ? current.start_date : input.startDate,
           input.phone === undefined ? current.phone : input.phone,
+          input.addressLine1 === undefined
+            ? current.address_line1
+            : input.addressLine1,
+          input.addressLine2 === undefined
+            ? current.address_line2
+            : input.addressLine2,
+          input.addressCity === undefined
+            ? current.address_city
+            : input.addressCity,
+          input.addressRegion === undefined
+            ? current.address_region
+            : input.addressRegion,
+          input.addressPostalCode === undefined
+            ? current.address_postal_code
+            : input.addressPostalCode,
+          input.addressCountry === undefined
+            ? current.address_country
+            : input.addressCountry,
           input.emergencyContactName === undefined
             ? current.emergency_contact_name
             : input.emergencyContactName,
@@ -1224,7 +1494,7 @@ async function positionCategoryForMember(
         "provincial_manager",
         "site_manager",
         "farm_operations_manager",
-        "farm_manager",
+        "site_manager",
         "project_manager",
       ].includes(code),
     )

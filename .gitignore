@@ -22,6 +22,7 @@ apps/tmp/
 
 # Private uploaded documents and generated PDFs
 apps/api/storage/
+apps/storage/
 apps/output/
 
 # Local AI/editor settings

@@ -66,17 +66,12 @@ export async function proxy(request: NextRequest) {
     }
   }
 
-  // A signed-in user has no business on the login page.
+  // Always leave a sign-in page reachable. A browser can retain a valid-looking
+  // access cookie after its server session has expired or been revoked. Sending
+  // that visitor away from /login would create a redirect loop that can only be
+  // escaped by deleting browser data. The login form safely replaces any stale
+  // session with a fresh one after successful authentication.
   if (isPublic(pathname)) {
-    if (
-      hasValidToken &&
-      (pathname === "/login" ||
-        pathname === "/staff" ||
-        pathname.startsWith("/staff/") ||
-        pathname === "/register")
-    ) {
-      return NextResponse.redirect(new URL("/", request.url));
-    }
     return NextResponse.next();
   }
 

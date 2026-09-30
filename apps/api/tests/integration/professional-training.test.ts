@@ -163,6 +163,31 @@ describe("Professional training journey", () => {
     });
     expect(block.status).toBe(201);
     const blockId = block.body.block.id as string;
+    const inferredQuiz = await authorized(
+      request(app).post(
+        `/api/v1/organizations/${slug}/training-lessons/${lessonId}/blocks`,
+      ),
+    ).send({
+      blockType: "text",
+      title: "Knowledge check",
+      content: {
+        body: JSON.stringify({
+          maxAttempts: 1,
+          questions: [
+            {
+              question: "Which value comes first?",
+              options: ["Speed", "Safety"],
+              correctAnswer: 1,
+            },
+          ],
+        }),
+      },
+      sortOrder: 2,
+      isRequired: true,
+    });
+    expect(inferredQuiz.status).toBe(201);
+    expect(inferredQuiz.body.block.block_type).toBe("quiz");
+    const inferredQuizBlockId = inferredQuiz.body.block.id as string;
     const questionBank = await authorized(
       request(app).post(
         `/api/v1/organizations/${slug}/training-question-banks`,
@@ -219,10 +244,59 @@ describe("Professional training journey", () => {
       body: "Safety first",
     });
     const learnerQuiz = learner.body.modules[0].lessons[0].blocks.find(
+      (item: { id: string }) => item.id === inferredQuizBlockId,
+    );
+    expect(learnerQuiz.type).toBe("quiz");
+    expect(learnerQuiz.content.questions[0].correctAnswer).toBeUndefined();
+    const bankQuiz = learner.body.modules[0].lessons[0].blocks.find(
       (item: { id: string }) => item.id === quizBlockId,
     );
-    expect(learnerQuiz.content.questions[0].question).toBe("What comes first?");
-    expect(learnerQuiz.content.questions[0].correctAnswer).toBeUndefined();
+    expect(bankQuiz.content.questions[0].question).toBe("What comes first?");
+    expect(bankQuiz.content.questions[0].correctAnswer).toBeUndefined();
+
+    // A course-builder text block containing quiz JSON is repaired to a real
+    // quiz. Learners must be able to submit it with the same zero-based option
+    // indexes that the learner screen sends.
+    const failedInferredQuiz = await authorized(
+      request(app).post(
+        `/api/v1/organizations/${slug}/my-trainings/${assignmentId}/blocks/${inferredQuizBlockId}/quiz-attempts`,
+      ),
+    ).send({ answers: [0] });
+    expect(failedInferredQuiz.status).toBe(200);
+    expect(failedInferredQuiz.body.passed).toBe(false);
+
+    const exhaustedInferredQuiz = await authorized(
+      request(app).post(
+        `/api/v1/organizations/${slug}/my-trainings/${assignmentId}/blocks/${inferredQuizBlockId}/quiz-attempts`,
+      ),
+    ).send({ answers: [1] });
+    expect(exhaustedInferredQuiz.status).toBe(409);
+
+    await withTenantContext({ organizationId, userId }, (client) =>
+      client.query(
+        `INSERT INTO training_quiz_attempt_extensions
+           (organization_id,assignment_id,block_id,additional_attempts,reason,granted_by)
+         VALUES ($1,$2,$3,$4,$5,$6)`,
+        [
+          organizationId,
+          assignmentId,
+          inferredQuizBlockId,
+          1,
+          "Training manager granted one supervised retry",
+          userId,
+        ],
+      ),
+    );
+
+    const submittedInferredQuiz = await authorized(
+      request(app).post(
+        `/api/v1/organizations/${slug}/my-trainings/${assignmentId}/blocks/${inferredQuizBlockId}/quiz-attempts`,
+      ),
+    ).send({ answers: [1] });
+    expect(submittedInferredQuiz.status).toBe(200);
+    expect(submittedInferredQuiz.body.passed).toBe(true);
+    expect(submittedInferredQuiz.body.score).toBe(100);
+    expect(submittedInferredQuiz.body.maxAttempts).toBe(2);
 
     const completedBlock = await authorized(
       request(app).patch(

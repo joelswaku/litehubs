@@ -7,7 +7,7 @@
 INSERT INTO role_presets (code, name, description, level, is_owner_role, sort_order) VALUES
   ('owner',            'Owner',            'Full access to every module and setting',            0,  true,  10),
   ('general_manager',  'General Manager',  'Runs the whole operation for the owner',            10, false, 20),
-  ('farm_manager',     'Site Manager',     'Manages one site: production, staff, stock',        20, false, 30),
+  ('site_manager',     'Site Manager',     'Manages one site: production, staff, stock',        20, false, 30),
   ('supervisor',       'Supervisor',       'Supervises a unit and approves daily records',      30, false, 40),
   ('veterinarian',     'Veterinarian',     'Animal health, treatments and vaccinations',        35, false, 50),
   ('agronomist',       'Agronomist',       'Crops, soil, scouting and agronomy advice',         35, false, 60),
@@ -48,10 +48,11 @@ ON CONFLICT DO NOTHING;
 
 -- Site manager: reads everything operational, writes production and stock.
 INSERT INTO role_preset_permissions (role_preset_code, permission_code)
-SELECT 'farm_manager', p.code FROM permissions p
+SELECT 'site_manager', p.code FROM permissions p
  WHERE (p.action = 'read'
         AND p.resource NOT IN ('roles', 'members', 'invitations', 'modules', 'audit'))
-    OR p.module_code IN ('poultry', 'pigs', 'agriculture', 'inventory')
+    OR (p.module_code IN ('poultry', 'pigs', 'agriculture', 'inventory')
+        AND p.resource <> 'inventory.nutrition')
     OR p.resource IN ('tasks', 'projects', 'daily_operations', 'critical_controls',
                       'corrective_actions', 'alerts', 'escalations', 'equipment',
                       'vehicles', 'maintenance', 'work_orders', 'incidents',
@@ -64,6 +65,7 @@ INSERT INTO role_preset_permissions (role_preset_code, permission_code)
 SELECT 'supervisor', p.code FROM permissions p
  WHERE (p.action = 'read'
         AND (p.module_code IN ('poultry', 'pigs', 'agriculture', 'inventory')
+             AND p.resource <> 'inventory.nutrition'
              AND p.resource NOT IN ('poultry.performance_models',
                                     'poultry.climate_profiles')
              OR p.resource IN ('tasks', 'projects', 'daily_operations', 'employees',
@@ -124,7 +126,7 @@ ON CONFLICT DO NOTHING;
 -- Storekeeper: inventory, and raises procurement requests.
 INSERT INTO role_preset_permissions (role_preset_code, permission_code)
 SELECT 'storekeeper', p.code FROM permissions p
- WHERE p.module_code = 'inventory'
+ WHERE (p.module_code = 'inventory' AND p.resource <> 'inventory.nutrition')
     OR (p.resource = 'procurement' AND p.action IN ('read', 'create'))
     OR (p.action = 'read' AND p.resource IN ('suppliers', 'reports'))
 ON CONFLICT DO NOTHING;
@@ -247,7 +249,7 @@ ON CONFLICT DO NOTHING;
 UPDATE role_presets
    SET data_scope = CASE
      WHEN code IN ('employee', 'poultry_worker', 'pig_worker', 'agriculture_worker') THEN 'self'
-     WHEN code IN ('farm_manager', 'supervisor', 'veterinarian', 'agronomist',
+     WHEN code IN ('site_manager', 'supervisor', 'veterinarian', 'agronomist',
                    'storekeeper', 'security_officer', 'appointment_receptionist') THEN 'province'
      ELSE 'organization'
    END;
@@ -272,7 +274,11 @@ VALUES
   ('pig_supervisor', 'Pig Supervisor',
    'Supervises pig work in assigned provinces.', 35, 'mixed_farm', false, 45, 'province'),
   ('agriculture_supervisor', 'Agriculture Supervisor',
-   'Supervises crop and field work in assigned provinces.', 35, 'mixed_farm', false, 50, 'province')
+   'Supervises crop and field work in assigned provinces.', 35, 'mixed_farm', false, 50, 'province'),
+  ('feed_mill_manager', 'Feed Mill Manager',
+   'Controls feed recipes, manufacturing orders and nutrition planning.', 45, 'mixed_farm', false, 55, 'organization'),
+  ('fleet_controller', 'Fleet Controller',
+   'Controls vehicle and engine safety, assignments and daily fleet records.', 45, 'mixed_farm', false, 56, 'organization')
 ON CONFLICT (code) DO UPDATE
   SET name          = EXCLUDED.name,
       description   = EXCLUDED.description,
@@ -377,6 +383,33 @@ SELECT 'agriculture_supervisor', p.code
                   'daily_operations.approve', 'daily_operations.reject')
 ON CONFLICT DO NOTHING;
 
+-- The feed-mill manager can formulate and confirm production without gaining
+-- independent rights to alter physical stock, warehouses, finance or buying.
+INSERT INTO role_preset_permissions (role_preset_code, permission_code)
+SELECT 'feed_mill_manager', p.code
+  FROM permissions p
+ WHERE p.code IN (
+   'inventory.nutrition.read', 'inventory.nutrition.create',
+   'inventory.nutrition.update', 'inventory.nutrition.delete',
+   'inventory.items.read', 'inventory.stock.read',
+   'inventory.warehouses.read', 'inventory.movements.read',
+   'projects.read', 'sites.read', 'reports.read'
+ )
+ON CONFLICT DO NOTHING;
+
+-- The fleet controller is a company-wide safety controller. They can assign
+-- people and complete controlled fleet sheets, but cannot change the asset
+-- register, buy equipment or view company finance.
+INSERT INTO role_preset_permissions (role_preset_code, permission_code)
+SELECT 'fleet_controller', p.code
+  FROM permissions p
+ WHERE p.code IN (
+   'vehicles.fleet_control.read', 'vehicles.fleet_control.update',
+   'equipment.read', 'employees.read', 'sites.read',
+   'projects.read', 'maintenance.read', 'documents.read'
+ )
+ON CONFLICT DO NOTHING;
+
 -- The seed also brings the new roles into existing Mixed Farm organizations.
 -- New organizations receive them through the provisioning service.
 INSERT INTO roles
@@ -386,7 +419,8 @@ SELECT o.id, rp.code, rp.name, rp.description, rp.level, rp.data_scope, true
   JOIN role_presets rp ON rp.industry_code = o.industry_code
  WHERE rp.code IN ('provincial_manager', 'farm_operations_manager',
                    'poultry_supervisor', 'pig_supervisor',
-                   'agriculture_supervisor')
+                   'agriculture_supervisor', 'feed_mill_manager',
+                   'fleet_controller')
 ON CONFLICT (organization_id, code) DO UPDATE
   SET name        = EXCLUDED.name,
       description = EXCLUDED.description,
@@ -401,5 +435,6 @@ SELECT r.organization_id, r.id, p.id
   JOIN permissions p ON p.code = rpp.permission_code
  WHERE r.code IN ('provincial_manager', 'farm_operations_manager',
                   'poultry_supervisor', 'pig_supervisor',
-                  'agriculture_supervisor')
+                  'agriculture_supervisor', 'feed_mill_manager',
+                  'fleet_controller')
 ON CONFLICT DO NOTHING;

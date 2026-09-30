@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  applicationUpdateInput,
   jobPostInput,
   publicApplicationInput,
 } from "../../src/modules/careers/careers.validation";
@@ -38,6 +39,18 @@ describe("careers input validation", () => {
     });
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.preferredLanguage).toBe("en");
+  });
+
+  it("accepts a recruiter-written candidate notification but keeps it bounded", () => {
+    const result = applicationUpdateInput.safeParse({
+      status: "interview",
+      internalNotes: "Candidate requested an afternoon slot.",
+      notifyCandidate: true,
+      candidateMessage:
+        "Votre candidature est retenue pour un entretien le 5 octobre à 10 h.",
+    });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.notifyCandidate).toBe(true);
   });
 
   it("does not allow an invalid public vacancy code", () => {

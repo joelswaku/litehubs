@@ -2,6 +2,7 @@ import type { Request, RequestHandler } from "express";
 import { evaluateAutomaticAlerts } from "../alerts/alert-engine.service";
 import * as service from "./owner-management.service";
 import * as feedNutrition from "./feed-nutrition.service";
+import * as fleetControl from "./fleet-control.service";
 import type {
   InventoryMovementHistoryPdfQuery,
   InventoryStockQuery,
@@ -46,10 +47,77 @@ export const feedNutritionOverview: RequestHandler = async (req, res) => {
   res.json(await feedNutrition.feedNutritionOverview(contextOf(req)));
 };
 export const confirmFeedOrder: RequestHandler = async (req, res) => {
-  res.json({ order: await feedNutrition.confirmFeedOrder(contextOf(req), parameter(req, "recordId")) });
+  res.json({
+    order: await feedNutrition.confirmFeedOrder(
+      contextOf(req),
+      parameter(req, "recordId"),
+    ),
+  });
 };
 export const cancelFeedOrder: RequestHandler = async (req, res) => {
-  res.json({ order: await feedNutrition.cancelFeedOrder(contextOf(req), parameter(req, "recordId")) });
+  res.json({
+    order: await feedNutrition.cancelFeedOrder(
+      contextOf(req),
+      parameter(req, "recordId"),
+    ),
+  });
+};
+
+export const listFleetOverview: RequestHandler = async (req, res) => {
+  res.json({ fleet: await fleetControl.listFleetOverview(contextOf(req)) });
+};
+export const listMyFleetOverview: RequestHandler = async (req, res) => {
+  res.json({ fleet: await fleetControl.listFleetOverview(contextOf(req), true) });
+};
+export const createFleetProfile: RequestHandler = async (req, res) => {
+  res.status(201).json({
+    profile: await fleetControl.createFleetProfile(
+      contextOf(req),
+      req.body as import("./owner-management.validation").FleetProfileInput,
+    ),
+  });
+};
+export const updateFleetProfile: RequestHandler = async (req, res) => {
+  res.json({
+    profile: await fleetControl.updateFleetProfile(
+      contextOf(req),
+      parameter(req, "profileId"),
+      req.body as import("./owner-management.validation").FleetProfileUpdateInput,
+    ),
+  });
+};
+export const addFleetAuthorization: RequestHandler = async (req, res) => {
+  res.status(201).json({
+    authorization: await fleetControl.addFleetAuthorization(
+      contextOf(req),
+      parameter(req, "profileId"),
+      req.body as import("./owner-management.validation").FleetAuthorizationInput,
+    ),
+  });
+};
+export const startFleetRun: RequestHandler = async (req, res) => {
+  res.status(201).json({
+    run: await fleetControl.startFleetRun(
+      contextOf(req),
+      req.body as import("./owner-management.validation").FleetRunStartInput,
+    ),
+  });
+};
+export const returnFleetRun: RequestHandler = async (req, res) => {
+  res.json({
+    run: await fleetControl.returnFleetRun(
+      contextOf(req),
+      parameter(req, "runId"),
+      req.body as import("./owner-management.validation").FleetRunReturnInput,
+    ),
+  });
+};
+export const exportFleetRunPdf: RequestHandler = async (req, res) => {
+  const report = await fleetControl.fleetRunPdf(
+    contextOf(req),
+    parameter(req, "runId"),
+  );
+  res.status(200).type("application/pdf").attachment(report.filename).send(report.buffer);
 };
 
 export const listOwnerManagementRecords: RequestHandler = async (req, res) => {
@@ -92,20 +160,29 @@ export const listInventoryStockBalances: RequestHandler = async (req, res) => {
     ),
   });
 };
-export const exportInventoryMovementHistoryPdf: RequestHandler = async (req, res) => {
+export const exportInventoryMovementHistoryPdf: RequestHandler = async (
+  req,
+  res,
+) => {
   const report = await service.exportInventoryMovementHistoryPdf(
     contextOf(req),
     req.query as unknown as InventoryMovementHistoryPdfQuery,
   );
-  res.status(200).type("application/pdf").attachment(report.filename).send(report.buffer);
+  res
+    .status(200)
+    .type("application/pdf")
+    .attachment(report.filename)
+    .send(report.buffer);
 };
 export const transferInventoryStock: RequestHandler = async (req, res) => {
-  res.status(201).json(
-    await service.transferInventoryStock(
-      contextOf(req),
-      req.body as InventoryStockTransferInput,
-    ),
-  );
+  res
+    .status(201)
+    .json(
+      await service.transferInventoryStock(
+        contextOf(req),
+        req.body as InventoryStockTransferInput,
+      ),
+    );
 };
 export const getOwnerManagementRecord: RequestHandler = async (req, res) => {
   res.json({
@@ -267,7 +344,9 @@ export const ownerDashboard: RequestHandler = async (req, res) => {
 };
 
 export const projectAnalytics: RequestHandler = async (req, res) => {
-  res.json({ analytics: await service.projectAnalytics(contextOf(req)) });
+  res.json({
+    analytics: await service.projectAnalytics(contextOf(req), req.query),
+  });
 };
 
 export const projectSummary: RequestHandler = async (req, res) => {
@@ -275,6 +354,15 @@ export const projectSummary: RequestHandler = async (req, res) => {
     project: await service.projectSummary(
       contextOf(req),
       parameter(req, "projectId"),
+    ),
+  });
+};
+export const projectDecisionSimulation: RequestHandler = async (req, res) => {
+  res.json({
+    simulation: await service.projectDecisionSimulation(
+      contextOf(req),
+      parameter(req, "projectId"),
+      req.body as import("./owner-management.validation").ProjectDecisionSimulationInput,
     ),
   });
 };
@@ -319,15 +407,34 @@ export const exportProjectWorkbook: RequestHandler = async (req, res) => {
     .send(workbook.buffer);
 };
 
-export const exportInventoryStockIssueFormPdf: RequestHandler = async (req, res) => {
+export const exportInventoryStockIssueFormPdf: RequestHandler = async (
+  req,
+  res,
+) => {
   const report = await service.exportInventoryStockIssueFormPdf(contextOf(req));
-  res.status(200).type("application/pdf").attachment(report.filename).send(report.buffer);
+  res
+    .status(200)
+    .type("application/pdf")
+    .attachment(report.filename)
+    .send(report.buffer);
 };
-export const exportInventoryStockTransferFormPdf: RequestHandler = async (req, res) => {
-  const report = await service.exportInventoryStockTransferFormPdf(contextOf(req));
-  res.status(200).type("application/pdf").attachment(report.filename).send(report.buffer);
+export const exportInventoryStockTransferFormPdf: RequestHandler = async (
+  req,
+  res,
+) => {
+  const report = await service.exportInventoryStockTransferFormPdf(
+    contextOf(req),
+  );
+  res
+    .status(200)
+    .type("application/pdf")
+    .attachment(report.filename)
+    .send(report.buffer);
 };
-export const exportPurchaseRequestFormPdf: RequestHandler = async (req, res) => {
+export const exportPurchaseRequestFormPdf: RequestHandler = async (
+  req,
+  res,
+) => {
   const report = await service.exportPurchaseRequestFormPdf(contextOf(req));
   res
     .status(200)
@@ -337,12 +444,20 @@ export const exportPurchaseRequestFormPdf: RequestHandler = async (req, res) => 
 };
 export const exportPurchaseOrderFormPdf: RequestHandler = async (req, res) => {
   const report = await service.exportPurchaseOrderFormPdf(contextOf(req));
-  res.status(200).type("application/pdf").attachment(report.filename).send(report.buffer);
+  res
+    .status(200)
+    .type("application/pdf")
+    .attachment(report.filename)
+    .send(report.buffer);
 };
 
 export const exportReceiptFormPdf: RequestHandler = async (req, res) => {
   const report = await service.exportReceiptFormPdf(contextOf(req));
-  res.status(200).type("application/pdf").attachment(report.filename).send(report.buffer);
+  res
+    .status(200)
+    .type("application/pdf")
+    .attachment(report.filename)
+    .send(report.buffer);
 };
 export const exportProcurementPdf: RequestHandler = async (req, res) => {
   const report = await service.exportProcurementDocumentPdf(
@@ -356,7 +471,10 @@ export const exportProcurementPdf: RequestHandler = async (req, res) => {
     .attachment(report.filename)
     .send(report.buffer);
 };
-export const returnPurchaseRequestToDraft: RequestHandler = async (req, res) => {
+export const returnPurchaseRequestToDraft: RequestHandler = async (
+  req,
+  res,
+) => {
   const body = req.body as { correctionNote?: string };
   res.json({
     record: await service.returnPurchaseRequestToDraft(

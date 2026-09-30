@@ -129,8 +129,13 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
   return post<RegisterResult>("/auth/register", input);
 }
 
-export async function requestPasswordReset(email: string): Promise<void> {
-  await post("/auth/forgot-password", { email });
+export type PasswordResetDeliveryMethod = "email" | "sms";
+
+export async function requestPasswordReset(
+  identifier: string,
+  deliveryMethod: PasswordResetDeliveryMethod = "email",
+): Promise<void> {
+  await post("/auth/forgot-password", { identifier, deliveryMethod });
 }
 
 export async function resetPassword(

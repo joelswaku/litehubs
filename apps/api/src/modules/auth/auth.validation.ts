@@ -3,6 +3,7 @@ import {
   organizationDetailsSchema,
   organizationSlugSchema,
 } from "../organization/organization.validation";
+import { isValidPhone } from "../../utils/phone";
 
 /**
  * Rules for a new password. Deliberately not applied to the *login* password
@@ -52,9 +53,50 @@ export const switchOrganizationSchema = z.object({
   organizationSlug: organizationSlugSchema,
 });
 
-export const forgotPasswordSchema = z.object({
-  email: emailSchema,
-});
+const passwordResetIdentifierSchema = z.string().trim().min(3).max(255);
+
+/**
+ * A reset request must look identical for an existing and unknown account.
+ * `email` is kept as a backward-compatible alias for older clients, while
+ * the current page posts `identifier` and the chosen delivery channel.
+ */
+export const forgotPasswordSchema = z
+  .object({
+    identifier: passwordResetIdentifierSchema.optional(),
+    email: emailSchema.optional(),
+    deliveryMethod: z.enum(["email", "sms"]).default("email"),
+  })
+  .superRefine((value, issue) => {
+    const identifier = value.identifier ?? value.email;
+    if (!identifier) {
+      issue.addIssue({
+        code: "custom",
+        path: ["identifier"],
+        message: "Enter your email address or phone number",
+      });
+      return;
+    }
+    if (
+      value.deliveryMethod === "email" &&
+      !emailSchema.safeParse(identifier).success
+    )
+      issue.addIssue({
+        code: "custom",
+        path: ["identifier"],
+        message: "Enter a valid email address",
+      });
+    if (value.deliveryMethod === "sms" && !isValidPhone(identifier))
+      issue.addIssue({
+        code: "custom",
+        path: ["identifier"],
+        message:
+          "Enter a valid phone number, including country code when needed",
+      });
+  })
+  .transform((value) => ({
+    identifier: (value.identifier ?? value.email ?? "").trim(),
+    deliveryMethod: value.deliveryMethod,
+  }));
 
 export const resetPasswordSchema = z.object({
   token: z.string().min(1, "Reset token is required"),
@@ -89,4 +131,6 @@ export const acceptExistingInvitationSchema = z.object({
   token: z.string().min(20, "Access activation token is required"),
 });
 export type AcceptInvitationInput = z.infer<typeof acceptInvitationSchema>;
-export type AcceptExistingInvitationInput = z.infer<typeof acceptExistingInvitationSchema>;
+export type AcceptExistingInvitationInput = z.infer<
+  typeof acceptExistingInvitationSchema
+>;

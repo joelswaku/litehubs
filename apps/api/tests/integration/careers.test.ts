@@ -106,5 +106,59 @@ describe("Careers job posts", () => {
     const publicDetail = await request(app).get(`/api/v1/public/organizations/${organizationSlug}/careers/jobs/poultry_worker`);
     expect(publicDetail.status).toBe(200);
     expect(publicDetail.body.job).toMatchObject({ code: "poultry_worker", title: "Poultry worker" });
+
+    const application = await request(app)
+      .post(`/api/v1/public/organizations/${organizationSlug}/careers/jobs/poultry_worker/applications`)
+      .field("fullName", "Candidate Example")
+      .field("email", `candidate-${suffix}@test.invalid`)
+      .field("phone", "+243898869772")
+      .field("preferredLanguage", "fr")
+      .field("consent", "true")
+      .attach("resume", Buffer.from("%PDF-1.4\nCandidate résumé"), {
+        filename: "candidate-resume.pdf",
+        contentType: "application/pdf",
+      });
+    expect(application.status).toBe(201);
+    expect(application.body).toMatchObject({
+      confirmation: "Your application has been received.",
+    });
+
+    const applications = await authorized(
+      request(app).get(`/api/v1/organizations/${organizationSlug}/careers/applications`),
+    );
+    expect(applications.status).toBe(200);
+    expect(applications.body.applications).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          fullName: "Candidate Example",
+          phone: "+243898869772",
+          status: "received",
+        }),
+      ]),
+    );
+
+    const candidate = applications.body.applications.find(
+      (item: { fullName: string }) => item.fullName === "Candidate Example",
+    );
+    const statusUpdate = await authorized(
+      request(app)
+        .patch(
+          `/api/v1/organizations/${organizationSlug}/careers/applications/${candidate.id}`,
+        )
+        .send({
+          status: "interview",
+          internalNotes: "Candidate requested an afternoon slot.",
+          notifyCandidate: true,
+          candidateMessage:
+            "Votre candidature est retenue pour un entretien le 5 octobre à 10 h.",
+        }),
+    );
+    expect(statusUpdate.status).toBe(200);
+    expect(statusUpdate.body.application).toMatchObject({
+      id: candidate.id,
+      status: "interview",
+      internalNotes: "Candidate requested an afternoon slot.",
+      preferredLanguage: "fr",
+    });
   });
 });

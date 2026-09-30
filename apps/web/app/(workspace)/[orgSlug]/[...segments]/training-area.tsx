@@ -1744,6 +1744,21 @@ function ProfessionalCourseBuilder({
             const form = new FormData(event.currentTarget);
             const name = String(form.get("name") ?? "").trim();
             const rawCode = String(form.get("code") ?? "").trim();
+            const renewalMonthsText = String(
+              form.get("renewalMonths") ?? "",
+            ).trim();
+            const renewalRequired = form.get("renewalRequired") === "on";
+            if (renewalRequired && !renewalMonthsText) {
+              setContentError(
+                label(
+                  fr,
+                  "Choose the renewal interval in months before requiring renewal.",
+                  "Indiquez le renouvellement en mois avant d’exiger son renouvellement.",
+                ),
+              );
+              return;
+            }
+            setContentError(null);
             create.mutate({
               code: trainingCode(rawCode || name),
               name,
@@ -1772,10 +1787,10 @@ function ProfessionalCourseBuilder({
                 .split(",")
                 .map((value) => value.trim())
                 .filter(Boolean),
-              renewalMonths: String(form.get("renewalMonths") ?? "").trim()
-                ? Number(form.get("renewalMonths"))
+              renewalMonths: renewalMonthsText
+                ? Number(renewalMonthsText)
                 : null,
-              renewalRequired: form.get("renewalRequired") === "on",
+              renewalRequired,
               autoAssignNewEmployees: form.get("autoAssignNewEmployees") === "on",
               defaultDueDays: String(form.get("defaultDueDays") ?? "").trim()
                 ? Number(form.get("defaultDueDays"))

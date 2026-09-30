@@ -463,6 +463,63 @@ const importedCode = (prefix: string, position: number, title: string) => {
 };
 
 /**
+ * Some early course authors pasted a valid quiz JSON array while the editor
+ * was still set to Text.  Detect only an unmistakable questionnaire so that a
+ * normal JSON example remains text, while learners never see raw questions.
+ */
+function quizContentFromText(
+  content: Record<string, unknown>,
+): Record<string, unknown> | null {
+  const body = typeof content.body === "string" ? content.body.trim() : "";
+  if (!body) return null;
+  try {
+    const parsed: unknown = JSON.parse(body);
+    const parsedObject =
+      typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : null;
+    const questions = Array.isArray(parsed)
+      ? parsed
+      : Array.isArray(parsedObject?.questions)
+        ? parsedObject.questions
+        : null;
+    if (
+      !questions?.length ||
+      !questions.every(
+        (question) =>
+          typeof question === "object" &&
+          question !== null &&
+          Boolean(
+            String(
+              (question as Record<string, unknown>).question ??
+                (question as Record<string, unknown>).prompt ??
+                "",
+            ).trim(),
+          ) &&
+          Array.isArray((question as Record<string, unknown>).options) &&
+          ((question as Record<string, unknown>).options as unknown[]).length >=
+            2 &&
+          [
+            "correctAnswer",
+            "correctOption",
+            "correctAnswers",
+            "answer",
+            "answers",
+          ].some((key) => key in (question as Record<string, unknown>)),
+      )
+    )
+      return null;
+    return {
+      ...(parsedObject ?? {}),
+      questions,
+      passingScore: Number(parsedObject?.passingScore ?? 70),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Imports an AI outline only into an explicitly selected draft version. The
  * original AI result is never published and existing draft content is only
  * cleared when the administrator opts in. One result cannot be imported twice.
@@ -660,9 +717,12 @@ export async function addBlock(
     if (!parent) throw new NotFoundError("Training lesson not found");
     await draftVersionFor(client, context, parent.course_id, parent.version_id);
     await assertDocument(client, context, input.documentId);
-    let blockContent = input.content;
+    const inferredQuiz =
+      input.blockType === "text" ? quizContentFromText(input.content) : null;
+    const blockType = inferredQuiz ? "quiz" : input.blockType;
+    let blockContent = inferredQuiz ?? input.content;
     if (
-      input.blockType === "quiz" &&
+      blockType === "quiz" &&
       typeof input.content.questionBankId === "string"
     ) {
       const bank = await client.query<{
@@ -714,7 +774,7 @@ export async function addBlock(
       [
         context.organizationId,
         lessonId,
-        input.blockType,
+        blockType,
         input.title ?? null,
         json(blockContent),
         input.documentId ?? null,
@@ -735,7 +795,7 @@ export async function addBlock(
       parent.version_id,
       null,
       "content_block_added",
-      { blockId: row.rows[0]!.id, type: input.blockType },
+      { blockId: row.rows[0]!.id, type: blockType },
     );
     return row.rows[0];
   });
@@ -777,8 +837,16 @@ export async function updateBlock(
 
     const has = (key: keyof UpdateBlockInput) =>
       Object.prototype.hasOwnProperty.call(input, key);
-    const nextType = input.blockType ?? block.block_type;
+    let nextType = input.blockType ?? block.block_type;
     let nextContent = has("content") ? input.content ?? {} : block.content;
+    const inferredQuiz =
+      nextType === "text" && has("content")
+        ? quizContentFromText(nextContent as Record<string, unknown>)
+        : null;
+    if (inferredQuiz) {
+      nextType = "quiz";
+      nextContent = inferredQuiz;
+    }
     if (
       nextType === "quiz" &&
       has("content") &&
@@ -1455,11 +1523,21 @@ export async function submitLearnerQuiz(
       throw new ConflictError("This quiz has no questions", {
         field: "questions",
       });
-    const previous = await client.query<{ count: string }>(
-      "SELECT COUNT(*)::text AS count FROM training_quiz_attempts WHERE organization_id=$1 AND assignment_id=$2 AND block_id=$3",
-      [context.organizationId, assignment.id, blockId],
+    const [previous, extensions] = await Promise.all([
+      client.query<{ count: string }>(
+        "SELECT COUNT(*)::text AS count FROM training_quiz_attempts WHERE organization_id=$1 AND assignment_id=$2 AND block_id=$3",
+        [context.organizationId, assignment.id, blockId],
+      ),
+      client.query<{ count: string }>(
+        "SELECT COALESCE(SUM(additional_attempts),0)::text AS count FROM training_quiz_attempt_extensions WHERE organization_id=$1 AND assignment_id=$2 AND block_id=$3",
+        [context.organizationId, assignment.id, blockId],
+      ),
+    ]);
+    const courseMaxAttempts = Math.max(1, Number(content.maxAttempts ?? 3));
+    const maxAttempts = Math.min(
+      50,
+      courseMaxAttempts + Math.max(0, Number(extensions.rows[0]?.count ?? 0)),
     );
-    const maxAttempts = Math.max(1, Number(content.maxAttempts ?? 3));
     const attemptNumber = Number(previous.rows[0]?.count ?? 0) + 1;
     if (attemptNumber > maxAttempts)
       throw new ConflictError("No quiz attempts remain", { field: "attempts" });
@@ -1487,7 +1565,7 @@ export async function submitLearnerQuiz(
     const passed = !manual && score >= passingScore;
     await client.query(
       `INSERT INTO training_quiz_attempts (organization_id,assignment_id,lesson_id,block_id,attempt_number,status,score,passed,answers,graded_at,graded_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,CASE WHEN $6='graded' THEN now() END,CASE WHEN $6='graded' THEN $10 END)`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,CASE WHEN $6='graded' THEN now() END,CASE WHEN $6='graded' THEN $10::uuid END)`,
       [
         context.organizationId,
         assignment.id,

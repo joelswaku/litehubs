@@ -4,6 +4,12 @@ import { db } from "../config/database";
 export interface RequestContext {
   userId: string | null;
   organizationId: string | null;
+  /**
+   * The active membership is kept alongside the user and organization scope so
+   * database audit triggers can retain the precise company identity behind a
+   * change. It is optional for public and background work.
+   */
+  memberId?: string | null;
 }
 
 /**
@@ -23,8 +29,12 @@ export async function setRequestContext(
   context: RequestContext,
 ): Promise<void> {
   await client.query(
-    "SELECT set_config('app.user_id', $1, true), set_config('app.organization_id', $2, true)",
-    [context.userId ?? "", context.organizationId ?? ""],
+    "SELECT set_config('app.user_id', $1, true), set_config('app.organization_id', $2, true), set_config('app.member_id', $3, true)",
+    [
+      context.userId ?? "",
+      context.organizationId ?? "",
+      context.memberId ?? "",
+    ],
   );
 }
 

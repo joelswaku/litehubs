@@ -244,6 +244,19 @@ describe("Owner Management project scope", () => {
     expect(managerAfterAssignment.roleCodes).toEqual(
       expect.arrayContaining(["employee", "project_manager"]),
     );
+    const managerEmployee = await owner(
+      request(app)
+        .post(base + "/employees")
+        .send({
+          memberId: managerMember.memberId,
+          fullName: "Assigned Project Manager",
+          jobTitle: "Project Manager",
+          provinceId: province.body.province.id,
+          employmentStatus: "active",
+          employmentType: "permanent",
+        }),
+    );
+    expect(managerEmployee.status).toBe(201);
     const refreshedManagerLogin = await request(app)
       .post("/api/v1/auth/login")
       .send({ email: managerEmail, password });
@@ -254,6 +267,31 @@ describe("Owner Management project scope", () => {
         "Bearer " + String(refreshedManagerLogin.body.accessToken),
       );
 
+    // Project Managers may allocate work only with the narrow project-scoped
+    // selector. They must never receive the HR directory or private employee
+    // records merely because they manage an investment.
+    const protectedHrDirectory = await manager(
+      request(app).get(base + "/employees"),
+    );
+    expect(protectedHrDirectory.status).toBe(403);
+    const taskAssignees = await manager(
+      request(app).get(
+        base +
+          "/owner-management/projects/" +
+          assignedProject.body.record.id +
+          "/task-assignees",
+      ),
+    );
+    expect(taskAssignees.status).toBe(200);
+    expect(taskAssignees.body.employees).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: managerMember.memberId,
+          name: "Assigned Project Manager",
+        }),
+      ]),
+    );
+
     const visibleProjects = await manager(
       request(app).get(base + "/owner-management/projects"),
     );
@@ -261,6 +299,64 @@ describe("Owner Management project scope", () => {
     expect(visibleProjects.body.records).toEqual([
       expect.objectContaining({ id: assignedProject.body.record.id }),
     ]);
+
+    // The legacy company library remains available to a project manager, but
+    // project-linked files must follow the same explicit manager assignment as
+    // the Project workspace.  A province or a guessed project id must not
+    // reveal another investment's documents.
+    const assignedLibraryDocument = await owner(
+      request(app)
+        .post(base + "/documents")
+        .field("title", "Assigned project permit")
+        .field("category", "permit")
+        .field("subjectTable", "projects")
+        .field("subjectId", assignedProject.body.record.id)
+        .attach("file", Buffer.from("assigned project permit"), {
+          filename: "assigned-project-permit.txt",
+          contentType: "text/plain",
+        }),
+    );
+    expect(assignedLibraryDocument.status).toBe(201);
+    const otherLibraryDocument = await owner(
+      request(app)
+        .post(base + "/documents")
+        .field("title", "Other project contract")
+        .field("category", "contract")
+        .field("subjectTable", "projects")
+        .field("subjectId", otherProject.body.record.id)
+        .attach("file", Buffer.from("other project contract"), {
+          filename: "other-project-contract.txt",
+          contentType: "text/plain",
+        }),
+    );
+    expect(otherLibraryDocument.status).toBe(201);
+    const managerLibrary = await manager(request(app).get(base + "/documents"));
+    expect(managerLibrary.status).toBe(200);
+    expect(managerLibrary.body.documents).toEqual([
+      expect.objectContaining({ id: assignedLibraryDocument.body.document.id }),
+    ]);
+    const foreignLibraryPreview = await manager(
+      request(app).get(
+        base +
+          "/documents/" +
+          otherLibraryDocument.body.document.id +
+          "/preview",
+      ),
+    );
+    expect(foreignLibraryPreview.status).toBe(404);
+    const foreignLibraryUpload = await manager(
+      request(app)
+        .post(base + "/documents")
+        .field("title", "Attempted foreign project file")
+        .field("category", "permit")
+        .field("subjectTable", "projects")
+        .field("subjectId", otherProject.body.record.id)
+        .attach("file", Buffer.from("attempted foreign project file"), {
+          filename: "attempted-foreign-file.txt",
+          contentType: "text/plain",
+        }),
+    );
+    expect(foreignLibraryUpload.status).toBe(404);
 
     const projectSummary = await manager(
       request(app).get(
@@ -540,7 +636,11 @@ describe("Owner Management project scope", () => {
             "/owner-management/project-members/" +
             assignment.body.record.id,
         )
-        .send({ assignmentEndDate: "2026-01-02", assignmentRole: "project_manager", isManager: true }),
+        .send({
+          assignmentEndDate: "2026-01-02",
+          assignmentRole: "project_manager",
+          isManager: true,
+        }),
     );
     expect(endAssignment.status).toBe(200);
     const expiredManagerProjects = await manager(

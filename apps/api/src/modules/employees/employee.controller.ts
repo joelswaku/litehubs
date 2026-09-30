@@ -4,6 +4,7 @@ import * as reports from "./hr-report.service";
 import * as authService from "../auth/auth.service";
 import type {
   CreateEmployeeInput,
+  EmployeeDossierDocumentInput,
   UpdateEmployeeInput,
 } from "./employee.validation";
 
@@ -57,6 +58,23 @@ export const getEmployee: RequestHandler = async (req, res) => {
     employee: await service.getEmployee(
       contextOf(req),
       parameter(req, "employeeId"),
+    ),
+  });
+};
+export const listEmployeeDossierDocuments: RequestHandler = async (req, res) => {
+  res.json({
+    documents: await service.listEmployeeDossierDocuments(
+      contextOf(req),
+      parameter(req, "employeeId"),
+    ),
+  });
+};
+export const linkEmployeeDossierDocument: RequestHandler = async (req, res) => {
+  res.status(201).json({
+    linked: await service.linkEmployeeDossierDocument(
+      contextOf(req),
+      parameter(req, "employeeId"),
+      req.body as EmployeeDossierDocumentInput,
     ),
   });
 };
