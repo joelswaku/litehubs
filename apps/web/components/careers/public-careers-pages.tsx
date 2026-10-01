@@ -32,7 +32,7 @@ const publicUrl = (org: string, rest: string) =>
   `/public/organizations/${org}/careers/${rest}`;
 const cleanTitle = (value: unknown) =>
   String(value ?? "").replace(/^\s*:\s*/, "");
-const candidateContactEmail = "contact@congoomega.com";
+const candidateContactEmail = "recrutement@congoomega.com";
 const displayDate = (value: string | null | undefined, fr: boolean) =>
   value
     ? new Date(value).toLocaleDateString(fr ? "fr-FR" : "en-US", {

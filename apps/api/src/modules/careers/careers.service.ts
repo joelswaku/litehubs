@@ -33,7 +33,8 @@ export interface CareersContext {
 
 type Scope = "organization" | "province" | "self";
 type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
-const CANDIDATE_CONTACT_EMAIL = "contact@congoomega.com";
+const CANDIDATE_CONTACT_EMAIL = "recrutement@congoomega.com";
+const RECRUITMENT_FROM_ADDRESS = '"Congo Omega recrutement" <recrutement@congoomega.com>';
 
 const jobColumns = `j.id,j.organization_id,j.province_id,j.site_id,j.code,j.title,j.department_name,j.employment_type,j.experience_level,j.positions_open,j.short_summary,j.description,j.responsibilities,j.requirements,j.benefits,j.salary_summary,j.application_deadline::text,j.status,j.published_at,j.closed_at,j.created_at,j.updated_at,s.code AS site_code,s.name AS site_name,p.code AS province_code,p.name AS province_name,COUNT(a.id)::int AS application_count`;
 
@@ -865,6 +866,7 @@ function buildApplicantConfirmationEmail(
 
   return {
     to: input.email,
+    from: RECRUITMENT_FROM_ADDRESS,
     subject,
     text,
     html: `<!doctype html>
@@ -974,6 +976,7 @@ function buildCandidateStatusEmail(notification: CandidateStatusNotification) {
   const htmlMessage = escapeHtml(notification.message).replace(/\n/g, "<br />");
   return {
     to: notification.email,
+    from: RECRUITMENT_FROM_ADDRESS,
     subject,
     text: [greeting, "", notification.message, "", footer].join("\n"),
     html: `<!doctype html><html lang="${notification.french ? "fr" : "en"}"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>${escapeHtml(subject)}</title></head><body style="margin:0;padding:0;background:#f3f7f5;font-family:Arial,'Helvetica Neue',Helvetica,sans-serif;color:#172b23;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;background:#f3f7f5;"><tr><td align="center" style="padding:32px 16px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;background:#fff;border:1px solid #d8e5dc;border-radius:16px;overflow:hidden;"><tr><td style="padding:25px 32px;background:#114b32;color:#fff;font-size:21px;font-weight:800;">${escapeHtml(notification.organizationName)}</td></tr><tr><td style="padding:34px 32px 30px;"><div style="width:42px;height:5px;margin:0 0 20px;background:#29a36a;border-radius:99px;"></div><h1 style="margin:0 0 19px;color:#14251d;font-size:27px;line-height:1.25;">${escapeHtml(subject)}</h1><p style="margin:0 0 17px;color:#344b3d;font-size:15px;line-height:1.65;">${escapeHtml(greeting)}</p><p style="margin:0;color:#344b3d;font-size:15px;line-height:1.65;">${htmlMessage}</p></td></tr><tr><td style="padding:20px 32px;background:#f7faf8;border-top:1px solid #e1ebe5;color:#66776d;font-size:12px;line-height:1.55;">${escapeHtml(footer)}</td></tr></table></td></tr></table></body></html>`,

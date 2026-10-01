@@ -13,6 +13,11 @@ export interface MailMessage {
   subject: string;
   text: string;
   html: string;
+  /**
+   * Optional, approved sender for a dedicated company workflow. The caller
+   * must use a mailbox or alias authorised by the configured SMTP account.
+   */
+  from?: string;
   attachments?: MailAttachment[];
 }
 
@@ -174,7 +179,7 @@ export async function sendMail(message: MailMessage): Promise<SendResult> {
 
   try {
     const info = await transport.sendMail({
-      from: mailFromAddress(),
+      from: message.from ?? mailFromAddress(),
       to: message.to,
       subject: message.subject,
       text: message.text,
