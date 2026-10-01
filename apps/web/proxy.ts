@@ -32,6 +32,14 @@ const encoder = new TextEncoder();
 function requestedCustomDomain(request: NextRequest): string | null {
   const rawHost = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
   const host = rawHost?.split(",")[0]?.trim().toLowerCase().replace(/:\d+$/, "") ?? "";
+  // Congo Omega is an independently branded public website.  Its DNS points
+  // to the same web service as LiteHubs, so it must be identified by hostname
+  // before looking at the service's own public URL.  This keeps a production
+  // `NEXT_PUBLIC_SITE_URL=https://congoomega.com` configuration from ever
+  // rendering the LiteHubs product landing at the Congo Omega domain.
+  if (host === "congoomega.com" || host === "www.congoomega.com") {
+    return "congoomega.com";
+  }
   const primary = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://litehubs.com")
     .replace(/^https?:\/\//, "")
     .replace(/\/.*$/, "")
