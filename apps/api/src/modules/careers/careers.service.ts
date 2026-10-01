@@ -676,6 +676,26 @@ export async function publicApply(
       { organizationId: job.organization_id, userId: null },
       async (client) => {
         try {
+          // The database key protects the email. The transaction-scoped lock
+          // adds the same protection for a normalized phone number, including
+          // simultaneous retries from a poor connection.
+          await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+            `career-application:${job.id}:${input.phone}`,
+          ]);
+          const duplicatePhone = await client.query<{ id: string }>(
+            `SELECT id
+               FROM career_applications
+              WHERE organization_id=$1
+                AND job_post_id=$2
+                AND regexp_replace(phone, '[^0-9]', '', 'g') = regexp_replace($3, '[^0-9]', '', 'g')
+              LIMIT 1`,
+            [job.organization_id, job.id, input.phone],
+          );
+          if (duplicatePhone.rowCount) {
+            throw new ConflictError(
+              "An application has already been received from this phone number for this vacancy",
+            );
+          }
           const insert = await client.query<Row>(
             `INSERT INTO career_applications(organization_id,job_post_id,province_id,site_id,full_name,email,phone,city,cover_letter,years_experience,availability,preferred_language,consent_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,now()) RETURNING id`,
             [
@@ -735,6 +755,7 @@ export async function publicApply(
           );
           return { applicationId, team };
         } catch (error: unknown) {
+          if (error instanceof ConflictError) throw error;
           if (
             typeof error === "object" &&
             error !== null &&

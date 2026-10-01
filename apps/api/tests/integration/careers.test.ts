@@ -123,6 +123,20 @@ describe("Careers job posts", () => {
       confirmation: "Your application has been received.",
     });
 
+    const duplicatePhone = await request(app)
+      .post(`/api/v1/public/organizations/${organizationSlug}/careers/jobs/poultry_worker/applications`)
+      .field("fullName", "Candidate duplicate phone")
+      .field("email", `another-candidate-${suffix}@test.invalid`)
+      .field("phone", "243 898 869 772")
+      .field("preferredLanguage", "fr")
+      .field("consent", "true")
+      .attach("resume", Buffer.from("%PDF-1.4\nCandidate résumé"), {
+        filename: "candidate-duplicate-phone.pdf",
+        contentType: "application/pdf",
+      });
+    expect(duplicatePhone.status).toBe(409);
+    expect(duplicatePhone.body.error.message).toMatch(/phone number/i);
+
     const applications = await authorized(
       request(app).get(`/api/v1/organizations/${organizationSlug}/careers/applications`),
     );

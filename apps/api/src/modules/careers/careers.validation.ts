@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { organizationSlugSchema } from "../organization/organization.validation";
+import { isValidPhone, normalizePhone } from "../../utils/phone";
 
 const id = z.string().uuid("Choose a valid record");
 const code = z
@@ -108,8 +109,12 @@ export const applicationUpdateInput = z.object({
 /** Multipart form-data submitted by an unauthenticated candidate. */
 export const publicApplicationInput = z.object({
   fullName: requiredText(180),
-  email: z.string().trim().email("Use a valid email address").max(255),
-  phone: requiredText(80),
+  // Keep the public application identity consistent. This makes a retry with
+  // `243…`, `+243…`, spaces, or punctuation resolve to the same candidate.
+  email: z.string().trim().toLowerCase().email("Use a valid email address").max(255),
+  phone: requiredText(80).transform(normalizePhone).refine(isValidPhone, {
+    message: "Enter a valid phone number. For the DRC use +243 followed by 9 digits",
+  }),
   city: optionalText(160),
   coverLetter: optionalText(8000),
   yearsExperience: z.coerce.number().min(0).max(80).nullable().optional(),
