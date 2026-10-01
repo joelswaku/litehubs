@@ -184,6 +184,19 @@ export function PublicWebsiteDomainPage({
     queryFn: () => get<PublicWebsiteResponse>(path),
     retry: false,
   });
+  // The public Congo Omega landing is bundled with the site specifically so
+  // the company domain never starts on a blank loading card while its private
+  // builder record is being restored or the API is waking up.  If live builder
+  // data is available, it still replaces this landing as soon as it arrives.
+  if (query.isLoading && congoOmegaDomains.has(domain.toLowerCase())) {
+    return (
+      <PublicWebsiteRenderer
+        website={congoOmegaWebsite}
+        page={congoOmegaFallbackPage(pageSlug)}
+        pathPrefix=""
+      />
+    );
+  }
   if (query.isLoading) return <SkeletonCard rows={8} />;
   if (query.isError || !query.data) {
     if (congoOmegaDomains.has(domain.toLowerCase())) {
