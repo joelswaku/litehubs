@@ -22,6 +22,15 @@ type PublicCareerJob = {
 };
 
 type CareerDetail = { organizationName?: string; job?: PublicCareerJob; jobs?: PublicCareerJob[] };
+type PublicWebsiteSeo = {
+  website?: { displayName?: string };
+  page?: {
+    titleFr?: string;
+    descriptionFr?: string | null;
+    seoTitleFr?: string | null;
+    seoDescriptionFr?: string | null;
+  };
+};
 
 /** Public-only query used for SEO metadata. No cookies or tenant identifiers. */
 export async function publicCareerMetadata(orgSlug: string, jobCode?: string): Promise<CareerDetail | null> {
@@ -35,6 +44,26 @@ export async function publicCareerMetadata(orgSlug: string, jobCode?: string): P
   } catch {
     // SEO metadata must never make the public page unavailable when the API is
     // restarting. The client page continues to display its retry state.
+    return null;
+  }
+}
+
+/** Public metadata for the owner-published website plane. It deliberately uses
+ * the same restricted endpoint as the visible page, never a workspace API. */
+export async function publicWebsiteMetadata(
+  orgSlug: string,
+  pageSlug?: string,
+): Promise<PublicWebsiteSeo | null> {
+  const domainRequest = orgSlug.includes(".");
+  const base = domainRequest
+    ? `/api/v1/public/websites/domains/${encodeURIComponent(orgSlug)}`
+    : `/api/v1/public/organizations/${encodeURIComponent(orgSlug)}/website`;
+  const path = pageSlug ? `${base}/pages/${encodeURIComponent(pageSlug)}` : base;
+  try {
+    const response = await fetch(`${apiOrigin}${path}`, { cache: "no-store" });
+    if (!response.ok) return null;
+    return (await response.json()) as PublicWebsiteSeo;
+  } catch {
     return null;
   }
 }

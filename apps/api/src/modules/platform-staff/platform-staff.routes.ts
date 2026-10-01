@@ -50,6 +50,16 @@ platformStaffRoutes.get(
   tenants.getTenant,
 );
 
+// Websites are a separate public-content plane. Only a Platform Super Admin
+// can inspect this registry, and the response contains publication metadata
+// only — never a customer's people, projects, finances or documents.
+platformStaffRoutes.get(
+  "/platform/websites",
+  authenticate,
+  requirePlatformRole("platform_super_admin"),
+  controller.listWebsites,
+);
+
 // Suspending a tenant stops its staff working, so it needs its own permission —
 // read access does not confer it.
 platformStaffRoutes.patch(

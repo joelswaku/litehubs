@@ -458,6 +458,7 @@ export type EquipmentCategoryUpdateInput = z.infer<
 >;
 export const ownerManagementListQuery = z.object({
   projectId: id.optional(),
+  receiptId: id.optional(),
   phaseId: id.optional(),
   provinceId: id.optional(),
   siteId: id.optional(),

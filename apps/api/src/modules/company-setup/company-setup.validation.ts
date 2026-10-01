@@ -150,6 +150,164 @@ export const companyRulesInputSchema = z.object({
   changeNote: z.string().trim().min(3).max(600).optional(),
 });
 
+/* ----------------------------------------------------------- public site -- */
+
+const websiteSlugSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(
+    /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
+    "Use lowercase words separated with hyphens",
+  )
+  .min(1)
+  .max(80);
+const websiteColorSchema = z
+  .string()
+  .trim()
+  .regex(/^#[0-9a-fA-F]{6}$/, "Use a six-digit colour such as #166534");
+const websiteUrlSchema = z
+  .string()
+  .trim()
+  .max(2_000)
+  .refine(
+    (value) =>
+      value === "" ||
+      value.startsWith("/") ||
+      /^https:\/\//i.test(value),
+    "Use a secure https link or a link within this website",
+  );
+const optionalWebsiteUrlSchema = websiteUrlSchema.optional().nullable();
+const websiteText = (max: number) => z.string().trim().max(max);
+const websiteOptionalText = (max: number) => websiteText(max).optional().nullable();
+
+export const websiteSettingsInputSchema = z
+  .object({
+    displayName: websiteText(160).min(2),
+    tagline: websiteOptionalText(360),
+    defaultLocale: z.enum(["fr", "en"]).default("fr"),
+    themePreset: z.enum(["verdant", "cobalt", "sunrise", "earth"]),
+    primaryColor: websiteColorSchema,
+    accentColor: websiteColorSchema,
+    logoUrl: optionalWebsiteUrlSchema,
+    contactEmail: z.string().trim().email().max(255).optional().nullable(),
+    contactPhone: websiteOptionalText(80),
+    addressText: websiteOptionalText(600),
+    footerText: websiteOptionalText(1_000),
+    customDomain: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .regex(
+        /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/,
+        "Enter a domain such as example.com",
+      )
+      .optional()
+      .nullable(),
+  })
+  .strict();
+
+const websiteTemplateSchema = z.enum([
+  "blank",
+  "company",
+  "operations",
+  "project",
+  "impact",
+  "contact",
+  "careers",
+]);
+
+const websitePageFields = {
+  slug: websiteSlugSchema,
+  navigationLabelFr: websiteText(100).min(1),
+  navigationLabelEn: websiteText(100).min(1),
+  titleFr: websiteText(180).min(2),
+  titleEn: websiteText(180).min(2),
+  descriptionFr: websiteOptionalText(500),
+  descriptionEn: websiteOptionalText(500),
+  seoTitleFr: websiteOptionalText(180),
+  seoTitleEn: websiteOptionalText(180),
+  seoDescriptionFr: websiteOptionalText(320),
+  seoDescriptionEn: websiteOptionalText(320),
+  templateCode: websiteTemplateSchema.default("blank"),
+  isHome: z.boolean().default(false),
+};
+
+export const websitePageCreateSchema = z.object(websitePageFields).strict();
+export const websitePageUpdateSchema = z.object(websitePageFields).strict();
+export const websiteMediaParams = organizationParams.extend({ mediaId: idSchema });
+
+const websiteSectionTypeSchema = z.enum([
+  "hero",
+  "rich_text",
+  "feature_grid",
+  "metrics",
+  "image_callout",
+  "gallery",
+  "faq",
+  "cta",
+  "careers",
+  "contact",
+]);
+
+const websiteSectionContentSchema = z
+  .record(z.string().max(100), z.unknown())
+  .superRefine((value, ctx) => {
+    try {
+      if (JSON.stringify(value).length > 24_000)
+        ctx.addIssue({
+          code: "custom",
+          message: "A block is too large. Use shorter text or fewer cards.",
+        });
+    } catch {
+      ctx.addIssue({ code: "custom", message: "Block content is invalid" });
+    }
+  });
+
+export const websiteSectionsInputSchema = z
+  .object({
+    sections: z
+      .array(
+        z
+          .object({
+            type: websiteSectionTypeSchema,
+            isVisible: z.boolean().default(true),
+            content: websiteSectionContentSchema.default({}),
+          })
+          .strict(),
+      )
+      .max(40),
+  })
+  .strict();
+
+export const websitePageParams = organizationParams.extend({ pageId: idSchema });
+export const publicWebsitePageParams = z.object({
+  orgSlug: organizationSlugSchema,
+  pageSlug: websiteSlugSchema,
+});
+/** Public visitors may choose either a phone number or an email address. The
+ * company receives both when provided, but at least one way to reply is
+ * required. */
+export const publicWebsiteDomainParams = z.object({
+  domain: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(
+      /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/,
+      "Enter a domain such as example.com",
+    ),
+  pageSlug: websiteSlugSchema.optional(),
+});
+export const websitePublicationInputSchema = z
+  .object({ status: z.enum(["draft", "published", "paused"]) })
+  .strict();
+
+export type WebsiteSettingsInput = z.infer<typeof websiteSettingsInputSchema>;
+export type WebsitePageCreateInput = z.infer<typeof websitePageCreateSchema>;
+export type WebsitePageUpdateInput = z.infer<typeof websitePageUpdateSchema>;
+export type WebsiteSectionsInput = z.infer<typeof websiteSectionsInputSchema>;
+
 export type CreateProvinceInput = z.infer<typeof createProvinceSchema>;
 export type UpdateProvinceInput = z.infer<typeof updateProvinceSchema>;
 export type CreateSiteInput = z.infer<typeof createSiteSchema>;

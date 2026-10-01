@@ -1,4 +1,7 @@
-import { Router } from "express";
+import multer from "multer";
+import { Router, type RequestHandler } from "express";
+import { storage, isAllowedUploadMimeType } from "../../config/storage";
+import { BadRequestError } from "../../utils/errors";
 import { authenticate } from "../../middleware/auth.middleware";
 import { requireOrganization } from "../../middleware/organization.middleware";
 import {
@@ -27,15 +30,76 @@ import {
   updateProvinceSchema,
   updateRoleSchema,
   updateSiteSchema,
+  publicWebsitePageParams,
+  publicWebsiteDomainParams,
+  websitePageCreateSchema,
+  websitePageParams,
+  websitePageUpdateSchema,
+  websitePublicationInputSchema,
+  websiteSectionsInputSchema,
+  websiteSettingsInputSchema,
+  websiteMediaParams,
 } from "./company-setup.validation";
 
 export const companySetupRoutes = Router();
+
+// Website media is separate from private LiteHubs documents. Owners may upload
+// a gallery in one go; only real image formats are accepted.
+const websiteMediaUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { files: 30, fileSize: Math.min(storage.maxUploadBytes, 8_000_000) },
+  fileFilter: (_req, file, callback) =>
+    isAllowedUploadMimeType(file.mimetype)
+      ? callback(null, true)
+      : callback(
+          new BadRequestError(
+            "Upload JPEG, PNG, WebP, GIF, HEIC, or HEIF images only",
+          ),
+        ),
+});
+const websiteMediaFiles: RequestHandler = (req, res, next) =>
+  websiteMediaUpload.array("files", 30)(req, res, (error: unknown) => {
+    if (error instanceof multer.MulterError) {
+      return next(
+        new BadRequestError(
+          error.code === "LIMIT_FILE_SIZE"
+            ? "Each website image must be 8 MB or smaller"
+            : "Upload up to 30 website images at once",
+        ),
+      );
+    }
+    next(error);
+  });
 
 const inOrganization = [
   authenticate,
   validate({ params: organizationParams }),
   requireOrganization,
 ] as const;
+
+// Public website rendering is purposefully outside the workspace session.
+// It returns only owner-published content through the narrow database function
+// introduced with the builder; it has no operational-data joins.
+companySetupRoutes.get(
+  "/public/organizations/:orgSlug/website",
+  validate({ params: organizationParams }),
+  controller.publicWebsite,
+);
+companySetupRoutes.get(
+  "/public/organizations/:orgSlug/website/pages/:pageSlug",
+  validate({ params: publicWebsitePageParams }),
+  controller.publicWebsite,
+);
+companySetupRoutes.get(
+  "/public/websites/domains/:domain",
+  validate({ params: publicWebsiteDomainParams }),
+  controller.publicWebsiteDomain,
+);
+companySetupRoutes.get(
+  "/public/websites/domains/:domain/pages/:pageSlug",
+  validate({ params: publicWebsiteDomainParams }),
+  controller.publicWebsiteDomain,
+);
 
 // Every company member can read the rulebook. Only its owner publishes a new
 // version; the service stores prior versions for audit and accountability.
@@ -60,6 +124,108 @@ companySetupRoutes.put(
   requireOwner,
   validate({ body: companyRulesInputSchema }),
   controller.publishCompanyRules,
+);
+
+// The website builder has one owner-only entry point in the workspace. Pages,
+// blocks, design settings, preview and publication stay behind this single
+// module instead of being scattered through the operational sidebar.
+companySetupRoutes.get(
+  "/organizations/:orgSlug/website",
+  ...inOrganization,
+  requireOwner,
+  controller.getWebsiteBuilder,
+);
+companySetupRoutes.put(
+  "/organizations/:orgSlug/website",
+  ...inOrganization,
+  requireOwner,
+  validate({ body: websiteSettingsInputSchema }),
+  controller.saveWebsiteSettings,
+);
+companySetupRoutes.get(
+  "/organizations/:orgSlug/website/media",
+  ...inOrganization,
+  requireOwner,
+  controller.listWebsiteMedia,
+);
+companySetupRoutes.post(
+  "/organizations/:orgSlug/website/media",
+  ...inOrganization,
+  requireOwner,
+  websiteMediaFiles,
+  controller.uploadWebsiteMedia,
+);
+companySetupRoutes.delete(
+  "/organizations/:orgSlug/website/media/:mediaId",
+  authenticate,
+  validate({ params: websiteMediaParams }),
+  requireOrganization,
+  requireOwner,
+  controller.deleteWebsiteMedia,
+);
+companySetupRoutes.post(
+  "/organizations/:orgSlug/website/pages",
+  ...inOrganization,
+  requireOwner,
+  validate({ body: websitePageCreateSchema }),
+  controller.createWebsitePage,
+);
+companySetupRoutes.post(
+  "/organizations/:orgSlug/website/starter-pages",
+  ...inOrganization,
+  requireOwner,
+  controller.addWebsiteStarterPages,
+);
+companySetupRoutes.post(
+  "/organizations/:orgSlug/website/complete-starter-pages",
+  ...inOrganization,
+  requireOwner,
+  controller.completeWebsiteStarterPages,
+);
+companySetupRoutes.post(
+  "/organizations/:orgSlug/website/visual-highlights",
+  ...inOrganization,
+  requireOwner,
+  controller.addWebsiteVisualHighlights,
+);
+companySetupRoutes.patch(
+  "/organizations/:orgSlug/website/pages/:pageId",
+  authenticate,
+  validate({ params: websitePageParams, body: websitePageUpdateSchema }),
+  requireOrganization,
+  requireOwner,
+  controller.updateWebsitePage,
+);
+companySetupRoutes.put(
+  "/organizations/:orgSlug/website/pages/:pageId/sections",
+  authenticate,
+  validate({ params: websitePageParams, body: websiteSectionsInputSchema }),
+  requireOrganization,
+  requireOwner,
+  controller.replaceWebsiteSections,
+);
+companySetupRoutes.post(
+  "/organizations/:orgSlug/website/pages/:pageId/publish",
+  authenticate,
+  validate({ params: websitePageParams }),
+  requireOrganization,
+  requireOwner,
+  controller.publishWebsitePage,
+);
+companySetupRoutes.delete(
+  "/organizations/:orgSlug/website/pages/:pageId",
+  authenticate,
+  validate({ params: websitePageParams }),
+  requireOrganization,
+  requireOwner,
+  controller.archiveWebsitePage,
+);
+companySetupRoutes.post(
+  "/organizations/:orgSlug/website/publication",
+  ...inOrganization,
+  requireOwner,
+  validate({ body: websitePublicationInputSchema }),
+  controller.setWebsitePublication,
 );
 
 // ------------------------------------------------------------- locations ----

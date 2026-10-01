@@ -5458,6 +5458,66 @@ async function enrichProcurementActorRows(
     [outputField]: names.get(String(row[memberField])) || null,
   }));
 }
+
+/**
+ * A receipt line stores delivered quantities, while its description and unit
+ * stay on the source purchase-order line. Return both together for the
+ * receiver without creating a duplicated item or quantity.
+ */
+async function enrichReceiptLineRows(
+  client: PoolClient,
+  context: OwnerManagementContext,
+  rows: Row[],
+): Promise<Row[]> {
+  const receiptLineIds = rows.map((row) => String(row.id)).filter(Boolean);
+  if (!receiptLineIds.length) return rows;
+  const result = await client.query<Row>(
+    `SELECT receipt_line.id,
+            order_line.description,
+            order_line.unit,
+            order_line.ordered_quantity,
+            order_line.item_kind,
+            order_line.unit_cost AS order_unit_cost,
+            project_material.name AS project_material_name,
+            inventory_item.name AS inventory_item_name
+       FROM management_receipt_lines receipt_line
+       JOIN management_purchase_order_lines order_line
+         ON order_line.organization_id = receipt_line.organization_id
+        AND order_line.id = receipt_line.purchase_order_line_id
+       LEFT JOIN management_project_materials project_material
+         ON project_material.organization_id = receipt_line.organization_id
+        AND project_material.id = COALESCE(receipt_line.project_material_id, order_line.project_material_id)
+       LEFT JOIN management_inventory_items inventory_item
+         ON inventory_item.organization_id = receipt_line.organization_id
+        AND inventory_item.id = COALESCE(receipt_line.inventory_item_id, order_line.inventory_item_id)
+      WHERE receipt_line.organization_id = $1
+        AND receipt_line.id = ANY($2::uuid[])`,
+    [context.organizationId, receiptLineIds],
+  );
+  const detailsById = new Map(
+    result.rows.map((row) => [String(row.id), mapRow(row)]),
+  );
+  return rows.map((row) => {
+    const details = detailsById.get(String(row.id)) ?? {};
+    // PostgreSQL returns numeric columns as strings. Receipt lines are rendered
+    // and validated as quantities in the browser, so keep the source order
+    // context while returning consistent numeric values to the caller.
+    return {
+      ...row,
+      ...details,
+      receivedQuantity: Number(row.receivedQuantity ?? 0),
+      damagedQuantity: Number(row.damagedQuantity ?? 0),
+      rejectedQuantity: Number(row.rejectedQuantity ?? 0),
+      actualUnitCost:
+        row.actualUnitCost == null ? null : Number(row.actualUnitCost),
+      orderedQuantity:
+        details.orderedQuantity == null ? null : Number(details.orderedQuantity),
+      orderUnitCost:
+        details.orderUnitCost == null ? null : Number(details.orderUnitCost),
+    };
+  });
+}
+
 async function enrichStockMovementActorRows(
   client: PoolClient,
   context: OwnerManagementContext,
@@ -5554,6 +5614,14 @@ export async function listOwnerManagementRecords(
     filter(query.projectId, config.projectField, "projectId");
     filter(query.provinceId, config.provinceField, "provinceId");
     filter(query.siteId, config.siteField, "siteId");
+    if (query.receiptId) {
+      if (resource !== "receipt-lines")
+        throw new BadRequestError(
+          "This record type cannot be filtered by receiptId",
+        );
+      values.push(query.receiptId);
+      conditions.push("receipt_id = $" + values.length);
+    }
     if (query.phaseId) {
       if (!config.fields.includes("phaseId"))
         throw new BadRequestError(
@@ -5639,6 +5707,12 @@ export async function listOwnerManagementRecords(
                         context,
                         readablePage,
                       )
+                    : resource === "receipt-lines"
+                      ? await enrichReceiptLineRows(
+                          client,
+                          context,
+                          readablePage,
+                        )
                     : resource === "expenses"
                       ? await enrichExpenseRows(client, context, readablePage)
                       : readablePage;

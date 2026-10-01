@@ -434,6 +434,7 @@ const fr = {
   "nav.reports": "Rapports",
   "nav.audit": "Audit",
   "nav.company_rules": "Règlement d’entreprise",
+  "nav.website": "Site web",
   "nav.workspace": "Espace entreprise",
   "nav.notifications": "Notifications",
   "nav.appointments": "Rendez-vous",
@@ -449,6 +450,7 @@ const fr = {
   "nav.modules": "Modules",
   "nav.administration": "Administration",
   "nav.staff": "Personnel",
+  "nav.websites": "Sites web",
   "nav.contact_requests": "Demandes de contact",
   "attendance.title": "Présence et horaires",
   "attendance.description":
@@ -1046,6 +1048,7 @@ const en: Record<TranslationKey, string> = {
   "nav.reports": "Reports",
   "nav.audit": "Audit",
   "nav.company_rules": "Company rules",
+  "nav.website": "Website",
   "nav.workspace": "Workspace",
   "nav.notifications": "Notifications",
   "nav.appointments": "Appointments",
@@ -1061,6 +1064,7 @@ const en: Record<TranslationKey, string> = {
   "nav.modules": "Modules",
   "nav.administration": "Administration",
   "nav.staff": "Staff",
+  "nav.websites": "Websites",
   "nav.contact_requests": "Contact requests",
   "attendance.title": "Attendance and shifts",
   "attendance.description":

@@ -22,6 +22,7 @@ import {
   HeartPulse,
   Landmark,
   LayoutDashboard,
+  PanelsTopLeft,
   type LucideIcon,
   Package,
   PiggyBank,
@@ -485,6 +486,15 @@ export const WORKSPACE_NAV: NavGroup[] = [
         path: "/company-rules",
         icon: BookOpenCheck,
       },
+      // One owner-only entry point. Its own workspace contains pages, blocks,
+      // design, media, preview and publication — never a scattered set of
+      // website links throughout operational menus.
+      {
+        label: "Website",
+        path: "/website",
+        icon: PanelsTopLeft,
+        ownerOnly: true,
+      },
     ],
   },
 
@@ -577,6 +587,12 @@ export const PLATFORM_NAV: NavGroup[] = [
         path: "/platform/staff",
         icon: Users,
         permission: "platform.users.read",
+        platformRole: "platform_super_admin",
+      },
+      {
+        label: "Websites",
+        path: "/platform/websites",
+        icon: PanelsTopLeft,
         platformRole: "platform_super_admin",
       },
     ],

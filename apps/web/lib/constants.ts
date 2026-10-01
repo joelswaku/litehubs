@@ -46,6 +46,10 @@ export const PUBLIC_PATHS = [
   "/check-in",
   "/queue",
   "/careers",
+  // Public pages built by an organisation owner. The API still returns only
+  // explicitly published blocks through its restricted public endpoint.
+  "/sites",
+  "/site-by-domain",
   "/login",
   "/staff",
   "/staff/register",

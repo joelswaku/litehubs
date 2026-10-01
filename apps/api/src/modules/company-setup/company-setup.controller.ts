@@ -1,5 +1,7 @@
 import type { Request, RequestHandler } from "express";
 import * as service from "./company-setup.service";
+import * as websiteBuilder from "./website-builder.service";
+import { BadRequestError } from "../../utils/errors";
 import type {
   CreateDepartmentInput,
   CreateInvitationInput,
@@ -13,6 +15,10 @@ import type {
   UpdateProvinceInput,
   UpdateRoleInput,
   UpdateSiteInput,
+  WebsitePageCreateInput,
+  WebsitePageUpdateInput,
+  WebsiteSectionsInput,
+  WebsiteSettingsInput,
 } from "./company-setup.validation";
 
 function contextOf(req: Request): service.SetupContext {
@@ -52,7 +58,9 @@ export const downloadCompanyRulesPdf: RequestHandler = async (req, res) => {
 };
 
 export const listCompanyRulesVersions: RequestHandler = async (req, res) => {
-  res.json({ versions: await service.listCompanyRulesVersions(contextOf(req)) });
+  res.json({
+    versions: await service.listCompanyRulesVersions(contextOf(req)),
+  });
 };
 
 export const publishCompanyRules: RequestHandler = async (req, res) => {
@@ -62,6 +70,133 @@ export const publishCompanyRules: RequestHandler = async (req, res) => {
       req.body as CompanyRulesInput,
     ),
   });
+};
+
+/* ----------------------------------------------------------- public site -- */
+
+export const getWebsiteBuilder: RequestHandler = async (req, res) => {
+  res.json(await websiteBuilder.getWebsiteBuilder(contextOf(req)));
+};
+
+export const saveWebsiteSettings: RequestHandler = async (req, res) => {
+  res.json({
+    website: await websiteBuilder.saveWebsiteSettings(
+      contextOf(req),
+      req.body as WebsiteSettingsInput,
+    ),
+  });
+};
+
+export const listWebsiteMedia: RequestHandler = async (req, res) => {
+  res.json({ media: await websiteBuilder.listWebsiteMedia(contextOf(req)) });
+};
+
+export const uploadWebsiteMedia: RequestHandler = async (req, res) => {
+  const files = Array.isArray(req.files) ? req.files : [];
+  if (!files.length)
+    throw new BadRequestError("Choose at least one image to upload");
+  res
+    .status(201)
+    .json({
+      media: await websiteBuilder.uploadWebsiteMedia(contextOf(req), files),
+    });
+};
+
+export const deleteWebsiteMedia: RequestHandler = async (req, res) => {
+  await websiteBuilder.deleteWebsiteMedia(
+    contextOf(req),
+    parameter(req, "mediaId"),
+  );
+  res.status(204).send();
+};
+
+export const createWebsitePage: RequestHandler = async (req, res) => {
+  res.status(201).json({
+    page: await websiteBuilder.createWebsitePage(
+      contextOf(req),
+      req.body as WebsitePageCreateInput,
+    ),
+  });
+};
+
+export const addWebsiteStarterPages: RequestHandler = async (req, res) => {
+  res.status(201).json({
+    pages: await websiteBuilder.addWebsiteStarterPages(contextOf(req)),
+  });
+};
+
+export const completeWebsiteStarterPages: RequestHandler = async (req, res) => {
+  res.json(await websiteBuilder.completeWebsiteStarterPages(contextOf(req)));
+};
+
+export const addWebsiteVisualHighlights: RequestHandler = async (req, res) => {
+  res.json(await websiteBuilder.addWebsiteVisualHighlights(contextOf(req)));
+};
+
+export const updateWebsitePage: RequestHandler = async (req, res) => {
+  res.json({
+    page: await websiteBuilder.updateWebsitePage(
+      contextOf(req),
+      parameter(req, "pageId"),
+      req.body as WebsitePageUpdateInput,
+    ),
+  });
+};
+
+export const replaceWebsiteSections: RequestHandler = async (req, res) => {
+  res.json({
+    page: await websiteBuilder.replaceWebsiteSections(
+      contextOf(req),
+      parameter(req, "pageId"),
+      req.body as WebsiteSectionsInput,
+    ),
+  });
+};
+
+export const publishWebsitePage: RequestHandler = async (req, res) => {
+  res.json({
+    page: await websiteBuilder.publishWebsitePage(
+      contextOf(req),
+      parameter(req, "pageId"),
+    ),
+  });
+};
+
+export const archiveWebsitePage: RequestHandler = async (req, res) => {
+  await websiteBuilder.archiveWebsitePage(
+    contextOf(req),
+    parameter(req, "pageId"),
+  );
+  res.status(204).send();
+};
+
+export const setWebsitePublication: RequestHandler = async (req, res) => {
+  res.json({
+    website: await websiteBuilder.setWebsitePublication(
+      contextOf(req),
+      req.body.status as "published" | "draft" | "paused",
+    ),
+  });
+};
+
+export const publicWebsite: RequestHandler = async (req, res) => {
+  res.json(
+    await websiteBuilder.publicWebsitePage(
+      parameter(req, "orgSlug"),
+      req.params.pageSlug ? parameter(req, "pageSlug") : undefined,
+    ),
+  );
+};
+
+/** Same restricted public response, selected by the browser's verified custom
+ * domain rather than a LiteHubs organisation slug. */
+export const publicWebsiteDomain: RequestHandler = async (req, res) => {
+  res.json(
+    await websiteBuilder.publicWebsitePage(
+      parameter(req, "domain"),
+      req.params.pageSlug ? parameter(req, "pageSlug") : undefined,
+    ),
+  );
 };
 
 export const createProvince: RequestHandler = async (req, res) => {

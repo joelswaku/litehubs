@@ -47,6 +47,7 @@ import { AppointmentsArea } from "./appointments-area";
 import { CareersArea } from "./careers-area";
 import { FleetArea } from "./fleet-area";
 import { CompanyRulesArea } from "./company-rules-area";
+import { WebsiteArea } from "./website-area";
 
 export function WorkspaceAreaView({
   orgSlug,
@@ -195,6 +196,7 @@ export function WorkspaceAreaView({
   if (path === "/contracts") return <ContractsArea orgSlug={orgSlug} />;
   if (path === "/audit") return <AuditArea orgSlug={orgSlug} />;
   if (path === "/company-rules") return <CompanyRulesArea orgSlug={orgSlug} />;
+  if (path === "/website") return <WebsiteArea orgSlug={orgSlug} />;
   if (path === "/my-performance")
     return <MyPerformanceArea orgSlug={orgSlug} />;
   if (path === "/performance") return <PerformanceArea orgSlug={orgSlug} />;

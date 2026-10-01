@@ -29,6 +29,21 @@ import { ACCESS_COOKIE, PUBLIC_PATHS } from "@/lib/constants";
 
 const encoder = new TextEncoder();
 
+function requestedCustomDomain(request: NextRequest): string | null {
+  const rawHost = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+  const host = rawHost?.split(",")[0]?.trim().toLowerCase().replace(/:\d+$/, "") ?? "";
+  const primary = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://litehubs.com")
+    .replace(/^https?:\/\//, "")
+    .replace(/\/.*$/, "")
+    .replace(/:\d+$/, "");
+  // Keep the LiteHubs application, local development and internal rewrites on
+  // their normal routes. Every other syntactically safe host is verified by the
+  // API before any public content is returned.
+  if (!host || host === "localhost" || host === primary || host === `www.${primary}` || host.endsWith(".localhost")) return null;
+  if (!/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(host)) return null;
+  return host.replace(/^www\./, "");
+}
+
 function secret(): Uint8Array | null {
   const value = process.env.JWT_SECRET;
   return value ? encoder.encode(value) : null;
@@ -43,6 +58,22 @@ function isPublic(pathname: string): boolean {
 export async function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
   const token = request.cookies.get(ACCESS_COOKIE)?.value;
+
+  const customDomain = requestedCustomDomain(request);
+  // Congo Omega previously used WordPress.  Visitors may still follow an old
+  // wp-admin or wp-login bookmark; it must never be mistaken for a LiteHubs
+  // dashboard route and send them to the workspace sign-in screen.  Bring
+  // those obsolete paths back to the company home page instead.
+  const isLegacyWordPressPath = /^(?:\/wp-admin(?:\/|$)|\/wp-login\.php$|\/wp-content(?:\/|$)|\/wp-includes(?:\/|$)|\/xmlrpc\.php$)/i.test(pathname);
+  if (customDomain && isLegacyWordPressPath) {
+    return NextResponse.redirect(new URL("/", request.url), 308);
+  }
+  // Public recruitment stays reachable from the company domain too. The job
+  // portal is still scoped by the organization segment in its own route.
+  if (customDomain && !pathname.startsWith("/site-by-domain/") && !pathname.startsWith("/careers/")) {
+    const route = `/site-by-domain/${encodeURIComponent(customDomain)}${pathname === "/" ? "" : pathname}`;
+    return NextResponse.rewrite(new URL(route, request.url));
+  }
 
   let hasValidToken = false;
   if (token) {

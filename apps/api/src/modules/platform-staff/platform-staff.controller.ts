@@ -1,5 +1,6 @@
 import type { RequestHandler } from "express";
 import * as service from "./platform-staff.service";
+import { listPlatformWebsites } from "../company-setup/website-builder.service";
 import type {
   CreateStaffUserInput,
   UpdateStaffRolesInput,
@@ -43,4 +44,10 @@ export const updateStatus: RequestHandler = async (req, res) => {
       (req.body as UpdateStaffStatusInput).status,
     ),
   });
+};
+
+/** Super Admin registry for the public-site plane only. Operational tenant
+ * records remain inaccessible here. */
+export const listWebsites: RequestHandler = async (req, res) => {
+  res.json({ websites: await listPlatformWebsites(req.user!.id) });
 };
