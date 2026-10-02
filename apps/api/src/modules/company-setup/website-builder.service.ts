@@ -1767,7 +1767,22 @@ function escapePublicEmail(value: string): string {
 /** The visitor confirmation is sent by LiteHubs rather than by a mailbox
  * autoresponder. It therefore works consistently for form submissions and
  * keeps the branded reply independent of Hostinger mailbox limitations. */
-function publicContactConfirmationHtml(fullName: string): string {
+/** Congo Omega operates on western DRC time. The mail server may run in UTC,
+ * so greetings must be computed from the organisation's real local time. */
+function congoOmegaGreeting(now = new Date()): "Bonjour" | "Bonsoir" {
+  const hour = Number(
+    new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Africa/Kinshasa",
+      hour: "2-digit",
+      hourCycle: "h23",
+    })
+      .formatToParts(now)
+      .find((part) => part.type === "hour")?.value ?? "12",
+  );
+  return hour >= 18 || hour < 5 ? "Bonsoir" : "Bonjour";
+}
+
+function publicContactConfirmationHtml(fullName: string, greeting: string): string {
   const safeName = escapePublicEmail(fullName);
   return `<!doctype html>
 <html lang="fr">
@@ -1783,7 +1798,7 @@ function publicContactConfirmationHtml(fullName: string): string {
           <tr><td align="center" style="background-color:#0b2545;padding:28px 24px;"><span style="font-size:22px;font-weight:bold;color:#ffffff;letter-spacing:.5px;">CONGO OMEGA</span></td></tr>
           <tr><td style="background-color:#c9a227;height:4px;line-height:4px;font-size:0;">&nbsp;</td></tr>
           <tr><td style="padding:40px 40px 24px;color:#344054;">
-            <p style="margin:0 0 18px;font-size:19px;font-weight:bold;color:#0b2545;text-align:center;">Bonjour ${safeName},</p>
+            <p style="margin:0 0 18px;font-size:19px;font-weight:bold;color:#0b2545;text-align:center;">${greeting} ${safeName},</p>
             <p style="margin:0 0 16px;font-size:15px;line-height:24px;text-align:center;">Merci d’avoir contacté <strong>Congo Omega</strong>.</p>
             <p style="margin:0 0 16px;font-size:15px;line-height:24px;text-align:center;">Votre message a bien été reçu par notre équipe. Nous l’examinerons et vous répondrons dès que possible selon votre demande&nbsp;: information, partenariat, projet, recrutement ou autre besoin.</p>
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f8fafc;border-left:3px solid #c9a227;border-radius:6px;margin:24px 0;"><tr><td style="padding:16px 20px;font-size:14px;line-height:22px;color:#475467;">Pour toute information complémentaire, vous pouvez répondre directement à cet e-mail.</td></tr></table>
@@ -1798,9 +1813,9 @@ function publicContactConfirmationHtml(fullName: string): string {
 </html>`;
 }
 
-function publicContactConfirmationText(fullName: string): string {
+function publicContactConfirmationText(fullName: string, greeting: string): string {
   return [
-    `Bonjour ${fullName},`,
+    `${greeting} ${fullName},`,
     "",
     "Merci d’avoir contacté Congo Omega.",
     "Votre message a bien été reçu par notre équipe. Nous l’examinerons et vous répondrons dès que possible selon votre demande : information, partenariat, projet, recrutement ou autre besoin.",
@@ -1873,12 +1888,13 @@ export async function sendPublicWebsiteContact(
   // The acknowledgement is deliberately best-effort. The visitor’s inquiry
   // has already reached the company inbox, so an SMTP issue here must not make
   // the browser claim that the form failed and cause a duplicate submission.
+  const greeting = congoOmegaGreeting();
   const confirmation = await sendMail({
     to: input.email,
     replyTo: recipient,
     subject: "Congo Omega — votre message est bien reçu",
-    text: publicContactConfirmationText(input.fullName),
-    html: publicContactConfirmationHtml(input.fullName),
+    text: publicContactConfirmationText(input.fullName, greeting),
+    html: publicContactConfirmationHtml(input.fullName, greeting),
   });
   if (!confirmation.sent) {
     logger.warn(
