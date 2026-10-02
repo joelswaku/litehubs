@@ -2,7 +2,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { useEffect, useState } from "react";
-import { CalendarCheck2, CheckCircle2, Clock3, MailCheck, MapPin } from "lucide-react";
+import { ArrowLeft, CalendarCheck2, CheckCircle2, Clock3, MailCheck, MapPin } from "lucide-react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -107,7 +107,7 @@ export function PublicAppointmentDirectory() {
     <div className="pointer-events-none absolute -right-24 top-20 size-[26rem] rounded-full border border-white/10 bg-sky-300/5 blur-2xl" aria-hidden />
     <div className="pointer-events-none absolute inset-0 opacity-[.08] [background-image:linear-gradient(rgba(255,255,255,.45)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.45)_1px,transparent_1px)] [background-size:52px_52px]" aria-hidden />
     <div className="relative z-10 mx-auto max-w-3xl">
-      <header className="mb-5 flex items-center justify-between"><a href="/" className="inline-flex items-center gap-2 font-semibold text-ink"><span className="grid size-9 place-items-center rounded-xl bg-brand text-brand-ink"><CalendarCheck2 className="size-5" /></span>{bookingOrganizationName}</a><button type="button" className="text-xs font-semibold text-brand" onClick={() => setFr((value) => !value)}>{fr ? "EN" : "FR"}</button></header>
+      <header className="mb-5 flex items-center justify-between gap-3"><a href="/" className="inline-flex min-w-0 items-center gap-2 font-semibold text-ink"><span className="grid size-9 shrink-0 place-items-center rounded-xl bg-brand text-brand-ink"><CalendarCheck2 className="size-5" /></span><span className="truncate">{bookingOrganizationName}</span></a><div className="flex shrink-0 items-center gap-2"><a href="/" className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border bg-surface-1 px-2.5 text-xs font-semibold text-ink transition-colors hover:bg-surface-2 sm:px-3"><ArrowLeft className="size-3.5" />{label("Accueil", "Home")}</a><button type="button" className="rounded-lg px-2 py-1.5 text-xs font-semibold text-brand hover:bg-brand/10" onClick={() => setFr((value) => !value)}>{fr ? "EN" : "FR"}</button></div></header>
       <Card className="relative isolate overflow-hidden border border-brand/25 bg-[radial-gradient(circle_at_88%_8%,rgba(20,184,166,.14),transparent_24%),radial-gradient(circle_at_8%_100%,rgba(59,130,246,.09),transparent_30%),linear-gradient(145deg,var(--surface-1),var(--surface-2))] shadow-[0_24px_65px_-42px_rgba(6,58,52,.6)]">
         <div className="relative border-b border-white/10 bg-[linear-gradient(115deg,#073c34,#0f766e_68%,#13928a)] px-6 py-7 text-white sm:px-8"><p className="text-xs font-bold tracking-[.14em] text-emerald-100">{label("RENDEZ-VOUS EN LIGNE", "ONLINE APPOINTMENT")}</p><h1 className="mt-3 text-3xl font-semibold tracking-[-.04em]">{label("Demander un rendez-vous", "Request an appointment")}</h1><p className="mt-2 text-sm leading-6 text-emerald-50">{label("Choisissez le site, le service et l’horaire qui vous conviennent.", "Choose the site, service and time that suit you.")}</p></div>
         <CardContent className="relative bg-surface-1/85 p-5 backdrop-blur-[2px] sm:p-7">
