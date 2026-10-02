@@ -405,6 +405,14 @@ function PublicSection({
     language === "fr" ? "eyebrow_fr" : "eyebrow_en",
     text(c, "eyebrow"),
   );
+  // Congo Omega can receive public messages through its verified domain even
+  // before the owner has completed every optional identity field in the
+  // builder. Keep the contact path usable instead of hiding the form.
+  const contactEmail =
+    website.contact_email ??
+    (contactDomain?.replace(/^www\./i, "").toLowerCase() === "congoomega.com"
+      ? "contact@congoomega.com"
+      : null);
   // The editor stores friendly paths such as /contact. In the LiteHubs preview
   // they must stay inside this company website rather than open product pages.
   const websiteHref = (value: string) => {
@@ -848,9 +856,9 @@ function PublicSection({
                     )}
                     href={websiteHref(text(c, "href", "/rendezvous"))}
                   />
-                  {website.contact_email ? (
+                  {contactEmail ? (
                     <a
-                      href={`mailto:${website.contact_email}`}
+                      href={`mailto:${contactEmail}`}
                       className="inline-flex min-h-11 items-center gap-2 rounded-full border border-white/25 bg-white/10 px-5 text-sm font-semibold text-white transition hover:bg-white/18"
                     >
                       <Mail className="size-4" />
@@ -861,12 +869,12 @@ function PublicSection({
               </div>
               <div className="space-y-5">
                 <div className="grid gap-3 sm:grid-cols-2">
-                  {website.contact_email ? (
+                  {contactEmail ? (
                     <ContactItem
                       icon={Mail}
                       label={t.email}
-                      value={website.contact_email}
-                      href={`mailto:${website.contact_email}`}
+                      value={contactEmail}
+                      href={`mailto:${contactEmail}`}
                     />
                   ) : null}
                   {website.contact_phone ? (
@@ -885,9 +893,9 @@ function PublicSection({
                     />
                   ) : null}
                 </div>
-                {website.contact_email ? (
+                {contactEmail ? (
                   <PublicContactForm
-                    contactEmail={website.contact_email}
+                    contactEmail={contactEmail}
                     language={language}
                     domain={contactDomain}
                   />
