@@ -54,8 +54,8 @@ function Shell({
   return (
     <main className="min-h-dvh bg-[radial-gradient(circle_at_18%_-5%,rgba(37,99,235,.16),transparent_36%),radial-gradient(circle_at_92%_14%,rgba(14,165,233,.11),transparent_28%),var(--color-page)] px-4 py-6 sm:py-10">
       <div className="mx-auto max-w-6xl">
-        <header className="mb-6 flex items-center justify-between">
-          <Link
+        <header className="mb-6 flex items-center justify-between gap-3">
+          <a
             href="/"
             className="group flex items-center gap-2.5 font-semibold text-ink"
           >
@@ -63,14 +63,23 @@ function Shell({
               <BriefcaseBusiness className="size-5" />
             </span>
             <span>LiteHubs</span>
-          </Link>
-          <button
-            type="button"
-            className="rounded-lg border border-border bg-surface-1 px-3 py-2 text-xs font-bold text-ink shadow-sm transition hover:bg-surface-2"
-            onClick={() => setFr(!fr)}
-          >
-            {fr ? "EN" : "FR"}
-          </button>
+          </a>
+          <div className="flex items-center gap-2">
+            <a
+              href="/"
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border bg-surface-1 px-2.5 text-xs font-bold text-ink shadow-sm transition hover:bg-surface-2 sm:px-3"
+            >
+              <ArrowLeft className="size-3.5" />
+              {label(fr, "Accueil", "Home")}
+            </a>
+            <button
+              type="button"
+              className="rounded-lg border border-border bg-surface-1 px-3 py-2 text-xs font-bold text-ink shadow-sm transition hover:bg-surface-2"
+              onClick={() => setFr(!fr)}
+            >
+              {fr ? "EN" : "FR"}
+            </button>
+          </div>
         </header>
         {children}
       </div>
