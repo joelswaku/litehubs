@@ -1241,7 +1241,7 @@ export function PublicWebsiteRenderer({
     "title_fr",
   );
   const useCongoOmegaLanding =
-    website.organization_slug === "congo-omega" &&
+    website.display_name.replace(/\s+/g, "").toLowerCase() === "congoomega" &&
     page.slug === "accueil" &&
     (!hasSelectedWebsiteImage ||
       legacyHeroTitle ===
@@ -1540,7 +1540,7 @@ export function PublicWebsiteRenderer({
             <p className="text-xs font-bold uppercase tracking-[.16em] text-amber-200">
               {language === "fr" ? "Explorer" : "Explore"}
             </p>
-            <nav className="mt-5 grid gap-3">
+            <nav className="mt-5 grid grid-cols-2 gap-x-5 gap-y-3 text-sm sm:grid-cols-1">
               {website.navigation.map((item) => (
                 <Link
                   key={item.slug}
@@ -1557,7 +1557,7 @@ export function PublicWebsiteRenderer({
             <p className="text-xs font-bold uppercase tracking-[.16em] text-amber-200">
               {language === "fr" ? "Nous rejoindre" : "Join us"}
             </p>
-            <div className="mt-5 grid gap-3 text-sm">
+            <div className="mt-5 grid grid-cols-2 gap-x-5 gap-y-3 text-sm sm:grid-cols-1">
               <Link
                 href={careersHref(website)}
                 className="inline-flex w-fit items-center gap-2 transition hover:text-white"
