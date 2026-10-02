@@ -6,6 +6,7 @@ import {
   NotFoundError,
   ServiceUnavailableError,
 } from "../../utils/errors";
+import { logger } from "../../config/logger";
 import { sendMail } from "../../services/notification.service";
 import {
   deleteStoredImage,
@@ -1763,6 +1764,54 @@ function escapePublicEmail(value: string): string {
   );
 }
 
+/** The visitor confirmation is sent by LiteHubs rather than by a mailbox
+ * autoresponder. It therefore works consistently for form submissions and
+ * keeps the branded reply independent of Hostinger mailbox limitations. */
+function publicContactConfirmationHtml(fullName: string): string {
+  const safeName = escapePublicEmail(fullName);
+  return `<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Congo Omega — Message bien reçu</title>
+  </head>
+  <body style="margin:0;padding:0;background-color:#f2f4f7;font-family:Arial,Helvetica,sans-serif;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#f2f4f7;">
+      <tr><td align="center" style="padding:32px 16px;">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;background-color:#ffffff;border-radius:12px;overflow:hidden;">
+          <tr><td align="center" style="background-color:#0b2545;padding:28px 24px;"><span style="font-size:22px;font-weight:bold;color:#ffffff;letter-spacing:.5px;">CONGO OMEGA</span></td></tr>
+          <tr><td style="background-color:#c9a227;height:4px;line-height:4px;font-size:0;">&nbsp;</td></tr>
+          <tr><td style="padding:40px 40px 24px;color:#344054;">
+            <p style="margin:0 0 18px;font-size:19px;font-weight:bold;color:#0b2545;text-align:center;">Bonjour ${safeName},</p>
+            <p style="margin:0 0 16px;font-size:15px;line-height:24px;text-align:center;">Merci d’avoir contacté <strong>Congo Omega</strong>.</p>
+            <p style="margin:0 0 16px;font-size:15px;line-height:24px;text-align:center;">Votre message a bien été reçu par notre équipe. Nous l’examinerons et vous répondrons dès que possible selon votre demande&nbsp;: information, partenariat, projet, recrutement ou autre besoin.</p>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f8fafc;border-left:3px solid #c9a227;border-radius:6px;margin:24px 0;"><tr><td style="padding:16px 20px;font-size:14px;line-height:22px;color:#475467;">Pour toute information complémentaire, vous pouvez répondre directement à cet e-mail.</td></tr></table>
+            <p style="margin:24px 0 0;font-size:15px;line-height:24px;text-align:center;">Cordialement,<br /><strong style="color:#0b2545;">L’équipe Congo Omega</strong></p>
+          </td></tr>
+          <tr><td style="padding:0 40px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="border-top:1px solid #eaecf0;font-size:0;line-height:0;">&nbsp;</td></tr></table></td></tr>
+          <tr><td align="center" style="padding:24px 40px 32px;font-size:12px;color:#98a2b3;"><p style="margin:0 0 6px;font-size:13px;"><a href="mailto:contact@congoomega.com" style="color:#0b2545;text-decoration:none;font-weight:bold;">contact@congoomega.com</a></p><p style="margin:0;">Ceci est une réponse automatique — merci de ne pas y répondre pour les urgences.</p></td></tr>
+        </table>
+      </td></tr>
+    </table>
+  </body>
+</html>`;
+}
+
+function publicContactConfirmationText(fullName: string): string {
+  return [
+    `Bonjour ${fullName},`,
+    "",
+    "Merci d’avoir contacté Congo Omega.",
+    "Votre message a bien été reçu par notre équipe. Nous l’examinerons et vous répondrons dès que possible selon votre demande : information, partenariat, projet, recrutement ou autre besoin.",
+    "",
+    "Pour toute information complémentaire, vous pouvez répondre directement à cet e-mail.",
+    "",
+    "Cordialement,",
+    "L’équipe Congo Omega",
+  ].join("\n");
+}
+
 /** Sends a visitor message to the mailbox configured for a published domain.
  * `congoomega.com` is also available during the safe public-site fallback,
  * before the internal organization record is restored in production. */
@@ -1811,6 +1860,23 @@ export async function sendPublicWebsiteContact(
     throw new ServiceUnavailableError(
       "We could not send your message. Please try again shortly.",
     );
+
+  // The acknowledgement is deliberately best-effort. The visitor’s inquiry
+  // has already reached the company inbox, so an SMTP issue here must not make
+  // the browser claim that the form failed and cause a duplicate submission.
+  const confirmation = await sendMail({
+    to: input.email,
+    replyTo: recipient,
+    subject: "Congo Omega — votre message est bien reçu",
+    text: publicContactConfirmationText(input.fullName),
+    html: publicContactConfirmationHtml(input.fullName),
+  });
+  if (!confirmation.sent) {
+    logger.warn(
+      { domain: canonicalDomain, reason: confirmation.reason },
+      "Public website contact acknowledgement was not sent",
+    );
+  }
 }
 
 export async function listPlatformWebsites(staffUserId: string) {
