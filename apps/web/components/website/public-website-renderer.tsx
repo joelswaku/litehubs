@@ -356,17 +356,6 @@ function Action({
   const classes = secondary
     ? "border border-white/50 bg-white/10 text-white hover:bg-white/20"
     : "border border-slate-200 bg-white text-slate-900 shadow-[0_16px_30px_-18px_rgba(15,23,42,.7)] hover:bg-amber-50";
-  if (safe.startsWith("/")) {
-    return (
-      <Link
-        href={safe}
-        className={`inline-flex min-h-11 items-center gap-2 rounded-full px-5 text-sm font-semibold transition-colors ${classes}`}
-      >
-        {label}
-        <ArrowRight className="size-4" />
-      </Link>
-    );
-  }
   return (
     <a
       href={safe}
@@ -806,7 +795,7 @@ function PublicSection({
                   ? "Des opportunités sérieuses pour les personnes prêtes à agir sur le terrain."
                   : "Meaningful opportunities for people ready to make an impact on the ground."}
               </p>
-              <Link
+              <a
                 href={careersHref(website)}
                 className="mt-5 inline-flex items-center gap-2 text-sm font-bold text-amber-800 hover:text-amber-950"
               >
@@ -816,7 +805,7 @@ function PublicSection({
                   t.careers,
                 )}
                 <ArrowRight className="size-4" />
-              </Link>
+              </a>
             </div>
           </div>
         </section>
@@ -1208,6 +1197,15 @@ export function PublicWebsiteRenderer({
     pathPrefix === undefined
       ? `/sites/${website.organization_slug}`
       : pathPrefix.replace(/\/$/, "");
+  // A branded domain is mapped by the Next edge proxy. Normal anchors force
+  // that proxy to run on every navigation, avoiding client-router prefetches
+  // that can otherwise miss the custom-host rewrite.
+  const useDirectNavigation = pathPrefix === "";
+  const WebsiteLink = ({
+    href,
+    ...props
+  }: React.ComponentPropsWithoutRef<"a"> & { href: string }) =>
+    useDirectNavigation ? <a href={href} {...props} /> : <Link href={href} {...props} />;
   // Public navigation is already delivered with the home page first. This
   // keeps custom home slugs working too, instead of assuming every owner calls
   // their start page "accueil".
@@ -1291,17 +1289,17 @@ export function PublicWebsiteRenderer({
                   {website.contact_email}
                 </a>
               ) : null}
-              <Link
+              <WebsiteLink
                 className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 font-semibold text-amber-100 transition hover:bg-white/16 hover:text-white"
                 href={careersHref(website)}
               >
                 <BriefcaseBusiness className="size-3" />
                 {language === "fr" ? "Nous rejoindre" : "Join us"}
-              </Link>
+              </WebsiteLink>
             </div>
           </div>
           <div className="flex min-h-[70px] items-center justify-between gap-4 rounded-[1.35rem] border border-slate-200/80 bg-white/92 px-4 shadow-[0_20px_42px_-30px_rgba(15,23,42,.55)] backdrop-blur-xl sm:min-h-[76px] sm:px-6 lg:rounded-t-none lg:px-7 xl:px-9">
-            <Link
+            <WebsiteLink
               href={pageLink("accueil")}
               className="flex min-w-0 items-center gap-3"
             >
@@ -1327,10 +1325,10 @@ export function PublicWebsiteRenderer({
                   {language === "fr" ? "Entreprise locale" : "Local enterprise"}
                 </span>
               </span>
-            </Link>
+            </WebsiteLink>
             <nav className="hidden items-center gap-1 xl:flex">
               {website.navigation.map((item) => (
-                <Link
+                <WebsiteLink
                   key={item.slug}
                   href={pageLink(item.slug)}
                   className={`relative px-3 py-3 text-[13px] font-semibold transition after:absolute after:bottom-1.5 after:left-3 after:right-3 after:h-0.5 after:origin-left after:rounded-full after:transition-transform ${item.slug === page.slug ? "text-slate-950 after:scale-x-100" : "text-slate-500 after:scale-x-0 after:bg-slate-950 hover:text-slate-950 hover:after:scale-x-100"}`}
@@ -1347,7 +1345,7 @@ export function PublicWebsiteRenderer({
                     />
                   ) : null}
                   {language === "fr" ? item.label_fr : item.label_en}
-                </Link>
+                </WebsiteLink>
               ))}
               <button
                 className="ml-2 inline-flex size-9 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-[11px] font-bold text-slate-700 transition hover:border-slate-300 hover:bg-white"
@@ -1381,7 +1379,7 @@ export function PublicWebsiteRenderer({
       {menuOpen ? (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-[#fbfcf8] p-5 lg:hidden">
           <div className="flex items-center justify-between">
-            <Link
+            <WebsiteLink
               href={pageLink("accueil")}
               onClick={() => setMenuOpen(false)}
               className="flex items-center gap-2 font-semibold text-slate-950"
@@ -1401,7 +1399,7 @@ export function PublicWebsiteRenderer({
                 )}
               </span>
               {website.display_name}
-            </Link>
+            </WebsiteLink>
             <button
               onClick={() => setMenuOpen(false)}
               className="rounded-xl border border-slate-200 bg-white p-2.5 text-slate-700"
@@ -1418,14 +1416,14 @@ export function PublicWebsiteRenderer({
           </p>
           <nav className="mt-7 grid gap-2">
             {website.navigation.map((item) => (
-              <Link
+              <WebsiteLink
                 key={item.slug}
                 onClick={() => setMenuOpen(false)}
                 href={pageLink(item.slug)}
                 className={`rounded-2xl border px-5 py-4 font-medium ${item.slug === page.slug ? "border-emerald-200 bg-emerald-50 text-emerald-950" : "border-slate-200 bg-white text-slate-900"}`}
               >
                 {language === "fr" ? item.label_fr : item.label_en}
-              </Link>
+              </WebsiteLink>
             ))}
             <a
               href="#contact"
@@ -1500,7 +1498,7 @@ export function PublicWebsiteRenderer({
       <footer className="mt-16 overflow-hidden bg-slate-950 px-5 pb-7 pt-14 text-white/65 sm:px-8 sm:pt-20">
         <div className="mx-auto grid max-w-[1400px] gap-12 lg:grid-cols-[1.25fr_.8fr_.9fr_1.1fr]">
           <div>
-            <Link
+            <WebsiteLink
               href={pageLink(homeSlug)}
               className="inline-flex items-center gap-3"
             >
@@ -1521,7 +1519,7 @@ export function PublicWebsiteRenderer({
               <span className="text-lg font-semibold tracking-[-.03em] text-white">
                 {website.display_name}
               </span>
-            </Link>
+            </WebsiteLink>
             <p className="mt-5 max-w-sm text-sm leading-6 text-white/60">
               {website.footer_text ||
                 website.tagline ||
@@ -1542,14 +1540,14 @@ export function PublicWebsiteRenderer({
             </p>
             <nav className="mt-5 grid grid-cols-2 gap-x-5 gap-y-3 text-sm sm:grid-cols-1">
               {website.navigation.map((item) => (
-                <Link
+                <WebsiteLink
                   key={item.slug}
                   href={pageLink(item.slug)}
                   className="group inline-flex w-fit items-center gap-1 text-sm transition hover:text-white"
                 >
                   {language === "fr" ? item.label_fr : item.label_en}
                   <ArrowUpRight className="size-3 opacity-0 transition group-hover:opacity-100" />
-                </Link>
+                </WebsiteLink>
               ))}
             </nav>
           </div>
@@ -1558,13 +1556,13 @@ export function PublicWebsiteRenderer({
               {language === "fr" ? "Nous rejoindre" : "Join us"}
             </p>
             <div className="mt-5 grid grid-cols-2 gap-x-5 gap-y-3 text-sm sm:grid-cols-1">
-              <Link
+              <WebsiteLink
                 href={careersHref(website)}
                 className="inline-flex w-fit items-center gap-2 transition hover:text-white"
               >
                 <BriefcaseBusiness className="size-4 text-amber-200" />
                 {language === "fr" ? "Carrières" : "Careers"}
-              </Link>
+              </WebsiteLink>
               <a
                 href="#contact"
                 className="inline-flex w-fit items-center gap-2 transition hover:text-white"
@@ -1572,13 +1570,13 @@ export function PublicWebsiteRenderer({
                 <Mail className="size-4 text-amber-200" />
                 {copy[language].contact}
               </a>
-              <Link
+              <WebsiteLink
                 href={projectsHref}
                 className="inline-flex w-fit items-center gap-2 transition hover:text-white"
               >
                 <Globe2 className="size-4 text-amber-200" />
                 {language === "fr" ? "Nos projets" : "Our projects"}
-              </Link>
+              </WebsiteLink>
             </div>
           </div>
           <div>
@@ -1622,12 +1620,12 @@ export function PublicWebsiteRenderer({
             <a className="transition hover:text-white" href="#contact">
               {language === "fr" ? "Contact" : "Contact"}
             </a>
-            <Link
+            <WebsiteLink
               className="transition hover:text-white"
               href={careersHref(website)}
             >
               {language === "fr" ? "Carrières" : "Careers"}
-            </Link>
+            </WebsiteLink>
             <span className="text-white/30">•</span>
             <span>
               {language === "fr" ? "Site sécurisé" : "Secure website"}

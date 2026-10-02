@@ -181,6 +181,7 @@ export const setWebsitePublication: RequestHandler = async (req, res) => {
 };
 
 export const publicWebsite: RequestHandler = async (req, res) => {
+  res.setHeader("Cache-Control", "no-store, max-age=0");
   res.json(
     await websiteBuilder.publicWebsitePage(
       parameter(req, "orgSlug"),
@@ -192,6 +193,7 @@ export const publicWebsite: RequestHandler = async (req, res) => {
 /** Same restricted public response, selected by the browser's verified custom
  * domain rather than a LiteHubs organisation slug. */
 export const publicWebsiteDomain: RequestHandler = async (req, res) => {
+  res.setHeader("Cache-Control", "no-store, max-age=0");
   res.json(
     await websiteBuilder.publicWebsitePage(
       parameter(req, "domain"),

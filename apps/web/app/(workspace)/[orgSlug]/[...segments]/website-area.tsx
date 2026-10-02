@@ -550,7 +550,7 @@ export function WebsiteArea({ orgSlug }: { orgSlug: string }) {
               <a href={`/sites/${orgSlug}`} target="_blank" rel="noreferrer">
                 <Button variant="secondary">
                   <ExternalLink />
-                  {tr(fr, "Ouvrir l’aperçu", "Open preview")}
+                  {tr(fr, "Ouvrir l’aperçu privé", "Open private preview")}
                 </Button>
               </a>
               <Button
@@ -593,6 +593,31 @@ export function WebsiteArea({ orgSlug }: { orgSlug: string }) {
           </div>
         ) : null}
       </section>
+
+      {builder.website && builder.website.publicationStatus !== "published" ? (
+        <div className="flex flex-wrap items-start justify-between gap-4 rounded-2xl border border-amber-300/60 bg-amber-50 px-5 py-4 text-amber-950 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-100">
+          <div>
+            <p className="font-semibold">
+              {tr(fr, "Le site public est en pause", "The public website is paused")}
+            </p>
+            <p className="mt-1 max-w-3xl text-sm leading-6">
+              {tr(
+                fr,
+                "L’aperçu privé montre vos modifications, y compris le logo, mais congoomega.com ne montrera les pages publiées qu’après « Publier le site ».",
+                "The private preview shows your changes, including the logo, but the custom domain will only show published pages after you choose “Publish website”.",
+              )}
+            </p>
+          </div>
+          <Button
+            size="sm"
+            loading={publication.isPending}
+            onClick={() => publication.mutate("published")}
+          >
+            <Globe2 />
+            {tr(fr, "Publier le site", "Publish website")}
+          </Button>
+        </div>
+      ) : null}
 
       {!builder.website ? (
         <WebsiteIdentityForm

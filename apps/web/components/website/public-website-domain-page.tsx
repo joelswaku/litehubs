@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { get } from "@/lib/api";
+import { ApiError, get } from "@/lib/api";
 import { ErrorState, SkeletonCard } from "@/components/ui/states";
 import { PublicWebsiteRenderer } from "./public-website-renderer";
 import {
@@ -189,11 +189,19 @@ export function PublicWebsiteDomainPage({
     queryFn: () => get<PublicWebsiteResponse>(path),
     retry: false,
   });
-  // The public Congo Omega landing is bundled with the site specifically so
-  // the company domain never starts on a blank loading card while its private
-  // builder record is being restored or the API is waking up.  If live builder
-  // data is available, it still replaces this landing as soon as it arrives.
-  if (query.isLoading && congoOmegaDomains.has(domain.toLowerCase())) {
+  // The preview is private; the custom domain must only show the exact
+  // published builder record. A bundled fallback after an API error made a
+  // paused site look live and hid changes such as a newly selected logo.
+  if (query.isLoading) return <SkeletonCard rows={8} />;
+  // Only a genuine network interruption uses the small public recovery shell.
+  // A 404 deliberately means draft or paused, so it must never display stale
+  // branding as if the owner had published it.
+  if (
+    query.isError &&
+    query.error instanceof ApiError &&
+    query.error.status === 0 &&
+    congoOmegaDomains.has(domain.toLowerCase())
+  ) {
     return (
       <PublicWebsiteRenderer
         website={congoOmegaWebsite}
@@ -203,19 +211,14 @@ export function PublicWebsiteDomainPage({
       />
     );
   }
-  if (query.isLoading) return <SkeletonCard rows={8} />;
   if (query.isError || !query.data) {
-    if (congoOmegaDomains.has(domain.toLowerCase())) {
-      return (
-        <PublicWebsiteRenderer
-          website={congoOmegaWebsite}
-          page={congoOmegaFallbackPage(pageSlug)}
-          pathPrefix=""
-          contactDomain={domain}
-        />
-      );
-    }
-    return <ErrorState title="This domain is not connected" description="The website may still be a draft, or the domain has not been verified yet." onRetry={() => void query.refetch()} />;
+    return (
+      <ErrorState
+        title="Ce site n’est pas disponible publiquement"
+        description="Il est peut-être en pause, encore en brouillon, ou le domaine n’est pas encore vérifié. L’aperçu LiteHubs reste privé et ne représente pas toujours le site publié."
+        onRetry={() => void query.refetch()}
+      />
+    );
   }
   const rendered = publicWebsiteRendererData(query.data);
   return (
