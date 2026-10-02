@@ -40,6 +40,9 @@ export type WebsiteSection = {
 
 export type PublicWebsite = {
   organization_slug: string;
+  /** Optional public organisation powering shared portals such as Careers.
+   * A branded website can be restored before its operational workspace. */
+  portal_organization_slug?: string;
   display_name: string;
   tagline: string | null;
   default_locale: "fr" | "en";
@@ -92,6 +95,10 @@ const copy = {
     learnMore: "Learn more",
   },
 } as const;
+
+function careersHref(website: PublicWebsite): string {
+  return `/careers/${website.portal_organization_slug ?? website.organization_slug}`;
+}
 
 /** A finished public landing remains visible for organisations that were
  * created with the original empty website shells. As soon as the owner adds
@@ -800,7 +807,7 @@ function PublicSection({
                   : "Meaningful opportunities for people ready to make an impact on the ground."}
               </p>
               <Link
-                href={`/careers/${website.organization_slug}`}
+                href={careersHref(website)}
                 className="mt-5 inline-flex items-center gap-2 text-sm font-bold text-amber-800 hover:text-amber-950"
               >
                 {text(
@@ -1286,7 +1293,7 @@ export function PublicWebsiteRenderer({
               ) : null}
               <Link
                 className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 font-semibold text-amber-100 transition hover:bg-white/16 hover:text-white"
-                href={`/careers/${website.organization_slug}`}
+                href={careersHref(website)}
               >
                 <BriefcaseBusiness className="size-3" />
                 {language === "fr" ? "Nous rejoindre" : "Join us"}
@@ -1552,7 +1559,7 @@ export function PublicWebsiteRenderer({
             </p>
             <div className="mt-5 grid gap-3 text-sm">
               <Link
-                href={`/careers/${website.organization_slug}`}
+                href={careersHref(website)}
                 className="inline-flex w-fit items-center gap-2 transition hover:text-white"
               >
                 <BriefcaseBusiness className="size-4 text-amber-200" />
@@ -1617,7 +1624,7 @@ export function PublicWebsiteRenderer({
             </a>
             <Link
               className="transition hover:text-white"
-              href={`/careers/${website.organization_slug}`}
+              href={careersHref(website)}
             >
               {language === "fr" ? "Carrières" : "Careers"}
             </Link>

@@ -1838,6 +1838,15 @@ export async function sendPublicWebsiteContact(
   if (!recipient)
     throw new NotFoundError("This website is not configured to receive messages");
 
+  // `contact@congoomega.com` is the public reply address, while `omega@…` is
+  // its primary Hostinger mailbox. Deliver directly to the mailbox so a
+  // website inquiry never depends on alias forwarding; replies still go to
+  // the public contact address below.
+  const deliveryMailbox =
+    canonicalDomain === "congoomega.com"
+      ? "omega@congoomega.com"
+      : recipient;
+
   const details = [
     `Site : ${canonicalDomain}`,
     `Nom : ${input.fullName}`,
@@ -1850,7 +1859,7 @@ export async function sendPublicWebsiteContact(
     .join("\n");
   const safeMessage = escapePublicEmail(input.message).replace(/\n/g, "<br />");
   const delivery = await sendMail({
-    to: recipient,
+    to: deliveryMailbox,
     replyTo: input.email,
     subject: `[Site ${canonicalDomain}] ${input.subject}`,
     text: details,

@@ -21,6 +21,9 @@ const congoOmegaDomains = new Set(["congoomega.com", "www.congoomega.com"]);
  */
 const congoOmegaWebsite: PublicWebsite = {
   organization_slug: "congo-omega",
+  // The public site remains available during recovery, while operations and
+  // published vacancies live in the established production workspace.
+  portal_organization_slug: "kins",
   display_name: "Congo Omega",
   tagline: "Une agriculture locale, responsable et utile.",
   default_locale: "fr",
@@ -145,9 +148,11 @@ function congoOmegaFallbackPage(pageSlug?: string): PublicWebsitePage {
             titleEn: "Let’s discuss your needs.",
             bodyFr: "Notre équipe vous répondra dans le bon contexte : partenariat, projet, service ou recrutement.",
             bodyEn: "Our team will respond in the right context: partnership, project, service or recruitment.",
-            buttonLabelFr: "Prendre rendez-vous",
-            buttonLabelEn: "Book an appointment",
-            buttonHref: "/rendezvous",
+            // Do not route a visitor into the empty booking directory until
+            // Congo Omega explicitly opens an appointment service.
+            buttonLabelFr: "Nous écrire",
+            buttonLabelEn: "Send us a message",
+            buttonHref: "/contact#contact",
           },
         },
       ]);
