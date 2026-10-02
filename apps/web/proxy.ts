@@ -76,9 +76,15 @@ export async function proxy(request: NextRequest) {
   if (customDomain && isLegacyWordPressPath) {
     return NextResponse.redirect(new URL("/", request.url), 308);
   }
-  // Public recruitment stays reachable from the company domain too. The job
-  // portal is still scoped by the organization segment in its own route.
-  if (customDomain && !pathname.startsWith("/site-by-domain/") && !pathname.startsWith("/careers/")) {
+  // Recruitment and appointment booking are real public application routes,
+  // not website-builder pages. Keep them reachable from the company domain;
+  // their own route then scopes the request to the organisation.
+  const isPublicCompanyService =
+    pathname.startsWith("/careers/") ||
+    pathname === "/rendezvous" ||
+    pathname === "/rendez-vous" ||
+    pathname.startsWith("/book/");
+  if (customDomain && !pathname.startsWith("/site-by-domain/") && !isPublicCompanyService) {
     const route = `/site-by-domain/${encodeURIComponent(customDomain)}${pathname === "/" ? "" : pathname}`;
     return NextResponse.rewrite(new URL(route, request.url));
   }

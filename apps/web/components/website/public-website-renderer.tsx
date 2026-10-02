@@ -100,6 +100,10 @@ function careersHref(website: PublicWebsite): string {
   return `/careers/${website.portal_organization_slug ?? website.organization_slug}`;
 }
 
+function appointmentHref(website: PublicWebsite): string {
+  return `/book/${website.portal_organization_slug ?? website.organization_slug}`;
+}
+
 /** A finished public landing remains visible for organisations that were
  * created with the original empty website shells. As soon as the owner adds
  * one image in the builder, their own sections take over completely. */
@@ -404,6 +408,9 @@ function PublicSection({
   // The editor stores friendly paths such as /contact. In the LiteHubs preview
   // they must stay inside this company website rather than open product pages.
   const websiteHref = (value: string) => {
+    if (value === "/rendezvous" || value === "/rendez-vous") {
+      return appointmentHref(website);
+    }
     const match = value.match(
       /^\/(notre-entreprise|activites|projets|impact|carrieres|contact)$/,
     );
