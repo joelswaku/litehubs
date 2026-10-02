@@ -309,7 +309,10 @@ export const publicWebsiteContactInputSchema = z
     email: z.string().trim().toLowerCase().email().max(255),
     phone: websiteOptionalText(40),
     subject: z.string().trim().min(3).max(180),
-    message: z.string().trim().min(20).max(4_000),
+    // A short but meaningful message such as "Bonjour" must be accepted on a
+    // public contact page. Rate limiting and the honeypot field provide the
+    // anti-spam protection; a 20-character minimum only rejects real visitors.
+    message: z.string().trim().min(5).max(4_000),
     website: z.string().max(0).optional(),
   })
   .strict();

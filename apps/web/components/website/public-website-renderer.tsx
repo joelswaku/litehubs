@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import * as React from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { post } from "@/lib/api";
+import { ApiError, post } from "@/lib/api";
 
 export type WebsiteSection = {
   id: string;
@@ -998,6 +998,40 @@ function PublicContactForm({
   const [error, setError] = React.useState("");
   const french = language === "fr";
 
+  function contactValidationMessage(requestError: unknown): string {
+    if (requestError instanceof ApiError && requestError.code === "VALIDATION_ERROR") {
+      const field = Object.keys(requestError.fieldErrors)[0];
+      const messages: Record<string, { fr: string; en: string }> = {
+        fullName: {
+          fr: "Saisissez votre nom complet (au moins 2 caractères).",
+          en: "Enter your full name (at least 2 characters).",
+        },
+        email: {
+          fr: "Saisissez une adresse e-mail valide.",
+          en: "Enter a valid email address.",
+        },
+        phone: {
+          fr: "Vérifiez le numéro de téléphone saisi.",
+          en: "Check the phone number entered.",
+        },
+        subject: {
+          fr: "Saisissez un objet d’au moins 3 caractères.",
+          en: "Enter a subject of at least 3 characters.",
+        },
+        message: {
+          fr: "Votre message doit contenir au moins 5 caractères.",
+          en: "Your message must contain at least 5 characters.",
+        },
+      };
+      if (field && messages[field]) return messages[field][french ? "fr" : "en"];
+    }
+    return requestError instanceof Error
+      ? requestError.message
+      : french
+        ? "Le message n’a pas pu être envoyé. Réessayez dans un instant."
+        : "Your message could not be sent. Please try again shortly.";
+  }
+
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
@@ -1024,13 +1058,7 @@ function PublicContactForm({
         setState("sent");
       } catch (requestError) {
         setState("error");
-        setError(
-          requestError instanceof Error
-            ? requestError.message
-            : french
-              ? "Le message n’a pas pu être envoyé. Réessayez dans un instant."
-              : "Your message could not be sent. Please try again shortly.",
-        );
+        setError(contactValidationMessage(requestError));
       }
       return;
     }
@@ -1079,25 +1107,27 @@ function PublicContactForm({
       <div className="mt-5 grid gap-3 sm:grid-cols-2">
         <label className="text-xs font-semibold text-white/80">
           {french ? "Nom complet" : "Full name"} *
-          <input className={fieldClass} name="name" autoComplete="name" required />
+          <input className={fieldClass} name="name" autoComplete="name" minLength={2} maxLength={150} required />
         </label>
         <label className="text-xs font-semibold text-white/80">
           {french ? "Téléphone" : "Phone"}
-          <input className={fieldClass} name="phone" type="tel" autoComplete="tel" />
+          <input className={fieldClass} name="phone" type="tel" autoComplete="tel" maxLength={40} />
         </label>
         <label className="text-xs font-semibold text-white/80">
           {french ? "E-mail" : "Email"} *
-          <input className={fieldClass} name="email" type="email" autoComplete="email" required />
+          <input className={fieldClass} name="email" type="email" autoComplete="email" maxLength={255} required />
         </label>
         <label className="text-xs font-semibold text-white/80">
           {french ? "Objet" : "Subject"} *
-          <input className={fieldClass} name="subject" required />
+          <input className={fieldClass} name="subject" minLength={3} maxLength={180} required />
         </label>
         <label className="text-xs font-semibold text-white/80 sm:col-span-2">
           {french ? "Votre message" : "Your message"} *
           <textarea
             className={`${fieldClass} min-h-28 py-3`}
             name="message"
+            minLength={5}
+            maxLength={4000}
             required
             rows={5}
           />
