@@ -6,7 +6,15 @@ import helmet from "helmet";
 import { rateLimit } from "express-rate-limit";
 import { env } from "./env";
 
-const allowedOrigins = new Set([env.frontendUrl]);
+// The public Congo Omega site is hosted on a branded domain but calls the
+// same trusted API for its public contact form. Keep this allow-list explicit:
+// arbitrary customer domains must never gain credentialed API access merely by
+// pointing DNS at the web service.
+const allowedOrigins = new Set([
+  env.frontendUrl,
+  "https://congoomega.com",
+  "https://www.congoomega.com",
+]);
 
 const corsOptions: CorsOptions = {
   origin(origin, callback) {
