@@ -874,10 +874,16 @@ function PagesTab({
               {pages.map((page) => (
                 <div
                   key={page.id}
-                  className={`flex flex-wrap items-center justify-between gap-3 p-4 ${selectedId === page.id ? "bg-surface-2" : ""}`}
+                  className={`flex flex-wrap items-center justify-between gap-3 p-4 transition-colors ${selectedId === page.id ? "bg-surface-2" : "hover:bg-surface-2/65"}`}
                 >
                   <button
-                    className="min-w-0 text-left"
+                    type="button"
+                    className="group min-w-0 flex-1 cursor-pointer rounded-lg px-1 py-1 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand"
+                    aria-label={tr(
+                      fr,
+                      `Ouvrir la page ${page.navigationLabelFr}`,
+                      `Open ${page.navigationLabelEn}`,
+                    )}
                     onClick={() => onSelect(page.id)}
                   >
                     <p className="font-medium text-ink">
@@ -894,9 +900,19 @@ function PagesTab({
                     </p>
                   </button>
                   <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      type="button"
+                      onClick={() => onSelect(page.id)}
+                    >
+                      <Settings2 />
+                      {tr(fr, "Modifier", "Edit")}
+                    </Button>
                     {page.status === "draft" ? (
                       <Button
                         size="sm"
+                        type="button"
                         loading={publishing}
                         onClick={() => onPublish(page)}
                       >
