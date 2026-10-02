@@ -194,6 +194,7 @@ export function PublicWebsiteDomainPage({
         website={congoOmegaWebsite}
         page={congoOmegaFallbackPage(pageSlug)}
         pathPrefix=""
+        contactDomain={domain}
       />
     );
   }
@@ -205,11 +206,19 @@ export function PublicWebsiteDomainPage({
           website={congoOmegaWebsite}
           page={congoOmegaFallbackPage(pageSlug)}
           pathPrefix=""
+          contactDomain={domain}
         />
       );
     }
     return <ErrorState title="This domain is not connected" description="The website may still be a draft, or the domain has not been verified yet." onRetry={() => void query.refetch()} />;
   }
   const rendered = publicWebsiteRendererData(query.data);
-  return <PublicWebsiteRenderer website={rendered.website} page={rendered.page} pathPrefix="" />;
+  return (
+    <PublicWebsiteRenderer
+      website={rendered.website}
+      page={rendered.page}
+      pathPrefix=""
+      contactDomain={domain}
+    />
+  );
 }

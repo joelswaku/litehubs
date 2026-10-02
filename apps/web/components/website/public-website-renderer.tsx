@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import * as React from "react";
 import { motion, useReducedMotion } from "motion/react";
+import { post } from "@/lib/api";
 
 export type WebsiteSection = {
   id: string;
@@ -375,11 +376,13 @@ function PublicSection({
   language,
   website,
   pageLink,
+  contactDomain,
 }: {
   section: WebsiteSection;
   language: Language;
   website: PublicWebsite;
   pageLink: (slug: string) => string;
+  contactDomain?: string;
 }) {
   const c = section.content;
   const t = copy[language];
@@ -883,6 +886,7 @@ function PublicSection({
                   <PublicContactForm
                     contactEmail={website.contact_email}
                     language={language}
+                    domain={contactDomain}
                   />
                 ) : null}
               </div>
@@ -981,14 +985,20 @@ function ContactItem({
 function PublicContactForm({
   contactEmail,
   language,
+  domain,
 }: {
   contactEmail: string;
   language: Language;
+  /** Present only on a verified public custom domain. */
+  domain?: string;
 }) {
-  const [prepared, setPrepared] = React.useState(false);
+  const [state, setState] = React.useState<
+    "idle" | "sending" | "sent" | "error"
+  >("idle");
+  const [error, setError] = React.useState("");
   const french = language === "fr";
 
-  function submit(event: React.FormEvent<HTMLFormElement>) {
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
     if (!form.reportValidity()) return;
@@ -998,6 +1008,32 @@ function PublicContactForm({
     const phone = String(values.get("phone") ?? "").trim();
     const subject = String(values.get("subject") ?? "").trim();
     const message = String(values.get("message") ?? "").trim();
+    if (domain) {
+      setState("sending");
+      setError("");
+      try {
+        await post(`/public/websites/domains/${encodeURIComponent(domain)}/contact`, {
+          fullName: name,
+          email,
+          phone: phone || null,
+          subject,
+          message,
+          website: "",
+        });
+        form.reset();
+        setState("sent");
+      } catch (requestError) {
+        setState("error");
+        setError(
+          requestError instanceof Error
+            ? requestError.message
+            : french
+              ? "Le message n’a pas pu être envoyé. Réessayez dans un instant."
+              : "Your message could not be sent. Please try again shortly.",
+        );
+      }
+      return;
+    }
     const body = [
       french ? "Message envoyé depuis le site Congo Omega" : "Message sent from the Congo Omega website",
       "",
@@ -1009,7 +1045,7 @@ function PublicContactForm({
     ]
       .filter(Boolean)
       .join("\n");
-    setPrepared(true);
+    setState("sent");
     window.location.assign(
       `mailto:${encodeURIComponent(contactEmail)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`,
     );
@@ -1030,8 +1066,12 @@ function PublicContactForm({
           </p>
           <p className="mt-1 text-xs leading-5 text-white/60">
             {french
-              ? "Votre application e-mail s’ouvrira avec le message déjà préparé."
-              : "Your email application will open with the message already prepared."}
+              ? domain
+                ? "Le message sera envoyé directement à notre équipe."
+                : "Votre application e-mail s’ouvrira avec le message déjà préparé."
+              : domain
+                ? "Your message will be sent directly to our team."
+                : "Your email application will open with the message already prepared."}
           </p>
         </div>
         <Send className="mt-0.5 size-5 shrink-0 text-amber-200" />
@@ -1062,20 +1102,47 @@ function PublicContactForm({
             rows={5}
           />
         </label>
+        <input
+          className="hidden"
+          name="website"
+          tabIndex={-1}
+          autoComplete="off"
+          aria-hidden="true"
+        />
       </div>
-      {prepared ? (
+      {state === "sent" ? (
         <p className="mt-3 text-xs font-medium text-emerald-200" role="status">
           {french
-            ? "Le message est prêt dans votre application e-mail."
-            : "The message is ready in your email application."}
+            ? domain
+              ? "Votre message a bien été envoyé. Notre équipe vous répondra dès que possible."
+              : "Le message est prêt dans votre application e-mail."
+            : domain
+              ? "Your message was sent. Our team will respond as soon as possible."
+              : "The message is ready in your email application."}
+        </p>
+      ) : null}
+      {state === "error" ? (
+        <p className="mt-3 text-xs font-medium text-rose-200" role="alert">
+          {error}
         </p>
       ) : null}
       <button
         type="submit"
+        disabled={state === "sending"}
         className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-full bg-amber-300 px-5 text-sm font-bold text-slate-950 transition hover:bg-amber-200 focus:outline-none focus:ring-4 focus:ring-amber-300/30"
       >
         <Send className="size-4" />
-        {french ? "Préparer l’e-mail" : "Prepare email"}
+        {state === "sending"
+          ? french
+            ? "Envoi en cours…"
+            : "Sending…"
+          : domain
+            ? french
+              ? "Envoyer le message"
+              : "Send message"
+            : french
+              ? "Préparer l’e-mail"
+              : "Prepare email"}
       </button>
     </form>
   );
@@ -1086,11 +1153,13 @@ export function PublicWebsiteRenderer({
   page,
   initialLanguage,
   pathPrefix,
+  contactDomain,
 }: {
   website: PublicWebsite;
   page: PublicWebsitePage;
   initialLanguage?: Language;
   pathPrefix?: string;
+  contactDomain?: string;
 }) {
   const [language, setLanguage] = React.useState<Language>(
     initialLanguage ?? website.default_locale ?? "fr",
@@ -1386,6 +1455,7 @@ export function PublicWebsiteRenderer({
                 language={language}
                 website={website}
                 pageLink={pageLink}
+                contactDomain={contactDomain}
               />
             </motion.div>
           ))}

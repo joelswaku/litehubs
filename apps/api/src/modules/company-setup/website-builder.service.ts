@@ -4,7 +4,9 @@ import {
   BadRequestError,
   ConflictError,
   NotFoundError,
+  ServiceUnavailableError,
 } from "../../utils/errors";
+import { sendMail } from "../../services/notification.service";
 import {
   deleteStoredImage,
   storeImage,
@@ -15,6 +17,7 @@ import type {
   WebsitePageUpdateInput,
   WebsiteSectionsInput,
   WebsiteSettingsInput,
+  PublicWebsiteContactInput,
 } from "./company-setup.validation";
 import type { SetupContext } from "./company-setup.service";
 
@@ -1740,6 +1743,74 @@ export async function publicWebsitePage(orgSlug: string, pageSlug?: string) {
   const payload = result.rows[0]?.payload;
   if (!payload) throw new NotFoundError("This public page is not available");
   return payload;
+}
+
+function canonicalPublicDomain(value: string): string {
+  return value.trim().toLowerCase().replace(/^www\./, "");
+}
+
+function escapePublicEmail(value: string): string {
+  return value.replace(
+    /[&<>"']/g,
+    (character) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      })[character]!,
+  );
+}
+
+/** Sends a visitor message to the mailbox configured for a published domain.
+ * `congoomega.com` is also available during the safe public-site fallback,
+ * before the internal organization record is restored in production. */
+export async function sendPublicWebsiteContact(
+  domain: string,
+  input: PublicWebsiteContactInput,
+): Promise<void> {
+  const canonicalDomain = canonicalPublicDomain(domain);
+  let recipient: string | null =
+    canonicalDomain === "congoomega.com" ? "contact@congoomega.com" : null;
+
+  if (!recipient) {
+    const result = await query<{ contact_email: string | null }>(
+      `SELECT contact_email
+         FROM organization_website_settings
+        WHERE publication_status='published'
+          AND regexp_replace(lower(custom_domain), '^www\\.', '')=$1
+        LIMIT 1`,
+      [canonicalDomain],
+    );
+    recipient = result.rows[0]?.contact_email?.trim().toLowerCase() ?? null;
+  }
+
+  if (!recipient)
+    throw new NotFoundError("This website is not configured to receive messages");
+
+  const details = [
+    `Site : ${canonicalDomain}`,
+    `Nom : ${input.fullName}`,
+    `E-mail : ${input.email}`,
+    input.phone ? `Téléphone : ${input.phone}` : null,
+    "",
+    input.message,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join("\n");
+  const safeMessage = escapePublicEmail(input.message).replace(/\n/g, "<br />");
+  const delivery = await sendMail({
+    to: recipient,
+    replyTo: input.email,
+    subject: `[Site ${canonicalDomain}] ${input.subject}`,
+    text: details,
+    html: `<div style="max-width:640px;margin:0 auto;padding:28px;font-family:Arial,sans-serif;color:#101828;line-height:1.6"><p style="margin:0 0 18px;font-size:20px;font-weight:700">Nouveau message depuis ${escapePublicEmail(canonicalDomain)}</p><p><strong>Nom :</strong> ${escapePublicEmail(input.fullName)}<br /><strong>E-mail :</strong> ${escapePublicEmail(input.email)}${input.phone ? `<br /><strong>Téléphone :</strong> ${escapePublicEmail(input.phone)}` : ""}</p><p><strong>Objet :</strong> ${escapePublicEmail(input.subject)}</p><div style="padding:16px;border-radius:12px;background:#f4f7f5">${safeMessage}</div></div>`,
+  });
+  if (!delivery.sent)
+    throw new ServiceUnavailableError(
+      "We could not send your message. Please try again shortly.",
+    );
 }
 
 export async function listPlatformWebsites(staffUserId: string) {

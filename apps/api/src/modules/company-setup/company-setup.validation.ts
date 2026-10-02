@@ -299,6 +299,20 @@ export const publicWebsiteDomainParams = z.object({
     ),
   pageSlug: websiteSlugSchema.optional(),
 });
+
+/** A message submitted through a published company website. The recipient is
+ * resolved only on the server from the verified domain — never from browser
+ * input — so this endpoint cannot be used as an open email relay. */
+export const publicWebsiteContactInputSchema = z
+  .object({
+    fullName: z.string().trim().min(2).max(150),
+    email: z.string().trim().toLowerCase().email().max(255),
+    phone: websiteOptionalText(40),
+    subject: z.string().trim().min(3).max(180),
+    message: z.string().trim().min(20).max(4_000),
+    website: z.string().max(0).optional(),
+  })
+  .strict();
 export const websitePublicationInputSchema = z
   .object({ status: z.enum(["draft", "published", "paused"]) })
   .strict();
@@ -307,6 +321,9 @@ export type WebsiteSettingsInput = z.infer<typeof websiteSettingsInputSchema>;
 export type WebsitePageCreateInput = z.infer<typeof websitePageCreateSchema>;
 export type WebsitePageUpdateInput = z.infer<typeof websitePageUpdateSchema>;
 export type WebsiteSectionsInput = z.infer<typeof websiteSectionsInputSchema>;
+export type PublicWebsiteContactInput = z.infer<
+  typeof publicWebsiteContactInputSchema
+>;
 
 export type CreateProvinceInput = z.infer<typeof createProvinceSchema>;
 export type UpdateProvinceInput = z.infer<typeof updateProvinceSchema>;

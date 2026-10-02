@@ -1,5 +1,6 @@
 import multer from "multer";
 import { Router, type RequestHandler } from "express";
+import { rateLimit } from "express-rate-limit";
 import { storage, isAllowedUploadMimeType } from "../../config/storage";
 import { BadRequestError } from "../../utils/errors";
 import { authenticate } from "../../middleware/auth.middleware";
@@ -32,6 +33,7 @@ import {
   updateSiteSchema,
   publicWebsitePageParams,
   publicWebsiteDomainParams,
+  publicWebsiteContactInputSchema,
   websitePageCreateSchema,
   websitePageParams,
   websitePageUpdateSchema,
@@ -42,6 +44,21 @@ import {
 } from "./company-setup.validation";
 
 export const companySetupRoutes = Router();
+
+// A published company site must be reachable without a LiteHubs account, but
+// its contact form must not become a mail relay or a spam source.
+const publicWebsiteContactLimiter = rateLimit({
+  windowMs: 60 * 60 * 1_000,
+  limit: 5,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: {
+    error: {
+      code: "TOO_MANY_WEBSITE_MESSAGES",
+      message: "Too many messages were sent. Please try again later.",
+    },
+  },
+});
 
 // Website media is separate from private LiteHubs documents. Owners may upload
 // a gallery in one go; only real image formats are accepted.
@@ -99,6 +116,15 @@ companySetupRoutes.get(
   "/public/websites/domains/:domain/pages/:pageSlug",
   validate({ params: publicWebsiteDomainParams }),
   controller.publicWebsiteDomain,
+);
+companySetupRoutes.post(
+  "/public/websites/domains/:domain/contact",
+  publicWebsiteContactLimiter,
+  validate({
+    params: publicWebsiteDomainParams,
+    body: publicWebsiteContactInputSchema,
+  }),
+  controller.sendPublicWebsiteContact,
 );
 
 // Every company member can read the rulebook. Only its owner publishes a new

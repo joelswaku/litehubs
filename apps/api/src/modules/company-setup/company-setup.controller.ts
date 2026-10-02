@@ -19,6 +19,7 @@ import type {
   WebsitePageUpdateInput,
   WebsiteSectionsInput,
   WebsiteSettingsInput,
+  PublicWebsiteContactInput,
 } from "./company-setup.validation";
 
 function contextOf(req: Request): service.SetupContext {
@@ -197,6 +198,16 @@ export const publicWebsiteDomain: RequestHandler = async (req, res) => {
       req.params.pageSlug ? parameter(req, "pageSlug") : undefined,
     ),
   );
+};
+
+/** Delivers a public-site inquiry to the recipient configured for the verified
+ * domain. The visitor never chooses the recipient from the browser. */
+export const sendPublicWebsiteContact: RequestHandler = async (req, res) => {
+  await websiteBuilder.sendPublicWebsiteContact(
+    parameter(req, "domain"),
+    req.body as PublicWebsiteContactInput,
+  );
+  res.status(201).json({ message: "Website message sent" });
 };
 
 export const createProvince: RequestHandler = async (req, res) => {

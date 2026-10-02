@@ -13,6 +13,8 @@ export interface MailMessage {
   subject: string;
   text: string;
   html: string;
+  /** Lets a recipient reply directly to a verified visitor or customer. */
+  replyTo?: string;
   /**
    * Optional, approved sender for a dedicated company workflow. The caller
    * must use a mailbox or alias authorised by the configured SMTP account.
@@ -181,6 +183,7 @@ export async function sendMail(message: MailMessage): Promise<SendResult> {
     const info = await transport.sendMail({
       from: message.from ?? mailFromAddress(),
       to: message.to,
+      replyTo: message.replyTo,
       subject: message.subject,
       text: message.text,
       html: message.html,
