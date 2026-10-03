@@ -47,7 +47,22 @@ function requestedCustomDomain(request: NextRequest): string | null {
   // Keep the LiteHubs application, local development and internal rewrites on
   // their normal routes. Every other syntactically safe host is verified by the
   // API before any public content is returned.
-  if (!host || host === "localhost" || host === primary || host === `www.${primary}` || host.endsWith(".localhost")) return null;
+  // Railway sends health checks through an internal or service hostname. Those
+  // hosts are infrastructure, not public customer domains: routing them into
+  // the website builder would make a healthy `/login` check look like an
+  // unknown public site and prevent an otherwise valid release from starting.
+  const isInfrastructureHost =
+    host.endsWith(".railway.app") ||
+    host.endsWith(".railway.internal") ||
+    host.endsWith(".railway.local");
+  if (
+    !host ||
+    host === "localhost" ||
+    host === primary ||
+    host === `www.${primary}` ||
+    host.endsWith(".localhost") ||
+    isInfrastructureHost
+  ) return null;
   if (!/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(host)) return null;
   return host.replace(/^www\./, "");
 }
