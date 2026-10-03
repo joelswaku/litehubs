@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { PublicWebsiteDomainPage } from "@/components/website/public-website-domain-page";
+import { PublicCustomerAccount } from "@/components/website/public-customer-account";
 import { publicWebsiteMetadata } from "@/lib/seo";
 
 export async function generateMetadata({
@@ -9,6 +10,12 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { domain, pageSlug } = await params;
   const slug = pageSlug?.[0];
+  if (slug === "account") {
+    return {
+      title: "Votre espace client",
+      robots: { index: false, follow: false },
+    };
+  }
   const detail = await publicWebsiteMetadata(domain, slug);
   const isCongoOmega = domain.toLowerCase().replace(/^www\./, "") === "congoomega.com";
   if (!detail?.page || !detail.website)
@@ -31,5 +38,8 @@ export default async function Page({
   params: Promise<{ domain: string; pageSlug?: string[] }>;
 }) {
   const { domain, pageSlug } = await params;
+  if (pageSlug?.[0] === "account") {
+    return <PublicCustomerAccount domain={domain} />;
+  }
   return <PublicWebsiteDomainPage domain={domain} pageSlug={pageSlug?.[0]} />;
 }

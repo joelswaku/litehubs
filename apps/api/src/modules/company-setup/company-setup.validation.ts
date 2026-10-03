@@ -331,6 +331,53 @@ export const websitePublicationInputSchema = z
   .object({ status: z.enum(["draft", "published", "paused"]) })
   .strict();
 
+/* Private customer-area activities are marketing communications. They are
+ * deliberately not recruitment messages and never carry internal data. */
+const customerActivityAudienceSchema = z.enum(["all", "invited"]);
+const customerActivityStatusSchema = z.enum(["draft", "published"]);
+const customerActivityFields = {
+  title: z.string().trim().min(3).max(160),
+  summary: z.string().trim().min(10).max(500),
+  body: websiteOptionalText(5_000),
+  imageUrl: optionalWebsiteUrlSchema,
+  buttonLabel: websiteOptionalText(80),
+  buttonUrl: optionalWebsiteUrlSchema,
+  audience: customerActivityAudienceSchema.default("all"),
+  status: customerActivityStatusSchema.default("draft"),
+};
+
+export const customerActivityCreateSchema = z
+  .object(customerActivityFields)
+  .strict();
+export const customerActivityUpdateSchema = nonEmptyUpdate({
+  title: customerActivityFields.title.optional(),
+  summary: customerActivityFields.summary.optional(),
+  body: customerActivityFields.body,
+  imageUrl: customerActivityFields.imageUrl,
+  buttonLabel: customerActivityFields.buttonLabel,
+  buttonUrl: customerActivityFields.buttonUrl,
+  audience: customerActivityAudienceSchema.optional(),
+  status: customerActivityStatusSchema.optional(),
+});
+export const customerActivityParams = organizationParams.extend({
+  activityId: idSchema,
+});
+export const customerActivityShareSchema = z
+  .object({
+    recipients: z
+      .array(z.string().trim().toLowerCase().email().max(255))
+      .min(1)
+      .max(100)
+      .refine((emails) => new Set(emails).size === emails.length, {
+        message: "Each email address can appear only once",
+      }),
+    // Recruitment consent covers the application only. This explicit
+    // acknowledgement prevents an administrator from silently repurposing a
+    // candidate's address for unrelated marketing.
+    consentConfirmed: z.literal(true),
+  })
+  .strict();
+
 export type WebsiteSettingsInput = z.infer<typeof websiteSettingsInputSchema>;
 export type WebsitePageCreateInput = z.infer<typeof websitePageCreateSchema>;
 export type WebsitePageUpdateInput = z.infer<typeof websitePageUpdateSchema>;
@@ -338,6 +385,15 @@ export type WebsitePageOrderInput = z.infer<typeof websitePageOrderSchema>;
 export type WebsiteSectionsInput = z.infer<typeof websiteSectionsInputSchema>;
 export type PublicWebsiteContactInput = z.infer<
   typeof publicWebsiteContactInputSchema
+>;
+export type CustomerActivityCreateInput = z.infer<
+  typeof customerActivityCreateSchema
+>;
+export type CustomerActivityUpdateInput = z.infer<
+  typeof customerActivityUpdateSchema
+>;
+export type CustomerActivityShareInput = z.infer<
+  typeof customerActivityShareSchema
 >;
 
 export type CreateProvinceInput = z.infer<typeof createProvinceSchema>;

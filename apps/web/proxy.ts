@@ -68,6 +68,22 @@ export async function proxy(request: NextRequest) {
   const token = request.cookies.get(ACCESS_COOKIE)?.value;
 
   const customDomain = requestedCustomDomain(request);
+  // A customer who visits Congo Omega's public domain is never sent to the
+  // LiteHubs workforce sign-in.  Keep old bookmarks and typed /login URLs in
+  // the isolated customer journey instead; staff sign in only on LiteHubs.
+  const isWorkforceAccessPath =
+    pathname === "/login" ||
+    pathname === "/forgot-password" ||
+    pathname === "/reset-password" ||
+    pathname === "/accept-invitation" ||
+    pathname === "/staff" ||
+    pathname.startsWith("/staff/") ||
+    pathname === "/select-organization" ||
+    pathname === "/platform" ||
+    pathname.startsWith("/platform/");
+  if (customDomain && isWorkforceAccessPath) {
+    return NextResponse.redirect(new URL("/account", request.url), 307);
+  }
   // Congo Omega previously used WordPress.  Visitors may still follow an old
   // wp-admin or wp-login bookmark; it must never be mistaken for a LiteHubs
   // dashboard route and send them to the workspace sign-in screen.  Bring

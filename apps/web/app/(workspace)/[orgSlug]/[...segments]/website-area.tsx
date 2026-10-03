@@ -12,10 +12,12 @@ import {
   FilePlus2,
   Globe2,
   GripVertical,
-  ImagePlus,
   Images,
   Layers3,
+  Mail,
+  Megaphone,
   Palette,
+  PencilLine,
   Plus,
   Save,
   Search,
@@ -24,6 +26,7 @@ import {
   Sparkles,
   Trash2,
   Upload,
+  UsersRound,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -101,7 +104,7 @@ type TemplateCode =
   | "impact"
   | "contact"
   | "careers";
-type Tab = "pages" | "editor" | "media" | "appearance" | "preview";
+type Tab = "pages" | "editor" | "media" | "activities" | "appearance" | "preview";
 type WebsiteMedia = {
   id: string;
   title: string;
@@ -112,6 +115,22 @@ type WebsiteMedia = {
   width: number | null;
   height: number | null;
   createdAt: string;
+};
+type CustomerActivity = {
+  id: string;
+  title: string;
+  summary: string;
+  body: string | null;
+  imageUrl: string | null;
+  buttonLabel: string | null;
+  buttonUrl: string | null;
+  audience: "all" | "invited";
+  status: "draft" | "published" | "archived";
+  publishedAt: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  recipientCount: number;
+  sentCount: number;
 };
 
 const sectionLabels: Record<SectionType, [string, string]> = {
@@ -662,6 +681,12 @@ export function WebsiteArea({ orgSlug }: { orgSlug: string }) {
               label={tr(fr, "Bibliothèque média", "Media library")}
             />
             <TabButton
+              active={tab === "activities"}
+              onClick={() => setTab("activities")}
+              icon={Megaphone}
+              label={tr(fr, "Activités clients", "Customer activities")}
+            />
+            <TabButton
               active={tab === "appearance"}
               onClick={() => setTab("appearance")}
               icon={Palette}
@@ -721,6 +746,9 @@ export function WebsiteArea({ orgSlug }: { orgSlug: string }) {
           {tab === "media" ? (
             <WebsiteMediaLibrary orgSlug={orgSlug} fr={fr} />
           ) : null}
+          {tab === "activities" ? (
+            <CustomerActivitiesTab orgSlug={orgSlug} fr={fr} />
+          ) : null}
           {tab === "appearance" ? (
             <WebsiteIdentityForm
               orgSlug={orgSlug}
@@ -736,6 +764,7 @@ export function WebsiteArea({ orgSlug }: { orgSlug: string }) {
               orgSlug={orgSlug}
               website={builder.website}
               page={selected}
+              pages={pages}
               fr={fr}
             />
           ) : null}
@@ -827,38 +856,62 @@ function PagesTab({
 }) {
   const [draggedPageId, setDraggedPageId] = useState<string | null>(null);
   const [dragOverPageId, setDragOverPageId] = useState<string | null>(null);
-  const homeIndex = pages.findIndex((page) => page.isHome);
+  const [orderedPageIds, setOrderedPageIds] = useState<string[]>([]);
+  useEffect(() => {
+    setOrderedPageIds(pages.map((page) => page.id));
+  }, [pages]);
+  const orderedPages = useMemo(() => {
+    const byId = new Map(pages.map((page) => [page.id, page]));
+    const known = orderedPageIds
+      .map((id) => byId.get(id))
+      .filter((page): page is BuilderPage => Boolean(page));
+    const knownIds = new Set(known.map((page) => page.id));
+    return [...known, ...pages.filter((page) => !knownIds.has(page.id))];
+  }, [orderedPageIds, pages]);
+  const orderChanged = orderedPages.some(
+    (page, index) => page.id !== pages[index]?.id,
+  );
+  const homeIndex = orderedPages.findIndex((page) => page.isHome);
   const firstMovableIndex = homeIndex >= 0 ? homeIndex + 1 : 0;
 
   const movePage = (pageId: string, direction: -1 | 1) => {
-    const currentIndex = pages.findIndex((page) => page.id === pageId);
+    const currentIndex = orderedPages.findIndex((page) => page.id === pageId);
     const targetIndex = Math.max(
       firstMovableIndex,
-      Math.min(pages.length - 1, currentIndex + direction),
+      Math.min(orderedPages.length - 1, currentIndex + direction),
     );
     if (currentIndex < firstMovableIndex || targetIndex === currentIndex) return;
-    const nextPages = [...pages];
+    const nextPages = [...orderedPages];
     const currentPage = nextPages[currentIndex];
     const targetPage = nextPages[targetIndex];
     if (!currentPage || !targetPage) return;
     nextPages[currentIndex] = targetPage;
     nextPages[targetIndex] = currentPage;
-    onReorder(nextPages.map((page) => page.id));
+    setOrderedPageIds(nextPages.map((page) => page.id));
   };
 
   const moveDraggedPage = (targetId: string) => {
     if (!draggedPageId || draggedPageId === targetId) return;
-    const movingPage = pages.find((page) => page.id === draggedPageId);
-    if (!movingPage || movingPage.isHome) return;
-    const nextPages = pages.filter((page) => page.id !== draggedPageId);
-    const targetIndex = nextPages.findIndex((page) => page.id === targetId);
-    const home = nextPages.find((page) => page.isHome);
-    nextPages.splice(
-      targetId === home?.id ? 1 : Math.max(0, targetIndex),
-      0,
-      movingPage,
+    const sourceIndex = orderedPages.findIndex(
+      (page) => page.id === draggedPageId,
     );
-    onReorder(nextPages.map((page) => page.id));
+    const movingPage = orderedPages.find((page) => page.id === draggedPageId);
+    if (!movingPage || movingPage.isHome || sourceIndex < 0) return;
+    const nextPages = orderedPages.filter((page) => page.id !== draggedPageId);
+    const targetIndex = nextPages.findIndex((page) => page.id === targetId);
+    if (targetIndex < 0) return;
+    const home = nextPages.find((page) => page.isHome);
+    const targetWasAfterSource = orderedPages.findIndex(
+      (page) => page.id === targetId,
+    ) > sourceIndex;
+    // Dropping down must place the item after its target.  Previously every
+    // drop meant "before", so dropping on the following page changed nothing.
+    const insertAt =
+      targetId === home?.id
+        ? 1
+        : Math.max(0, targetIndex + (targetWasAfterSource ? 1 : 0));
+    nextPages.splice(insertAt, 0, movingPage);
+    setOrderedPageIds(nextPages.map((page) => page.id));
   };
 
   return (
@@ -904,6 +957,15 @@ function PagesTab({
               <Plus />
               {tr(fr, "Nouvelle page", "New page")}
             </Button>
+            <Button
+              variant="secondary"
+              loading={reordering}
+              disabled={!orderChanged}
+              onClick={() => onReorder(orderedPages.map((page) => page.id))}
+            >
+              <Save />
+              {tr(fr, "Enregistrer l’ordre", "Save order")}
+            </Button>
           </div>
         </CardHeader>
         <CardContent>
@@ -927,13 +989,13 @@ function PagesTab({
             <>
               <p className="mb-3 text-sm text-ink-secondary">
                 {tr(
-                  fr,
-                  "Glissez une page par sa poignée pour changer l’ordre du menu. Accueil reste en première position.",
-                  "Drag a page by its handle to change the menu order. Home stays first.",
-                )}
-              </p>
-              <div className="divide-y divide-border rounded-lg border border-border">
-              {pages.map((page, index) => (
+                fr,
+                "Glissez une page par sa poignée, puis cliquez sur « Enregistrer l’ordre ». Accueil reste en première position.",
+                "Drag a page by its handle, then choose “Save order”. Home stays first.",
+              )}
+            </p>
+            <div className="divide-y divide-border rounded-lg border border-border">
+              {orderedPages.map((page, index) => (
                 <div
                   key={page.id}
                   draggable={!page.isHome && !reordering}
@@ -1332,32 +1394,15 @@ function EditorTab({
           <p className="text-xs text-ink-secondary">
             /{page.slug} · {statusLabel(page.status, fr)}
           </p>
+          <p className="mt-1 text-xs text-ink-muted">
+            {tr(
+              fr,
+              "Enregistrez les informations à gauche et l’ordre des blocs à droite.",
+              "Save page information on the left and block order on the right.",
+            )}
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button
-            variant="secondary"
-            loading={savingPage}
-            onClick={() =>
-              onSavePage({
-                slug: page.slug,
-                navigationLabelFr: page.navigationLabelFr,
-                navigationLabelEn: page.navigationLabelEn,
-                titleFr: page.titleFr,
-                titleEn: page.titleEn,
-                descriptionFr: page.descriptionFr,
-                descriptionEn: page.descriptionEn,
-                seoTitleFr: page.seoTitleFr,
-                seoTitleEn: page.seoTitleEn,
-                seoDescriptionFr: page.seoDescriptionFr,
-                seoDescriptionEn: page.seoDescriptionEn,
-                templateCode: page.templateCode,
-                isHome: page.isHome,
-              })
-            }
-          >
-            <Settings2 />
-            {tr(fr, "Enregistrer la page", "Save page")}
-          </Button>
           <Button loading={publishing} onClick={onPublish}>
             <Send />
             {tr(fr, "Publier la page", "Publish page")}
@@ -1368,7 +1413,7 @@ function EditorTab({
         <PageForm
           initial={page}
           title={tr(fr, "Informations de la page", "Page information")}
-          submit={tr(fr, "Enregistrer", "Save")}
+          submit={tr(fr, "Enregistrer les informations", "Save information")}
           saving={savingPage}
           onSave={onSavePage}
           fr={fr}
@@ -1405,6 +1450,10 @@ function BlockComposer({
   changeBlock: (index: number, block: WebsiteSection) => void;
 }) {
   const [adding, setAdding] = useState(false);
+  const [draggedBlockId, setDraggedBlockId] = useState<string | null>(null);
+  const [dragOverBlockId, setDragOverBlockId] = useState<string | null>(null);
+  const ordered = (next: WebsiteSection[]) =>
+    next.map((block, sort_order) => ({ ...block, sort_order }));
   const move = (index: number, direction: -1 | 1) => {
     const next = [...blocks];
     const target = index + direction;
@@ -1414,10 +1463,26 @@ function BlockComposer({
       return;
     next[index] = targetBlock;
     next[target] = currentBlock;
-    onChange(next.map((block, order) => ({ ...block, sort_order: order })));
+    onChange(ordered(next));
   };
   const remove = (index: number) =>
-    onChange(blocks.filter((_block, blockIndex) => blockIndex !== index));
+    onChange(ordered(blocks.filter((_block, blockIndex) => blockIndex !== index)));
+  const moveDraggedBlock = (targetId: string) => {
+    if (!draggedBlockId || draggedBlockId === targetId) return;
+    const sourceIndex = blocks.findIndex((block) => block.id === draggedBlockId);
+    const moving = blocks.find((block) => block.id === draggedBlockId);
+    if (!moving || sourceIndex < 0) return;
+    const next = blocks.filter((block) => block.id !== draggedBlockId);
+    const targetIndex = next.findIndex((block) => block.id === targetId);
+    if (targetIndex < 0) return;
+    const targetWasAfterSource = blocks.findIndex(
+      (block) => block.id === targetId,
+    ) > sourceIndex;
+    // Use the target's lower edge when moving down and its upper edge when
+    // moving up. This makes both directions visibly move by at least one row.
+    next.splice(targetIndex + (targetWasAfterSource ? 1 : 0), 0, moving);
+    onChange(ordered(next));
+  };
   return (
     <Card>
       <CardHeader>
@@ -1426,15 +1491,21 @@ function BlockComposer({
           <CardDescription>
             {tr(
               fr,
-              "Ajoutez, modifiez ou déplacez les parties de cette page.",
-              "Add, edit or move the sections of this page.",
+              "Glissez un bloc par sa poignée pour le réorganiser, ou utilisez les flèches. Enregistrez ensuite l’ordre de la page.",
+              "Drag a block by its handle to reorder it, or use the arrows. Then save the page order.",
             )}
           </CardDescription>
         </div>
-        <Button variant="secondary" onClick={() => setAdding(!adding)}>
-          <Plus />
-          {tr(fr, "Ajouter", "Add")}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" onClick={() => setAdding(!adding)}>
+            <Plus />
+            {tr(fr, "Ajouter", "Add")}
+          </Button>
+          <Button loading={saving} onClick={onSave}>
+            <Save />
+            {tr(fr, "Enregistrer l’ordre", "Save order")}
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="space-y-3">
         {adding ? (
@@ -1454,19 +1525,38 @@ function BlockComposer({
           </div>
         ) : null}
         {blocks.length ? (
-          blocks.map((block, index) => (
-            <BlockEditor
-              orgSlug={orgSlug}
-              key={block.id}
-              block={block}
-              index={index}
-              count={blocks.length}
-              onChange={(value) => changeBlock(index, value)}
-              onMove={move}
-              onRemove={remove}
-              fr={fr}
-            />
-          ))
+          <>
+            <div className="flex items-center justify-between rounded-lg border border-brand/15 bg-brand/[.035] px-3 py-2 text-xs text-ink-secondary">
+              <span className="font-semibold text-ink">{tr(fr, "Ordre de la page", "Page order")}</span>
+              <span>{blocks.length} {tr(fr, "bloc(s)", "block(s)")}</span>
+            </div>
+            {blocks.map((block, index) => (
+              <BlockEditor
+                orgSlug={orgSlug}
+                key={block.id}
+                block={block}
+                index={index}
+                count={blocks.length}
+                onChange={(value) => changeBlock(index, value)}
+                onMove={move}
+                onRemove={remove}
+                onDragStart={() => setDraggedBlockId(block.id)}
+                onDragEnd={() => {
+                  setDraggedBlockId(null);
+                  setDragOverBlockId(null);
+                }}
+                onDragOver={() => setDragOverBlockId(block.id)}
+                onDrop={() => {
+                  moveDraggedBlock(block.id);
+                  setDraggedBlockId(null);
+                  setDragOverBlockId(null);
+                }}
+                isDragging={draggedBlockId === block.id}
+                isDropTarget={dragOverBlockId === block.id && draggedBlockId !== block.id}
+                fr={fr}
+              />
+            ))}
+          </>
         ) : (
           <EmptyState
             title={tr(fr, "Aucun bloc", "No blocks")}
@@ -1477,12 +1567,6 @@ function BlockComposer({
             )}
           />
         )}
-        <div className="sticky bottom-3 flex justify-end rounded-xl border border-border bg-surface-1 p-3 shadow-lg">
-          <Button loading={saving} onClick={onSave}>
-            <Save />
-            {tr(fr, "Enregistrer les blocs", "Save blocks")}
-          </Button>
-        </div>
       </CardContent>
     </Card>
   );
@@ -1496,6 +1580,12 @@ function BlockEditor({
   onChange,
   onMove,
   onRemove,
+  onDragStart,
+  onDragEnd,
+  onDragOver,
+  onDrop,
+  isDragging,
+  isDropTarget,
   fr,
 }: {
   orgSlug: string;
@@ -1505,6 +1595,12 @@ function BlockEditor({
   onChange: (block: WebsiteSection) => void;
   onMove: (index: number, direction: -1 | 1) => void;
   onRemove: (index: number) => void;
+  onDragStart: () => void;
+  onDragEnd: () => void;
+  onDragOver: () => void;
+  onDrop: () => void;
+  isDragging: boolean;
+  isDropTarget: boolean;
   fr: boolean;
 }) {
   const [open, setOpen] = useState(index === 0);
@@ -1520,8 +1616,35 @@ function BlockEditor({
     : [];
   const setItems = (next: Record<string, unknown>[]) => set("items", next);
   return (
-    <article className="rounded-xl border border-border bg-surface-1">
+    <article
+      onDragOver={(event) => {
+        event.preventDefault();
+        onDragOver();
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        onDrop();
+      }}
+      className={`rounded-xl border bg-surface-1 transition-all ${
+        isDragging
+          ? "border-brand/30 opacity-45"
+          : isDropTarget
+            ? "border-brand bg-brand/[.055] ring-2 ring-brand/20"
+            : "border-border"
+      }`}
+    >
       <div className="flex items-center gap-2 p-3">
+        <button
+          type="button"
+          draggable
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+          className="grid size-9 shrink-0 cursor-grab place-items-center rounded-lg text-ink-muted transition hover:bg-surface-2 hover:text-brand active:cursor-grabbing"
+          aria-label={tr(fr, "Glisser pour réorganiser ce bloc", "Drag to reorder this block")}
+          title={tr(fr, "Glisser pour réorganiser", "Drag to reorder")}
+        >
+          <GripVertical className="size-4" />
+        </button>
         <button
           className="min-w-0 flex-1 text-left"
           onClick={() => setOpen(!open)}
@@ -2118,6 +2241,211 @@ function WebsiteImagePicker({
   );
 }
 
+const blankCustomerActivity = () => ({
+  title: "",
+  summary: "",
+  body: "",
+  imageUrl: "",
+  buttonLabel: "",
+  buttonUrl: "",
+  audience: "all" as CustomerActivity["audience"],
+  status: "draft" as "draft" | "published",
+});
+
+function CustomerActivitiesTab({
+  orgSlug,
+  fr,
+}: {
+  orgSlug: string;
+  fr: boolean;
+}) {
+  const [form, setForm] = useState(blankCustomerActivity);
+  const [editing, setEditing] = useState<CustomerActivity | null>(null);
+  const [recipientText, setRecipientText] = useState("");
+  const [consentConfirmed, setConsentConfirmed] = useState(false);
+  const [shareActivityId, setShareActivityId] = useState("");
+  const activitiesQuery = useQuery({
+    queryKey: ["website-customer-activities", orgSlug],
+    queryFn: () =>
+      get<{ activities: CustomerActivity[] }>(
+        orgUrl(orgSlug, "website/customer-activities"),
+      ),
+  });
+  const refresh = () => void activitiesQuery.refetch();
+  const reset = () => {
+    setEditing(null);
+    setForm(blankCustomerActivity());
+  };
+  const save = useMutation({
+    mutationFn: (payload: typeof form) => {
+      const body = {
+        ...payload,
+        body: toOptional(payload.body),
+        imageUrl: toOptional(payload.imageUrl),
+        buttonLabel: toOptional(payload.buttonLabel),
+        buttonUrl: toOptional(payload.buttonUrl),
+      };
+      return editing
+        ? patch<{ activity: CustomerActivity }>(
+            orgUrl(orgSlug, `website/customer-activities/${editing.id}`),
+            body,
+          )
+        : post<{ activity: CustomerActivity }>(
+            orgUrl(orgSlug, "website/customer-activities"),
+            body,
+          );
+    },
+    onSuccess: () => {
+      refresh();
+      reset();
+      toast.success(
+        editing
+          ? tr(fr, "Activité mise à jour", "Activity updated")
+          : tr(fr, "Activité créée", "Activity created"),
+      );
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+  const archive = useMutation({
+    mutationFn: (activityId: string) =>
+      del(orgUrl(orgSlug, `website/customer-activities/${activityId}`)),
+    onSuccess: () => {
+      refresh();
+      if (editing) reset();
+      toast.success(tr(fr, "Activité archivée", "Activity archived"));
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+  const share = useMutation({
+    mutationFn: ({ activityId, recipients }: { activityId: string; recipients: string[] }) =>
+      post<{ requested: number; sent: number }>(
+        orgUrl(orgSlug, `website/customer-activities/${activityId}/share`),
+        { recipients, consentConfirmed: true },
+      ),
+    onSuccess: (response) => {
+      refresh();
+      setRecipientText("");
+      setConsentConfirmed(false);
+      toast.success(
+        response.sent
+          ? tr(fr, `${response.sent} invitation(s) envoyée(s)`, `${response.sent} invitation(s) sent`)
+          : tr(fr, "Aucun e-mail n’a pu être envoyé. Vérifiez l’envoi e-mail.", "No email could be sent. Check email delivery."),
+      );
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+  const activities = activitiesQuery.data?.activities ?? [];
+  const publishedActivities = activities.filter(
+    (activity) => activity.status === "published",
+  );
+  const sharedActivity =
+    publishedActivities.find((activity) => activity.id === shareActivityId) ??
+    publishedActivities[0] ??
+    null;
+  const recipients = Array.from(
+    new Set(
+      recipientText
+        .split(/[\n,;]+/)
+        .map((email) => email.trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  );
+  const set = <Key extends keyof typeof form>(key: Key, value: (typeof form)[Key]) =>
+    setForm((current) => ({ ...current, [key]: value }));
+  const beginEdit = (activity: CustomerActivity) => {
+    setEditing(activity);
+    setForm({
+      title: activity.title,
+      summary: activity.summary,
+      body: activity.body ?? "",
+      imageUrl: activity.imageUrl ?? "",
+      buttonLabel: activity.buttonLabel ?? "",
+      buttonUrl: activity.buttonUrl ?? "",
+      audience: activity.audience,
+      status: activity.status === "published" ? "published" : "draft",
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+  const date = (value: string | null) =>
+    value
+      ? new Intl.DateTimeFormat(fr ? "fr-CD" : "en", {
+          day: "numeric",
+          month: "short",
+          year: "numeric",
+        }).format(new Date(value))
+      : tr(fr, "Non publiée", "Not published");
+
+  return (
+    <section className="space-y-5">
+      <Card className="overflow-hidden border-brand/20">
+        <CardHeader className="bg-[radial-gradient(circle_at_93%_0%,rgba(34,197,94,.18),transparent_31%),linear-gradient(120deg,rgba(6,78,59,.98),rgba(15,118,110,.94))] text-white">
+          <div className="max-w-3xl">
+            <p className="inline-flex items-center gap-2 text-xs font-bold tracking-[.15em] text-emerald-100"><Megaphone className="size-4" /> {tr(fr, "ESPACE CLIENT PUBLIC", "PUBLIC CUSTOMER AREA")}</p>
+            <CardTitle className="mt-3 text-2xl text-white">{tr(fr, "Activités à partager", "Activities to share")}</CardTitle>
+            <CardDescription className="mt-2 max-w-2xl text-emerald-50/90">{tr(fr, "Créez des cartes visuelles pour les personnes qui possèdent un compte public Congo Omega. Un lien e-mail leur demandera de créer ce compte ou de s’y connecter — jamais d’accéder à LiteHubs, aux candidatures ou aux dossiers RH.", "Create visual cards for people with a public customer account. An email link asks them to create or sign in to that account — never to access LiteHubs, applications, or HR files.")}</CardDescription>
+          </div>
+        </CardHeader>
+      </Card>
+
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.2fr)_390px]">
+        <Card>
+          <CardHeader>
+            <div>
+              <CardTitle>{editing ? tr(fr, "Modifier l’activité", "Edit activity") : tr(fr, "Nouvelle activité", "New activity")}</CardTitle>
+              <CardDescription>{tr(fr, "Une carte courte et claire, visible seulement après connexion au compte public.", "A concise card visible only after public-account sign-in.")}</CardDescription>
+            </div>
+            {editing ? <Button size="sm" variant="ghost" onClick={reset}><X />{tr(fr, "Annuler", "Cancel")}</Button> : null}
+          </CardHeader>
+          <CardContent>
+            <form
+              className="grid gap-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                save.mutate(form);
+              }}
+            >
+              <Field label={tr(fr, "Titre", "Title")} required><Input value={form.title} maxLength={160} onChange={(event) => set("title", event.target.value)} /></Field>
+              <Field label={tr(fr, "Résumé", "Summary")} required><Textarea value={form.summary} maxLength={500} onChange={(event) => set("summary", event.target.value)} /></Field>
+              <Field label={tr(fr, "Détails (facultatif)", "Details (optional)")}><Textarea value={form.body} maxLength={5000} onChange={(event) => set("body", event.target.value)} /></Field>
+              <WebsiteImagePicker orgSlug={orgSlug} value={form.imageUrl} onChange={(url) => set("imageUrl", url)} fr={fr} label={tr(fr, "Image de la carte", "Card image")} />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label={tr(fr, "Bouton (facultatif)", "Button (optional)")}><Input value={form.buttonLabel} maxLength={80} placeholder={tr(fr, "Ex. Découvrir", "E.g. Discover")} onChange={(event) => set("buttonLabel", event.target.value)} /></Field>
+                <Field label={tr(fr, "Lien du bouton (facultatif)", "Button link (optional)")}><Input value={form.buttonUrl} placeholder="/activites" onChange={(event) => set("buttonUrl", event.target.value)} /></Field>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label={tr(fr, "Audience", "Audience")}><select className="h-9 w-full rounded-md border border-border-strong bg-surface-1 px-3 text-sm text-ink" value={form.audience} onChange={(event) => set("audience", event.target.value as CustomerActivity["audience"])}><option value="all">{tr(fr, "Tous les comptes publics", "All public accounts")}</option><option value="invited">{tr(fr, "Uniquement les invités par e-mail", "Only email invitees")}</option></select></Field>
+                <Field label={tr(fr, "État", "Status")}><select className="h-9 w-full rounded-md border border-border-strong bg-surface-1 px-3 text-sm text-ink" value={form.status} onChange={(event) => set("status", event.target.value as "draft" | "published")}><option value="draft">{tr(fr, "Brouillon", "Draft")}</option><option value="published">{tr(fr, "Publié", "Published")}</option></select></Field>
+              </div>
+              <div className="flex flex-wrap gap-3 border-t border-border pt-5"><Button type="submit" loading={save.isPending}><Save />{editing ? tr(fr, "Enregistrer l’activité", "Save activity") : tr(fr, "Créer l’activité", "Create activity")}</Button>{editing ? <Button type="button" variant="secondary" onClick={reset}>{tr(fr, "Nouvelle carte", "New card")}</Button> : null}</div>
+            </form>
+          </CardContent>
+        </Card>
+
+        <div className="space-y-5">
+          <Card>
+            <CardHeader><div><CardTitle>{tr(fr, "Partager par e-mail", "Share by email")}</CardTitle><CardDescription>{tr(fr, "Le destinataire reçoit une invitation vers son compte public sécurisé.", "Each recipient receives an invitation to their secure public account.")}</CardDescription></div></CardHeader>
+            <CardContent className="grid gap-4">
+              <Field label={tr(fr, "Activité publiée", "Published activity")}><select className="h-9 w-full rounded-md border border-border-strong bg-surface-1 px-3 text-sm text-ink" value={sharedActivity?.id ?? ""} onChange={(event) => setShareActivityId(event.target.value)} disabled={!publishedActivities.length}><option value="">{sharedActivity ? sharedActivity.title : tr(fr, "Aucune activité publiée", "No published activity")}</option>{publishedActivities.filter((activity) => activity.id !== sharedActivity?.id).map((activity) => <option key={activity.id} value={activity.id}>{activity.title}</option>)}</select></Field>
+              <Field label={tr(fr, "Adresses e-mail", "Email addresses")} hint={tr(fr, "Une adresse par ligne, ou séparées par des virgules.", "One address per line, or separated by commas.")}><Textarea value={recipientText} placeholder="contact@example.com\npartenaire@example.com" onChange={(event) => setRecipientText(event.target.value)} /></Field>
+              <label className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm leading-5 text-amber-950"><input type="checkbox" className="mt-0.5 size-4 accent-emerald-800" checked={consentConfirmed} onChange={(event) => setConsentConfirmed(event.target.checked)} />{tr(fr, "Je confirme que chaque personne a accepté de recevoir cette activité. Une candidature sert seulement au recrutement et ne doit jamais être utilisée automatiquement pour du marketing.", "I confirm that each person agreed to receive this activity. An application is for recruitment only and must never be used automatically for marketing.")}</label>
+              <Button disabled={!sharedActivity || !recipients.length || !consentConfirmed} loading={share.isPending} onClick={() => sharedActivity && share.mutate({ activityId: sharedActivity.id, recipients })}><Mail />{tr(fr, "Envoyer l’invitation", "Send invitation")}</Button>
+              <p className="text-xs leading-5 text-ink-muted">{tr(fr, "Les invités sans compte devront d’abord créer et confirmer leur compte public. Leur candidature et leurs données de recrutement ne deviennent jamais visibles ici.", "Invitees without an account first create and confirm their public account. Their application and recruitment data never become visible here.")}</p>
+            </CardContent>
+          </Card>
+          <Card className="border-emerald-200 bg-emerald-50/60"><CardContent className="flex gap-3 p-5"><UsersRound className="mt-0.5 size-5 shrink-0 text-emerald-800" /><p className="text-sm leading-6 text-emerald-950">{tr(fr, "Chaque carte est indépendante des ventes et des achats. Elle sert uniquement à créer une relation et à partager les actualités de Congo Omega avec des personnes qui ont choisi de les recevoir.", "Each card is independent of sales and purchases. It is only for building a relationship and sharing Congo Omega news with people who chose to receive it.")}</p></CardContent></Card>
+        </div>
+      </div>
+
+      <Card>
+        <CardHeader><div><CardTitle>{tr(fr, "Cartes créées", "Created cards")}</CardTitle><CardDescription>{tr(fr, "Modifiez, publiez, partagez ou archivez une activité. Les destinataires ne voient que les cartes publiées qui leur sont destinées.", "Edit, publish, share, or archive an activity. Recipients see only published cards meant for them.")}</CardDescription></div></CardHeader>
+        <CardContent>
+          {activitiesQuery.isLoading ? <SkeletonCard rows={5} /> : activities.length ? <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{activities.map((activity) => <article key={activity.id} className="overflow-hidden rounded-2xl border border-border bg-surface-1"><div className="relative aspect-[16/9] bg-[linear-gradient(135deg,#0f766e,#134e4a)]">{activity.imageUrl ? <img src={activity.imageUrl} alt="" className="size-full object-cover" /> : <Megaphone className="absolute bottom-5 left-5 size-8 text-emerald-100" />}<div className="absolute left-3 top-3"><Badge variant={activity.status === "published" ? "good" : activity.status === "archived" ? "neutral" : "warning"}>{activity.status === "published" ? tr(fr, "Publié", "Published") : activity.status === "archived" ? tr(fr, "Archivé", "Archived") : tr(fr, "Brouillon", "Draft")}</Badge></div></div><div className="p-4"><p className="text-xs text-ink-muted">{date(activity.publishedAt)}</p><h3 className="mt-2 line-clamp-2 font-semibold text-ink">{activity.title}</h3><p className="mt-2 line-clamp-3 text-sm leading-5 text-ink-secondary">{activity.summary}</p><div className="mt-4 flex flex-wrap gap-2 text-xs text-ink-muted"><span>{activity.audience === "all" ? tr(fr, "Tous les comptes", "All accounts") : tr(fr, "Sur invitation", "Invite only")}</span><span>·</span><span>{activity.sentCount}/{activity.recipientCount} {tr(fr, "envoyées", "sent")}</span></div><div className="mt-4 flex flex-wrap gap-2"><Button size="sm" variant="secondary" onClick={() => beginEdit(activity)} disabled={activity.status === "archived"}><PencilLine />{tr(fr, "Modifier", "Edit")}</Button>{activity.status !== "archived" ? <Button size="sm" variant="ghost" loading={archive.isPending && archive.variables === activity.id} onClick={() => archive.mutate(activity.id)}><Archive />{tr(fr, "Archiver", "Archive")}</Button> : null}</div></div></article>)}</div> : <EmptyState title={tr(fr, "Aucune activité", "No activities")} description={tr(fr, "Créez votre première carte pour la partager dans les comptes publics Congo Omega.", "Create your first card to share in Congo Omega public accounts.")} />}
+        </CardContent>
+      </Card>
+    </section>
+  );
+}
+
 function WebsiteMediaLibrary({
   orgSlug,
   fr,
@@ -2549,11 +2877,13 @@ function PreviewTab({
   orgSlug,
   website,
   page,
+  pages,
   fr,
 }: {
   orgSlug: string;
   website: BuilderWebsite;
   page: BuilderPage | null;
+  pages: BuilderPage[];
   fr: boolean;
 }) {
   if (!page)
@@ -2573,13 +2903,16 @@ function PreviewTab({
     contact_phone: website.contactPhone,
     address: website.addressText,
     footer_text: website.footerText,
-    navigation: [
-      {
-        slug: page.slug,
-        label_fr: page.navigationLabelFr,
-        label_en: page.navigationLabelEn,
-      },
-    ],
+    // The private preview deliberately includes drafts, but it must use the
+    // same navigation order as the page list.  Showing only the selected page
+    // here made a successful menu reordering look as though it had failed.
+    navigation: pages
+      .filter((candidate) => candidate.status !== "archived")
+      .map((candidate) => ({
+        slug: candidate.slug,
+        label_fr: candidate.navigationLabelFr,
+        label_en: candidate.navigationLabelEn,
+      })),
   };
   const previewPage: PublicWebsitePage = {
     slug: page.slug,

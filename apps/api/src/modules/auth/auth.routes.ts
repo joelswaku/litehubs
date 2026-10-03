@@ -1,5 +1,9 @@
 import { Router } from "express";
-import { authRateLimiter } from "../../config/security";
+import {
+  authOnboardingRateLimiter,
+  authRateLimiter,
+  authRecoveryRateLimiter,
+} from "../../config/security";
 import { authenticate } from "../../middleware/auth.middleware";
 import { resolveOrganization } from "../../middleware/organization.middleware";
 import { validate } from "../../middleware/validation.middleware";
@@ -18,20 +22,18 @@ import {
 
 export const authRoutes = Router();
 
-// Credential endpoints get the tight limiter on top of the global one.
-// Registration is included: it creates accounts, so it is worth more than the
-// global limit's protection. The limiter counts failures rather than successes,
-// so a genuine signup is never the request that gets refused.
+// Credential endpoints get strict, independent counters. A failed sign-in
+// must never prevent password recovery or an invitation from being completed.
 authRoutes.post(
   "/register",
-  authRateLimiter,
+  authOnboardingRateLimiter,
   validate({ body: registerSchema }),
   controller.register,
 );
 
 authRoutes.post(
   "/accept-invitation",
-  authRateLimiter,
+  authOnboardingRateLimiter,
   validate({ body: acceptInvitationSchema }),
   controller.acceptInvitation,
 );
@@ -67,14 +69,14 @@ authRoutes.post("/logout", controller.logout);
 
 authRoutes.post(
   "/forgot-password",
-  authRateLimiter,
+  authRecoveryRateLimiter,
   validate({ body: forgotPasswordSchema }),
   controller.forgotPassword,
 );
 
 authRoutes.post(
   "/reset-password",
-  authRateLimiter,
+  authRecoveryRateLimiter,
   validate({ body: resetPasswordSchema }),
   controller.resetPassword,
 );

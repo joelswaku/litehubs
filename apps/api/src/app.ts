@@ -35,6 +35,7 @@ import { reportsRoutes } from "./modules/reports/reports.routes";
 import { salesRoutes } from "./modules/sales";
 import { appointmentRoutes } from "./modules/appointments";
 import { careersRoutes } from "./modules/careers";
+import { publicAccountRoutes } from "./modules/public-accounts";
 
 export const API_PREFIX = "/api/v1";
 
@@ -75,6 +76,7 @@ export function createApp(): Application {
   });
 
   app.use(`${API_PREFIX}/auth`, authRoutes);
+  app.use(API_PREFIX, publicAccountRoutes);
   app.use(API_PREFIX, platformStaffRoutes);
   app.use(API_PREFIX, performanceRoutes);
   app.use(API_PREFIX, payrollRoutes);

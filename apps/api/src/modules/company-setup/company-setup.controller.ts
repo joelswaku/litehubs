@@ -1,6 +1,7 @@
 import type { Request, RequestHandler } from "express";
 import * as service from "./company-setup.service";
 import * as websiteBuilder from "./website-builder.service";
+import * as customerActivities from "./customer-activities.service";
 import { BadRequestError } from "../../utils/errors";
 import type {
   CreateDepartmentInput,
@@ -21,6 +22,9 @@ import type {
   WebsiteSectionsInput,
   WebsiteSettingsInput,
   PublicWebsiteContactInput,
+  CustomerActivityCreateInput,
+  CustomerActivityShareInput,
+  CustomerActivityUpdateInput,
 } from "./company-setup.validation";
 
 function contextOf(req: Request): service.SetupContext {
@@ -188,6 +192,47 @@ export const setWebsitePublication: RequestHandler = async (req, res) => {
       req.body.status as "published" | "draft" | "paused",
     ),
   });
+};
+
+export const listCustomerActivities: RequestHandler = async (req, res) => {
+  res.json({ activities: await customerActivities.listCustomerActivities(contextOf(req)) });
+};
+
+export const createCustomerActivity: RequestHandler = async (req, res) => {
+  res.status(201).json({
+    activity: await customerActivities.createCustomerActivity(
+      contextOf(req),
+      req.body as CustomerActivityCreateInput,
+    ),
+  });
+};
+
+export const updateCustomerActivity: RequestHandler = async (req, res) => {
+  res.json({
+    activity: await customerActivities.updateCustomerActivity(
+      contextOf(req),
+      parameter(req, "activityId"),
+      req.body as CustomerActivityUpdateInput,
+    ),
+  });
+};
+
+export const archiveCustomerActivity: RequestHandler = async (req, res) => {
+  await customerActivities.archiveCustomerActivity(
+    contextOf(req),
+    parameter(req, "activityId"),
+  );
+  res.status(204).send();
+};
+
+export const shareCustomerActivity: RequestHandler = async (req, res) => {
+  res.status(202).json(
+    await customerActivities.shareCustomerActivity(
+      contextOf(req),
+      parameter(req, "activityId"),
+      req.body as CustomerActivityShareInput,
+    ),
+  );
 };
 
 export const publicWebsite: RequestHandler = async (req, res) => {

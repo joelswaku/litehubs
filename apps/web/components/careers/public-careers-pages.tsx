@@ -15,6 +15,7 @@ import {
   FileUp,
   MapPin,
   ShieldCheck,
+  UserRound,
   UsersRound,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -33,6 +34,17 @@ const publicUrl = (org: string, rest: string) =>
 const cleanTitle = (value: unknown) =>
   String(value ?? "").replace(/^\s*:\s*/, "");
 const candidateContactEmail = "recrutement@congoomega.com";
+const publicOrganizationName = (orgSlug: string, reportedName?: unknown) => {
+  // Congo Omega's public recruitment pages must never inherit the LiteHubs
+  // product label from an older organization record or a stale API response.
+  if (["congo-omega", "kins"].includes(orgSlug.trim().toLowerCase())) {
+    return "Congo Omega";
+  }
+  const name = String(reportedName ?? "").trim();
+  return name || "Entreprise";
+};
+const hasPublicCustomerAccount = (orgSlug: string) =>
+  ["congo-omega", "kins"].includes(orgSlug.trim().toLowerCase());
 const displayDate = (value: string | null | undefined, fr: boolean) =>
   value
     ? new Date(value).toLocaleDateString(fr ? "fr-FR" : "en-US", {
@@ -46,10 +58,14 @@ function Shell({
   children,
   fr,
   setFr,
+  organizationName,
+  accountHref,
 }: {
   children: ReactNode;
   fr: boolean;
   setFr: (value: boolean) => void;
+  organizationName: string;
+  accountHref?: string;
 }) {
   return (
     <main className="min-h-dvh bg-[radial-gradient(circle_at_18%_-5%,rgba(37,99,235,.16),transparent_36%),radial-gradient(circle_at_92%_14%,rgba(14,165,233,.11),transparent_28%),var(--color-page)] px-4 py-6 sm:py-10">
@@ -62,7 +78,7 @@ function Shell({
             <span className="grid size-10 place-items-center rounded-xl bg-brand text-brand-ink shadow-[0_10px_25px_-15px_rgb(37_99_235_/_.8)]">
               <BriefcaseBusiness className="size-5" />
             </span>
-            <span>LiteHubs</span>
+            <span>{organizationName}</span>
           </a>
           <div className="flex items-center gap-2">
             <a
@@ -72,6 +88,15 @@ function Shell({
               <ArrowLeft className="size-3.5" />
               {label(fr, "Accueil", "Home")}
             </a>
+            {accountHref ? (
+              <a
+                href={accountHref}
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-brand px-2.5 text-xs font-bold text-brand-ink shadow-sm transition hover:brightness-110 sm:px-3"
+              >
+                <UserRound className="size-3.5" />
+                {label(fr, "Mon compte", "My account")}
+              </a>
+            ) : null}
             <button
               type="button"
               className="rounded-lg border border-border bg-surface-1 px-3 py-2 text-xs font-bold text-ink shadow-sm transition hover:bg-surface-2"
@@ -82,6 +107,18 @@ function Shell({
           </div>
         </header>
         {children}
+        {accountHref ? (
+          <footer className="mt-7 flex flex-wrap items-center justify-between gap-3 border-t border-border/80 px-1 pt-5 text-xs text-ink-secondary">
+            <span>© {new Date().getFullYear()} {organizationName}</span>
+            <a
+              href={accountHref}
+              className="inline-flex items-center gap-1.5 font-semibold text-brand transition hover:underline"
+            >
+              <UserRound className="size-3.5" />
+              {label(fr, "Mon compte client", "My customer account")}
+            </a>
+          </footer>
+        ) : null}
       </div>
     </main>
   );
@@ -129,14 +166,19 @@ export function PublicCareersPage({ orgSlug }: { orgSlug: string }) {
     [careers.data],
   );
   return (
-    <Shell fr={fr} setFr={setFr}>
+    <Shell
+      fr={fr}
+      setFr={setFr}
+      organizationName={publicOrganizationName(orgSlug, careers.data?.organizationName)}
+      accountHref={hasPublicCustomerAccount(orgSlug) ? "/account" : undefined}
+    >
       <section className="overflow-hidden rounded-3xl border border-brand/20 bg-surface-1 shadow-[0_24px_70px_-45px_rgb(15_23_42_/_0.75)]">
         <div className="relative overflow-hidden bg-[radial-gradient(circle_at_82%_-30%,rgba(125,211,252,.34),transparent_42%),linear-gradient(125deg,#172554,#2563a6)] px-6 py-9 text-white sm:px-9 sm:py-11">
           <p className="inline-flex rounded-full border border-white/20 bg-white/10 px-3 py-1 text-[11px] font-bold tracking-[.16em] text-sky-50">
             {label(fr, "CARRIÈRES", "CAREERS")}
           </p>
           <h1 className="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl">
-            {careers.data?.organizationName ?? "LiteHubs"}
+            {publicOrganizationName(orgSlug, careers.data?.organizationName)}
           </h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-sky-50/95">
             {careers.data?.intro ??
@@ -284,7 +326,12 @@ export function PublicCareerJobPage({
   const job = jobDetail.data?.job;
   const title = cleanTitle(job?.title) || label(fr, "Chargement…", "Loading…");
   return (
-    <Shell fr={fr} setFr={setFr}>
+    <Shell
+      fr={fr}
+      setFr={setFr}
+      organizationName={publicOrganizationName(orgSlug, jobDetail.data?.organizationName)}
+      accountHref={hasPublicCustomerAccount(orgSlug) ? "/account" : undefined}
+    >
       <section className="overflow-hidden rounded-3xl border border-brand/20 bg-surface-1 shadow-[0_24px_70px_-45px_rgb(15_23_42_/_0.75)]">
         <div className="relative overflow-hidden bg-[radial-gradient(circle_at_82%_-25%,rgba(125,211,252,.34),transparent_42%),linear-gradient(125deg,#172554,#2563a6)] px-6 py-8 text-white sm:px-9 sm:py-10">
           <Link

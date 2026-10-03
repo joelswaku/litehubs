@@ -7,7 +7,9 @@ export async function generateMetadata({ params }: { params: Promise<{ orgSlug: 
   const detail = await publicCareerMetadata(orgSlug, jobCode);
   const job = detail?.job;
   if (!job) return { title: "Poste indisponible", robots: { index: false, follow: false } };
-  const organizationName = detail?.organizationName ?? "LiteHubs";
+  const organizationName = ["congo-omega", "kins"].includes(orgSlug.toLowerCase())
+    ? "Congo Omega"
+    : detail?.organizationName ?? "Entreprise";
   const title = `${job.title} · ${organizationName}`;
   const description = `${job.shortSummary} Poste basé à ${job.site.name}, ${job.province.name}.`;
   const path = `/careers/${encodeURIComponent(orgSlug)}/${encodeURIComponent(jobCode)}`;

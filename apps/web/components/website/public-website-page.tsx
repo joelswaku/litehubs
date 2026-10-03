@@ -88,6 +88,11 @@ export function PublicWebsitePage({
   const query = useQuery({
     queryKey: ["public-website", organizationSlug, pageSlug ?? "home"],
     queryFn: () => get<PublicWebsiteResponse>(path),
+    // A website owner commonly changes a page and immediately opens this
+    // private preview in another tab.  Do not hold the old navigation for the
+    // application's normal one-minute catalogue cache window.
+    staleTime: 0,
+    refetchOnMount: "always",
     retry: false,
   });
 

@@ -48,20 +48,33 @@ export const apiRateLimiter = rateLimit({
   },
 });
 
-/** Tight limiter for credential endpoints — mounted by the auth module. */
-export const authRateLimiter = rateLimit({
-  windowMs: 150 * 60 * 1000,
-  limit: env.isProduction ? 10 : 1_000,
-  skipSuccessfulRequests: true,
-  standardHeaders: "draft-7",
-  legacyHeaders: false,
-  message: {
-    error: {
-      code: "TOO_MANY_ATTEMPTS",
-      message: "Too many attempts, try again later h",
+/**
+ * Credential limits are intentionally separate by journey. A few incorrect
+ * sign-ins must not prevent a real person from resetting their password or
+ * accepting their invitation. Every journey keeps the same strict limit.
+ */
+function credentialRateLimiter() {
+  return rateLimit({
+    windowMs: 150 * 60 * 1000,
+    limit: env.isProduction ? 10 : 1_000,
+    skipSuccessfulRequests: true,
+    standardHeaders: "draft-7",
+    legacyHeaders: false,
+    message: {
+      error: {
+        code: "TOO_MANY_ATTEMPTS",
+        message: "Too many attempts. Please try again later.",
+      },
     },
-  },
-});
+  });
+}
+
+/** Tight limiter for sign-in attempts. */
+export const authRateLimiter = credentialRateLimiter();
+/** Password recovery has its own counter, separate from sign-in failures. */
+export const authRecoveryRateLimiter = credentialRateLimiter();
+/** Account registration and invitation acceptance remain independently guarded. */
+export const authOnboardingRateLimiter = credentialRateLimiter();
 
 /** Ordered middleware applied before any route. */
 export function securityMiddleware(): RequestHandler[] {

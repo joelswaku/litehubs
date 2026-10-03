@@ -42,6 +42,10 @@ import {
   websiteSectionsInputSchema,
   websiteSettingsInputSchema,
   websiteMediaParams,
+  customerActivityCreateSchema,
+  customerActivityParams,
+  customerActivityShareSchema,
+  customerActivityUpdateSchema,
 } from "./company-setup.validation";
 
 export const companySetupRoutes = Router();
@@ -189,6 +193,45 @@ companySetupRoutes.delete(
   requireOrganization,
   requireOwner,
   controller.deleteWebsiteMedia,
+);
+// Owner-managed marketing cards for the separate public customer area.  These
+// routes never expose applications, employee data or the internal workspace.
+companySetupRoutes.get(
+  "/organizations/:orgSlug/website/customer-activities",
+  ...inOrganization,
+  requireOwner,
+  controller.listCustomerActivities,
+);
+companySetupRoutes.post(
+  "/organizations/:orgSlug/website/customer-activities",
+  ...inOrganization,
+  requireOwner,
+  validate({ body: customerActivityCreateSchema }),
+  controller.createCustomerActivity,
+);
+companySetupRoutes.patch(
+  "/organizations/:orgSlug/website/customer-activities/:activityId",
+  authenticate,
+  validate({ params: customerActivityParams, body: customerActivityUpdateSchema }),
+  requireOrganization,
+  requireOwner,
+  controller.updateCustomerActivity,
+);
+companySetupRoutes.post(
+  "/organizations/:orgSlug/website/customer-activities/:activityId/share",
+  authenticate,
+  validate({ params: customerActivityParams, body: customerActivityShareSchema }),
+  requireOrganization,
+  requireOwner,
+  controller.shareCustomerActivity,
+);
+companySetupRoutes.delete(
+  "/organizations/:orgSlug/website/customer-activities/:activityId",
+  authenticate,
+  validate({ params: customerActivityParams }),
+  requireOrganization,
+  requireOwner,
+  controller.archiveCustomerActivity,
 );
 companySetupRoutes.post(
   "/organizations/:orgSlug/website/pages",

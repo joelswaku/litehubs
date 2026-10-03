@@ -213,12 +213,19 @@ api.interceptors.response.use(
       "/auth/reset-password",
       "/auth/accept-invitation",
     ].some((path) => config?.url?.includes(path));
+    // Public customer accounts have their own cookies and token audience.
+    // A missing customer session must never trigger a refresh of an internal
+    // LiteHubs workforce session.
+    const isPublicCustomerCall =
+      config?.url?.includes("/public/websites/domains/") &&
+      config.url.includes("/account");
     const shouldRefresh =
       status === 401 &&
       config &&
       !config._retried &&
       !isRefreshCall &&
-      !isSessionFreeAuthCall;
+      !isSessionFreeAuthCall &&
+      !isPublicCustomerCall;
 
     if (shouldRefresh) {
       config._retried = true;

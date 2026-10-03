@@ -3,6 +3,10 @@ import type {
   ActiveMembership,
   AuthenticatedUser,
 } from "../modules/auth/auth.types";
+import type {
+  PublicCustomer,
+  PublicWebsiteAccountContext,
+} from "../modules/public-accounts/public-accounts.service";
 
 declare global {
   namespace Express {
@@ -26,6 +30,11 @@ declare global {
 
       /** The caller's standing in that workspace, with roles and permissions. */
       membership?: ActiveMembership;
+
+      /** Set only by the public customer-account guard. This is intentionally
+       * separate from `user`, which represents an internal LiteHubs identity. */
+      publicCustomer?: PublicCustomer;
+      publicCustomerWebsite?: PublicWebsiteAccountContext;
 
       /**
        * Runs database work in a transaction pinned to the active organization,

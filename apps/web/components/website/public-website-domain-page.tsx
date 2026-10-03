@@ -187,6 +187,10 @@ export function PublicWebsiteDomainPage({
   const query = useQuery({
     queryKey: ["public-website-domain", domain, pageSlug ?? "home"],
     queryFn: () => get<PublicWebsiteResponse>(path),
+    // Public pages must reflect a newly published menu as soon as the visitor
+    // revisits or refocuses the tab; website navigation is not a catalogue.
+    staleTime: 0,
+    refetchOnMount: "always",
     retry: false,
   });
   // The preview is private; the custom domain must only show the exact

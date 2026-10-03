@@ -15,6 +15,7 @@ import {
   Send,
   Sparkles,
   Sprout,
+  UserRound,
   X,
 } from "lucide-react";
 import * as React from "react";
@@ -1007,6 +1008,7 @@ function PublicContactForm({
     "idle" | "sending" | "sent" | "error"
   >("idle");
   const [error, setError] = React.useState("");
+  const [fieldErrors, setFieldErrors] = React.useState<Record<string, string[]>>({});
   const french = language === "fr";
 
   function contactValidationMessage(requestError: unknown): string {
@@ -1046,13 +1048,24 @@ function PublicContactForm({
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
-    if (!form.reportValidity()) return;
     const values = new FormData(form);
     const name = String(values.get("name") ?? "").trim();
     const email = String(values.get("email") ?? "").trim();
     const phone = String(values.get("phone") ?? "").trim();
     const subject = String(values.get("subject") ?? "").trim();
     const message = String(values.get("message") ?? "").trim();
+    const clientErrors: Record<string, string[]> = {};
+    if (name.length < 2) clientErrors.fullName = [french ? "Saisissez votre nom complet (au moins 2 caractères)." : "Enter your full name (at least 2 characters)."];
+    if (!/^\S+@\S+\.\S+$/.test(email)) clientErrors.email = [french ? "Saisissez une adresse e-mail valide." : "Enter a valid email address."];
+    if (subject.length < 3) clientErrors.subject = [french ? "Saisissez un objet d’au moins 3 caractères." : "Enter a subject of at least 3 characters."];
+    if (message.length < 5) clientErrors.message = [french ? "Votre message doit contenir au moins 5 caractères." : "Your message must contain at least 5 characters."];
+    if (Object.keys(clientErrors).length > 0) {
+      setFieldErrors(clientErrors);
+      setError(french ? "Vérifiez les champs signalés ci-dessous." : "Please check the highlighted fields below.");
+      setState("error");
+      return;
+    }
+    setFieldErrors({});
     if (domain) {
       setState("sending");
       setError("");
@@ -1069,6 +1082,7 @@ function PublicContactForm({
         setState("sent");
       } catch (requestError) {
         setState("error");
+        setFieldErrors(requestError instanceof ApiError ? requestError.fieldErrors : {});
         setError(contactValidationMessage(requestError));
       }
       return;
@@ -1092,9 +1106,14 @@ function PublicContactForm({
 
   const fieldClass =
     "mt-1.5 min-h-11 w-full rounded-xl border border-white/15 bg-white/[.07] px-3.5 text-sm text-white outline-none transition placeholder:text-white/35 focus:border-amber-300 focus:bg-white/[.11] focus:ring-4 focus:ring-amber-300/15";
+  const fieldClassFor = (field: string) =>
+    fieldErrors[field]?.[0]
+      ? `${fieldClass} border-rose-300 bg-rose-950/30 focus:border-rose-200 focus:ring-rose-200/20`
+      : fieldClass;
 
   return (
     <form
+      noValidate
       className="rounded-2xl border border-white/12 bg-white/[.055] p-4 sm:p-5"
       onSubmit={submit}
     >
@@ -1116,32 +1135,38 @@ function PublicContactForm({
         <Send className="mt-0.5 size-5 shrink-0 text-amber-200" />
       </div>
       <div className="mt-5 grid gap-3 sm:grid-cols-2">
-        <label className="text-xs font-semibold text-white/80">
+        <label className={`text-xs font-semibold ${fieldErrors.fullName?.[0] ? "text-rose-100" : "text-white/80"}`}>
           {french ? "Nom complet" : "Full name"} *
-          <input className={fieldClass} name="name" autoComplete="name" minLength={2} maxLength={150} required />
+          <input className={fieldClassFor("fullName")} name="name" autoComplete="name" minLength={2} maxLength={150} required aria-invalid={Boolean(fieldErrors.fullName?.[0])} />
+          {fieldErrors.fullName?.[0] ? <span className="mt-1 block text-xs font-medium text-rose-100">{fieldErrors.fullName[0]}</span> : null}
         </label>
         <label className="text-xs font-semibold text-white/80">
           {french ? "Téléphone" : "Phone"}
-          <input className={fieldClass} name="phone" type="tel" autoComplete="tel" maxLength={40} />
+          <input className={fieldClassFor("phone")} name="phone" type="tel" autoComplete="tel" maxLength={40} aria-invalid={Boolean(fieldErrors.phone?.[0])} />
+          {fieldErrors.phone?.[0] ? <span className="mt-1 block text-xs font-medium text-rose-100">{fieldErrors.phone[0]}</span> : null}
         </label>
-        <label className="text-xs font-semibold text-white/80">
+        <label className={`text-xs font-semibold ${fieldErrors.email?.[0] ? "text-rose-100" : "text-white/80"}`}>
           {french ? "E-mail" : "Email"} *
-          <input className={fieldClass} name="email" type="email" autoComplete="email" maxLength={255} required />
+          <input className={fieldClassFor("email")} name="email" type="email" autoComplete="email" maxLength={255} required aria-invalid={Boolean(fieldErrors.email?.[0])} />
+          {fieldErrors.email?.[0] ? <span className="mt-1 block text-xs font-medium text-rose-100">{fieldErrors.email[0]}</span> : null}
         </label>
-        <label className="text-xs font-semibold text-white/80">
+        <label className={`text-xs font-semibold ${fieldErrors.subject?.[0] ? "text-rose-100" : "text-white/80"}`}>
           {french ? "Objet" : "Subject"} *
-          <input className={fieldClass} name="subject" minLength={3} maxLength={180} required />
+          <input className={fieldClassFor("subject")} name="subject" minLength={3} maxLength={180} required aria-invalid={Boolean(fieldErrors.subject?.[0])} />
+          {fieldErrors.subject?.[0] ? <span className="mt-1 block text-xs font-medium text-rose-100">{fieldErrors.subject[0]}</span> : null}
         </label>
-        <label className="text-xs font-semibold text-white/80 sm:col-span-2">
+        <label className={`text-xs font-semibold sm:col-span-2 ${fieldErrors.message?.[0] ? "text-rose-100" : "text-white/80"}`}>
           {french ? "Votre message" : "Your message"} *
           <textarea
-            className={`${fieldClass} min-h-28 py-3`}
+            className={`${fieldClassFor("message")} min-h-28 py-3`}
             name="message"
             minLength={5}
             maxLength={4000}
             required
             rows={5}
+            aria-invalid={Boolean(fieldErrors.message?.[0])}
           />
+          {fieldErrors.message?.[0] ? <span className="mt-1 block text-xs font-medium text-rose-100">{fieldErrors.message[0]}</span> : null}
         </label>
         <input
           className="hidden"
@@ -1237,28 +1262,24 @@ export function PublicWebsiteRenderer({
   )
     ? pageLink("projets")
     : "#contact";
-  const hasSelectedWebsiteImage = page.sections.some((section) =>
-    Boolean(
-      safeImage(
-        text(
-          section.content,
-          "image",
-          text(section.content, "secondary_image"),
-        ),
-      ),
-    ),
+  // On the branded domain this is /account. Congo Omega's private builder
+  // preview uses its own explicit path so the owner can test the same journey
+  // locally before publishing it.
+  const isCongoOmega = ["congo-omega", "kins"].includes(
+    website.organization_slug.toLowerCase(),
   );
-  const legacyHeroTitle = text(
-    page.sections.find((section) => section.section_type === "hero")?.content ??
-      {},
-    "title_fr",
-  );
+  const publicAccountHref = contactDomain
+    ? "/account"
+    : isCongoOmega
+      ? `${siteBase}/account`
+      : null;
+  // The packaged Congo Omega landing is only a safety net for a genuinely
+  // empty home page. Once an owner has blocks in the builder, their order and
+  // content are authoritative — even before they choose an image.
   const useCongoOmegaLanding =
     website.display_name.replace(/\s+/g, "").toLowerCase() === "congoomega" &&
     page.slug === "accueil" &&
-    (!hasSelectedWebsiteImage ||
-      legacyHeroTitle ===
-        "Une entreprise proche du terrain, guidée par des résultats réels.");
+    page.sections.length === 0;
   const visibleSections = useCongoOmegaLanding
     ? congoOmegaLandingSections
     : page.sections;
@@ -1311,6 +1332,15 @@ export function PublicWebsiteRenderer({
                 <BriefcaseBusiness className="size-3" />
                 {language === "fr" ? "Nous rejoindre" : "Join us"}
               </WebsiteLink>
+              {publicAccountHref ? (
+                <a
+                  className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 font-semibold text-white/88 transition hover:bg-white/16 hover:text-white"
+                  href={publicAccountHref}
+                >
+                  <UserRound className="size-3" />
+                  {language === "fr" ? "Mon compte" : "My account"}
+                </a>
+              ) : null}
             </div>
           </div>
           <div className="flex min-h-[70px] items-center justify-between gap-4 rounded-[1.35rem] border border-slate-200/80 bg-white/92 px-4 shadow-[0_20px_42px_-30px_rgba(15,23,42,.55)] backdrop-blur-xl sm:min-h-[76px] sm:px-6 lg:rounded-t-none lg:px-7 xl:px-9">
@@ -1373,13 +1403,24 @@ export function PublicWebsiteRenderer({
               </button>
             </nav>
             <div className="hidden xl:block">
-              <a
-                href="#contact"
-                className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-slate-950 px-4 text-[13px] font-semibold text-white shadow-[0_16px_28px_-18px_rgba(15,23,42,.85)] transition hover:-translate-y-0.5 hover:bg-slate-800"
-              >
-                {copy[language].contact}
-                <ArrowUpRight className="size-3.5" />
-              </a>
+              <div className="flex items-center gap-2">
+                {publicAccountHref ? (
+                  <a
+                    href={publicAccountHref}
+                    className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 text-[13px] font-semibold text-slate-800 transition hover:border-slate-300 hover:bg-slate-50"
+                  >
+                    <UserRound className="size-3.5" />
+                    {language === "fr" ? "Mon compte" : "My account"}
+                  </a>
+                ) : null}
+                <a
+                  href="#contact"
+                  className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-slate-950 px-4 text-[13px] font-semibold text-white shadow-[0_16px_28px_-18px_rgba(15,23,42,.85)] transition hover:-translate-y-0.5 hover:bg-slate-800"
+                >
+                  {copy[language].contact}
+                  <ArrowUpRight className="size-3.5" />
+                </a>
+              </div>
             </div>
             <button
               onClick={() => setMenuOpen(true)}
@@ -1440,6 +1481,16 @@ export function PublicWebsiteRenderer({
                 {language === "fr" ? item.label_fr : item.label_en}
               </WebsiteLink>
             ))}
+            {publicAccountHref ? (
+              <a
+                href={publicAccountHref}
+                onClick={() => setMenuOpen(false)}
+                className="mt-2 flex items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 font-semibold text-emerald-950"
+              >
+                <UserRound className="size-4" />
+                {language === "fr" ? "Mon compte client" : "My customer account"}
+              </a>
+            ) : null}
             <a
               href="#contact"
               onClick={() => setMenuOpen(false)}
@@ -1592,6 +1643,15 @@ export function PublicWebsiteRenderer({
                 <Globe2 className="size-4 text-amber-200" />
                 {language === "fr" ? "Nos projets" : "Our projects"}
               </WebsiteLink>
+              {publicAccountHref ? (
+                <a
+                  href={publicAccountHref}
+                  className="inline-flex w-fit items-center gap-2 transition hover:text-white"
+                >
+                  <UserRound className="size-4 text-amber-200" />
+                  {language === "fr" ? "Mon compte" : "My account"}
+                </a>
+              ) : null}
             </div>
           </div>
           <div>
@@ -1635,6 +1695,12 @@ export function PublicWebsiteRenderer({
             <a className="transition hover:text-white" href="#contact">
               {language === "fr" ? "Contact" : "Contact"}
             </a>
+            {publicAccountHref ? (
+              <a className="inline-flex items-center gap-1.5 font-semibold text-amber-100 transition hover:text-white" href={publicAccountHref}>
+                <UserRound className="size-3.5" />
+                {language === "fr" ? "Mon compte" : "My account"}
+              </a>
+            ) : null}
             <WebsiteLink
               className="transition hover:text-white"
               href={careersHref(website)}

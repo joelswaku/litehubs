@@ -5,13 +5,15 @@ import { publicCareerMetadata, publicUrl } from "@/lib/seo";
 export async function generateMetadata({ params }: { params: Promise<{ orgSlug: string }> }): Promise<Metadata> {
   const { orgSlug } = await params;
   const catalog = await publicCareerMetadata(orgSlug);
-  const organizationName = catalog?.organizationName;
+  const organizationName = ["congo-omega", "kins"].includes(orgSlug.toLowerCase())
+    ? "Congo Omega"
+    : catalog?.organizationName;
   const openRoles = catalog?.jobs?.length ?? 0;
   const indexable = Boolean(organizationName && openRoles);
   const title = organizationName ? `Carrières · ${organizationName}` : "Carrières";
   const description = organizationName
     ? `${openRoles} poste(s) ouvert(s) chez ${organizationName}. Découvrez les opportunités et postulez en ligne.`
-    : "Découvrez les opportunités professionnelles disponibles sur LiteHubs.";
+    : "Découvrez les opportunités professionnelles disponibles au sein de l’entreprise.";
   const path = `/careers/${encodeURIComponent(orgSlug)}`;
   return {
     title,

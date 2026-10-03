@@ -67,6 +67,26 @@ const REVIEWED_EXCEPTIONS = new Map<string, string>([
     "An invite is looked up by its token alone, before any organization context " +
       "exists, so the hash has to be unique across the whole platform.",
   ],
+  [
+    "organization_website_settings:organization_website_settings_domain_unique",
+    "A public domain is globally routable and therefore must belong to only one company.",
+  ],
+  [
+    "organization_website_sections:organization_website_sections_page_order_unique",
+    "page_id is a globally unique UUID and is already constrained to the same organization by its composite foreign key.",
+  ],
+  [
+    "organization_website_media:organization_website_media_storage_key_unique",
+    "An object-storage key is globally unique so one uploaded public image can never overwrite another company's file.",
+  ],
+  [
+    "public_customer_account_tokens:public_customer_account_tokens_token_hash_key",
+    "A one-use opaque token is resolved before an organization context exists, so its HMAC fingerprint must be unique platform-wide.",
+  ],
+  [
+    "public_customer_refresh_tokens:public_customer_refresh_tokens_token_hash_key",
+    "A browser refresh token is resolved before an organization context exists, so its HMAC fingerprint must be unique platform-wide.",
+  ],
 ]);
 
 function isReviewedException(
