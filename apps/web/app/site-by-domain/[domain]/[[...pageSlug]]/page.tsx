@@ -48,8 +48,11 @@ export async function generateMetadata({
   const canonical = `${origin}${slug ? `/${encodeURIComponent(slug)}` : ""}`;
   const image = publicWebsiteImage(detail, origin);
   const brand = detail.website.displayName ?? "Entreprise";
+  const publicTitle = isCongoOmega && !title.toLowerCase().includes(brand.toLowerCase())
+    ? `${title} | ${brand}`
+    : title;
   return {
-    title: isCongoOmega ? { absolute: title } : title,
+    title: isCongoOmega ? { absolute: publicTitle } : title,
     description,
     keywords: [brand, "agriculture locale", "élevage", "production responsable"],
     authors: [{ name: brand }],
@@ -62,13 +65,13 @@ export async function generateMetadata({
       locale: "fr_FR",
       siteName: detail.website.displayName,
       url: canonical,
-      title,
+      title: publicTitle,
       description,
       ...(image ? { images: [{ url: image }] } : {}),
     },
     twitter: {
       card: image ? "summary_large_image" : "summary",
-      title,
+      title: publicTitle,
       description,
       ...(image ? { images: [image] } : {}),
     },

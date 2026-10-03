@@ -40,7 +40,9 @@ export async function generateMetadata({ params }: { params: Promise<{ orgSlug: 
   const { origin, congoOmega } = await careersPublicContext();
   const canonical = `${origin}${path}`;
   return {
-    title,
+    // The public Congo Omega domain is served by the LiteHubs deployment, but
+    // its browser title and search result must never inherit the product name.
+    title: congoOmega ? { absolute: title } : title,
     description,
     keywords: [organizationName ?? "Carrières", "recrutement", "emploi", "opportunités professionnelles"],
     authors: organizationName ? [{ name: organizationName }] : undefined,

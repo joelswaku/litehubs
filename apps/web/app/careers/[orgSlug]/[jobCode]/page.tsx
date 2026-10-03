@@ -48,7 +48,9 @@ export async function generateMetadata({ params }: { params: Promise<{ orgSlug: 
   const { origin, congoOmega } = await careersPublicContext();
   const canonical = `${origin}${path}`;
   return {
-    title,
+    // A job opening is a Congo Omega public record, not a LiteHubs product
+    // page, even though both use the same Next.js deployment.
+    title: congoOmega ? { absolute: title } : title,
     description,
     keywords: [organizationName, job.title, "emploi", "recrutement"],
     authors: [{ name: organizationName }],
