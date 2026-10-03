@@ -35,6 +35,7 @@ import {
   publicWebsiteDomainParams,
   publicWebsiteContactInputSchema,
   websitePageCreateSchema,
+  websitePageOrderSchema,
   websitePageParams,
   websitePageUpdateSchema,
   websitePublicationInputSchema,
@@ -195,6 +196,13 @@ companySetupRoutes.post(
   requireOwner,
   validate({ body: websitePageCreateSchema }),
   controller.createWebsitePage,
+);
+companySetupRoutes.put(
+  "/organizations/:orgSlug/website/pages/order",
+  ...inOrganization,
+  requireOwner,
+  validate({ body: websitePageOrderSchema }),
+  controller.reorderWebsitePages,
 );
 companySetupRoutes.post(
   "/organizations/:orgSlug/website/starter-pages",

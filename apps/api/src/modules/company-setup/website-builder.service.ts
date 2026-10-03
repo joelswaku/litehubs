@@ -15,6 +15,7 @@ import {
 import { withTenantContext, withUserContext } from "../../utils/tenant-query";
 import type {
   WebsitePageCreateInput,
+  WebsitePageOrderInput,
   WebsitePageUpdateInput,
   WebsiteSectionsInput,
   WebsiteSettingsInput,
@@ -1580,6 +1581,46 @@ export async function updateWebsitePage(
         );
       throw error;
     }
+  });
+}
+
+/** Stores the exact navigation order chosen in the website editor. The home
+ * page remains first in the UI, while all other pages can be arranged freely. */
+export async function reorderWebsitePages(
+  context: SetupContext,
+  input: WebsitePageOrderInput,
+) {
+  return withTenantContext(context, async (client) => {
+    const website = await requireWebsite(client, context.organizationId);
+    const pages = await client.query<{ id: string; is_home: boolean }>(
+      `SELECT id,is_home FROM organization_website_pages
+        WHERE organization_id=$1 AND website_id=$2
+        ORDER BY sort_order, slug
+        FOR UPDATE`,
+      [context.organizationId, website.id],
+    );
+    const known = new Set(pages.rows.map((page) => page.id));
+    if (
+      input.pageIds.length !== known.size ||
+      input.pageIds.some((pageId) => !known.has(pageId))
+    ) {
+      throw new BadRequestError(
+        "The page order must include every page in this website exactly once",
+      );
+    }
+    const home = pages.rows.find((page) => page.is_home);
+    if (home && input.pageIds[0] !== home.id) {
+      throw new BadRequestError("The home page must remain first");
+    }
+    for (const [sortOrder, pageId] of input.pageIds.entries()) {
+      await client.query(
+        `UPDATE organization_website_pages
+            SET sort_order=$3,updated_by_member_id=$4
+          WHERE organization_id=$1 AND id=$2`,
+        [context.organizationId, pageId, sortOrder, context.memberId],
+      );
+    }
+    return { pageIds: input.pageIds };
   });
 }
 

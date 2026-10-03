@@ -235,6 +235,17 @@ const websitePageFields = {
 
 export const websitePageCreateSchema = z.object(websitePageFields).strict();
 export const websitePageUpdateSchema = z.object(websitePageFields).strict();
+export const websitePageOrderSchema = z
+  .object({
+    pageIds: z
+      .array(idSchema)
+      .min(1)
+      .max(100)
+      .refine((ids) => new Set(ids).size === ids.length, {
+        message: "Each page can appear only once in the order",
+      }),
+  })
+  .strict();
 export const websiteMediaParams = organizationParams.extend({ mediaId: idSchema });
 
 const websiteSectionTypeSchema = z.enum([
@@ -323,6 +334,7 @@ export const websitePublicationInputSchema = z
 export type WebsiteSettingsInput = z.infer<typeof websiteSettingsInputSchema>;
 export type WebsitePageCreateInput = z.infer<typeof websitePageCreateSchema>;
 export type WebsitePageUpdateInput = z.infer<typeof websitePageUpdateSchema>;
+export type WebsitePageOrderInput = z.infer<typeof websitePageOrderSchema>;
 export type WebsiteSectionsInput = z.infer<typeof websiteSectionsInputSchema>;
 export type PublicWebsiteContactInput = z.infer<
   typeof publicWebsiteContactInputSchema

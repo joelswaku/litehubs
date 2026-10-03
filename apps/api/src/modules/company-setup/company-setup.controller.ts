@@ -16,6 +16,7 @@ import type {
   UpdateRoleInput,
   UpdateSiteInput,
   WebsitePageCreateInput,
+  WebsitePageOrderInput,
   WebsitePageUpdateInput,
   WebsiteSectionsInput,
   WebsiteSettingsInput,
@@ -118,6 +119,15 @@ export const createWebsitePage: RequestHandler = async (req, res) => {
       req.body as WebsitePageCreateInput,
     ),
   });
+};
+
+export const reorderWebsitePages: RequestHandler = async (req, res) => {
+  res.json(
+    await websiteBuilder.reorderWebsitePages(
+      contextOf(req),
+      req.body as WebsitePageOrderInput,
+    ),
+  );
 };
 
 export const addWebsiteStarterPages: RequestHandler = async (req, res) => {

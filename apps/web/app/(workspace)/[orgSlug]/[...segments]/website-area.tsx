@@ -11,6 +11,7 @@ import {
   Eye,
   FilePlus2,
   Globe2,
+  GripVertical,
   ImagePlus,
   Images,
   Layers3,
@@ -491,6 +492,17 @@ export function WebsiteArea({ orgSlug }: { orgSlug: string }) {
     },
     onError: (error: Error) => toast.error(error.message),
   });
+  const reorderPages = useMutation({
+    mutationFn: (pageIds: string[]) =>
+      put(orgUrl(orgSlug, "website/pages/order"), { pageIds }),
+    onSuccess: () => {
+      refresh();
+      toast.success(
+        tr(fr, "Ordre du menu enregistré", "Menu order saved"),
+      );
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
   const publication = useMutation({
     mutationFn: (status: "draft" | "published" | "paused") =>
       post(orgUrl(orgSlug, "website/publication"), { status }),
@@ -680,6 +692,8 @@ export function WebsiteArea({ orgSlug }: { orgSlug: string }) {
               onPublish={(page) => publishPage.mutate(page.id)}
               publishing={publishPage.isPending}
               onArchive={(page) => archivePage.mutate(page.id)}
+              onReorder={(pageIds) => reorderPages.mutate(pageIds)}
+              reordering={reorderPages.isPending}
               newPage={newPage}
               onCancel={() => setNewPage(false)}
               onCreate={(payload) => createPage.mutate(payload)}
@@ -782,6 +796,8 @@ function PagesTab({
   onPublish,
   publishing,
   onArchive,
+  onReorder,
+  reordering,
   newPage,
   onCancel,
   onCreate,
@@ -801,12 +817,50 @@ function PagesTab({
   onPublish: (page: BuilderPage) => void;
   publishing: boolean;
   onArchive: (page: BuilderPage) => void;
+  onReorder: (pageIds: string[]) => void;
+  reordering: boolean;
   newPage: boolean;
   onCancel: () => void;
   onCreate: (payload: Record<string, unknown>) => void;
   creating: boolean;
   fr: boolean;
 }) {
+  const [draggedPageId, setDraggedPageId] = useState<string | null>(null);
+  const [dragOverPageId, setDragOverPageId] = useState<string | null>(null);
+  const homeIndex = pages.findIndex((page) => page.isHome);
+  const firstMovableIndex = homeIndex >= 0 ? homeIndex + 1 : 0;
+
+  const movePage = (pageId: string, direction: -1 | 1) => {
+    const currentIndex = pages.findIndex((page) => page.id === pageId);
+    const targetIndex = Math.max(
+      firstMovableIndex,
+      Math.min(pages.length - 1, currentIndex + direction),
+    );
+    if (currentIndex < firstMovableIndex || targetIndex === currentIndex) return;
+    const nextPages = [...pages];
+    const currentPage = nextPages[currentIndex];
+    const targetPage = nextPages[targetIndex];
+    if (!currentPage || !targetPage) return;
+    nextPages[currentIndex] = targetPage;
+    nextPages[targetIndex] = currentPage;
+    onReorder(nextPages.map((page) => page.id));
+  };
+
+  const moveDraggedPage = (targetId: string) => {
+    if (!draggedPageId || draggedPageId === targetId) return;
+    const movingPage = pages.find((page) => page.id === draggedPageId);
+    if (!movingPage || movingPage.isHome) return;
+    const nextPages = pages.filter((page) => page.id !== draggedPageId);
+    const targetIndex = nextPages.findIndex((page) => page.id === targetId);
+    const home = nextPages.find((page) => page.isHome);
+    nextPages.splice(
+      targetId === home?.id ? 1 : Math.max(0, targetIndex),
+      0,
+      movingPage,
+    );
+    onReorder(nextPages.map((page) => page.id));
+  };
+
   return (
     <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
       <Card>
@@ -870,12 +924,46 @@ function PagesTab({
             </p>
           </div>
           {pages.length ? (
-            <div className="divide-y divide-border rounded-lg border border-border">
-              {pages.map((page) => (
+            <>
+              <p className="mb-3 text-sm text-ink-secondary">
+                {tr(
+                  fr,
+                  "Glissez une page par sa poignée pour changer l’ordre du menu. Accueil reste en première position.",
+                  "Drag a page by its handle to change the menu order. Home stays first.",
+                )}
+              </p>
+              <div className="divide-y divide-border rounded-lg border border-border">
+              {pages.map((page, index) => (
                 <div
                   key={page.id}
-                  className={`flex flex-wrap items-center justify-between gap-3 p-4 transition-colors ${selectedId === page.id ? "bg-surface-2" : "hover:bg-surface-2/65"}`}
+                  draggable={!page.isHome && !reordering}
+                  onDragStart={() => {
+                    if (!page.isHome) setDraggedPageId(page.id);
+                  }}
+                  onDragEnd={() => {
+                    setDraggedPageId(null);
+                    setDragOverPageId(null);
+                  }}
+                  onDragOver={(event) => {
+                    if (!reordering) {
+                      event.preventDefault();
+                      setDragOverPageId(page.id);
+                    }
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    moveDraggedPage(page.id);
+                    setDraggedPageId(null);
+                    setDragOverPageId(null);
+                  }}
+                  className={`flex flex-wrap items-center justify-between gap-3 p-4 transition-all ${selectedId === page.id ? "bg-surface-2" : "hover:bg-surface-2/65"} ${draggedPageId === page.id ? "opacity-45" : ""} ${dragOverPageId === page.id && draggedPageId !== page.id ? "border-y-2 border-brand bg-brand/[.06]" : ""}`}
                 >
+                  <span
+                    className={`flex size-8 shrink-0 items-center justify-center rounded-md text-ink-muted ${page.isHome ? "cursor-not-allowed opacity-40" : "cursor-grab active:cursor-grabbing"}`}
+                    aria-hidden="true"
+                  >
+                    <GripVertical className="size-4" />
+                  </span>
                   <button
                     type="button"
                     className="group min-w-0 flex-1 cursor-pointer rounded-lg px-1 py-1 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand"
@@ -900,6 +988,34 @@ function PagesTab({
                     </p>
                   </button>
                   <div className="flex items-center gap-2">
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      type="button"
+                      disabled={
+                        reordering ||
+                        page.isHome ||
+                        index <= firstMovableIndex
+                      }
+                      aria-label={tr(fr, "Déplacer vers le haut", "Move up")}
+                      onClick={() => movePage(page.id, -1)}
+                    >
+                      <ChevronUp />
+                    </Button>
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      type="button"
+                      disabled={
+                        reordering ||
+                        page.isHome ||
+                        index >= pages.length - 1
+                      }
+                      aria-label={tr(fr, "Déplacer vers le bas", "Move down")}
+                      onClick={() => movePage(page.id, 1)}
+                    >
+                      <ChevronDown />
+                    </Button>
                     <Button
                       size="sm"
                       variant="secondary"
@@ -944,7 +1060,8 @@ function PagesTab({
                   </div>
                 </div>
               ))}
-            </div>
+              </div>
+            </>
           ) : (
             <EmptyState
               title={tr(fr, "Aucune page", "No pages")}
