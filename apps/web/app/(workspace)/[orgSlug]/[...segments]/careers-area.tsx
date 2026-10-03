@@ -1389,6 +1389,15 @@ function CandidateDetail({
                   </span>
                 </span>
               </label>
+              {status === "offered" ? (
+                <p className="mt-3 rounded-lg border border-brand/20 bg-brand/5 px-3 py-2 text-xs leading-5 text-ink-secondary">
+                  {tr(
+                    fr,
+                    "Avec l’offre, Congo Omega envoie automatiquement une fiche d’intégration sécurisée. Le candidat y complète son identité, son adresse, ses contacts d’urgence et ses pièces privées. Après validation RH et l’étape « Recruté », la fiche employé pourra être créée en un clic depuis Ressources humaines.",
+                    "With the offer, Congo Omega automatically sends a secure onboarding form. The candidate completes identity, address, emergency contacts and private documents. After HR validation and the Hired stage, an employee record can be created in one click from Human resources.",
+                  )}
+                </p>
+              ) : null}
               {notifyCandidate ? (
                 <div className="mt-4">
                   <Field
@@ -1430,7 +1439,9 @@ function CandidateDetail({
                   })
                 }
               >
-                {notifyCandidate
+                {status === "offered"
+                  ? tr(fr, "Envoyer l’offre et la fiche d’intégration", "Send offer and onboarding form")
+                  : notifyCandidate
                   ? tr(fr, "Mettre à jour et prévenir", "Update and notify")
                   : tr(fr, "Mettre à jour", "Update")}
               </Button>

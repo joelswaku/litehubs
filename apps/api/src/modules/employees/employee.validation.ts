@@ -89,6 +89,10 @@ const updateFields = {
   lastName: optionalTextSchema(80).nullable(),
   postName: optionalTextSchema(80).nullable(),
   firstName: optionalTextSchema(80).nullable(),
+  dateOfBirth: z.string().date("Use YYYY-MM-DD").nullable().optional(),
+  placeOfBirth: optionalTextSchema(160).nullable(),
+  identityDocumentNumber: optionalTextSchema(160).nullable(),
+  socialSecurityNumber: optionalTextSchema(100).nullable(),
   jobTitle: textSchema(150).optional(),
   provinceId: idSchema.nullable().optional(),
   siteId: idSchema.nullable().optional(),
@@ -117,6 +121,13 @@ export const createEmployeeSchema = z
     lastName: optionalTextSchema(80),
     postName: optionalTextSchema(80),
     firstName: optionalTextSchema(80),
+    // Optional link used only when HR creates this record from a completed
+    // recruitment onboarding form. The service reads the source fields itself.
+    careerApplicationId: idSchema.optional(),
+    dateOfBirth: z.string().date("Use YYYY-MM-DD").optional(),
+    placeOfBirth: optionalTextSchema(160),
+    identityDocumentNumber: optionalTextSchema(160),
+    socialSecurityNumber: optionalTextSchema(100),
     jobTitle: textSchema(150),
     provinceId: idSchema.optional(),
     siteId: idSchema.optional(),
@@ -136,6 +147,10 @@ export const createEmployeeSchema = z
     notes: optionalTextSchema(2_000),
   })
   .superRefine((value, context) => {
+    // HR can create an employee from a completed, recruited candidate. In
+    // that path the service loads the legal identity from the private
+    // onboarding record instead of trusting browser-supplied names.
+    if (value.careerApplicationId) return;
     if (value.fullName || (value.lastName && value.firstName)) return;
     context.addIssue({
       code: z.ZodIssueCode.custom,

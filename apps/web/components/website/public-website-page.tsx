@@ -5,75 +5,13 @@ import { get } from "@/lib/api";
 import { ErrorState, SkeletonCard } from "@/components/ui/states";
 import {
   PublicWebsiteRenderer,
-  type PublicWebsite,
-  type PublicWebsitePage,
 } from "./public-website-renderer";
+import {
+  publicWebsiteRendererData,
+  type PublicWebsiteResponse,
+} from "./public-website-data";
 
-export type PublicWebsiteResponse = {
-  website: {
-    organizationSlug: string;
-    displayName: string;
-    tagline: string | null;
-    defaultLocale: "fr" | "en";
-    themePreset: string;
-    primaryColor: string;
-    accentColor: string;
-    logoUrl: string | null;
-    contactEmail: string | null;
-    contactPhone: string | null;
-    addressText: string | null;
-    footerText: string | null;
-    pages: Array<{ slug: string; labelFr: string; labelEn: string }>;
-  };
-  page: {
-    slug: string;
-    titleFr: string;
-    titleEn: string;
-    descriptionFr: string | null;
-    descriptionEn: string | null;
-    sections: Array<{ id: string; type: PublicWebsitePage["sections"][number]["section_type"]; content: Record<string, unknown> }>;
-  };
-};
-
-export function publicWebsiteRendererData(data: PublicWebsiteResponse): {
-  website: PublicWebsite;
-  page: PublicWebsitePage;
-} {
-  return {
-    website: {
-      organization_slug: data.website.organizationSlug,
-      display_name: data.website.displayName,
-      tagline: data.website.tagline,
-      default_locale: data.website.defaultLocale,
-      theme_preset: data.website.themePreset,
-      primary_color: data.website.primaryColor,
-      accent_color: data.website.accentColor,
-      logo_url: data.website.logoUrl,
-      contact_email: data.website.contactEmail,
-      contact_phone: data.website.contactPhone,
-      address: data.website.addressText,
-      footer_text: data.website.footerText,
-      navigation: data.website.pages.map((page) => ({
-        slug: page.slug,
-        label_fr: page.labelFr,
-        label_en: page.labelEn,
-      })),
-    },
-    page: {
-      slug: data.page.slug,
-      title_fr: data.page.titleFr,
-      title_en: data.page.titleEn,
-      description_fr: data.page.descriptionFr,
-      description_en: data.page.descriptionEn,
-      sections: data.page.sections.map((section, index) => ({
-        id: section.id,
-        section_type: section.type,
-        content: section.content,
-        sort_order: index,
-      })),
-    },
-  };
-}
+export { publicWebsiteRendererData, type PublicWebsiteResponse } from "./public-website-data";
 
 export function PublicWebsitePage({
   organizationSlug,

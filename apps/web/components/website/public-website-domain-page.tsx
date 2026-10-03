@@ -7,7 +7,7 @@ import { PublicWebsiteRenderer } from "./public-website-renderer";
 import {
   publicWebsiteRendererData,
   type PublicWebsiteResponse,
-} from "./public-website-page";
+} from "./public-website-data";
 import type { PublicWebsite, PublicWebsitePage, WebsiteSection } from "./public-website-renderer";
 
 const congoOmegaDomains = new Set(["congoomega.com", "www.congoomega.com"]);

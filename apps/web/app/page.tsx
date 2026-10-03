@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { APP_NAME } from "@/lib/constants";
-import { INDEXABLE, publicUrl } from "@/lib/seo";
+import { INDEXABLE, publicUrl, serializeJsonLd } from "@/lib/seo";
 import { LandingPage } from "./landing-page";
 
 const TAGLINE = "Logiciel de gestion avicole, porcine et agricole";
@@ -38,6 +38,21 @@ export const metadata: Metadata = {
     title: `${APP_NAME} — ${TAGLINE}`,
     description:
       "Pilotez vos élevages, cultures, équipes et opérations depuis une seule plateforme sécurisée.",
+    images: [
+      {
+        url: publicUrl("/opengraph-image"),
+        width: 1200,
+        height: 630,
+        alt: "LiteHubs — gestion agricole, avicole et porcine",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: `${APP_NAME} — ${TAGLINE}`,
+    description:
+      "Pilotez vos élevages, cultures, équipes et opérations depuis une seule plateforme sécurisée.",
+    images: [publicUrl("/opengraph-image")],
   },
   alternates: { canonical: "/" },
   robots: INDEXABLE,
@@ -108,7 +123,7 @@ const structuredData = {
 
 export default function RootPage() {
   return <>
-    <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }} />
+    <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializeJsonLd(structuredData) }} />
     <LandingPage />
   </>;
 }

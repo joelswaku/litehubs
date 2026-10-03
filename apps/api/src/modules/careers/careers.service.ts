@@ -1,4 +1,6 @@
+import { createHash, randomBytes } from "node:crypto";
 import type { PoolClient } from "pg";
+import { env } from "../../config/env";
 import { db } from "../../config/database";
 import {
   deletePrivateDocument,
@@ -20,6 +22,7 @@ import type {
   JobPostInput,
   JobQuery,
   PublicApplicationInput,
+  PublicOnboardingInput,
 } from "./careers.validation";
 
 export interface CareersContext {
@@ -466,6 +469,44 @@ export async function listApplications(
   });
 }
 
+function hashOnboardingToken(token: string) {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+function candidateOnboardingUrl(orgSlug: string, token: string) {
+  return `${env.frontendUrl.replace(/\/$/, "")}/careers/${encodeURIComponent(orgSlug)}/onboarding/${encodeURIComponent(token)}`;
+}
+
+/** Creates a single-use, expiring form when an offer is first sent.  The raw
+ * token exists only long enough to place it in the candidate message. */
+async function issueCandidateOnboarding(
+  client: PoolClient,
+  context: CareersContext,
+  application: Row,
+) {
+  const token = randomBytes(32).toString("base64url");
+  const tokenHash = hashOnboardingToken(token);
+  const issued = await client.query<{ id: string }>(
+    `INSERT INTO career_candidate_onboardings(
+       organization_id,application_id,token_hash,status,expires_at,created_by_user_id
+     ) VALUES($1,$2,$3,'pending',now() + interval '21 days',$4)
+     ON CONFLICT(organization_id,application_id) DO UPDATE
+       SET token_hash=EXCLUDED.token_hash,
+           status='pending',
+           expires_at=EXCLUDED.expires_at,
+           submitted_at=NULL,
+           completed_at=NULL,
+           created_by_user_id=EXCLUDED.created_by_user_id
+       WHERE career_candidate_onboardings.status <> 'completed'
+     RETURNING id`,
+    [context.organizationId, application.id, tokenHash, context.userId],
+  );
+  // A completed record is evidence. It is deliberately never overwritten by
+  // resending an offer; HR can see and reuse the completed dossier instead.
+  if (!issued.rowCount) return null;
+  return candidateOnboardingUrl(context.organizationSlug, token);
+}
+
 export async function updateApplication(
   context: CareersContext,
   applicationId: string,
@@ -500,10 +541,20 @@ export async function updateApplication(
         candidateNotificationRequested: input.notifyCandidate,
       },
     );
+    const onboardingUrl =
+      input.status === "offered" &&
+      current.status !== "offered" &&
+      Boolean(current.email || current.phone)
+        ? await issueCandidateOnboarding(client, context, current)
+        : null;
     const application = mapApplication(
       await applicationById(client, context.organizationId, applicationId),
     );
-    const shouldNotify = input.notifyCandidate && Boolean(current.email || current.phone);
+    // An offer always carries its integration form. The normal status notice
+    // remains optional for all other stages, but never suppresses the form.
+    const shouldNotify =
+      (input.notifyCandidate || Boolean(onboardingUrl)) &&
+      Boolean(current.email || current.phone);
     const message = (
       input.candidateMessage ||
       defaultCandidateStatusMessage({
@@ -526,6 +577,7 @@ export async function updateApplication(
           sms: Boolean(current.phone),
           customMessage: Boolean(input.candidateMessage),
           messageLength: message.length,
+          onboardingFormIssued: Boolean(onboardingUrl),
         },
       );
     }
@@ -546,6 +598,7 @@ export async function updateApplication(
               status: input.status,
               message,
               french: current.preferred_language !== "en",
+              onboardingUrl,
             }
           : null,
     };
@@ -817,6 +870,228 @@ export async function publicApply(
   }
 }
 
+type PublicOnboardingContext = {
+  onboardingId: string;
+  organizationId: string;
+  organizationName: string;
+  applicationId: string;
+  candidate: { fullName: string; email: string; phone: string };
+  job: { title: string; siteName: string };
+  expiresAt: string;
+  profile: Record<string, string | null>;
+};
+
+async function onboardingContext(orgSlug: string, token: string) {
+  const result = await db.query<{ payload: PublicOnboardingContext | null }>(
+    `SELECT public_career_onboarding_context($1,$2) AS payload`,
+    [orgSlug, hashOnboardingToken(token)],
+  );
+  const payload = result.rows[0]?.payload;
+  if (!payload)
+    throw new NotFoundError(
+      "This secure onboarding form is unavailable, expired, or has already been completed",
+    );
+  return payload;
+}
+
+/** Public read is token-bound, non-cacheable and contains no document URL. */
+export async function publicOnboarding(orgSlug: string, token: string) {
+  const context = await onboardingContext(orgSlug, token);
+  return {
+    onboarding: {
+      organizationName: context.organizationName,
+      candidate: context.candidate,
+      job: context.job,
+      expiresAt: context.expiresAt,
+      profile: context.profile,
+    },
+  };
+}
+
+function assertOnboardingFile(
+  file: Express.Multer.File,
+  accepted: Set<string>,
+  field: string,
+) {
+  if (!accepted.has(file.mimetype))
+    throw new BadRequestError(`Upload a valid ${field}`, { field });
+}
+
+export async function completePublicOnboarding(
+  orgSlug: string,
+  token: string,
+  input: PublicOnboardingInput,
+  files: { portrait: Express.Multer.File; identityDocument: Express.Multer.File },
+) {
+  const publicContext = await onboardingContext(orgSlug, token);
+  assertOnboardingFile(
+    files.portrait,
+    new Set(["image/jpeg", "image/png", "image/webp"]),
+    "portrait",
+  );
+  assertOnboardingFile(
+    files.identityDocument,
+    new Set(["application/pdf", "image/jpeg", "image/png", "image/webp"]),
+    "identityDocument",
+  );
+  let portrait: Awaited<ReturnType<typeof storePrivateDocument>> | null = null;
+  let identityDocument: Awaited<ReturnType<typeof storePrivateDocument>> | null = null;
+  try {
+    // Store sequentially so a partial upload can always be cleaned if the
+    // second private file fails (for example after a network interruption).
+    portrait = await storePrivateDocument({
+      organizationId: publicContext.organizationId,
+      originalName: files.portrait.originalname,
+      mimeType: files.portrait.mimetype,
+      buffer: files.portrait.buffer,
+    });
+    identityDocument = await storePrivateDocument({
+      organizationId: publicContext.organizationId,
+      originalName: files.identityDocument.originalname,
+      mimeType: files.identityDocument.mimetype,
+      buffer: files.identityDocument.buffer,
+    });
+    if (!portrait || !identityDocument)
+      throw new BadRequestError("The private documents could not be saved");
+    const storedPortrait = portrait;
+    const storedIdentityDocument = identityDocument;
+    const completed = await withTenantContext(
+      { organizationId: publicContext.organizationId, userId: null },
+      async (client) => {
+        const current = await client.query<Row>(
+          `SELECT ob.*,a.full_name,a.email,a.phone,a.status AS application_status,j.title AS job_title,j.site_id,j.province_id
+             FROM career_candidate_onboardings ob
+             JOIN career_applications a ON a.organization_id=ob.organization_id AND a.id=ob.application_id
+             JOIN career_job_posts j ON j.organization_id=a.organization_id AND j.id=a.job_post_id
+            WHERE ob.organization_id=$1 AND ob.id=$2 AND ob.token_hash=$3
+              AND ob.status='pending' AND ob.expires_at > now()
+              AND a.status IN ('offered','hired')
+            FOR UPDATE`,
+          [publicContext.organizationId, publicContext.onboardingId, hashOnboardingToken(token)],
+        );
+        const record = current.rows[0];
+        if (!record)
+          throw new NotFoundError(
+            "This secure onboarding form is unavailable, expired, or has already been completed",
+          );
+        const createdDocuments = await client.query<{ id: string }>(
+          `INSERT INTO documents(
+             organization_id,title,description,category,storage_path,file_name,mime_type,size_bytes,checksum_sha256,
+             subject_table,subject_id,province_id,site_id,is_confidential,uploaded_by
+           ) VALUES
+             ($1,$2,$3,'employee',$4,$5,$6,$7,$8,'career_candidate_onboardings',$9,$10,$11,true,NULL),
+             ($1,$12,$13,'employee',$14,$15,$16,$17,$18,'career_candidate_onboardings',$9,$10,$11,true,NULL)
+           RETURNING id`,
+          [
+            publicContext.organizationId,
+            `Portrait · ${input.lastName} ${input.firstName}`,
+            "Portrait fourni via la fiche d’intégration sécurisée.",
+            storedPortrait.storagePath,
+            files.portrait.originalname,
+            storedPortrait.mimeType,
+            storedPortrait.bytes,
+            storedPortrait.checksumSha256,
+            publicContext.onboardingId,
+            record.province_id,
+            record.site_id,
+            `Pièce d’identité · ${input.lastName} ${input.firstName}`,
+            "Pièce d’identité fournie via la fiche d’intégration sécurisée.",
+            storedIdentityDocument.storagePath,
+            files.identityDocument.originalname,
+            storedIdentityDocument.mimeType,
+            storedIdentityDocument.bytes,
+            storedIdentityDocument.checksumSha256,
+          ],
+        );
+        const [portraitDocument, identityDocumentRecord] = createdDocuments.rows;
+        if (!portraitDocument || !identityDocumentRecord)
+          throw new BadRequestError("The private documents could not be saved");
+        await client.query(
+          `UPDATE career_candidate_onboardings
+              SET status='completed',last_name=$4,post_name=$5,first_name=$6,date_of_birth=$7,place_of_birth=$8,
+                  address_line1=$9,address_line2=$10,address_city=$11,address_region=$12,address_postal_code=$13,address_country=$14,
+                  identity_document_type=$15,identity_document_number=$16,social_security_number=$17,
+                  emergency_contact_name=$18,emergency_contact_relationship=$19,emergency_contact_phone=$20,
+                  portrait_document_id=$21,identity_document_id=$22,submitted_at=now(),completed_at=now()
+            WHERE organization_id=$1 AND id=$2 AND application_id=$3`,
+          [
+            publicContext.organizationId,
+            publicContext.onboardingId,
+            publicContext.applicationId,
+            input.lastName,
+            input.postName,
+            input.firstName,
+            input.dateOfBirth,
+            input.placeOfBirth,
+            input.addressLine1,
+            input.addressLine2 ?? null,
+            input.addressCity,
+            input.addressRegion,
+            input.addressPostalCode ?? null,
+            input.addressCountry,
+            input.identityDocumentType,
+            input.identityDocumentNumber ?? null,
+            input.socialSecurityNumber ?? null,
+            input.emergencyContactName,
+            input.emergencyContactRelationship ?? null,
+            input.emergencyContactPhone,
+            portraitDocument.id,
+            identityDocumentRecord.id,
+          ],
+        );
+        await event(
+          client,
+          publicContext.organizationId,
+          publicContext.applicationId,
+          "onboarding_completed",
+          null,
+          { submittedViaSecureForm: true },
+        );
+        const team = await recipients(client, publicContext.organizationId);
+        await Promise.all(
+          team.map((recipient) =>
+            createNotificationInTransaction(client, {
+              organizationId: publicContext.organizationId,
+              recipientMemberId: recipient.member_id,
+              provinceId: record.province_id,
+              type: "career_onboarding_completed",
+              category: "general",
+              priority: "high",
+              title: "Fiche d’intégration reçue",
+              message: `${record.full_name} a complété sa fiche d’intégration pour ${record.job_title}. La fiche employé peut maintenant être créée depuis Ressources humaines.`,
+              actionUrl: `/${orgSlug}/employees`,
+              entityType: "career_application",
+              entityId: publicContext.applicationId,
+              deduplicationKey: `career-onboarding:${publicContext.onboardingId}:${recipient.member_id}`,
+            }),
+          ),
+        );
+        return { team };
+      },
+    );
+    await Promise.allSettled(
+      completed.team.map((recipient) =>
+        sendMail({
+          to: recipient.email,
+          from: RECRUITMENT_FROM_ADDRESS,
+          subject: "Fiche d’intégration reçue",
+          text: `${publicContext.candidate.fullName} a complété sa fiche d’intégration pour ${publicContext.job.title}. Ouvrez Ressources humaines pour créer sa fiche employé préremplie.`,
+          html: `<p><strong>${escapeHtml(publicContext.candidate.fullName)}</strong> a complété sa fiche d’intégration pour <strong>${escapeHtml(publicContext.job.title)}</strong>.</p><p>Ouvrez Ressources humaines pour créer sa fiche employé préremplie.</p>`,
+        }),
+      ),
+    );
+    return { completed: true };
+  } catch (error) {
+    await Promise.allSettled([
+      ...(portrait ? [deletePrivateDocument(portrait.storagePath)] : []),
+      ...(identityDocument
+        ? [deletePrivateDocument(identityDocument.storagePath)]
+        : []),
+    ]);
+    throw error;
+  }
+}
+
 function buildApplicantConfirmationEmail(
   input: PublicApplicationInput,
   job: Row,
@@ -948,6 +1223,7 @@ type CandidateStatusNotification = {
   status: string;
   message: string;
   french: boolean;
+  onboardingUrl: string | null;
 };
 
 function defaultCandidateStatusMessage({
@@ -996,19 +1272,43 @@ function buildCandidateStatusEmail(notification: CandidateStatusNotification) {
     ? `Pour toute question concernant votre candidature, écrivez à ${CANDIDATE_CONTACT_EMAIL}.`
     : `For questions about your application, email ${CANDIDATE_CONTACT_EMAIL}.`;
   const htmlMessage = escapeHtml(notification.message).replace(/\n/g, "<br />");
+  const onboardingText = notification.onboardingUrl
+    ? notification.french
+      ? "Avant de rejoindre l’équipe, complétez votre fiche d’intégration sécurisée. Elle nous permet de préparer votre dossier RH, vos contacts d’urgence et vos documents d’identité."
+      : "Before joining the team, complete your secure onboarding form. It lets us prepare your HR file, emergency contacts and identity documents."
+    : null;
+  const onboardingAction = notification.onboardingUrl
+    ? notification.french
+      ? "Compléter ma fiche d’intégration"
+      : "Complete my onboarding form"
+    : null;
+  const text = [
+    greeting,
+    "",
+    notification.message,
+    ...(onboardingText && notification.onboardingUrl
+      ? ["", onboardingText, notification.onboardingUrl]
+      : []),
+    "",
+    footer,
+  ].join("\n");
+  const onboardingHtml =
+    onboardingText && notification.onboardingUrl && onboardingAction
+      ? `<div style="margin-top:24px;padding:18px;border:1px solid #ccebd7;border-radius:12px;background:#edf8f1;"><p style="margin:0 0 15px;color:#215e3c;font-size:14px;line-height:1.6;">${escapeHtml(onboardingText)}</p><a href="${escapeHtml(notification.onboardingUrl)}" style="display:inline-block;border-radius:8px;background:#114b32;padding:12px 17px;color:#ffffff;font-size:14px;font-weight:700;text-decoration:none;">${escapeHtml(onboardingAction)}</a><p style="margin:14px 0 0;color:#66776d;font-size:11px;line-height:1.5;">${notification.french ? "Ce lien personnel expire dans 21 jours. Ne le partagez avec personne." : "This personal link expires in 21 days. Do not share it with anyone."}</p></div>`
+      : "";
   return {
     to: notification.email,
     from: RECRUITMENT_FROM_ADDRESS,
     subject,
-    text: [greeting, "", notification.message, "", footer].join("\n"),
-    html: `<!doctype html><html lang="${notification.french ? "fr" : "en"}"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>${escapeHtml(subject)}</title></head><body style="margin:0;padding:0;background:#f3f7f5;font-family:Arial,'Helvetica Neue',Helvetica,sans-serif;color:#172b23;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;background:#f3f7f5;"><tr><td align="center" style="padding:32px 16px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;background:#fff;border:1px solid #d8e5dc;border-radius:16px;overflow:hidden;"><tr><td style="padding:25px 32px;background:#114b32;color:#fff;font-size:21px;font-weight:800;">${escapeHtml(notification.organizationName)}</td></tr><tr><td style="padding:34px 32px 30px;"><div style="width:42px;height:5px;margin:0 0 20px;background:#29a36a;border-radius:99px;"></div><h1 style="margin:0 0 19px;color:#14251d;font-size:27px;line-height:1.25;">${escapeHtml(subject)}</h1><p style="margin:0 0 17px;color:#344b3d;font-size:15px;line-height:1.65;">${escapeHtml(greeting)}</p><p style="margin:0;color:#344b3d;font-size:15px;line-height:1.65;">${htmlMessage}</p></td></tr><tr><td style="padding:20px 32px;background:#f7faf8;border-top:1px solid #e1ebe5;color:#66776d;font-size:12px;line-height:1.55;">${escapeHtml(footer)}</td></tr></table></td></tr></table></body></html>`,
+    text,
+    html: `<!doctype html><html lang="${notification.french ? "fr" : "en"}"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>${escapeHtml(subject)}</title></head><body style="margin:0;padding:0;background:#f3f7f5;font-family:Arial,'Helvetica Neue',Helvetica,sans-serif;color:#172b23;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;background:#f3f7f5;"><tr><td align="center" style="padding:32px 16px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;background:#fff;border:1px solid #d8e5dc;border-radius:16px;overflow:hidden;"><tr><td style="padding:25px 32px;background:#114b32;color:#fff;font-size:21px;font-weight:800;">${escapeHtml(notification.organizationName)}</td></tr><tr><td style="padding:34px 32px 30px;"><div style="width:42px;height:5px;margin:0 0 20px;background:#29a36a;border-radius:99px;"></div><h1 style="margin:0 0 19px;color:#14251d;font-size:27px;line-height:1.25;">${escapeHtml(subject)}</h1><p style="margin:0 0 17px;color:#344b3d;font-size:15px;line-height:1.65;">${escapeHtml(greeting)}</p><p style="margin:0;color:#344b3d;font-size:15px;line-height:1.65;">${htmlMessage}</p>${onboardingHtml}</td></tr><tr><td style="padding:20px 32px;background:#f7faf8;border-top:1px solid #e1ebe5;color:#66776d;font-size:12px;line-height:1.55;">${escapeHtml(footer)}</td></tr></table></td></tr></table></body></html>`,
   };
 }
 
 function buildCandidateStatusSms(notification: CandidateStatusNotification) {
   return {
     to: notification.phone,
-    content: `${notification.organizationName} : ${notification.message} Contact : ${CANDIDATE_CONTACT_EMAIL}`
+    content: `${notification.organizationName} : ${notification.message}${notification.onboardingUrl ? ` Fiche d’intégration sécurisée : ${notification.onboardingUrl}` : ""} Contact : ${CANDIDATE_CONTACT_EMAIL}`
       .replace(/\s+/g, " ")
       .slice(0, 600),
   };

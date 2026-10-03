@@ -1,4 +1,5 @@
 import type { Request, RequestHandler } from "express";
+import { BadRequestError } from "../../utils/errors";
 import * as service from "./careers.service";
 import type {
   ApplicationQuery,
@@ -7,6 +8,7 @@ import type {
   JobPostInput,
   JobQuery,
   PublicApplicationInput,
+  PublicOnboardingInput,
 } from "./careers.validation";
 
 function context(req: Request): service.CareersContext {
@@ -109,4 +111,30 @@ export const publicApply: RequestHandler = async (req, res) => {
         req.file,
       ),
     );
+};
+
+export const publicOnboarding: RequestHandler = async (req, res) => {
+  res.setHeader("Cache-Control", "no-store, max-age=0");
+  res.json(
+    await service.publicOnboarding(
+      param(req, "orgSlug"),
+      param(req, "token"),
+    ),
+  );
+};
+
+export const completePublicOnboarding: RequestHandler = async (req, res) => {
+  const files = req.files as Record<string, Express.Multer.File[]> | undefined;
+  const portrait = files?.portrait?.[0];
+  const identityDocument = files?.identityDocument?.[0];
+  if (!portrait || !identityDocument)
+    throw new BadRequestError("Add both the portrait and identity document");
+  res.status(201).json(
+    await service.completePublicOnboarding(
+      param(req, "orgSlug"),
+      param(req, "token"),
+      req.body as PublicOnboardingInput,
+      { portrait, identityDocument },
+    ),
+  );
 };

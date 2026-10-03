@@ -28,6 +28,11 @@ interface EmployeeRow {
   last_name: string | null;
   post_name: string | null;
   first_name: string | null;
+  date_of_birth: string | null;
+  place_of_birth: string | null;
+  identity_document_number: string | null;
+  social_security_number: string | null;
+  career_application_id: string | null;
   job_title: string;
   province_id: string | null;
   province_code: string | null;
@@ -95,6 +100,41 @@ interface EmployeeDossierDocumentRow {
   created_at: Date | string;
 }
 
+interface RecruitmentOnboardingRow {
+  onboarding_id: string;
+  application_id: string;
+  linked_employee_id: string | null;
+  full_name: string;
+  email: string;
+  phone: string;
+  job_title: string;
+  province_id: string;
+  province_code: string;
+  province_name: string;
+  site_id: string;
+  site_code: string;
+  site_name: string;
+  last_name: string;
+  post_name: string;
+  first_name: string;
+  date_of_birth: string;
+  place_of_birth: string;
+  address_line1: string;
+  address_line2: string | null;
+  address_city: string;
+  address_region: string;
+  address_postal_code: string | null;
+  address_country: string;
+  identity_document_type: string;
+  identity_document_number: string | null;
+  social_security_number: string | null;
+  emergency_contact_name: string;
+  emergency_contact_relationship: string | null;
+  emergency_contact_phone: string;
+  portrait_document_id: string;
+  identity_document_id: string;
+}
+
 const employeeFields = [
   "e.id",
   "e.member_id",
@@ -104,6 +144,11 @@ const employeeFields = [
   "e.last_name",
   "e.post_name",
   "e.first_name",
+  "e.date_of_birth",
+  "e.place_of_birth",
+  "e.identity_document_number",
+  "e.social_security_number",
+  "e.career_application_id",
   "e.job_title",
   "e.province_id",
   "p.code AS province_code",
@@ -172,7 +217,16 @@ function mapEmployee(
       lastName: row.last_name,
       postName: row.post_name,
       firstName: row.first_name,
+      dateOfBirth: includePrivateData ? row.date_of_birth : null,
+      placeOfBirth: includePrivateData ? row.place_of_birth : null,
+      identityDocumentNumber: includePrivateData
+        ? row.identity_document_number
+        : null,
+      socialSecurityNumber: includePrivateData
+        ? row.social_security_number
+        : null,
     },
+    careerApplicationId: includePrivateData ? row.career_application_id : null,
     jobTitle: row.job_title,
     positionCategory: row.position_category,
     member: row.member_id
@@ -1105,12 +1159,171 @@ export async function getMyAccount(context: EmployeeContext) {
   });
 }
 
+async function completedRecruitmentOnboarding(
+  client: PoolClient,
+  organizationId: string,
+  applicationId: string,
+) {
+  const result = await client.query<RecruitmentOnboardingRow>(
+    `SELECT ob.id AS onboarding_id,ob.application_id,ob.linked_employee_id,
+            a.full_name,a.email::text,a.phone,j.title AS job_title,
+            a.province_id,p.code AS province_code,p.name AS province_name,
+            a.site_id,s.code AS site_code,s.name AS site_name,
+            ob.last_name,ob.post_name,ob.first_name,ob.date_of_birth::text,ob.place_of_birth,
+            ob.address_line1,ob.address_line2,ob.address_city,ob.address_region,ob.address_postal_code,ob.address_country,
+            ob.identity_document_type,ob.identity_document_number,ob.social_security_number,
+            ob.emergency_contact_name,ob.emergency_contact_relationship,ob.emergency_contact_phone,
+            ob.portrait_document_id,ob.identity_document_id
+       FROM career_candidate_onboardings ob
+       JOIN career_applications a ON a.organization_id=ob.organization_id AND a.id=ob.application_id
+       JOIN career_job_posts j ON j.organization_id=a.organization_id AND j.id=a.job_post_id
+       JOIN provinces p ON p.organization_id=a.organization_id AND p.id=a.province_id
+       JOIN sites s ON s.organization_id=a.organization_id AND s.id=a.site_id
+      WHERE ob.organization_id=$1 AND ob.application_id=$2
+        AND ob.status='completed' AND a.status='hired'
+      LIMIT 1`,
+    [organizationId, applicationId],
+  );
+  return result.rows[0] ?? null;
+}
+
+/** Only Owner/HR receive this restricted bridge; it never broadens the normal
+ * employee directory to operational managers. */
+export async function listRecruitmentCandidates(context: EmployeeContext) {
+  return withTenantContext(context, async (client) => {
+    if (!(await canReadPrivateEmployeeData(client, context))) return [];
+    const result = await client.query<RecruitmentOnboardingRow>(
+      `SELECT ob.id AS onboarding_id,ob.application_id,ob.linked_employee_id,
+              a.full_name,a.email::text,a.phone,j.title AS job_title,
+              a.province_id,p.code AS province_code,p.name AS province_name,
+              a.site_id,s.code AS site_code,s.name AS site_name,
+              ob.last_name,ob.post_name,ob.first_name,ob.date_of_birth::text,ob.place_of_birth,
+              ob.address_line1,ob.address_line2,ob.address_city,ob.address_region,ob.address_postal_code,ob.address_country,
+              ob.identity_document_type,ob.identity_document_number,ob.social_security_number,
+              ob.emergency_contact_name,ob.emergency_contact_relationship,ob.emergency_contact_phone,
+              ob.portrait_document_id,ob.identity_document_id
+         FROM career_candidate_onboardings ob
+         JOIN career_applications a ON a.organization_id=ob.organization_id AND a.id=ob.application_id
+         JOIN career_job_posts j ON j.organization_id=a.organization_id AND j.id=a.job_post_id
+         JOIN provinces p ON p.organization_id=a.organization_id AND p.id=a.province_id
+         JOIN sites s ON s.organization_id=a.organization_id AND s.id=a.site_id
+        WHERE ob.organization_id=$1 AND ob.status='completed'
+          AND ob.linked_employee_id IS NULL AND a.status='hired'
+        ORDER BY ob.completed_at DESC`,
+      [context.organizationId],
+    );
+    return result.rows.map((row) => ({
+      applicationId: row.application_id,
+      fullName: row.full_name,
+      email: row.email,
+      phone: row.phone,
+      jobTitle: row.job_title,
+      province: { id: row.province_id, code: row.province_code, name: row.province_name },
+      site: { id: row.site_id, code: row.site_code, name: row.site_name },
+      profile: {
+        lastName: row.last_name,
+        postName: row.post_name,
+        firstName: row.first_name,
+        dateOfBirth: row.date_of_birth,
+        placeOfBirth: row.place_of_birth,
+        addressLine1: row.address_line1,
+        addressLine2: row.address_line2,
+        addressCity: row.address_city,
+        addressRegion: row.address_region,
+        addressPostalCode: row.address_postal_code,
+        addressCountry: row.address_country,
+        identityDocumentNumber: row.identity_document_number,
+        socialSecurityNumber: row.social_security_number,
+        emergencyContactName: row.emergency_contact_name,
+        emergencyContactRelationship: row.emergency_contact_relationship,
+        emergencyContactPhone: row.emergency_contact_phone,
+      },
+    }));
+  });
+}
+
+async function transferRecruitmentDossier(
+  client: PoolClient,
+  organizationId: string,
+  onboarding: RecruitmentOnboardingRow,
+  employeeId: string,
+) {
+  const documentIds = [onboarding.portrait_document_id, onboarding.identity_document_id];
+  await client.query(
+    `UPDATE documents
+        SET subject_table='employees',subject_id=$3
+      WHERE organization_id=$1 AND id = ANY($2::uuid[])`,
+    [organizationId, documentIds, employeeId],
+  );
+  await client.query(
+    `INSERT INTO management_employee_dossier_documents(
+       organization_id,employee_id,document_id,document_kind,credential_number,notes
+     ) VALUES
+       ($1,$2,$3,'portrait',NULL,'Portrait transmis avec la fiche d’intégration.'),
+       ($1,$2,$4,'identity',$5,'Pièce d’identité transmise avec la fiche d’intégration.')
+     ON CONFLICT(organization_id,document_id) DO NOTHING`,
+    [
+      organizationId,
+      employeeId,
+      onboarding.portrait_document_id,
+      onboarding.identity_document_id,
+      onboarding.identity_document_number,
+    ],
+  );
+  await client.query(
+    `UPDATE career_candidate_onboardings
+        SET linked_employee_id=$3
+      WHERE organization_id=$1 AND id=$2 AND linked_employee_id IS NULL`,
+    [organizationId, onboarding.onboarding_id, employeeId],
+  );
+}
+
 export async function createEmployee(
   context: EmployeeContext,
   input: CreateEmployeeInput,
 ) {
   try {
     return await withTenantContext(context, async (client) => {
+      const recruitment = input.careerApplicationId
+        ? await completedRecruitmentOnboarding(
+            client,
+            context.organizationId,
+            input.careerApplicationId,
+          )
+        : null;
+      if (input.careerApplicationId && !recruitment)
+        throw new BadRequestError(
+          "Choose a recruited candidate whose integration form has been completed",
+          { field: "careerApplicationId" },
+        );
+      if (recruitment?.linked_employee_id)
+        throw new ConflictError(
+          "This recruited candidate is already linked to an employee record",
+          { field: "careerApplicationId" },
+        );
+      const source = recruitment
+        ? {
+            ...input,
+            lastName: recruitment.last_name,
+            postName: recruitment.post_name,
+            firstName: recruitment.first_name,
+            dateOfBirth: recruitment.date_of_birth,
+            placeOfBirth: recruitment.place_of_birth,
+            identityDocumentNumber: recruitment.identity_document_number,
+            socialSecurityNumber: recruitment.social_security_number,
+            phone: recruitment.phone,
+            addressLine1: recruitment.address_line1,
+            addressLine2: recruitment.address_line2,
+            addressCity: recruitment.address_city,
+            addressRegion: recruitment.address_region,
+            addressPostalCode: recruitment.address_postal_code,
+            addressCountry: recruitment.address_country,
+            emergencyContactName: recruitment.emergency_contact_name,
+            emergencyContactPhone: recruitment.emergency_contact_phone,
+            provinceId: recruitment.province_id,
+            siteId: recruitment.site_id,
+          }
+        : input;
       const memberId = input.memberId ?? null;
       if (memberId) {
         await assertActiveMember(client, context.organizationId, memberId);
@@ -1121,9 +1334,9 @@ export async function createEmployee(
         memberId,
       );
       const location = await resolveLocation(client, context, {
-        provinceId: input.provinceId ?? null,
-        siteId: input.siteId ?? null,
-        departmentId: input.departmentId ?? null,
+        provinceId: source.provinceId ?? null,
+        siteId: source.siteId ?? null,
+        departmentId: source.departmentId ?? null,
       });
       if (!context.isOwner) {
         if (!location.provinceId) {
@@ -1143,11 +1356,11 @@ export async function createEmployee(
         context,
         positionCategory,
       );
-      const fullName = displayEmployeeName(input);
+      const fullName = displayEmployeeName(source);
       const result = await client.query<{ id: string }>(
         [
-          "INSERT INTO employees (organization_id, member_id, employee_number, full_name, last_name, post_name, first_name, job_title, position_category, province_id, site_id, department_id, employment_status, employment_type, start_date, phone, address_line1, address_line2, address_city, address_region, address_postal_code, address_country, emergency_contact_name, emergency_contact_phone, notes, created_by_member_id)",
-          "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)",
+          "INSERT INTO employees (organization_id, member_id, employee_number, full_name, last_name, post_name, first_name, date_of_birth, place_of_birth, identity_document_number, social_security_number, career_application_id, job_title, position_category, province_id, site_id, department_id, employment_status, employment_type, start_date, phone, address_line1, address_line2, address_city, address_region, address_postal_code, address_country, emergency_contact_name, emergency_contact_phone, notes, created_by_member_id)",
+          "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31)",
           "RETURNING id",
         ].join("\n"),
         [
@@ -1155,30 +1368,43 @@ export async function createEmployee(
           memberId,
           employeeNumber,
           fullName,
-          input.lastName ?? null,
-          input.postName ?? null,
-          input.firstName ?? null,
-          input.jobTitle,
+          source.lastName ?? null,
+          source.postName ?? null,
+          source.firstName ?? null,
+          source.dateOfBirth ?? null,
+          source.placeOfBirth ?? null,
+          source.identityDocumentNumber ?? null,
+          source.socialSecurityNumber ?? null,
+          input.careerApplicationId ?? null,
+          source.jobTitle,
           positionCategory,
           location.provinceId,
           location.siteId,
           location.departmentId,
-          input.employmentStatus,
-          input.employmentType,
-          input.startDate ?? null,
-          input.phone ?? null,
-          input.addressLine1 ?? null,
-          input.addressLine2 ?? null,
-          input.addressCity ?? null,
-          input.addressRegion ?? null,
-          input.addressPostalCode ?? null,
-          input.addressCountry ?? null,
-          input.emergencyContactName ?? null,
-          input.emergencyContactPhone ?? null,
-          input.notes ?? null,
+          source.employmentStatus,
+          source.employmentType,
+          source.startDate ?? null,
+          source.phone ?? null,
+          source.addressLine1 ?? null,
+          source.addressLine2 ?? null,
+          source.addressCity ?? null,
+          source.addressRegion ?? null,
+          source.addressPostalCode ?? null,
+          source.addressCountry ?? null,
+          source.emergencyContactName ?? null,
+          source.emergencyContactPhone ?? null,
+          source.notes ?? null,
           context.memberId,
         ],
       );
+      if (recruitment) {
+        await transferRecruitmentDossier(
+          client,
+          context.organizationId,
+          recruitment,
+          result.rows[0]!.id,
+        );
+      }
       return mapEmployee(
         (await selectEmployee(
           client,
@@ -1270,6 +1496,22 @@ export async function updateEmployee(
         input.postName === undefined ? current.post_name : input.postName;
       const firstName =
         input.firstName === undefined ? current.first_name : input.firstName;
+      const dateOfBirth =
+        input.dateOfBirth === undefined
+          ? current.date_of_birth
+          : input.dateOfBirth;
+      const placeOfBirth =
+        input.placeOfBirth === undefined
+          ? current.place_of_birth
+          : input.placeOfBirth;
+      const identityDocumentNumber =
+        input.identityDocumentNumber === undefined
+          ? current.identity_document_number
+          : input.identityDocumentNumber;
+      const socialSecurityNumber =
+        input.socialSecurityNumber === undefined
+          ? current.social_security_number
+          : input.socialSecurityNumber;
       const fullName =
         input.lastName !== undefined ||
         input.postName !== undefined ||
@@ -1295,7 +1537,7 @@ export async function updateEmployee(
       await client.query(
         [
           "UPDATE employees",
-          "SET member_id = $3, employee_number = $4, full_name = $5, last_name = $6, post_name = $7, first_name = $8, job_title = $9, position_category = $10, province_id = $11, site_id = $12, department_id = $13, employment_status = $14, employment_type = $15, start_date = $16, phone = $17, address_line1 = $18, address_line2 = $19, address_city = $20, address_region = $21, address_postal_code = $22, address_country = $23, emergency_contact_name = $24, emergency_contact_phone = $25, notes = $26",
+          "SET member_id = $3, employee_number = $4, full_name = $5, last_name = $6, post_name = $7, first_name = $8, date_of_birth = $9, place_of_birth = $10, identity_document_number = $11, social_security_number = $12, job_title = $13, position_category = $14, province_id = $15, site_id = $16, department_id = $17, employment_status = $18, employment_type = $19, start_date = $20, phone = $21, address_line1 = $22, address_line2 = $23, address_city = $24, address_region = $25, address_postal_code = $26, address_country = $27, emergency_contact_name = $28, emergency_contact_phone = $29, notes = $30",
           "WHERE organization_id = $1 AND id = $2",
         ].join("\n"),
         [
@@ -1307,6 +1549,10 @@ export async function updateEmployee(
           lastName,
           postName,
           firstName,
+          dateOfBirth,
+          placeOfBirth,
+          identityDocumentNumber,
+          socialSecurityNumber,
           input.jobTitle ?? current.job_title,
           positionCategory,
           location.provinceId,

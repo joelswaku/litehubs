@@ -71,6 +71,10 @@ type Employee = {
     lastName?: string | null;
     postName?: string | null;
     firstName?: string | null;
+    dateOfBirth?: string | null;
+    placeOfBirth?: string | null;
+    identityDocumentNumber?: string | null;
+    socialSecurityNumber?: string | null;
   };
   jobTitle: string;
   positionCategory: "manager" | "supervisor" | "officer" | "employee";
@@ -103,6 +107,33 @@ type Employee = {
   notes?: string | null;
   createdAt: string;
   updatedAt: string;
+};
+type RecruitmentCandidate = {
+  applicationId: string;
+  fullName: string;
+  email: string;
+  phone: string;
+  jobTitle: string;
+  province: Place;
+  site: Place;
+  profile: {
+    lastName: string;
+    postName: string;
+    firstName: string;
+    dateOfBirth: string;
+    placeOfBirth: string;
+    addressLine1: string;
+    addressLine2?: string | null;
+    addressCity: string;
+    addressRegion: string;
+    addressPostalCode?: string | null;
+    addressCountry: string;
+    identityDocumentNumber?: string | null;
+    socialSecurityNumber?: string | null;
+    emergencyContactName: string;
+    emergencyContactRelationship?: string | null;
+    emergencyContactPhone: string;
+  };
 };
 
 type EmployeePerformance = {
@@ -224,6 +255,17 @@ export function EmployeesArea({ orgSlug }: { orgSlug: string }) {
     enabled: canRead,
     select: (data) => data.employees,
   });
+  const recruitmentCandidates = useQuery({
+    queryKey: ["employee-recruitment-candidates", orgSlug],
+    queryFn: () =>
+      get<{ candidates: RecruitmentCandidate[] }>(
+        orgUrl(orgSlug, "employees/recruitment-candidates"),
+      ),
+    // The API returns an empty list for users who are not Owner/HR. This lets
+    // the normal manual creation flow stay available without exposing candidate data.
+    enabled: canCreate,
+    select: (data) => data.candidates,
+  });
   const provinces = useQuery({
     queryKey: ["employee-provinces", orgSlug],
     queryFn: () =>
@@ -343,6 +385,9 @@ export function EmployeesArea({ orgSlug }: { orgSlug: string }) {
     },
     onSuccess: (result) => {
       void client.invalidateQueries({ queryKey: ["employees", orgSlug] });
+      void client.invalidateQueries({
+        queryKey: ["employee-recruitment-candidates", orgSlug],
+      });
       void client.invalidateQueries({ queryKey: ["org-members", orgSlug] });
       void client.invalidateQueries({ queryKey: ["org-invitations", orgSlug] });
       setSelectedId(result.employee.id);
@@ -826,6 +871,7 @@ export function EmployeesArea({ orgSlug }: { orgSlug: string }) {
           provinces={provinces.data ?? []}
           sites={sites.data ?? []}
           departments={departments.data ?? []}
+          recruitmentCandidates={recruitmentCandidates.data ?? []}
           members={members.data ?? []}
           linkedMemberIds={rows.flatMap((entry) =>
             entry.member?.memberId ? [entry.member.memberId] : [],
@@ -1872,6 +1918,7 @@ function EmployeeDialog({
   provinces,
   sites,
   departments,
+  recruitmentCandidates,
   members,
   linkedMemberIds,
   membersAvailable,
@@ -1890,6 +1937,7 @@ function EmployeeDialog({
   provinces: Province[];
   sites: Site[];
   departments: Department[];
+  recruitmentCandidates: RecruitmentCandidate[];
   members: Member[];
   linkedMemberIds: string[];
   membersAvailable: boolean; /** Undefined means Owner; an empty list means the delegation is exhausted. */
@@ -1903,6 +1951,10 @@ function EmployeeDialog({
   onSubmit: (submission: EmployeeFormSubmission) => void;
 }) {
   const restrictedCreation = !employee && creationProvinceIds !== undefined;
+  const [recruitmentApplicationId, setRecruitmentApplicationId] = useState("");
+  const recruitmentCandidate = recruitmentCandidates.find(
+    (candidate) => candidate.applicationId === recruitmentApplicationId,
+  );
   const [selectedProvince, setSelectedProvince] = useState(
     employee?.province?.id ??
       (restrictedCreation && creationProvinceIds?.length === 1
@@ -1951,6 +2003,9 @@ function EmployeeDialog({
       employmentStatus: String(form.get("employmentStatus") ?? "active"),
       employmentType: String(form.get("employmentType") ?? "permanent"),
     };
+    if (!employee && recruitmentApplicationId) {
+      body.careerApplicationId = recruitmentApplicationId;
+    }
     for (const [key, value, current] of [
       ["lastName", lastName, employee?.identity?.lastName],
       ["postName", postName, employee?.identity?.postName],
@@ -1967,6 +2022,10 @@ function EmployeeDialog({
       "provinceId",
       "siteId",
       "departmentId",
+      "dateOfBirth",
+      "placeOfBirth",
+      "identityDocumentNumber",
+      "socialSecurityNumber",
       "startDate",
       "phone",
       "addressLine1",
@@ -2067,7 +2126,72 @@ function EmployeeDialog({
             {errorMessage}
           </p>
         ) : null}
-        <form className="mt-5 space-y-5" onSubmit={submit}>
+        <form
+          key={employee?.id ?? (recruitmentApplicationId || "manual")}
+          className="mt-5 space-y-5"
+          onSubmit={submit}
+        >
+          {!employee ? (
+            <section className="rounded-xl border border-brand/25 bg-brand/5 p-4">
+              <h3 className="text-sm font-semibold text-ink">
+                {label(
+                  fr,
+                  "Create from a recruited candidate (optional)",
+                  "Créer depuis un candidat recruté (facultatif)",
+                )}
+              </h3>
+              <p className="mt-1 text-xs leading-5 text-ink-secondary">
+                {label(
+                  fr,
+                  "Choose a candidate only after their offer, completed secure onboarding form, and HR validation. Their private details prefill this form; you can still create an employee manually.",
+                  "Choisissez un candidat seulement après son offre, sa fiche d’intégration sécurisée complétée et la validation RH. Ses informations privées préremplissent cette fiche ; vous pouvez toujours créer un employé manuellement.",
+                )}
+              </p>
+              <select
+                name="careerApplicationId"
+                value={recruitmentApplicationId}
+                onChange={(event) => {
+                  const applicationId = event.target.value;
+                  const selected = recruitmentCandidates.find(
+                    (candidate) => candidate.applicationId === applicationId,
+                  );
+                  setRecruitmentApplicationId(applicationId);
+                  if (selected) {
+                    setSelectedProvince(selected.province.id);
+                    setSelectedSite(selected.site.id);
+                    setAccessEmail(selected.email);
+                    setAccessProvinceIds([selected.province.id]);
+                  } else {
+                    setAccessEmail("");
+                    setAccessProvinceIds([]);
+                  }
+                }}
+                className="mt-3 h-10 w-full rounded-md border border-border-strong bg-surface-1 px-3 text-sm text-ink"
+              >
+                <option value="">
+                  {label(
+                    fr,
+                    "Manual employee record",
+                    "Créer une fiche employé manuellement",
+                  )}
+                </option>
+                {recruitmentCandidates.map((candidate) => (
+                  <option key={candidate.applicationId} value={candidate.applicationId}>
+                    {candidate.fullName} · {candidate.jobTitle} · {candidate.site.name}
+                  </option>
+                ))}
+              </select>
+              {!recruitmentCandidates.length ? (
+                <p className="mt-2 text-xs text-ink-muted">
+                  {label(
+                    fr,
+                    "No recruited candidate with a completed onboarding form is waiting for an employee record.",
+                    "Aucun candidat recruté avec fiche d’intégration complète n’attend une fiche employé.",
+                  )}
+                </p>
+              ) : null}
+            </section>
+          ) : null}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <Field
               label={label(fr, "Last name", "Nom")}
@@ -2081,6 +2205,7 @@ function EmployeeDialog({
                 autoComplete="family-name"
                 defaultValue={
                   employee?.identity?.lastName ??
+                  recruitmentCandidate?.profile.lastName ??
                   (!employee?.identity?.postName &&
                   !employee?.identity?.firstName
                     ? (employee?.fullName ?? "")
@@ -2099,7 +2224,11 @@ function EmployeeDialog({
               <Input
                 id="employee-post-name"
                 name="postName"
-                defaultValue={employee?.identity?.postName ?? ""}
+                defaultValue={
+                  employee?.identity?.postName ??
+                  recruitmentCandidate?.profile.postName ??
+                  ""
+                }
                 required={!employee}
                 invalid={Boolean(field("postName"))}
               />
@@ -2114,7 +2243,11 @@ function EmployeeDialog({
                 id="employee-first-name"
                 name="firstName"
                 autoComplete="given-name"
-                defaultValue={employee?.identity?.firstName ?? ""}
+                defaultValue={
+                  employee?.identity?.firstName ??
+                  recruitmentCandidate?.profile.firstName ??
+                  ""
+                }
                 required={!employee}
                 invalid={Boolean(field("firstName"))}
               />
@@ -2127,7 +2260,7 @@ function EmployeeDialog({
             >
               <Input
                 name="jobTitle"
-                defaultValue={employee?.jobTitle ?? ""}
+                defaultValue={employee?.jobTitle ?? recruitmentCandidate?.jobTitle ?? ""}
                 invalid={Boolean(field("jobTitle"))}
               />
             </Field>
@@ -2158,6 +2291,32 @@ function EmployeeDialog({
                 readOnly
               />
             </Field>
+          </div>
+          <div className="rounded-xl border border-border bg-surface-2/45 p-4">
+            <h3 className="text-sm font-semibold text-ink">
+              {label(fr, "Official identity", "Identité officielle")}
+            </h3>
+            <p className="mt-1 text-xs leading-5 text-ink-secondary">
+              {label(
+                fr,
+                "Optional for manual creation. A recruited candidate’s completed integration form fills these fields and transfers its private identity documents into the employee dossier.",
+                "Facultatif en création manuelle. La fiche d’intégration complète d’un candidat recruté remplit ces champs et transfère ses pièces privées dans le dossier employé.",
+              )}
+            </p>
+            <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <Field label={label(fr, "Date of birth", "Date de naissance")} htmlFor="employee-date-of-birth" error={field("dateOfBirth")}>
+                <Input id="employee-date-of-birth" name="dateOfBirth" type="date" defaultValue={employee?.identity?.dateOfBirth ?? recruitmentCandidate?.profile.dateOfBirth ?? ""} invalid={Boolean(field("dateOfBirth"))} />
+              </Field>
+              <Field label={label(fr, "Place of birth", "Lieu de naissance")} htmlFor="employee-place-of-birth" error={field("placeOfBirth")}>
+                <Input id="employee-place-of-birth" name="placeOfBirth" defaultValue={employee?.identity?.placeOfBirth ?? recruitmentCandidate?.profile.placeOfBirth ?? ""} invalid={Boolean(field("placeOfBirth"))} />
+              </Field>
+              <Field label={label(fr, "Identity document number", "Numéro de pièce d’identité")} htmlFor="employee-identity-document-number" error={field("identityDocumentNumber")}>
+                <Input id="employee-identity-document-number" name="identityDocumentNumber" defaultValue={employee?.identity?.identityDocumentNumber ?? recruitmentCandidate?.profile.identityDocumentNumber ?? ""} invalid={Boolean(field("identityDocumentNumber"))} />
+              </Field>
+              <Field label={label(fr, "INSS / NSS number", "Numéro INSS / NSS")} htmlFor="employee-social-security-number" error={field("socialSecurityNumber")}>
+                <Input id="employee-social-security-number" name="socialSecurityNumber" defaultValue={employee?.identity?.socialSecurityNumber ?? recruitmentCandidate?.profile.socialSecurityNumber ?? ""} invalid={Boolean(field("socialSecurityNumber"))} />
+              </Field>
+            </div>
           </div>
           {employee ? (
             <div className="rounded-xl border border-border bg-surface-2 p-4">
@@ -2539,7 +2698,7 @@ function EmployeeDialog({
                 <Input
                   id="employee-address-line1"
                   name="addressLine1"
-                  defaultValue={employee?.address?.line1 ?? ""}
+                  defaultValue={employee?.address?.line1 ?? recruitmentCandidate?.profile.addressLine1 ?? ""}
                   invalid={Boolean(field("addressLine1"))}
                 />
               </Field>
@@ -2551,7 +2710,7 @@ function EmployeeDialog({
                 <Input
                   id="employee-address-line2"
                   name="addressLine2"
-                  defaultValue={employee?.address?.line2 ?? ""}
+                  defaultValue={employee?.address?.line2 ?? recruitmentCandidate?.profile.addressLine2 ?? ""}
                   invalid={Boolean(field("addressLine2"))}
                 />
               </Field>
@@ -2563,7 +2722,7 @@ function EmployeeDialog({
                 <Input
                   id="employee-address-city"
                   name="addressCity"
-                  defaultValue={employee?.address?.city ?? ""}
+                  defaultValue={employee?.address?.city ?? recruitmentCandidate?.profile.addressCity ?? ""}
                   invalid={Boolean(field("addressCity"))}
                 />
               </Field>
@@ -2575,7 +2734,7 @@ function EmployeeDialog({
                 <Input
                   id="employee-address-region"
                   name="addressRegion"
-                  defaultValue={employee?.address?.region ?? ""}
+                  defaultValue={employee?.address?.region ?? recruitmentCandidate?.profile.addressRegion ?? ""}
                   invalid={Boolean(field("addressRegion"))}
                 />
               </Field>
@@ -2587,7 +2746,7 @@ function EmployeeDialog({
                 <Input
                   id="employee-address-postal-code"
                   name="addressPostalCode"
-                  defaultValue={employee?.address?.postalCode ?? ""}
+                  defaultValue={employee?.address?.postalCode ?? recruitmentCandidate?.profile.addressPostalCode ?? ""}
                   invalid={Boolean(field("addressPostalCode"))}
                 />
               </Field>
@@ -2600,7 +2759,7 @@ function EmployeeDialog({
                   id="employee-address-country"
                   name="addressCountry"
                   defaultValue={
-                    employee?.address?.country ??
+                    employee?.address?.country ?? recruitmentCandidate?.profile.addressCountry ??
                     label(
                       fr,
                       "Democratic Republic of the Congo",
@@ -2686,7 +2845,7 @@ function EmployeeDialog({
               >
                 <PhoneInput
                   name="phone"
-                  defaultValue={employee?.contact.phone ?? ""}
+                  defaultValue={employee?.contact.phone ?? recruitmentCandidate?.phone ?? ""}
                   fr={fr}
                 />
               </Field>
@@ -2700,7 +2859,7 @@ function EmployeeDialog({
               >
                 <Input
                   name="emergencyContactName"
-                  defaultValue={employee?.contact.emergencyContactName ?? ""}
+                  defaultValue={employee?.contact.emergencyContactName ?? recruitmentCandidate?.profile.emergencyContactName ?? ""}
                 />
               </Field>
               <Field
@@ -2713,7 +2872,7 @@ function EmployeeDialog({
               >
                 <PhoneInput
                   name="emergencyContactPhone"
-                  defaultValue={employee?.contact.emergencyContactPhone ?? ""}
+                  defaultValue={employee?.contact.emergencyContactPhone ?? recruitmentCandidate?.profile.emergencyContactPhone ?? ""}
                   fr={fr}
                 />
               </Field>

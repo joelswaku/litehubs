@@ -22,6 +22,18 @@ export const metadata: Metadata = {
   },
   description:
     "Gestion des opérations pour les entreprises agricoles modernes.",
+  keywords: [
+    "LiteHubs",
+    "logiciel gestion agricole",
+    "logiciel gestion avicole",
+    "logiciel élevage porcin",
+    "farm management software",
+    "gestion ferme Afrique",
+    "gestion opérations agricoles",
+  ],
+  authors: [{ name: APP_NAME }],
+  creator: APP_NAME,
+  publisher: APP_NAME,
   applicationName: APP_NAME,
   manifest: "/site.webmanifest",
   ...(googleVerification ? { verification: { google: googleVerification } } : {}),
@@ -38,6 +50,23 @@ export const metadata: Metadata = {
   // A workspace URL contains a customer's slug, and the dashboard is behind
   // auth, so there is nothing here for a crawler to index.
   robots: { index: false, follow: false },
+  openGraph: {
+    type: "website",
+    locale: "fr_FR",
+    siteName: APP_NAME,
+    images: [
+      {
+        url: "/opengraph-image",
+        width: 1200,
+        height: 630,
+        alt: "LiteHubs — gestion agricole, avicole et porcine",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    images: ["/opengraph-image"],
+  },
 };
 
 export const viewport: Viewport = {

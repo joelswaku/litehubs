@@ -1,7 +1,29 @@
 import type { Metadata } from "next";
 import { PublicWebsiteDomainPage } from "@/components/website/public-website-domain-page";
+import { PublicWebsiteRenderer } from "@/components/website/public-website-renderer";
+import { publicWebsiteRendererData } from "@/components/website/public-website-data";
 import { PublicCustomerAccount } from "@/components/website/public-customer-account";
-import { publicWebsiteMetadata } from "@/lib/seo";
+import {
+  CONGO_OMEGA_PUBLIC_ICONS,
+  INDEXABLE,
+  isCongoOmegaHost,
+  publicOriginForHost,
+  publicWebsiteImage,
+  publicWebsiteMetadata,
+  publicWebsiteStructuredData,
+  serializeJsonLd,
+} from "@/lib/seo";
+
+function pageSeo(detail: NonNullable<Awaited<ReturnType<typeof publicWebsiteMetadata>>>) {
+  const title =
+    detail.page?.seoTitleFr ||
+    detail.page?.titleFr ||
+    detail.website?.displayName ||
+    "Site";
+  const description =
+    detail.page?.seoDescriptionFr || detail.page?.descriptionFr || detail.website?.tagline || "";
+  return { title, description };
+}
 
 export async function generateMetadata({
   params,
@@ -10,25 +32,47 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { domain, pageSlug } = await params;
   const slug = pageSlug?.[0];
+  const isCongoOmega = isCongoOmegaHost(domain);
   if (slug === "account") {
     return {
       title: "Votre espace client",
       robots: { index: false, follow: false },
+      ...(isCongoOmega ? CONGO_OMEGA_PUBLIC_ICONS : {}),
     };
   }
   const detail = await publicWebsiteMetadata(domain, slug);
-  const isCongoOmega = domain.toLowerCase().replace(/^www\./, "") === "congoomega.com";
   if (!detail?.page || !detail.website)
     return { title: "Site indisponible", robots: { index: false, follow: false } };
-  const title = detail.page.seoTitleFr || detail.page.titleFr || detail.website.displayName || "Site";
-  const description = detail.page.seoDescriptionFr || detail.page.descriptionFr || "";
-  const canonical = `https://${domain}${slug ? `/${encodeURIComponent(slug)}` : ""}`;
+  const { title, description } = pageSeo(detail);
+  const origin = publicOriginForHost(domain);
+  const canonical = `${origin}${slug ? `/${encodeURIComponent(slug)}` : ""}`;
+  const image = publicWebsiteImage(detail, origin);
+  const brand = detail.website.displayName ?? "Entreprise";
   return {
     title: isCongoOmega ? { absolute: title } : title,
     description,
+    keywords: [brand, "agriculture locale", "élevage", "production responsable"],
+    authors: [{ name: brand }],
+    creator: brand,
+    publisher: brand,
     alternates: { canonical },
-    robots: { index: true, follow: true },
-    openGraph: { type: "website", url: canonical, title, description },
+    robots: INDEXABLE,
+    openGraph: {
+      type: "website",
+      locale: "fr_FR",
+      siteName: detail.website.displayName,
+      url: canonical,
+      title,
+      description,
+      ...(image ? { images: [{ url: image }] } : {}),
+    },
+    twitter: {
+      card: image ? "summary_large_image" : "summary",
+      title,
+      description,
+      ...(image ? { images: [image] } : {}),
+    },
+    ...(isCongoOmega ? CONGO_OMEGA_PUBLIC_ICONS : {}),
   };
 }
 
@@ -41,5 +85,32 @@ export default async function Page({
   if (pageSlug?.[0] === "account") {
     return <PublicCustomerAccount domain={domain} />;
   }
-  return <PublicWebsiteDomainPage domain={domain} pageSlug={pageSlug?.[0]} />;
+  const slug = pageSlug?.[0];
+  const detail = await publicWebsiteMetadata(domain, slug);
+  if (!detail?.website || !detail.page) {
+    return <PublicWebsiteDomainPage domain={domain} pageSlug={slug} />;
+  }
+  const origin = publicOriginForHost(domain);
+  const canonical = `${origin}${slug ? `/${encodeURIComponent(slug)}` : ""}`;
+  const { title, description } = pageSeo(detail);
+  const structuredData = publicWebsiteStructuredData({
+    detail,
+    origin,
+    canonical,
+    title,
+    description,
+  });
+  const rendered = publicWebsiteRendererData(detail);
+  return <>
+    <script
+      type="application/ld+json"
+      dangerouslySetInnerHTML={{ __html: serializeJsonLd(structuredData) }}
+    />
+    <PublicWebsiteRenderer
+      website={rendered.website}
+      page={rendered.page}
+      pathPrefix=""
+      contactDomain={domain}
+    />
+  </>;
 }

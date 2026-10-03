@@ -1,5 +1,12 @@
 import type { MetadataRoute } from "next";
-import { publicUrl, siteHost } from "@/lib/seo";
+import { headers } from "next/headers";
+import {
+  isCongoOmegaHost,
+  normalizePublicHost,
+  publicOriginForHost,
+  publicUrl,
+  siteHost,
+} from "@/lib/seo";
 
 /**
  * Everything that is behind auth, tenant-scoped, or an operational entry point
@@ -59,13 +66,22 @@ const AI_CRAWLERS = [
   "CCBot",
 ];
 
-export default function robots(): MetadataRoute.Robots {
+export default async function robots(): Promise<MetadataRoute.Robots> {
+  // The same Next application serves LiteHubs and verified customer domains.
+  // robots.txt is requested before the custom-domain rewrite, so it must use
+  // the request host here rather than NEXT_PUBLIC_SITE_URL.
+  const requestHeaders = await headers();
+  const requestedHost = normalizePublicHost(
+    requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host"),
+  );
+  const isCongoOmega = isCongoOmegaHost(requestedHost);
+  const origin = isCongoOmega ? publicOriginForHost(requestedHost) : publicUrl("").replace(/\/$/, "");
   return {
     rules: [
       { userAgent: "*", allow: "/", disallow: DISALLOW },
       { userAgent: AI_CRAWLERS, allow: "/", disallow: DISALLOW },
     ],
-    sitemap: publicUrl("/sitemap.xml"),
-    host: siteHost,
+    sitemap: `${origin}/sitemap.xml`,
+    host: isCongoOmega ? requestedHost : siteHost,
   };
 }

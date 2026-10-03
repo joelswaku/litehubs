@@ -19,6 +19,12 @@ export const metadata: Metadata = {
     title: "Contact | LiteHubs",
     description: DESCRIPTION,
   },
+  twitter: {
+    card: "summary_large_image",
+    title: "Contact | LiteHubs",
+    description: DESCRIPTION,
+    images: [publicUrl("/opengraph-image")],
+  },
   robots: INDEXABLE,
 };
 

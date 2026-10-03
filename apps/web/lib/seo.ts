@@ -17,20 +17,208 @@ type PublicCareerJob = {
   title: string;
   shortSummary: string;
   employmentType: string;
+  description?: string;
+  requirements?: string | null;
+  applicationDeadline?: string | null;
+  publishedAt?: string | null;
+  salarySummary?: string | null;
   site: { name: string };
   province: { name: string };
 };
 
 type CareerDetail = { organizationName?: string; job?: PublicCareerJob; jobs?: PublicCareerJob[] };
-type PublicWebsiteSeo = {
-  website?: { displayName?: string };
+export type PublicWebsiteSeo = {
+  website?: {
+    organizationSlug?: string;
+    displayName?: string;
+    tagline?: string | null;
+    logoUrl?: string | null;
+    contactEmail?: string | null;
+    contactPhone?: string | null;
+    addressText?: string | null;
+    pages?: Array<{
+      slug?: string;
+      labelFr?: string;
+      labelEn?: string;
+      isHome?: boolean;
+    }>;
+  };
   page?: {
+    slug?: string;
     titleFr?: string;
     descriptionFr?: string | null;
     seoTitleFr?: string | null;
     seoDescriptionFr?: string | null;
+    isHome?: boolean;
+    sections?: Array<{
+      type?: string;
+      content?: Record<string, unknown>;
+    }>;
   };
 };
+
+/** The customer-facing Congo Omega site has its own brand assets. Keeping
+ * this metadata separate from LiteHubs avoids the internal product icon being
+ * shown in browser tabs, saved links, and search results for Congo Omega. */
+export const CONGO_OMEGA_PUBLIC_ICONS = {
+  manifest: "/website/icon/site.webmanifest",
+  icons: {
+    icon: [
+      { url: "/website/icon/favicon.ico" },
+      { url: "/website/icon/favicon.svg", type: "image/svg+xml" },
+      { url: "/website/icon/favicon-96x96.png", sizes: "96x96", type: "image/png" },
+    ],
+    apple: [
+      { url: "/website/icon/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
+    ],
+  },
+} satisfies Pick<Metadata, "manifest" | "icons">;
+
+export function normalizePublicHost(value: string | null | undefined): string {
+  return String(value ?? "")
+    .split(",")[0]!
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/\/.*$/, "")
+    .replace(/:\d+$/, "")
+    .replace(/^www\./, "");
+}
+
+export function publicOriginForHost(host: string | null | undefined): string {
+  const normalized = normalizePublicHost(host);
+  return normalized ? `https://${normalized}` : siteOrigin;
+}
+
+export function isCongoOmegaHost(host: string | null | undefined): boolean {
+  return normalizePublicHost(host) === "congoomega.com";
+}
+
+function absoluteWebsiteUrl(value: unknown, origin: string): string | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const url = value.trim();
+  if (/^https:\/\//i.test(url)) return url;
+  if (!url.startsWith("/")) return null;
+  return `${origin}${url}`;
+}
+
+/** Prefer the first owner-selected image from a visible public section. It is
+ * used for social previews as well as search results, never for a private
+ * document or a dashboard image. */
+export function publicWebsiteImage(
+  detail: PublicWebsiteSeo | null,
+  origin: string,
+): string | null {
+  const sections = detail?.page?.sections ?? [];
+  for (const section of sections) {
+    const content = section.content ?? {};
+    for (const key of ["imageUrl", "secondaryImageUrl", "tertiaryImageUrl"]) {
+      const image = absoluteWebsiteUrl(content[key], origin);
+      if (image) return image;
+    }
+  }
+  return absoluteWebsiteUrl(detail?.website?.logoUrl, origin);
+}
+
+/** Escaped JSON-LD avoids a title or owner-entered paragraph ever terminating
+ * the script tag. It is reusable for the product site and customer domains. */
+export function serializeJsonLd(value: unknown): string {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
+}
+
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+export function publicWebsiteStructuredData({
+  detail,
+  origin,
+  canonical,
+  title,
+  description,
+}: {
+  detail: PublicWebsiteSeo;
+  origin: string;
+  canonical: string;
+  title: string;
+  description: string;
+}) {
+  const website = detail.website;
+  const image = publicWebsiteImage(detail, origin);
+  const logo = absoluteWebsiteUrl(website?.logoUrl, origin);
+  const organizationId = `${origin}/#organization`;
+  const websiteId = `${origin}/#website`;
+  const nodes: Array<Record<string, unknown>> = [
+    {
+      "@type": "Organization",
+      "@id": organizationId,
+      name: website?.displayName ?? "Entreprise",
+      url: origin,
+      ...(website?.tagline ? { description: website.tagline } : {}),
+      ...(image ? { image } : {}),
+      ...(logo
+        ? { logo: { "@type": "ImageObject", url: logo } }
+        : {}),
+      ...(website?.contactEmail ? { email: website.contactEmail } : {}),
+      ...(website?.contactPhone ? { telephone: website.contactPhone } : {}),
+      ...(website?.addressText
+        ? { address: { "@type": "PostalAddress", streetAddress: website.addressText } }
+        : {}),
+    },
+    {
+      "@type": "WebSite",
+      "@id": websiteId,
+      name: website?.displayName ?? "Entreprise",
+      url: origin,
+      inLanguage: "fr",
+      publisher: { "@id": organizationId },
+    },
+    {
+      "@type": "WebPage",
+      "@id": `${canonical}#webpage`,
+      url: canonical,
+      name: title,
+      description,
+      isPartOf: { "@id": websiteId },
+      about: { "@id": organizationId },
+      inLanguage: "fr",
+      ...(image ? { primaryImageOfPage: image } : {}),
+    },
+  ];
+  const pageSlug = detail.page?.slug;
+  const isHome = detail.page?.isHome || website?.pages?.some((page) => page.slug === pageSlug && page.isHome);
+  if (pageSlug && !isHome) {
+    const pageLabel = website?.pages?.find((page) => page.slug === pageSlug)?.labelFr ?? title;
+    nodes.push({
+      "@type": "BreadcrumbList",
+      itemListElement: [
+        { "@type": "ListItem", position: 1, name: "Accueil", item: origin },
+        { "@type": "ListItem", position: 2, name: pageLabel, item: canonical },
+      ],
+    });
+  }
+  const faqEntries = (detail.page?.sections ?? []).flatMap((section) => {
+    if (section.type !== "faq" || !Array.isArray(section.content?.items)) return [];
+    return section.content.items.flatMap((item) => {
+      if (!item || typeof item !== "object") return [];
+      const values = item as Record<string, unknown>;
+      const question = nonEmptyString(values.questionFr);
+      const answer = nonEmptyString(values.answerFr);
+      return question && answer ? [{ question, answer }] : [];
+    });
+  });
+  if (faqEntries.length) {
+    nodes.push({
+      "@type": "FAQPage",
+      mainEntity: faqEntries.map(({ question, answer }) => ({
+        "@type": "Question",
+        name: question,
+        acceptedAnswer: { "@type": "Answer", text: answer },
+      })),
+    });
+  }
+  return { "@context": "https://schema.org", "@graph": nodes };
+}
 
 /** Public-only query used for SEO metadata. No cookies or tenant identifiers. */
 export async function publicCareerMetadata(orgSlug: string, jobCode?: string): Promise<CareerDetail | null> {

@@ -52,6 +52,15 @@ employeeRoutes.post(
   controller.createEmployee,
 );
 
+// This is intentionally separate from the directory. Only the employee
+// service permits Owner/HR to receive the private recruitment bridge.
+employeeRoutes.get(
+  "/organizations/:orgSlug/employees/recruitment-candidates",
+  ...inOrganization,
+  requirePermission("employees.create"),
+  controller.listRecruitmentCandidates,
+);
+
 employeeRoutes.get(
   "/organizations/:orgSlug/employees/:employeeId",
   authenticate,

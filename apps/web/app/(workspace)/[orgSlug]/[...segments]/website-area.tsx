@@ -1296,6 +1296,64 @@ function PageForm({
             />
           </Field>
         </div>
+        <div className="mt-6 border-t border-border pt-5">
+          <div>
+            <h3 className="text-sm font-semibold text-ink">
+              {tr(fr, "Référencement", "Search visibility")}
+            </h3>
+            <p className="mt-1 text-xs leading-5 text-ink-secondary">
+              {tr(
+                fr,
+                "Ces informations apparaissent dans Google, Bing et les aperçus de partage. Si vous les laissez vides, LiteHubs reprend le titre et le résumé de la page.",
+                "These details appear in Google, Bing, and social sharing previews. If left blank, LiteHubs uses the page title and summary.",
+              )}
+            </p>
+          </div>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <Field
+              label={tr(fr, "Titre SEO français", "French SEO title")}
+              hint={tr(fr, "Idéalement 50 à 60 caractères.", "Ideally 50 to 60 characters.")}
+            >
+              <Input
+                value={form.seoTitleFr ?? ""}
+                maxLength={180}
+                onChange={(event) => update("seoTitleFr", event.target.value)}
+              />
+            </Field>
+            <Field
+              label={tr(fr, "Titre SEO anglais", "English SEO title")}
+              hint={tr(fr, "Facultatif si la page est seulement en français.", "Optional for a French-only page.")}
+            >
+              <Input
+                value={form.seoTitleEn ?? ""}
+                maxLength={180}
+                onChange={(event) => update("seoTitleEn", event.target.value)}
+              />
+            </Field>
+            <Field
+              className="sm:col-span-2"
+              label={tr(fr, "Description SEO française", "French SEO description")}
+              hint={tr(fr, "Expliquez clairement la page en 140 à 160 caractères.", "Describe the page clearly in 140 to 160 characters.")}
+            >
+              <Textarea
+                value={form.seoDescriptionFr ?? ""}
+                maxLength={320}
+                onChange={(event) => update("seoDescriptionFr", event.target.value)}
+              />
+            </Field>
+            <Field
+              className="sm:col-span-2"
+              label={tr(fr, "Description SEO anglaise", "English SEO description")}
+              hint={tr(fr, "Facultatif si la page est seulement en français.", "Optional for a French-only page.")}
+            >
+              <Textarea
+                value={form.seoDescriptionEn ?? ""}
+                maxLength={320}
+                onChange={(event) => update("seoDescriptionEn", event.target.value)}
+              />
+            </Field>
+          </div>
+        </div>
         <label className="mt-4 flex items-center gap-2 text-sm text-ink">
           <input
             type="checkbox"

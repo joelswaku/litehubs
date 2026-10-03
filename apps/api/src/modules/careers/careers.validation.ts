@@ -29,6 +29,11 @@ export const publicJobParams = z.object({
   orgSlug: organizationSlugSchema,
   jobCode: code,
 });
+export const publicOnboardingParams = organizationParams.extend({
+  // A base64url token produced with 32 random bytes. Keeping the shape strict
+  // avoids logging or processing arbitrary long values on a public endpoint.
+  token: z.string().regex(/^[A-Za-z0-9_-]{40,100}$/, "Invalid secure link"),
+});
 
 export const careerSiteSettingsInput = z.object({
   siteId: id,
@@ -125,9 +130,44 @@ export const publicApplicationInput = z.object({
   }),
 });
 
+/** Multipart form submitted only after an offer through an expiring token. */
+export const publicOnboardingInput = z.object({
+  lastName: requiredText(80),
+  postName: requiredText(80),
+  firstName: requiredText(80),
+  dateOfBirth: z.string().date("Use YYYY-MM-DD"),
+  placeOfBirth: requiredText(160),
+  addressLine1: requiredText(180),
+  addressLine2: optionalText(180),
+  addressCity: requiredText(100),
+  addressRegion: requiredText(100),
+  addressPostalCode: optionalText(32),
+  addressCountry: requiredText(100),
+  identityDocumentType: z.enum([
+    "national_id",
+    "passport",
+    "voter_card",
+    "driving_licence",
+    "other",
+  ]),
+  identityDocumentNumber: optionalText(160),
+  socialSecurityNumber: optionalText(100),
+  emergencyContactName: requiredText(150),
+  emergencyContactRelationship: optionalText(100),
+  emergencyContactPhone: requiredText(80)
+    .transform(normalizePhone)
+    .refine(isValidPhone, {
+      message: "Enter a valid emergency phone number. For the DRC use +243 followed by 9 digits",
+    }),
+  consent: z.enum(["true", "1", "on"], {
+    message: "Consent is required to submit this onboarding form",
+  }),
+});
+
 export type CareerSiteSettingsInput = z.infer<typeof careerSiteSettingsInput>;
 export type JobPostInput = z.infer<typeof jobPostInput>;
 export type JobQuery = z.infer<typeof jobQuery>;
 export type ApplicationQuery = z.infer<typeof applicationQuery>;
 export type ApplicationUpdateInput = z.infer<typeof applicationUpdateInput>;
 export type PublicApplicationInput = z.infer<typeof publicApplicationInput>;
+export type PublicOnboardingInput = z.infer<typeof publicOnboardingInput>;

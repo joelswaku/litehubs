@@ -13,6 +13,12 @@ export const metadata: Metadata = {
     title: "Prendre rendez-vous | LiteHubs",
     description: "Choisissez une entreprise, un site, un service et une heure. Aucun compte LiteHubs n’est nécessaire.",
   },
+  twitter: {
+    card: "summary_large_image",
+    title: "Prendre rendez-vous | LiteHubs",
+    description: "Choisissez une entreprise, un site, un service et une heure. Aucun compte LiteHubs n’est nécessaire.",
+    images: [publicUrl("/opengraph-image")],
+  },
   robots: INDEXABLE,
 };
 

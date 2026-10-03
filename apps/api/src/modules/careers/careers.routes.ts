@@ -8,7 +8,7 @@ import { validate } from "../../middleware/validation.middleware";
 import { BadRequestError } from "../../utils/errors";
 import { storage } from "../../config/storage";
 import * as controller from "./careers.controller";
-import { applicationParams, applicationQuery, applicationUpdateInput, careerSiteSettingsInput, jobParams, jobPostInput, jobQuery, organizationParams, publicJobParams, publicApplicationInput } from "./careers.validation";
+import { applicationParams, applicationQuery, applicationUpdateInput, careerSiteSettingsInput, jobParams, jobPostInput, jobQuery, organizationParams, publicJobParams, publicApplicationInput, publicOnboardingInput, publicOnboardingParams } from "./careers.validation";
 
 export const careersRoutes = Router();
 const inside = [authenticate, validate({ params: organizationParams }), requireOrganization] as const;
@@ -36,10 +36,36 @@ const resumeUpload: RequestHandler = (req, res, next) => {
     return next();
   });
 };
+const portraitMimeTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+const identityMimeTypes = new Set(["application/pdf", ...portraitMimeTypes]);
+const uploadOnboarding = multer({
+  storage: multer.memoryStorage(),
+  limits: { files: 2, fileSize: storage.maxUploadBytes },
+  fileFilter: (_req, file, done) => {
+    const allowed =
+      (file.fieldname === "portrait" && portraitMimeTypes.has(file.mimetype)) ||
+      (file.fieldname === "identityDocument" && identityMimeTypes.has(file.mimetype));
+    done(null, allowed);
+  },
+});
+const onboardingUpload: RequestHandler = (req, res, next) => {
+  uploadOnboarding.fields([
+    { name: "portrait", maxCount: 1 },
+    { name: "identityDocument", maxCount: 1 },
+  ])(req, res, (error: unknown) => {
+    if (error) return next(new BadRequestError("Upload one portrait (JPEG, PNG or WebP) and one identity document (PDF, JPEG, PNG or WebP) within the allowed size"));
+    const files = req.files as Record<string, Express.Multer.File[]> | undefined;
+    if (!files?.portrait?.[0] || !files.identityDocument?.[0])
+      return next(new BadRequestError("Add both the portrait and identity document", { field: !files?.portrait?.[0] ? "portrait" : "identityDocument" }));
+    return next();
+  });
+};
 
 careersRoutes.get("/public/organizations/:orgSlug/careers/jobs", validate({ params: organizationParams }), controller.publicJobs);
 careersRoutes.get("/public/organizations/:orgSlug/careers/jobs/:jobCode", validate({ params: publicJobParams }), controller.publicJob);
 careersRoutes.post("/public/organizations/:orgSlug/careers/jobs/:jobCode/applications", publicLimiter, resumeUpload, validate({ params: publicJobParams, body: publicApplicationInput }), controller.publicApply);
+careersRoutes.get("/public/organizations/:orgSlug/careers/onboarding/:token", publicLimiter, validate({ params: publicOnboardingParams }), controller.publicOnboarding);
+careersRoutes.post("/public/organizations/:orgSlug/careers/onboarding/:token", publicLimiter, onboardingUpload, validate({ params: publicOnboardingParams, body: publicOnboardingInput }), controller.completePublicOnboarding);
 
 careersRoutes.get("/organizations/:orgSlug/careers/summary", ...inside, requirePermission("careers.read"), controller.summary);
 careersRoutes.get("/organizations/:orgSlug/careers/settings", ...inside, requirePermission("careers.read"), controller.settings);

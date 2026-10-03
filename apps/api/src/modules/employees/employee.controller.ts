@@ -87,6 +87,12 @@ export const createEmployee: RequestHandler = async (req, res) => {
   res.status(201).json({ employee });
 };
 
+export const listRecruitmentCandidates: RequestHandler = async (req, res) => {
+  res.json({
+    candidates: await service.listRecruitmentCandidates(contextOf(req)),
+  });
+};
+
 export const updateEmployee: RequestHandler = async (req, res) => {
   const input = req.body as UpdateEmployeeInput;
   const employee = await service.updateEmployee(

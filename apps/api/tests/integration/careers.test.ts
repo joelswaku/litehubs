@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import request from "supertest";
 import { afterAll, describe, expect, it } from "vitest";
 import { createApp } from "../../src/app";
@@ -174,5 +174,127 @@ describe("Careers job posts", () => {
       internalNotes: "Candidate requested an afternoon slot.",
       preferredLanguage: "fr",
     });
+
+    const offer = await authorized(
+      request(app)
+        .patch(
+          `/api/v1/organizations/${organizationSlug}/careers/applications/${candidate.id}`,
+        )
+        .send({ status: "offered", internalNotes: "Offer approved." }),
+    );
+    expect(offer.status).toBe(200);
+    expect(offer.body.application.status).toBe("offered");
+
+    // The actual offer token is intentionally never returned by the API.
+    // Replace its hash inside the tenant transaction only so the public
+    // onboarding flow can be exercised with a deterministic test token.
+    const organizationId = registered.body.organization.id as string;
+    const ownerId = registered.body.user.id as string;
+    const onboardingToken = randomBytes(32).toString("base64url");
+    await withTenantContext(
+      { organizationId, userId: ownerId },
+      (client) =>
+        client.query(
+          `UPDATE career_candidate_onboardings
+              SET token_hash=$3
+            WHERE organization_id=$1 AND application_id=$2`,
+          [
+            organizationId,
+            candidate.id,
+            createHash("sha256").update(onboardingToken).digest("hex"),
+          ],
+        ),
+    );
+
+    const onboarding = await request(app).get(
+      `/api/v1/public/organizations/${organizationSlug}/careers/onboarding/${onboardingToken}`,
+    );
+    expect(onboarding.status).toBe(200);
+    expect(onboarding.body.onboarding).toMatchObject({
+      candidate: { email: `candidate-${suffix}@test.invalid` },
+      job: { title: "Poultry worker" },
+    });
+
+    const submittedOnboarding = await request(app)
+      .post(
+        `/api/v1/public/organizations/${organizationSlug}/careers/onboarding/${onboardingToken}`,
+      )
+      .field("lastName", "Kabongo")
+      .field("postName", "Mbuyi")
+      .field("firstName", "Marie")
+      .field("dateOfBirth", "1998-06-20")
+      .field("placeOfBirth", "Kinshasa")
+      .field("addressLine1", "12 avenue de la Paix")
+      .field("addressCity", "Kinshasa")
+      .field("addressRegion", "Kinshasa")
+      .field("addressCountry", "République démocratique du Congo")
+      .field("identityDocumentType", "national_id")
+      .field("identityDocumentNumber", "ID-2026-01")
+      .field("socialSecurityNumber", "INSS-7788")
+      .field("emergencyContactName", "Jean Kabongo")
+      .field("emergencyContactPhone", "+243898869772")
+      .field("consent", "true")
+      .attach("portrait", Buffer.from("portrait"), {
+        filename: "portrait.jpg",
+        contentType: "image/jpeg",
+      })
+      .attach("identityDocument", Buffer.from("%PDF-1.4\nidentity"), {
+        filename: "identity.pdf",
+        contentType: "application/pdf",
+      });
+    expect(submittedOnboarding.status).toBe(201);
+    expect(submittedOnboarding.body.completed).toBe(true);
+
+    const hired = await authorized(
+      request(app)
+        .patch(
+          `/api/v1/organizations/${organizationSlug}/careers/applications/${candidate.id}`,
+        )
+        .send({ status: "hired", internalNotes: "HR approved the file." }),
+    );
+    expect(hired.status).toBe(200);
+
+    const recruitmentCandidates = await authorized(
+      request(app).get(
+        `/api/v1/organizations/${organizationSlug}/employees/recruitment-candidates`,
+      ),
+    );
+    expect(recruitmentCandidates.status).toBe(200);
+    expect(recruitmentCandidates.body.candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          applicationId: candidate.id,
+          profile: expect.objectContaining({ lastName: "Kabongo" }),
+        }),
+      ]),
+    );
+
+    const employee = await authorized(
+      request(app)
+        .post(`/api/v1/organizations/${organizationSlug}/employees`)
+        .send({
+          careerApplicationId: candidate.id,
+          jobTitle: "Poultry worker",
+          employmentStatus: "active",
+          employmentType: "permanent",
+        }),
+    );
+    expect(employee.status).toBe(201);
+    expect(employee.body.employee).toMatchObject({
+      fullName: "Kabongo Mbuyi Marie",
+      identity: expect.objectContaining({
+        dateOfBirth: expect.stringMatching(/^1998-06-20T/),
+        identityDocumentNumber: "ID-2026-01",
+        socialSecurityNumber: "INSS-7788",
+      }),
+      contact: expect.objectContaining({ phone: "+243898869772" }),
+      site: { id: site.body.site.id },
+    });
+    const candidatesAfterHire = await authorized(
+      request(app).get(
+        `/api/v1/organizations/${organizationSlug}/employees/recruitment-candidates`,
+      ),
+    );
+    expect(candidatesAfterHire.body.candidates).toHaveLength(0);
   });
 });
