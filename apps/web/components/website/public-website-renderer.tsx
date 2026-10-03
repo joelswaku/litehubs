@@ -434,7 +434,7 @@ function PublicSection({
             {source ? (
               <img
                 src={source}
-                alt=""
+                alt={heading || website.display_name}
                 className="absolute inset-0 -z-30 size-full object-cover"
               />
             ) : null}
@@ -525,7 +525,7 @@ function PublicSection({
                     <div className="absolute inset-x-5 top-0 overflow-hidden rounded-3xl border border-white/20 bg-slate-800 shadow-2xl">
                       <img
                         src={secondarySource ?? source ?? ""}
-                        alt=""
+                        alt={`${heading || website.display_name} — ${language === "fr" ? "au cœur de l’action" : "at the heart of the work"}`}
                         className="aspect-[5/4] w-full object-cover"
                       />
                       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/70 to-transparent px-4 pb-4 pt-12">
@@ -539,7 +539,7 @@ function PublicSection({
                     <div className="absolute -bottom-2 -left-1 w-36 overflow-hidden rounded-2xl border-4 border-slate-950 shadow-xl">
                       <img
                         src={tertiarySource ?? source ?? ""}
-                        alt=""
+                        alt={`${heading || website.display_name} — ${language === "fr" ? "équipe et terrain" : "team and field work"}`}
                         className="aspect-square w-full object-cover"
                       />
                     </div>
@@ -681,7 +681,7 @@ function PublicSection({
               {source ? (
                 <img
                   src={source}
-                  alt=""
+                  alt={heading || website.display_name}
                   className="absolute inset-0 size-full object-cover"
                 />
               ) : null}
@@ -720,7 +720,10 @@ function PublicSection({
                   {image ? (
                     <img
                       src={image}
-                      alt={text(item, "caption")}
+                      alt={
+                        text(item, "caption") ||
+                        `${heading || website.display_name} — ${index + 1}`
+                      }
                       className="aspect-square size-full object-cover transition duration-500 group-hover:scale-105"
                     />
                   ) : (
@@ -1355,7 +1358,7 @@ export function PublicWebsiteRenderer({
                 {website.logo_url ? (
                   <img
                     src={website.logo_url}
-                    alt=""
+                    alt={`${website.display_name} — ${language === "fr" ? "logo" : "logo"}`}
                     className="size-full object-cover"
                   />
                 ) : (
@@ -1447,7 +1450,7 @@ export function PublicWebsiteRenderer({
                 {website.logo_url ? (
                   <img
                     src={website.logo_url}
-                    alt=""
+                    alt={`${website.display_name} — ${language === "fr" ? "logo" : "logo"}`}
                     className="size-full rounded-xl object-cover"
                   />
                 ) : (
@@ -1575,7 +1578,7 @@ export function PublicWebsiteRenderer({
                 {website.logo_url ? (
                   <img
                     src={website.logo_url}
-                    alt=""
+                    alt={`${website.display_name} — ${language === "fr" ? "logo" : "logo"}`}
                     className="size-full object-cover"
                   />
                 ) : (
