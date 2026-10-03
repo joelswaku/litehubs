@@ -145,6 +145,9 @@ export function PublicCareersPage({ orgSlug }: { orgSlug: string }) {
   const careers = useQuery({
     queryKey: ["public-careers", orgSlug],
     queryFn: () => get<any>(publicUrl(orgSlug, "jobs")),
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: "always",
   });
   const jobs = useMemo(
     () =>

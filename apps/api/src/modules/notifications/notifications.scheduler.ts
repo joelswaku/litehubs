@@ -9,6 +9,7 @@ import {
   runNutritionMonitoringForOrganization,
   sendNutritionExecutiveSummaryForOrganization,
 } from "../owner-management/feed-nutrition.service";
+import { closeExpiredJobsForOrganization } from "../careers/careers.service";
 
 let scheduled = false;
 
@@ -37,9 +38,28 @@ export function startNotificationScheduler(): void {
   cron.schedule("*/5 * * * *", () => {
     void forEachOrganization("email_delivery", deliverPendingEmailsForOrganization);
   });
-  cron.schedule("10 6 * * *", () => {
-    void forEachOrganization("daily_reminders", runScheduledNotificationRemindersForOrganization);
-  }, { timezone: "Africa/Kinshasa" });
+  cron.schedule(
+    "10 6 * * *",
+    () => {
+      void forEachOrganization(
+        "daily_reminders",
+        runScheduledNotificationRemindersForOrganization,
+      );
+    },
+    { timezone: "Africa/Kinshasa" },
+  );
+  // A vacancy remains available through its displayed deadline, then is closed
+  // before the next working day in both the public portal and the HR register.
+  cron.schedule(
+    "5 0 * * *",
+    () => {
+      void forEachOrganization(
+        "career_expiry",
+        closeExpiredJobsForOrganization,
+      );
+    },
+    { timezone: "Africa/Kinshasa" },
+  );
   // Farm health, ration and feed-autonomy checks run before the day starts.
   cron.schedule("0 6 * * *", () => {
     void forEachOrganization("nutrition_monitoring", runNutritionMonitoringForOrganization);

@@ -331,15 +331,19 @@ export async function saveJob(
     const experienceLevel = input.experienceLevel ?? "not_specified";
     const positionsOpen = input.positionsOpen ?? 1;
     const status = input.status ?? "draft";
-    if (
-      status === "published" &&
-      input.applicationDeadline &&
-      input.applicationDeadline < new Date().toISOString().slice(0, 10)
-    )
-      throw new BadRequestError(
-        "A published vacancy cannot have a past application deadline",
-        { field: "applicationDeadline" },
+    if (status === "published" && input.applicationDeadline) {
+      // A vacancy is advertised on Congo time, not the database or server's
+      // potentially different UTC date. This keeps it open for the full date
+      // shown to candidates and to the recruitment team.
+      const currentDate = await client.query<{ today: string }>(
+        "SELECT (now() AT TIME ZONE 'Africa/Kinshasa')::date::text AS today",
       );
+      if (input.applicationDeadline < currentDate.rows[0]!.today)
+        throw new BadRequestError(
+          "A published vacancy cannot have a past application deadline",
+          { field: "applicationDeadline" },
+        );
+    }
     if (jobId) {
       const current = await jobById(client, context.organizationId, jobId);
       await assertSiteAccess(client, context, current.site_id);
@@ -649,6 +653,24 @@ export async function publicJobDetail(orgSlug: string, jobCode: string) {
     intro: row.careers_intro ?? null,
     job: mapJob({ ...row, application_count: 0 }),
   };
+}
+
+/** Marks yesterday's vacancies closed so the private register matches public access. */
+export async function closeExpiredJobsForOrganization(
+  organizationId: string,
+): Promise<number> {
+  return withTenantContext({ organizationId, userId: null }, async (client) => {
+    const result = await client.query(
+      `UPDATE career_job_posts
+          SET status='closed',closed_at=COALESCE(closed_at,now()),updated_at=now()
+        WHERE organization_id=$1
+          AND status='published'
+          AND application_deadline IS NOT NULL
+          AND application_deadline < (now() AT TIME ZONE 'Africa/Kinshasa')::date`,
+      [organizationId],
+    );
+    return result.rowCount ?? 0;
+  });
 }
 
 async function recipients(client: PoolClient, organizationId: string) {

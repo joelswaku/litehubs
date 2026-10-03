@@ -87,12 +87,16 @@ export const downloadResume: RequestHandler = async (req, res) => {
   res.send(file.buffer);
 };
 
-export const publicJobs: RequestHandler = async (req, res) =>
+export const publicJobs: RequestHandler = async (req, res) => {
+  res.setHeader("Cache-Control", "no-store, max-age=0");
   res.json(await service.publicJobs(param(req, "orgSlug")));
-export const publicJob: RequestHandler = async (req, res) =>
+};
+export const publicJob: RequestHandler = async (req, res) => {
+  res.setHeader("Cache-Control", "no-store, max-age=0");
   res.json(
     await service.publicJobDetail(param(req, "orgSlug"), param(req, "jobCode")),
   );
+};
 export const publicApply: RequestHandler = async (req, res) => {
   if (!req.file) throw new Error("A résumé file is required");
   res
