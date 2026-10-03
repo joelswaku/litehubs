@@ -47,7 +47,7 @@ export async function generateMetadata({
   const origin = publicOriginForHost(domain);
   const canonical = `${origin}${slug ? `/${encodeURIComponent(slug)}` : ""}`;
   const image = publicWebsiteImage(detail, origin);
-  const brand = detail.website.displayName ?? "Entreprise";
+  const brand = isCongoOmega ? "Congo Omega" : detail.website.displayName ?? "Entreprise";
   const publicTitle = isCongoOmega && !title.toLowerCase().includes(brand.toLowerCase())
     ? `${title} | ${brand}`
     : title;
@@ -63,7 +63,7 @@ export async function generateMetadata({
     openGraph: {
       type: "website",
       locale: "fr_FR",
-      siteName: detail.website.displayName,
+      siteName: brand,
       url: canonical,
       title: publicTitle,
       description,

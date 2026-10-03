@@ -144,6 +144,12 @@ export function publicWebsiteStructuredData({
   description: string;
 }) {
   const website = detail.website;
+  // Congo Omega's display name was created before the public brand guide and
+  // may still be stored as "Congoomega". Structured data must use the
+  // official spaced brand consistently across Google, Bing, and social cards.
+  const brandName = isCongoOmegaHost(origin)
+    ? "Congo Omega"
+    : website?.displayName ?? "Entreprise";
   const image = publicWebsiteImage(detail, origin);
   const logo = absoluteWebsiteUrl(website?.logoUrl, origin);
   const organizationId = `${origin}/#organization`;
@@ -152,7 +158,7 @@ export function publicWebsiteStructuredData({
     {
       "@type": "Organization",
       "@id": organizationId,
-      name: website?.displayName ?? "Entreprise",
+      name: brandName,
       url: origin,
       ...(website?.tagline ? { description: website.tagline } : {}),
       ...(image ? { image } : {}),
@@ -168,7 +174,7 @@ export function publicWebsiteStructuredData({
     {
       "@type": "WebSite",
       "@id": websiteId,
-      name: website?.displayName ?? "Entreprise",
+      name: brandName,
       url: origin,
       inLanguage: "fr",
       publisher: { "@id": organizationId },
