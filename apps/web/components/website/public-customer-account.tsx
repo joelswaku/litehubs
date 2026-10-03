@@ -363,11 +363,20 @@ export function PublicCustomerAccount({
             </div>
           </div>
           <div className="grid lg:grid-cols-[.8fr_1.2fr]">
-            <aside className="border-b border-slate-100 bg-[#eef5ef] p-6 sm:p-9 lg:border-b-0 lg:border-r">
-              <p className="text-xs font-bold uppercase tracking-[.15em] text-emerald-800">Votre espace d’activités</p>
-              <div className="mt-6 grid gap-4">
-                <div className="rounded-2xl border border-white bg-white/80 p-4"><BellRing className="size-5 text-emerald-800" /><p className="mt-3 font-semibold">Actualités choisies</p><p className="mt-1 text-sm leading-5 text-slate-600">Consultez les activités, initiatives et informations que Congo Omega partage avec vous.</p></div>
-                <div className="rounded-2xl border border-white bg-white/80 p-4"><ShieldCheck className="size-5 text-emerald-800" /><p className="mt-3 font-semibold">Accès personnel séparé</p><p className="mt-1 text-sm leading-5 text-slate-600">Cet espace ne donne jamais accès aux candidatures, aux dossiers de recrutement ni à LiteHubs.</p></div>
+            <aside className="border-b border-slate-100 bg-[#eef5ef] px-5 py-4 sm:p-9 lg:border-b-0 lg:border-r">
+              <div className="flex items-center gap-3 sm:hidden">
+                <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-white text-emerald-800 shadow-sm"><BellRing className="size-4" /></span>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-900">Actualités Congo Omega</p>
+                  <p className="mt-0.5 text-xs leading-4 text-slate-600">Espace public, séparé des candidatures et de LiteHubs.</p>
+                </div>
+              </div>
+              <div className="hidden sm:block">
+                <p className="text-xs font-bold uppercase tracking-[.15em] text-emerald-800">Votre espace d’activités</p>
+                <div className="mt-6 grid gap-4">
+                  <div className="rounded-2xl border border-white bg-white/80 p-4"><BellRing className="size-5 text-emerald-800" /><p className="mt-3 font-semibold">Actualités choisies</p><p className="mt-1 text-sm leading-5 text-slate-600">Consultez les activités, initiatives et informations que Congo Omega partage avec vous.</p></div>
+                  <div className="rounded-2xl border border-white bg-white/80 p-4"><ShieldCheck className="size-5 text-emerald-800" /><p className="mt-3 font-semibold">Accès personnel séparé</p><p className="mt-1 text-sm leading-5 text-slate-600">Cet espace ne donne jamais accès aux candidatures, aux dossiers de recrutement ni à LiteHubs.</p></div>
+                </div>
               </div>
             </aside>
             <section className="p-6 sm:p-9">
