@@ -78,6 +78,48 @@ function isPublic(pathname: string): boolean {
   );
 }
 
+/**
+ * Congo Omega used WordPress before its public site moved into LiteHubs.
+ * Search engines and shared links can retain those old addresses for some
+ * time.  Send visitors to the closest current page instead of rewriting an
+ * obsolete path as a website-builder page, which would otherwise produce a
+ * misleading 200 "site unavailable" screen.
+ *
+ * These rules are intentionally scoped to Congo Omega. They can be removed or
+ * refined later once the old URLs have disappeared from search results.
+ */
+function congoOmegaLegacyDestination(pathname: string): string | null {
+  const path = pathname.length > 1 ? pathname.replace(/[/]+$/, "").toLowerCase() : pathname;
+
+  const exactRedirects: Record<string, string> = {
+    "/a-propos-congo-omega": "/notre-entreprise",
+    "/a-propos": "/notre-entreprise",
+    "/about": "/notre-entreprise",
+    "/services": "/activites",
+    "/service": "/activites",
+    "/produits": "/activites",
+    "/products": "/activites",
+    "/product": "/activites",
+    "/shop": "/activites",
+    "/product-category": "/activites",
+    "/carriere": "/carrieres",
+  };
+  if (exactRedirects[path]) return exactRedirects[path];
+
+  if (
+    path.startsWith("/product-category/") ||
+    path.startsWith("/product/") ||
+    path.startsWith("/products/") ||
+    path.startsWith("/shop/") ||
+    path.startsWith("/category/") ||
+    path.startsWith("/tag/")
+  ) {
+    return "/activites";
+  }
+
+  return null;
+}
+
 export async function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
   const token = request.cookies.get(ACCESS_COOKIE)?.value;
@@ -106,6 +148,14 @@ export async function proxy(request: NextRequest) {
   const isLegacyWordPressPath = /^(?:\/wp-admin(?:\/|$)|\/wp-login\.php$|\/wp-content(?:\/|$)|\/wp-includes(?:\/|$)|\/xmlrpc\.php$)/i.test(pathname);
   if (customDomain && isLegacyWordPressPath) {
     return NextResponse.redirect(new URL("/", request.url), 308);
+  }
+  if (customDomain === "congoomega.com") {
+    const destination = congoOmegaLegacyDestination(pathname);
+    if (destination && destination !== pathname) {
+      const redirect = request.nextUrl.clone();
+      redirect.pathname = destination;
+      return NextResponse.redirect(redirect, 308);
+    }
   }
   // Recruitment and appointment booking are real public application routes,
   // not website-builder pages. Keep them reachable from the company domain;
