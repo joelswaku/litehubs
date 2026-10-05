@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { notFound } from "next/navigation";
 import { PublicWebsiteDomainPage } from "@/components/website/public-website-domain-page";
 import { PublicWebsiteRenderer } from "@/components/website/public-website-renderer";
 import { publicWebsiteRendererData } from "@/components/website/public-website-data";
@@ -10,6 +11,7 @@ import {
   publicOriginForHost,
   publicWebsiteImage,
   publicWebsiteMetadata,
+  publicWebsiteMetadataResult,
   publicWebsiteStructuredData,
   serializeJsonLd,
 } from "@/lib/seo";
@@ -89,7 +91,9 @@ export default async function Page({
     return <PublicCustomerAccount domain={domain} />;
   }
   const slug = pageSlug?.[0];
-  const detail = await publicWebsiteMetadata(domain, slug);
+  const result = await publicWebsiteMetadataResult(domain, slug);
+  if (slug && result.status === 404) notFound();
+  const detail = result.detail;
   if (!detail?.website || !detail.page) {
     return <PublicWebsiteDomainPage domain={domain} pageSlug={slug} />;
   }

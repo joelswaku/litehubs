@@ -248,6 +248,16 @@ export async function publicWebsiteMetadata(
   orgSlug: string,
   pageSlug?: string,
 ): Promise<PublicWebsiteSeo | null> {
+  return (await publicWebsiteMetadataResult(orgSlug, pageSlug)).detail;
+}
+
+/** Preserves the HTTP status so public website routes can return a genuine
+ * 404 for a missing page while treating a temporary API interruption
+ * separately. */
+export async function publicWebsiteMetadataResult(
+  orgSlug: string,
+  pageSlug?: string,
+): Promise<{ detail: PublicWebsiteSeo | null; status: number | null }> {
   const domainRequest = orgSlug.includes(".");
   const base = domainRequest
     ? `/api/v1/public/websites/domains/${encodeURIComponent(orgSlug)}`
@@ -255,10 +265,10 @@ export async function publicWebsiteMetadata(
   const path = pageSlug ? `${base}/pages/${encodeURIComponent(pageSlug)}` : base;
   try {
     const response = await fetch(`${apiOrigin}${path}`, { cache: "no-store" });
-    if (!response.ok) return null;
-    return (await response.json()) as PublicWebsiteSeo;
+    if (!response.ok) return { detail: null, status: response.status };
+    return { detail: (await response.json()) as PublicWebsiteSeo, status: response.status };
   } catch {
-    return null;
+    return { detail: null, status: null };
   }
 }
 
