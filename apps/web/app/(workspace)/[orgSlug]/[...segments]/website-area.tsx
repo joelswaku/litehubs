@@ -35,6 +35,8 @@ import {
   MousePointerClick,
   MoveVertical,
   Palette,
+  PanelLeftClose,
+  PanelLeftOpen,
   PencilLine,
   Eye,
   EyeOff,
@@ -2865,6 +2867,24 @@ function VisualBuilderTab({
   const [selectedElement, setSelectedElement] = useState<string | null>(null);
   // "États et interactions": the state shown in the preview while editing it.
   const [previewState, setPreviewState] = useState<string | null>(null);
+  // The structure column can be folded to give the preview more room
+  // (remembered on this computer).
+  const [treeCollapsed, setTreeCollapsed] = useState(false);
+  useEffect(() => {
+    try {
+      setTreeCollapsed(window.localStorage.getItem("wb-tree-collapsed") === "1");
+    } catch {
+      // Storage unavailable: keep it open.
+    }
+  }, []);
+  const toggleTree = (collapsed: boolean) => {
+    setTreeCollapsed(collapsed);
+    try {
+      window.localStorage.setItem("wb-tree-collapsed", collapsed ? "1" : "0");
+    } catch {
+      // Not remembered, still works.
+    }
+  };
   useEffect(() => setPreviewState(null), [selectedId, selectedElement]);
   const [replayKey, setReplayKey] = useState(0);
   const replayAnimations = () => setReplayKey((value) => value + 1);
@@ -3609,11 +3629,38 @@ function VisualBuilderTab({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        {/* Left: tree Page → Blocs → Conteneurs → Éléments */}
+        {/* Left: tree Page → Blocs → Conteneurs → Éléments (can be folded) */}
+        {treeCollapsed ? (
+          <aside className="flex shrink-0 items-center gap-2 border-b border-border bg-surface-1 px-2 py-1.5 lg:w-11 lg:flex-col lg:border-b-0 lg:border-r lg:px-0 lg:py-2">
+            <button
+              type="button"
+              onClick={() => toggleTree(false)}
+              className="grid size-8 place-items-center rounded-md text-ink-secondary hover:bg-surface-2 hover:text-ink"
+              title={tr(fr, "Afficher la structure", "Show the structure")}
+              aria-label={tr(fr, "Afficher la structure", "Show the structure")}
+              aria-expanded={false}
+            >
+              <PanelLeftOpen className="size-4" />
+            </button>
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-muted lg:[writing-mode:vertical-rl] lg:rotate-180">
+              {tr(fr, "Structure", "Structure")}
+            </span>
+          </aside>
+        ) : (
         <aside className="flex max-h-64 shrink-0 flex-col border-b border-border bg-surface-1 lg:max-h-none lg:w-72 lg:border-b-0 lg:border-r">
           <div className="space-y-2 border-b border-border px-3 py-2.5">
             <div className="flex items-center justify-between gap-2">
-              <p className="text-xs font-semibold uppercase tracking-wide text-ink-secondary">
+              <p className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-ink-secondary">
+                <button
+                  type="button"
+                  onClick={() => toggleTree(true)}
+                  className="grid size-6 place-items-center rounded-md text-ink-muted hover:bg-surface-2 hover:text-ink"
+                  title={tr(fr, "Réduire la structure (plus de place pour l’aperçu)", "Fold the structure (more room for the preview)")}
+                  aria-label={tr(fr, "Réduire la structure", "Fold the structure")}
+                  aria-expanded
+                >
+                  <PanelLeftClose className="size-4" />
+                </button>
                 {tr(fr, "Structure", "Structure")}
               </p>
               {onCreatePage ? (
@@ -3961,6 +4008,7 @@ function VisualBuilderTab({
             </ol>
           </div>
         </aside>
+        )}
 
         {/* Center: the real website, updated live */}
         <div className="flex min-h-[420px] min-w-0 flex-1 justify-center overflow-hidden bg-[repeating-linear-gradient(45deg,rgb(148_163_184_/_0.08)_0_10px,transparent_10px_20px)] p-0 lg:p-3">
