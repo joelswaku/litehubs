@@ -3205,6 +3205,47 @@ function VisualBuilderTab({
     setBlocks(ordered(next));
     selectBlock(copy.id, true);
   };
+  /** Drag and drop in the structure tree: move an element or add a new one. */
+  const dropInTree = (blockId: string, drag: TreeDrag, target: DropTarget) => {
+    const index = blocks.findIndex((candidate) => candidate.id === blockId);
+    const block = blocks[index];
+    if (!block) return;
+    let next: WebsiteSection | null = null;
+    let element: string | null = null;
+    if (drag.move) {
+      next = moveExtraInBlock(block, drag.move, target);
+      element = drag.move;
+    } else if (drag.add) {
+      const item = ZONE_ELEMENT_TYPES.includes(drag.add)
+        ? (zoneElement(drag.add, siteFacts) as WebsiteExtraElement)
+        : newExtraElement(drag.add);
+      next = placeExtraInBlock(block, item, target);
+      if (next) {
+        const styles = newElementStyles(item);
+        if (Object.keys(styles).length)
+          next = {
+            ...next,
+            content: {
+              ...next.content,
+              elementStyles: { ...((next.content.elementStyles as Record<string, unknown> | undefined) ?? {}), ...styles },
+            },
+          };
+      }
+      element = `x:${item.id}`;
+    }
+    if (!next) {
+      toast.info(
+        tr(
+          fr,
+          `Impossible de placer cet élément ici (pas dans lui-même, et ${MAX_CONTAINER_DEPTH - 1} conteneurs imbriqués au maximum).`,
+          `This element can’t go here (not inside itself, and at most ${MAX_CONTAINER_DEPTH - 1} nested containers).`,
+        ),
+      );
+      return;
+    }
+    changeBlockAt(index, next);
+    selectBlock(blockId, false, element);
+  };
   const addExtra = (type: WebsiteExtraElement["type"]) => {
     if (!selectedBlock) return;
     const extras = readExtraElements(selectedBlock.content);
@@ -3217,7 +3258,7 @@ function VisualBuilderTab({
       : ZONE_ELEMENT_TYPES.includes(type)
         ? (zoneElement(type, siteFacts) as WebsiteExtraElement)
         : newExtraElement(type);
-    const extraStyles = slideCardStyles(item);
+    const extraStyles = newElementStyles(item);
     const withStyles = (content: Record<string, unknown>) =>
       Object.keys(extraStyles).length
         ? {
@@ -4005,6 +4046,7 @@ function VisualBuilderTab({
                     {open && children.length ? (
                       <TreeNodes
                         nodes={children}
+                        onDrop={(drag, target) => dropInTree(block.id, drag, target)}
                         selected={selectedId === block.id ? selectedElement : null}
                         onSelect={(element) => {
                           selectBlock(block.id, false, element);
@@ -4206,6 +4248,15 @@ function VisualBuilderTab({
                     <button
                       key={type}
                       type="button"
+                      draggable={!selectedZone}
+                      onDragStart={(event) => {
+                        treeDrag = { add: type };
+                        event.dataTransfer.effectAllowed = "copy";
+                        event.dataTransfer.setData("text/plain", type);
+                      }}
+                      onDragEnd={() => {
+                        treeDrag = null;
+                      }}
                       onClick={() => addExtra(type)}
                       title={extraTypeLabels[type]![fr ? 0 : 1]}
                       className="flex flex-col items-center gap-0.5 rounded-md border border-border bg-surface-1 px-1 py-1.5 text-[10px] font-medium text-ink-secondary transition hover:border-brand hover:text-brand"
@@ -4692,6 +4743,120 @@ function slideCardStyles(item: WebsiteExtraElement): Record<string, Record<strin
 }
 
 const isContainerType = (type: string | undefined) => type === "group" || type === "slider";
+
+/** WordPress-like default box for a new container: full width, vertical flex,
+ * some padding and space between its elements. Slide cards keep their look. */
+function newElementStyles(item: WebsiteExtraElement): Record<string, Record<string, unknown>> {
+  const styles = slideCardStyles(item);
+  if (item.type === "group" && !item.id.startsWith("card-"))
+    styles[`x:${item.id}`] = {
+      display: "flex",
+      direction: "column",
+      alignItems: "stretch",
+      gap: 16,
+      paddingTop: 16,
+      paddingRight: 16,
+      paddingBottom: 16,
+      paddingLeft: 16,
+      width: "full",
+      ...(styles[`x:${item.id}`] ?? {}),
+    };
+  return styles;
+}
+
+/** Where a dragged element lands: inside a container, or before/after an element.
+ * "canvas" (inside) means the top level of the block. */
+type DropTarget = { element: string; where: "inside" | "before" | "after" };
+const TOP_LEVEL_BUILT_INS = ["eyebrow", "title", "body", "buttons", "badges"];
+
+/** How many containers are nested in an element (itself included). */
+function containerLevels(item: WebsiteExtraElement): number {
+  if (!isContainerType(item.type)) return 0;
+  return 1 + Math.max(0, ...(item.children ?? []).map(containerLevels));
+}
+
+/** Puts an element (new or detached) at a drop target. Null when not allowed. */
+function placeExtraInBlock(block: WebsiteSection, item: WebsiteExtraElement, target: DropTarget): WebsiteSection | null {
+  const extras = readExtraElements(block.content);
+  const order = elementOrderFor(block).filter((name) => name !== `x:${item.id}`);
+  const levels = containerLevels(item);
+  // A container at depth d holds its own containers down to d + levels - 1.
+  const fits = (depth: number) => !levels || depth + levels - 1 < MAX_CONTAINER_DEPTH;
+  const withContent = (nextExtras: WebsiteExtraElement[], nextOrder: string[]) => ({
+    ...block,
+    content: { ...block.content, extras: nextExtras, elementOrder: nextOrder },
+  });
+  const topLevelAt = (anchor: string | null, after: boolean) => {
+    if (!fits(1)) return null;
+    const nextExtras = [...extras];
+    const extraIndex = anchor?.startsWith("x:") ? nextExtras.findIndex((candidate) => `x:${candidate.id}` === anchor) : -1;
+    nextExtras.splice(extraIndex >= 0 ? extraIndex + (after ? 1 : 0) : nextExtras.length, 0, item);
+    const nextOrder = [...order];
+    const orderIndex = anchor ? nextOrder.indexOf(anchor) : -1;
+    nextOrder.splice(orderIndex >= 0 ? orderIndex + (after ? 1 : 0) : nextOrder.length, 0, `x:${item.id}`);
+    return withContent(nextExtras, nextOrder);
+  };
+  if (target.where === "inside") {
+    if (target.element === "canvas" || target.element === "root") return topLevelAt(null, true);
+    const location = locateExtra(extras, target.element);
+    if (!location || !isContainerType(location.item.type) || !fits(location.depth + 1)) return null;
+    return withContent(
+      mapExtra(extras, location.item.id, (group) => ({ ...group, children: [...(group.children ?? []), item] })),
+      order,
+    );
+  }
+  const after = target.where === "after";
+  if (TOP_LEVEL_BUILT_INS.includes(target.element) || target.element === "primaryButton")
+    return topLevelAt(target.element, after);
+  const location = locateExtra(extras, target.element);
+  if (!location) return null;
+  if (!location.parentId) return topLevelAt(target.element, after);
+  if (!fits(location.depth)) return null;
+  return withContent(
+    mapExtra(extras, location.parentId, (group) => {
+      const children = [...(group.children ?? [])];
+      const index = children.findIndex((candidate) => candidate.id === location.item.id);
+      children.splice(index + (after ? 1 : 0), 0, item);
+      return { ...group, children };
+    }),
+    order,
+  );
+}
+
+/** Moves an added element (and everything inside it) to a drop target. */
+function moveExtraInBlock(block: WebsiteSection, source: string, target: DropTarget): WebsiteSection | null {
+  if (source === target.element) return null;
+  const extras = readExtraElements(block.content);
+  const location = locateExtra(extras, source);
+  if (!location) return null;
+  // Never into itself or one of its own children.
+  if (locateExtra(location.item.children ?? [], target.element)) return null;
+  const detached: WebsiteSection = {
+    ...block,
+    content: { ...block.content, extras: mapExtra(extras, location.item.id, () => null) },
+  };
+  return placeExtraInBlock(detached, location.item, target);
+}
+
+/** Containers an element can be moved into (for the "Move into" list). */
+function moveDestinations(block: WebsiteSection, source: string, fr: boolean): Array<[string, string]> {
+  const extras = readExtraElements(block.content);
+  const self = locateExtra(extras, source);
+  const out: Array<[string, string]> = [];
+  const walk = (items: WebsiteExtraElement[], path: string) => {
+    for (const item of items) {
+      if (`x:${item.id}` === source) continue;
+      if (!isContainerType(item.type)) continue;
+      const text = (fr ? item.textFr : item.textEn) ?? "";
+      const name = `${extraTypeLabels[item.type]?.[fr ? 0 : 1] ?? item.type}${text.trim() ? ` · ${text.trim().slice(0, 20)}` : ""}`;
+      const label = path ? `${path} › ${name}` : name;
+      if (self && moveExtraInBlock(block, source, { element: `x:${item.id}`, where: "inside" })) out.push([`x:${item.id}`, label]);
+      walk(item.children ?? [], label);
+    }
+  };
+  walk(extras, "");
+  return out;
+}
 
 /** Where an added element lives: at block level or inside a container. */
 type ExtraLocation = {
@@ -5533,6 +5698,50 @@ function ElementEditor({
             {insideContainer ? tr(fr, "Dans le conteneur · ", "In the container · ") : ""}
             {tr(fr, "Position", "Position")} {orderIndex + 1} / {positions.length}
           </p>
+          {extra ? (
+            <label className="block space-y-1">
+              <span className="text-[11px] font-medium text-ink-muted">
+                {tr(fr, "Déplacer dans un autre conteneur", "Move into another container")}
+              </span>
+              <select
+                value=""
+                onChange={(event) => {
+                  const value = event.target.value;
+                  if (!value) return;
+                  const next = moveExtraInBlock(block, element, { element: value, where: "inside" });
+                  if (next) onChange(next);
+                  else
+                    toast.info(
+                      tr(fr, "Impossible de le placer là (trop de conteneurs imbriqués).", "It can’t go there (too many nested containers)."),
+                    );
+                }}
+                className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm text-ink"
+              >
+                <option value="">{tr(fr, "Choisir une destination…", "Choose a destination…")}</option>
+                {insideContainer ? (
+                  <option value="canvas">
+                    {block.section_type === "container"
+                      ? tr(fr, "Zone principale du bloc libre", "Main area of the free block")
+                      : tr(fr, "Niveau principal du bloc", "Top level of the block")}
+                  </option>
+                ) : null}
+                {moveDestinations(block, element, fr)
+                  .filter(([value]) => value !== (location?.parentId ? `x:${location.parentId}` : ""))
+                  .map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+              </select>
+              <span className="block text-[11px] text-ink-muted">
+                {tr(
+                  fr,
+                  "Ou glissez-le dans la colonne Structure : dedans, avant ou après un autre élément.",
+                  "Or drag it in the Structure column: inside, before or after another element.",
+                )}
+              </span>
+            </label>
+          ) : null}
         </section>
       ) : null}
 
@@ -7392,38 +7601,122 @@ function blockTreeChildren(block: WebsiteSection, fr: boolean): TreeNode[] {
   return [...nodes, ...fromExtras(readExtraElements(block.content))];
 }
 
+/** What is being dragged in the structure tree: an element or a new one. */
+type TreeDrag = { move?: string; add?: WebsiteExtraElement["type"] };
+let treeDrag: TreeDrag | null = null;
+
+/** Which drop positions a tree node accepts. */
+function dropZonesOf(node: TreeNode): { inside: boolean; around: boolean } {
+  if (node.element === "canvas") return { inside: true, around: false };
+  if (node.element.startsWith("x:")) return { inside: node.kind === "container", around: true };
+  if (TOP_LEVEL_BUILT_INS.includes(node.element) || node.element === "primaryButton") return { inside: false, around: true };
+  return { inside: false, around: false };
+}
+
 function TreeNodes({
   nodes,
   selected,
   onSelect,
+  onDrop,
+  hint: sharedHint,
+  setHint: setSharedHint,
   fr,
 }: {
   nodes: TreeNode[];
   selected: string | null;
   onSelect: (element: string) => void;
+  /** Enables drag and drop (WordPress-like) in this tree. */
+  onDrop?: (drag: TreeDrag, target: DropTarget) => void;
+  hint?: DropTarget | null;
+  setHint?: (hint: DropTarget | null) => void;
   fr: boolean;
 }) {
+  const [ownHint, setOwnHint] = useState<DropTarget | null>(null);
+  const hint = setSharedHint ? sharedHint ?? null : ownHint;
+  const setHint = setSharedHint ?? setOwnHint;
+  const whereAt = (node: TreeNode, event: React.DragEvent<HTMLElement>): DropTarget["where"] | null => {
+    const zones = dropZonesOf(node);
+    if (!treeDrag || (!zones.inside && !zones.around)) return null;
+    if (treeDrag.move === node.element) return null;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const ratio = (event.clientY - rect.top) / Math.max(1, rect.height);
+    if (zones.inside && (!zones.around || (ratio > 0.28 && ratio < 0.72))) return "inside";
+    if (!zones.around) return null;
+    return ratio < 0.5 ? "before" : "after";
+  };
   return (
     <ul className="ml-4 list-none space-y-0.5 border-l border-border py-0.5 pl-2">
-      {nodes.map((node) => (
-        <li key={node.element}>
-          <button
-            type="button"
-            onClick={() => onSelect(node.element)}
-            className={`flex w-full items-center gap-1.5 rounded-md border px-1.5 py-1 text-left text-xs transition ${
-              selected === node.element
-                ? "border-sky-500 bg-sky-500/10 text-ink"
-                : "border-transparent text-ink-secondary hover:bg-surface-2 hover:text-ink"
-            }`}
-          >
-            <TreeKind kind={node.kind} fr={fr} />
-            <span className="truncate">{node.label}</span>
-          </button>
-          {node.children.length ? (
-            <TreeNodes nodes={node.children} selected={selected} onSelect={onSelect} fr={fr} />
-          ) : null}
-        </li>
-      ))}
+      {nodes.map((node) => {
+        const draggable = Boolean(onDrop) && node.element.startsWith("x:");
+        const marked = hint?.element === node.element ? hint.where : null;
+        return (
+          <li key={node.element} className="relative">
+            {marked === "before" ? <span aria-hidden="true" className="absolute -top-0.5 left-0 right-0 h-0.5 rounded bg-brand" /> : null}
+            <button
+              type="button"
+              draggable={draggable}
+              onDragStart={(event) => {
+                event.stopPropagation();
+                treeDrag = { move: node.element };
+                event.dataTransfer.effectAllowed = "move";
+                event.dataTransfer.setData("text/plain", node.element);
+              }}
+              onDragEnd={() => {
+                treeDrag = null;
+                setHint(null);
+              }}
+              onDragOver={
+                onDrop
+                  ? (event) => {
+                      const where = whereAt(node, event);
+                      if (!where) return;
+                      event.preventDefault();
+                      event.stopPropagation();
+                      if (hint?.element !== node.element || hint.where !== where) setHint({ element: node.element, where });
+                    }
+                  : undefined
+              }
+              onDragLeave={() => {
+                if (hint?.element === node.element) setHint(null);
+              }}
+              onDrop={
+                onDrop
+                  ? (event) => {
+                      const where = whereAt(node, event);
+                      const drag = treeDrag;
+                      setHint(null);
+                      treeDrag = null;
+                      if (!where || !drag) return;
+                      event.preventDefault();
+                      event.stopPropagation();
+                      onDrop(drag, { element: node.element, where });
+                    }
+                  : undefined
+              }
+              onClick={() => onSelect(node.element)}
+              title={draggable ? tr(fr, "Glissez pour déplacer (dans un conteneur, avant ou après)", "Drag to move (into a container, before or after)") : undefined}
+              className={`flex w-full items-center gap-1.5 rounded-md border px-1.5 py-1 text-left text-xs transition ${
+                marked === "inside"
+                  ? "border-brand bg-brand/10 text-ink"
+                  : selected === node.element
+                    ? "border-sky-500 bg-sky-500/10 text-ink"
+                    : "border-transparent text-ink-secondary hover:bg-surface-2 hover:text-ink"
+              } ${draggable ? "cursor-grab active:cursor-grabbing" : ""}`}
+            >
+              {draggable ? <GripVertical className="size-3 shrink-0 text-ink-muted" /> : null}
+              <TreeKind kind={node.kind} fr={fr} />
+              <span className="truncate">{node.label}</span>
+              {marked === "inside" ? (
+                <span className="ml-auto shrink-0 text-[10px] font-semibold text-brand">{tr(fr, "Déposer dedans", "Drop inside")}</span>
+              ) : null}
+            </button>
+            {marked === "after" ? <span aria-hidden="true" className="absolute -bottom-0.5 left-0 right-0 h-0.5 rounded bg-brand" /> : null}
+            {node.children.length ? (
+              <TreeNodes nodes={node.children} selected={selected} onSelect={onSelect} onDrop={onDrop} hint={hint} setHint={setHint} fr={fr} />
+            ) : null}
+          </li>
+        );
+      })}
     </ul>
   );
 }
