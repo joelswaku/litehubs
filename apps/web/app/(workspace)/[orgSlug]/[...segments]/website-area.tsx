@@ -1579,7 +1579,7 @@ function BlockEditor({
               fr={fr}
             />
           ) : null}
-          {show("style") && onEditArea && block.section_type === "container" ? (
+          {show("style") && onEditArea ? (
             <div className="space-y-2 rounded-xl border border-violet-300 bg-violet-50 p-3 dark:border-violet-400/40 dark:bg-violet-400/10">
               <p className="text-sm font-semibold text-ink">{tr(fr, "Style complet du div", "Full div style")}</p>
               <p className="text-[11px] leading-4 text-ink-secondary">
@@ -3505,7 +3505,7 @@ function VisualBuilderTab({
           onClick: () => setSelectedElement(`item:${itemMatch[1]}`),
         });
       }
-      const containerLike = ["canvas", "panel", "items", "sideCard", "buttons"].includes(selectedElement) || (itemMatch && !itemMatch[2]);
+      const containerLike = ["canvas", "root", "panel", "items", "sideCard", "buttons"].includes(selectedElement) || (itemMatch && !itemMatch[2]);
       path.push({
         kind: containerLike ? "container" : "element",
         label: elementDisplayName(selectedElement, fr),
@@ -4298,7 +4298,7 @@ function VisualBuilderTab({
                   embedded
                   onReplay={replayAnimations}
                   linkPages={linkPages}
-                  onEditArea={() => setSelectedElement("canvas")}
+                  onEditArea={() => setSelectedElement(selectedBlock.section_type === "container" ? "canvas" : "root")}
                 />
                 </>
                 )}
@@ -4689,6 +4689,7 @@ const elementLabels: Record<string, [string, string]> = {
   body: ["Texte", "Text"],
   buttons: ["Groupe de boutons", "Button group"],
   canvas: ["Zone du bloc libre (div)", "Free block area (div)"],
+  root: ["Div du bloc", "Block div"],
   panel: ["Cadre du bloc", "Block frame"],
   media: ["Zone image", "Image area"],
   items: ["Ensemble des cartes", "All cards area"],
@@ -4785,7 +4786,7 @@ function hiddenElementsOf(block: WebsiteSection): string[] {
 /** Whether an element can be deleted on its own (the free block's own area
  * cannot: delete the block instead). */
 function canDeleteElement(element: string) {
-  return element !== "canvas";
+  return element !== "canvas" && element !== "root";
 }
 
 /**
@@ -5508,8 +5509,10 @@ function ElementEditor({
         setStyle={setStyle}
         patchStyle={patchStyle}
         kind={
-          isContainer || (itemMatch && !itemPart) || element === "panel" || element === "items" || element === "sideCard"
+          isContainer || (itemMatch && !itemPart) || element === "panel" || element === "items" || element === "sideCard" || element === "root"
             ? "container"
+            : extra && extra.type !== "image" && fields.kind === "group"
+              ? "box"
             : fields.kind === "group"
               ? "media"
               : fields.kind
@@ -5591,7 +5594,7 @@ function NumberBox({
  * again by the public renderer (website-element-style.ts).
  * ──────────────────────────────────────────────────────────────────────── */
 
-type InspectorKind = "container" | "text" | "button" | "badges" | "media";
+type InspectorKind = "container" | "text" | "button" | "badges" | "media" | "box";
 type SetStyle = (key: string, value: unknown) => void;
 
 const STYLE_SUBJECTS: Record<InspectorKind, { fr: string; en: string; frameFr: string; frameEn: string; tone: string }> = {
@@ -5599,6 +5602,7 @@ const STYLE_SUBJECTS: Record<InspectorKind, { fr: string; en: string; frameFr: s
   text: { fr: "Style du texte", en: "Text style", frameFr: "Cadre autour du texte", frameEn: "Frame around the text", tone: "bg-sky-100 text-sky-800 dark:bg-sky-400/15 dark:text-sky-200" },
   badges: { fr: "Style du texte", en: "Text style", frameFr: "Cadre autour du texte", frameEn: "Frame around the text", tone: "bg-sky-100 text-sky-800 dark:bg-sky-400/15 dark:text-sky-200" },
   button: { fr: "Style du bouton", en: "Button style", frameFr: "Forme du bouton", frameEn: "Button shape", tone: "bg-emerald-100 text-emerald-800 dark:bg-emerald-400/15 dark:text-emerald-200" },
+  box: { fr: "Style de l’élément (div)", en: "Element style (div)", frameFr: "Taille, espace et cadre", frameEn: "Size, spacing and frame", tone: "bg-violet-100 text-violet-800 dark:bg-violet-400/15 dark:text-violet-200" },
   media: { fr: "Style de l’image", en: "Image style", frameFr: "Cadre de l’image", frameEn: "Image frame", tone: "bg-amber-100 text-amber-800 dark:bg-amber-400/15 dark:text-amber-200" },
 };
 
@@ -5966,8 +5970,8 @@ function StyleInspector({
 }) {
   const isContainer = kind === "container";
   const subject = STYLE_SUBJECTS[kind];
-  const hasText = kind !== "media";
-  const display = (style.display as string | undefined) ?? (isContainer ? "flex" : undefined);
+  const hasText = kind !== "media" && kind !== "box";
+  const display = (style.display as string | undefined) ?? (isContainer && element !== "root" ? "flex" : undefined);
   const used = (...keys: string[]) => keys.some((key) => style[key] !== undefined);
   return (
     <section className="space-y-2">
@@ -6287,7 +6291,34 @@ function StyleInspector({
       <InspectorSection
         title={tr(fr, "Dimensions", "Size")}
         active={used("width", "height", "minWidth", "maxWidth", "minHeight", "maxHeight")}
+        defaultOpen={element === "root"}
       >
+        {element === "root" ? (
+          <div className="space-y-2 rounded-lg bg-surface-2 p-2">
+            <InspectorRow label={tr(fr, "Largeur du bloc", "Block width")}>
+              <Segmented
+                value={style.width === "full" && style.maxWidth === "none" ? "screen" : "contained"}
+                onChange={(value) =>
+                  patchStyle(value === "screen" ? { width: "full", maxWidth: "none" } : { width: undefined, maxWidth: undefined })
+                }
+                options={[
+                  ["contained", tr(fr, "Centrée (largeur du site)", "Centred (site width)")],
+                  ["screen", tr(fr, "Tout l’écran (100 %)", "Full screen (100%)")],
+                ]}
+              />
+            </InspectorRow>
+            <InspectorRow label={tr(fr, "Hauteur du bloc", "Block height")}>
+              <Segmented
+                value={style.minHeight === "100vh" ? "screen" : "auto"}
+                onChange={(value) => patchStyle({ minHeight: value === "screen" ? "100vh" : undefined })}
+                options={[
+                  ["auto", tr(fr, "Selon le contenu", "Fit content")],
+                  ["screen", tr(fr, "Plein écran (100 vh)", "Full screen (100 vh)")],
+                ]}
+              />
+            </InspectorRow>
+          </div>
+        ) : null}
         <div className="flex flex-wrap gap-1">
           <Segmented
             value={style.width}
@@ -6513,7 +6544,7 @@ function StyleInspector({
         </InspectorSection>
       ) : null}
 
-      {element !== "canvas" ? (
+      {element !== "canvas" && element !== "root" ? (
         <InspectorSection
           title={tr(fr, "Comme élément enfant", "As a child element")}
           active={used("order", "flexGrow", "flexShrink", "flexBasis", "alignSelf")}

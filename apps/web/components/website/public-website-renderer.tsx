@@ -907,6 +907,7 @@ function BlockExtras({
 
 const elementNames = new Set([
   "canvas",
+  "root",
   "panel",
   "media",
   "items",
@@ -974,7 +975,11 @@ function elementStyleCss(
     if (!validName(name) || !raw || typeof raw !== "object") continue;
     const style = raw as StyleValues;
     const attribute = name === "card" || name.startsWith("card:") ? "data-el-shared" : "data-el";
-    const selector = `[data-block-style="${scope}"] [${attribute}="${name}"]`;
+    // "root": the block's own outer element (its <section>), the "div" of the block.
+    const selector =
+      name === "root"
+        ? `[data-block-style="${scope}"] > section`
+        : `[data-block-style="${scope}"] [${attribute}="${name}"]`;
     rules.push(...elementRules(selector, name, style, { stack: stackable.has(name) }));
   }
   return rules.join("");
@@ -2699,7 +2704,12 @@ export function PublicWebsiteRenderer({
       <AnimationRuntime rootRef={siteRootRef} replayKey={editor?.replayKey} preview={Boolean(editor)} />
       {editing && editor ? (
         <style>{`[data-builder-section] [data-el-kind="group"]{outline:1px dashed rgba(14,165,233,.45);outline-offset:3px}[data-builder-section] [data-el]{cursor:pointer}[data-builder-section] [data-el]:hover{outline:2px dashed rgba(14,165,233,.75);outline-offset:4px}${
-          editor.selectedSectionId && editor.selectedElement
+          editor.selectedSectionId && editor.selectedElement === "root"
+            ? (() => {
+                const id = editor.selectedSectionId.replace(/[^a-zA-Z0-9_-]/g, "");
+                return `:is([data-builder-section="${id}"] > section,[data-builder-section="${id}"] > [data-block-style] > section){outline:3px solid #0ea5e9;outline-offset:-3px}`;
+              })()
+            : editor.selectedSectionId && editor.selectedElement
             ? `[data-builder-section="${editor.selectedSectionId.replace(/[^a-zA-Z0-9_-]/g, "")}"] [data-el="${editor.selectedElement.replace(/[^a-zA-Z0-9:-]/g, "")}"]{outline:3px solid #0ea5e9;outline-offset:4px}`
             : ""
         }`}</style>
