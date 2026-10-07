@@ -238,7 +238,8 @@ export function readSliderSettings(raw: unknown) {
     gap: clampInt(s.gap, 0, 80, 24),
     arrows: s.arrows !== false,
     dots: s.dots !== false,
-    autoplay: s.autoplay === true,
+    // Scrolls by itself unless the owner turned it off.
+    autoplay: s.autoplay !== false,
     interval: clampInt(s.interval, 1500, 20000, 5000),
     speed: clampInt(s.speed, 100, 2000, 500),
     loop: s.loop !== false,
@@ -391,10 +392,14 @@ export function WebsiteSlider({
   };
 
   const scope = `[data-slider-id="${scopeId}"]`;
+  // A carousel always has something to scroll: with as many slides as
+  // visible places, one place less is shown so arrows, dots, swipe and
+  // autoplay keep working.
+  const fit = (perView: number) => (count > 1 ? Math.max(1, Math.min(perView, count - 1)) : 1);
   const css =
-    `${scope}{--pv:${settings.perView};--gap:${settings.gap}px}` +
-    `@media (max-width:${BREAKPOINTS.tablet}px){${scope}{--pv:${settings.perViewTablet}}}` +
-    `@media (max-width:${BREAKPOINTS.mobile}px){${scope}{--pv:${settings.perViewMobile};--gap:${Math.min(settings.gap, 16)}px}}`;
+    `${scope}{--pv:${fit(settings.perView)};--gap:${settings.gap}px}` +
+    `@media (max-width:${BREAKPOINTS.tablet}px){${scope}{--pv:${fit(settings.perViewTablet)}}}` +
+    `@media (max-width:${BREAKPOINTS.mobile}px){${scope}{--pv:${fit(settings.perViewMobile)};--gap:${Math.min(settings.gap, 16)}px}}`;
   const canPrev = settings.loop || index > 0;
   const canNext = settings.loop || index < pages - 1;
   const arrowClass =

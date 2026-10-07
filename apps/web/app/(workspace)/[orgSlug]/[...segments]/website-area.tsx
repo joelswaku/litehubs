@@ -4481,7 +4481,7 @@ function newExtraElement(type: WebsiteExtraElement["type"]): WebsiteExtraElement
       return {
         id,
         type,
-        slider: { perView: 3, gap: 24, arrows: true, dots: true, autoplay: false, interval: 5000, speed: 500, loop: true, pauseOnHover: true },
+        slider: { perView: 3, gap: 24, arrows: true, dots: true, autoplay: true, interval: 5000, speed: 500, loop: true, pauseOnHover: true },
         children: [1, 2, 3].map((number) => newSlideCard(number)),
       };
     default:
@@ -4976,6 +4976,64 @@ function ElementEditor({
           ) : null}
         </div>
       </div>
+      {(() => {
+        // Inside a carousel: add or duplicate slides from here too.
+        const chain = extraChain(extras, element);
+        const sliderIndex = chain.map((item) => item.type).lastIndexOf("slider");
+        if (sliderIndex < 0 || sliderIndex === chain.length - 1) return null;
+        const slider = chain[sliderIndex]!;
+        const slide = chain[sliderIndex + 1]!;
+        const addSlide = (card: WebsiteExtraElement, extraStyles: Record<string, unknown>) => {
+          const children = [...(slider.children ?? [])];
+          const at = children.findIndex((child) => child.id === slide.id);
+          children.splice(at + 1, 0, card);
+          onChange({
+            ...block,
+            content: {
+              ...content,
+              extras: mapExtra(extras, slider.id, (item) => ({ ...item, children })),
+              elementStyles: { ...styles, ...extraStyles },
+            },
+          });
+          onSelectElement(`x:${card.id}`);
+        };
+        return (
+          <div className="space-y-2 rounded-xl border border-violet-500/30 bg-violet-500/[.05] p-3">
+            <p className="text-xs font-semibold text-ink">
+              {tr(fr, "Dans un carrousel", "Inside a carousel")} · {tr(fr, "diapositive", "slide")}{" "}
+              {(slider.children ?? []).findIndex((child) => child.id === slide.id) + 1} / {slider.children?.length ?? 0}
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => {
+                  const card = newSlideCard((slider.children?.length ?? 0) + 1);
+                  addSlide(card, slideCardStyles(card));
+                }}
+              >
+                <Plus />
+                {tr(fr, "Nouvelle diapositive", "New slide")}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  const { item, styles: added } = cloneWithStyles(slide, styles);
+                  addSlide(item, added);
+                }}
+              >
+                <Copy />
+                {tr(fr, "Dupliquer cette diapositive", "Duplicate this slide")}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => onSelectElement(`x:${slider.id}`)}>
+                <Settings2 />
+                {tr(fr, "Réglages du carrousel", "Carousel settings")}
+              </Button>
+            </div>
+          </div>
+        );
+      })()}
       {extra?.type === "slider" ? (
         <SliderFields
           value={extra.slider ?? {}}
@@ -6325,7 +6383,7 @@ function SliderFields({
       {label}
     </label>
   );
-  const autoplay = value.autoplay === true;
+  const autoplay = value.autoplay !== false;
   return (
     <section className="space-y-3 rounded-xl border border-border p-3">
       <div className="flex items-center justify-between">
@@ -6361,7 +6419,7 @@ function SliderFields({
         {check("arrows", tr(fr, "Flèches", "Arrows"), true)}
         {check("dots", tr(fr, "Points de navigation", "Dots"), true)}
         {check("loop", tr(fr, "Boucle", "Loop"), true)}
-        {check("autoplay", tr(fr, "Lecture automatique", "Autoplay"), false)}
+        {check("autoplay", tr(fr, "Défilement automatique", "Autoplay"), true)}
       </div>
       {autoplay ? (
         <>
@@ -6370,12 +6428,12 @@ function SliderFields({
             <NumInput label={tr(fr, "Vitesse (ms)", "Speed (ms)")} value={value.speed} min={100} max={2000} step={50} placeholder="500" onChange={(next) => set("speed", next)} />
           </div>
           {check("pauseOnHover", tr(fr, "Pause au survol", "Pause on hover"), true)}
-          {slideCount <= Math.max(1, Number(value.perView) || 3) ? (
+          {slideCount > 1 && slideCount <= Math.max(1, Number(value.perView) || 3) ? (
             <p className="rounded-md bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-800 dark:text-amber-300">
               {tr(
                 fr,
-                `Rien ne peut défiler : ${slideCount} diapositive(s) pour ${Number(value.perView) || 3} visible(s) à la fois. Ajoutez des diapositives ou réduisez « Visibles ».`,
-                `Nothing can scroll: ${slideCount} slide(s) for ${Number(value.perView) || 3} visible at once. Add slides or lower “Visible”.`,
+                `${slideCount} diapositive(s) pour ${Number(value.perView) || 3} visible(s) : ${Math.max(1, slideCount - 1)} sont affichées à la fois pour que le carrousel puisse défiler. Ajoutez des diapositives pour en voir plus.`,
+                `${slideCount} slide(s) for ${Number(value.perView) || 3} visible: ${Math.max(1, slideCount - 1)} are shown at once so the carousel can scroll. Add slides to show more.`,
               )}
             </p>
           ) : null}
