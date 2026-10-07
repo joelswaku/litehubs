@@ -4977,86 +4977,75 @@ function ElementEditor({
         </div>
       </div>
       {(() => {
-        // Inside a carousel: add or duplicate slides from here too.
+        // One "Réglages du carrousel" panel, for the carousel itself and for
+        // any slide (or element inside a slide) selected in the preview.
         const chain = extraChain(extras, element);
         const sliderIndex = chain.map((item) => item.type).lastIndexOf("slider");
-        if (sliderIndex < 0 || sliderIndex === chain.length - 1) return null;
+        if (sliderIndex < 0) return null;
         const slider = chain[sliderIndex]!;
-        const slide = chain[sliderIndex + 1]!;
-        const addSlide = (card: WebsiteExtraElement, extraStyles: Record<string, unknown>) => {
-          const children = [...(slider.children ?? [])];
-          const at = children.findIndex((child) => child.id === slide.id);
-          children.splice(at + 1, 0, card);
+        const children = slider.children ?? [];
+        const selectedSlide = chain[sliderIndex + 1]?.id;
+        const writeSlides = (next: WebsiteExtraElement[], patch: Record<string, unknown> = {}, removeStyles: string[] = []) => {
+          const nextStyles = { ...styles, ...patch };
+          for (const key of removeStyles) delete nextStyles[key];
           onChange({
             ...block,
             content: {
               ...content,
-              extras: mapExtra(extras, slider.id, (item) => ({ ...item, children })),
-              elementStyles: { ...styles, ...extraStyles },
+              extras: mapExtra(extras, slider.id, (item) => ({ ...item, children: next })),
+              elementStyles: nextStyles,
             },
           });
-          onSelectElement(`x:${card.id}`);
         };
+        const textOf = (item: WebsiteExtraElement): string =>
+          item.textFr?.trim() || (item.children ?? []).map(textOf).find(Boolean) || "";
         return (
-          <div className="space-y-2 rounded-xl border border-violet-500/30 bg-violet-500/[.05] p-3">
-            <p className="text-xs font-semibold text-ink">
-              {tr(fr, "Dans un carrousel", "Inside a carousel")} · {tr(fr, "diapositive", "slide")}{" "}
-              {(slider.children ?? []).findIndex((child) => child.id === slide.id) + 1} / {slider.children?.length ?? 0}
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => {
-                  const card = newSlideCard((slider.children?.length ?? 0) + 1);
-                  addSlide(card, slideCardStyles(card));
-                }}
-              >
-                <Plus />
-                {tr(fr, "Nouvelle diapositive", "New slide")}
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => {
-                  const { item, styles: added } = cloneWithStyles(slide, styles);
-                  addSlide(item, added);
-                }}
-              >
-                <Copy />
-                {tr(fr, "Dupliquer cette diapositive", "Duplicate this slide")}
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => onSelectElement(`x:${slider.id}`)}>
-                <Settings2 />
-                {tr(fr, "Réglages du carrousel", "Carousel settings")}
-              </Button>
-            </div>
-          </div>
+          <CarouselSettingsPanel
+            key={slider.id}
+            value={slider.slider ?? {}}
+            onChange={(settings) =>
+              onChange({
+                ...block,
+                content: { ...content, extras: mapExtra(extras, slider.id, (item) => ({ ...item, slider: settings })) },
+              })
+            }
+            slides={children.map((child, index) => textOf(child).slice(0, 40) || `${tr(fr, "Diapositive", "Slide")} ${index + 1}`)}
+            selected={children.findIndex((child) => child.id === selectedSlide)}
+            onSelect={(index) => onSelectElement(`x:${children[index]!.id}`)}
+            onAdd={() => {
+              const card = newSlideCard(children.length + 1);
+              writeSlides([...children, card], slideCardStyles(card));
+              onSelectElement(`x:${card.id}`);
+            }}
+            onDuplicate={(index) => {
+              const { item, styles: added } = cloneWithStyles(children[index]!, styles);
+              const next = [...children];
+              next.splice(index + 1, 0, item);
+              writeSlides(next, added);
+              onSelectElement(`x:${item.id}`);
+            }}
+            onRemove={(index) => {
+              const removed = children[index]!;
+              const keys: string[] = [];
+              const collect = (item: WebsiteExtraElement) => {
+                keys.push(`x:${item.id}`);
+                (item.children ?? []).forEach(collect);
+              };
+              collect(removed);
+              writeSlides(children.filter((_child, position) => position !== index), {}, keys);
+              onSelectElement(`x:${slider.id}`);
+            }}
+            onMove={(from, to) => {
+              const next = [...children];
+              const [moving] = next.splice(from, 1);
+              next.splice(to, 0, moving!);
+              writeSlides(next);
+            }}
+            defaultOpen={sliderIndex === chain.length - 1}
+            fr={fr}
+          />
         );
       })()}
-      {extra?.type === "slider" ? (
-        <SliderFields
-          value={extra.slider ?? {}}
-          slideCount={extra.children?.length ?? 0}
-          onChange={(slider) => updateExtra({ slider })}
-          onAddSlide={() => {
-            const card = newSlideCard((extra.children?.length ?? 0) + 1);
-            onChange({
-              ...block,
-              content: {
-                ...content,
-                extras: mapExtra(extras, extra.id, (item) => ({
-                  ...item,
-                  children: [...(item.children ?? []), card],
-                })),
-                elementStyles: { ...styles, ...slideCardStyles(card) },
-              },
-            });
-            onSelectElement(`x:${card.id}`);
-          }}
-          fr={fr}
-        />
-      ) : null}
       {extra && ["group", "text", "heading", "image", "button"].includes(extra.type) ? (
         <LinkFields
           value={extra.link}
@@ -5216,6 +5205,9 @@ function ElementEditor({
         </section>
       ) : null}
 
+      {itemMatch && content.itemsLayout === "carousel" ? (
+        <ItemsCarouselPanel block={block} onChange={onChange} onSelectElement={onSelectElement} selected={itemIndex} defaultOpen={false} fr={fr} />
+      ) : null}
       {itemMatch ? (
         <ItemContentFields
           orgSlug={orgSlug}
@@ -5248,17 +5240,7 @@ function ElementEditor({
             )}
           </p>
           {content.itemsLayout === "carousel" ? (
-            <SliderFields
-              value={
-                content.itemsCarousel && typeof content.itemsCarousel === "object"
-                  ? (content.itemsCarousel as Record<string, unknown>)
-                  : {}
-              }
-              slideCount={Array.isArray(content.items) ? content.items.length : 0}
-              onChange={(next) => setContent("itemsCarousel", next)}
-              onAddSlide={() => addStandardItem(block, onChange, onSelectElement)}
-              fr={fr}
-            />
+            <ItemsCarouselPanel block={block} onChange={onChange} onSelectElement={onSelectElement} selected={-1} defaultOpen fr={fr} />
           ) : null}
         </section>
       ) : null}
@@ -6355,100 +6337,280 @@ function AnimationFields({
 }
 
 /** Carousel behaviour: visible slides, navigation and autoplay. */
-function SliderFields({
+/**
+ * "Réglages du carrousel": slides, responsive display, navigation, autoplay
+ * and accessibility of a carousel, in one panel. Used for added carousels
+ * and for card blocks shown as a carousel.
+ */
+function CarouselSettingsPanel({
   value,
-  slideCount,
   onChange,
-  onAddSlide,
+  slides,
+  selected,
+  onSelect,
+  onAdd,
+  onDuplicate,
+  onRemove,
+  onMove,
+  defaultOpen,
   fr,
 }: {
   value: Record<string, unknown>;
-  slideCount: number;
   onChange: (next: Record<string, unknown>) => void;
-  onAddSlide: () => void;
+  slides: string[];
+  selected: number;
+  onSelect: (index: number) => void;
+  onAdd: () => void;
+  onDuplicate: (index: number) => void;
+  onRemove: (index: number) => void;
+  onMove: (from: number, to: number) => void;
+  defaultOpen: boolean;
   fr: boolean;
 }) {
+  const [dragged, setDragged] = useState<number | null>(null);
+  const [over, setOver] = useState<number | null>(null);
   const set = (key: string, next: unknown) => {
     const result = { ...value, [key]: next };
     if (next === undefined || next === "") delete result[key];
     onChange(result);
   };
-  const check = (key: string, label: string, fallback: boolean) => (
-    <label className="flex items-center gap-2 text-xs text-ink-secondary">
+  const flag = (key: string, fallback: boolean) => (value[key] === undefined ? fallback : value[key] === true);
+  const check = (key: string, label: string, fallback: boolean, hint?: string) => (
+    <label className="flex items-start gap-2 text-xs text-ink">
       <input
         type="checkbox"
-        checked={value[key] === undefined ? fallback : value[key] === true}
+        className="mt-0.5 accent-violet-600"
+        checked={flag(key, fallback)}
         onChange={(event) => set(key, event.target.checked)}
       />
-      {label}
+      <span>
+        {label}
+        {hint ? <span className="block text-[11px] text-ink-muted">{hint}</span> : null}
+      </span>
     </label>
   );
-  const autoplay = value.autoplay !== false;
+  const autoplay = flag("autoplay", true);
+  const perView = Number(value.perView) || 3;
+  const target = selected >= 0 ? selected : slides.length - 1;
   return (
-    <section className="space-y-3 rounded-xl border border-border p-3">
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-semibold text-ink">
-          {tr(fr, "Carrousel", "Carousel")} · {slideCount} {tr(fr, "diapositive(s)", "slide(s)")}
-        </p>
-        <Button size="sm" variant="secondary" onClick={onAddSlide}>
-          <Plus />
-          {tr(fr, "Diapositive", "Slide")}
-        </Button>
-      </div>
-      <p className="text-[11px] leading-4 text-ink-muted">
-        {tr(
-          fr,
-          "Cliquez sur une diapositive dans l’aperçu pour la modifier ; avec le carrousel sélectionné, la barre « Ajouter dans ce bloc » ajoute une diapositive.",
-          "Click a slide in the preview to edit it; with the carousel selected, the “Add inside this block” bar adds a slide.",
-        )}
-      </p>
-      <div className="grid grid-cols-3 gap-1.5">
-        <NumInput label={tr(fr, "Visibles", "Visible")} value={value.perView} min={1} max={6} placeholder="3" onChange={(next) => set("perView", next)} />
-        <NumInput label={tr(fr, "Tablette", "Tablet")} value={value.perViewTablet} min={1} max={6} placeholder="auto" onChange={(next) => set("perViewTablet", next)} />
-        <NumInput label={tr(fr, "Mobile", "Phone")} value={value.perViewMobile} min={1} max={3} placeholder="1" onChange={(next) => set("perViewMobile", next)} />
-      </div>
-      <p className="text-[11px] text-ink-muted">
-        {tr(
-          fr,
-          "Tablette et mobile s’adaptent seuls (2 puis 1 visible) si vous laissez « auto ».",
-          "Tablet and phone adapt on their own (2 then 1 visible) when left on “auto”.",
-        )}
-      </p>
-      <NumInput label={tr(fr, "Espace entre les diapositives (px)", "Space between slides (px)")} value={value.gap} max={80} placeholder="24" onChange={(next) => set("gap", next)} />
-      <div className="grid grid-cols-2 gap-1.5">
-        {check("arrows", tr(fr, "Flèches", "Arrows"), true)}
-        {check("dots", tr(fr, "Points de navigation", "Dots"), true)}
-        {check("loop", tr(fr, "Boucle", "Loop"), true)}
-        {check("autoplay", tr(fr, "Défilement automatique", "Autoplay"), true)}
-      </div>
-      {autoplay ? (
-        <>
-          <div className="grid grid-cols-2 gap-1.5">
-            <NumInput label={tr(fr, "Intervalle (ms)", "Interval (ms)")} value={value.interval} min={1500} max={20000} step={500} placeholder="5000" onChange={(next) => set("interval", next)} />
-            <NumInput label={tr(fr, "Vitesse (ms)", "Speed (ms)")} value={value.speed} min={100} max={2000} step={50} placeholder="500" onChange={(next) => set("speed", next)} />
+    <details open={defaultOpen} className="group/carousel rounded-xl border border-violet-500/40 bg-violet-500/[.04]">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2.5 [&::-webkit-details-marker]:hidden">
+        <span className="flex items-center gap-2 text-sm font-semibold text-ink">
+          <GalleryHorizontal className="size-4 text-violet-600" />
+          {tr(fr, "Réglages du carrousel", "Carousel settings")}
+        </span>
+        <span className="flex items-center gap-1 text-[11px] text-ink-muted">
+          {slides.length} {tr(fr, "diapositive(s)", "slide(s)")}
+          {selected >= 0 ? ` · ${tr(fr, "n°", "#")}${selected + 1}` : ""}
+          <ChevronDown className="size-4 transition group-open/carousel:rotate-180" />
+        </span>
+      </summary>
+      <div className="space-y-3 border-t border-violet-500/20 px-3 pb-3 pt-3">
+        {/* 1. Slides */}
+        <section className="space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-wide text-ink-secondary">1. {tr(fr, "Diapositives", "Slides")}</p>
+            <Button size="sm" variant="secondary" onClick={onAdd}>
+              <Plus />
+              {tr(fr, "Ajouter", "Add")}
+            </Button>
           </div>
-          {check("pauseOnHover", tr(fr, "Pause au survol", "Pause on hover"), true)}
-          {slideCount > 1 && slideCount <= Math.max(1, Number(value.perView) || 3) ? (
-            <p className="rounded-md bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-800 dark:text-amber-300">
-              {tr(
-                fr,
-                `${slideCount} diapositive(s) pour ${Number(value.perView) || 3} visible(s) : ${Math.max(1, slideCount - 1)} sont affichées à la fois pour que le carrousel puisse défiler. Ajoutez des diapositives pour en voir plus.`,
-                `${slideCount} slide(s) for ${Number(value.perView) || 3} visible: ${Math.max(1, slideCount - 1)} are shown at once so the carousel can scroll. Add slides to show more.`,
-              )}
-            </p>
+          <ol className="space-y-1">
+            {slides.map((label, index) => (
+              <li
+                key={`${index}-${label}`}
+                draggable
+                onDragStart={() => setDragged(index)}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  setOver(index);
+                }}
+                onDragEnd={() => {
+                  setDragged(null);
+                  setOver(null);
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  if (dragged !== null && dragged !== index) onMove(dragged, index);
+                  setDragged(null);
+                  setOver(null);
+                }}
+                className={`flex items-center gap-1 rounded-md border px-1 py-0.5 text-xs transition ${
+                  selected === index ? "border-violet-500 bg-violet-500/10" : over === index && dragged !== index ? "border-violet-400 bg-violet-400/5" : "border-border bg-surface-1"
+                } ${dragged === index ? "opacity-40" : ""}`}
+              >
+                <span className="grid size-6 shrink-0 cursor-grab place-items-center text-ink-muted" title={tr(fr, "Glisser pour réorganiser", "Drag to reorder")}>
+                  <GripVertical className="size-3.5" />
+                </span>
+                <button type="button" className="min-w-0 flex-1 truncate py-1 text-left text-ink" onClick={() => onSelect(index)}>
+                  <span className="mr-1 font-semibold text-ink-muted">{index + 1}.</span>
+                  {label}
+                </button>
+                <Button size="icon-sm" variant="ghost" onClick={() => onDuplicate(index)} aria-label={tr(fr, `Dupliquer la diapositive ${index + 1}`, `Duplicate slide ${index + 1}`)}>
+                  <Copy />
+                </Button>
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  disabled={slides.length <= 1}
+                  onClick={() => {
+                    if (window.confirm(tr(fr, `Supprimer la diapositive ${index + 1} et son contenu ?`, `Delete slide ${index + 1} and its content?`))) onRemove(index);
+                  }}
+                  aria-label={tr(fr, `Supprimer la diapositive ${index + 1}`, `Delete slide ${index + 1}`)}
+                >
+                  <Trash2 />
+                </Button>
+              </li>
+            ))}
+          </ol>
+          {slides.length ? (
+            <div className="flex flex-wrap gap-1.5">
+              <Button size="sm" variant="ghost" onClick={() => onDuplicate(target)}>
+                <Copy />
+                {selected >= 0
+                  ? tr(fr, "Dupliquer la diapositive sélectionnée", "Duplicate the selected slide")
+                  : tr(fr, "Dupliquer la dernière", "Duplicate the last one")}
+              </Button>
+            </div>
           ) : null}
           <p className="text-[11px] text-ink-muted">
             {tr(
               fr,
-              "Le défilement automatique tourne aussi dans l’éditeur (il s’arrête quand la souris est sur le carrousel). Sur le site, un bouton pause est affiché ; il ne défile pas pour les visiteurs qui ont réduit les animations sur leur appareil.",
-              "Autoplay also runs in the editor (it stops while the mouse is over the carousel). On the site a pause button is shown; it does not scroll for visitors who reduced motion on their device.",
+              "Cliquez sur une diapositive (ici ou dans l’aperçu) pour modifier son contenu, son image, ses liens et son style. Glissez-déposez pour changer l’ordre.",
+              "Click a slide (here or in the preview) to edit its content, image, links and style. Drag and drop to reorder.",
             )}
           </p>
-        </>
-      ) : (
-        <NumInput label={tr(fr, "Vitesse de défilement (ms)", "Scroll speed (ms)")} value={value.speed} min={100} max={2000} step={50} placeholder="500" onChange={(next) => set("speed", next)} />
-      )}
-    </section>
+        </section>
+
+        {/* 2. Responsive display */}
+        <section className="space-y-2 border-t border-border pt-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink-secondary">2. {tr(fr, "Affichage", "Display")}</p>
+          <div className="grid grid-cols-3 gap-1.5">
+            <NumInput label={tr(fr, "Visibles ordinateur", "Visible desktop")} value={value.perView} min={1} max={6} placeholder="3" onChange={(next) => set("perView", next)} />
+            <NumInput label={tr(fr, "Tablette", "Tablet")} value={value.perViewTablet} min={1} max={6} placeholder="auto" onChange={(next) => set("perViewTablet", next)} />
+            <NumInput label={tr(fr, "Mobile", "Phone")} value={value.perViewMobile} min={1} max={3} placeholder="auto" onChange={(next) => set("perViewMobile", next)} />
+          </div>
+          <NumInput label={tr(fr, "Espace entre les diapositives (px)", "Space between slides (px)")} value={value.gap} min={0} max={80} placeholder="24" onChange={(next) => set("gap", next)} />
+          <p className="text-[11px] text-ink-muted">
+            {tr(
+              fr,
+              "« Visibles » = nombre de diapositives (blocs) montrées à la fois. Laissez tablette et mobile vides pour « auto » (2 puis 1).",
+              "“Visible” = number of slides (blocks) shown at once. Leave tablet and phone empty for “auto” (2 then 1).",
+            )}
+            {slides.length > 1 && slides.length <= perView
+              ? tr(
+                  fr,
+                  ` Avec ${slides.length} diapositives, ${slides.length - 1} sont montrées à la fois pour pouvoir défiler.`,
+                  ` With ${slides.length} slides, ${slides.length - 1} are shown at once so it can scroll.`,
+                )
+              : ""}
+          </p>
+        </section>
+
+        {/* 3. Navigation */}
+        <section className="space-y-1.5 border-t border-border pt-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink-secondary">3. {tr(fr, "Navigation", "Navigation")}</p>
+          {check("arrows", tr(fr, "Flèches", "Arrows"), true)}
+          {flag("arrows", true) ? check("arrowsOnHover", tr(fr, "Flèches seulement au survol de la souris", "Arrows only on mouse-over"), false, tr(fr, "Toujours visibles sur écran tactile et au clavier.", "Always visible on touch screens and with the keyboard.")) : null}
+          {check("dots", tr(fr, "Points de navigation", "Navigation dots"), true)}
+          {check("loop", tr(fr, "Boucle infinie", "Infinite loop"), true)}
+          {check("swipe", tr(fr, "Balayage tactile (glisser du doigt)", "Touch swipe"), true)}
+          {check("keyboard", tr(fr, "Clavier : flèches gauche / droite, Home et End", "Keyboard: left / right arrows, Home and End"), true)}
+        </section>
+
+        {/* 4. Autoplay */}
+        <section className="space-y-1.5 border-t border-border pt-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink-secondary">4. {tr(fr, "Défilement automatique", "Autoplay")}</p>
+          {check("autoplay", tr(fr, "Défilement automatique", "Autoplay"), true)}
+          {autoplay ? (
+            <>
+              <div className="grid grid-cols-2 gap-1.5">
+                <NumInput label={tr(fr, "Intervalle (ms)", "Interval (ms)")} value={value.interval} min={1500} max={20000} step={500} placeholder="5000" onChange={(next) => set("interval", next)} />
+                <NumInput label={tr(fr, "Vitesse de transition (ms)", "Transition speed (ms)")} value={value.speed} min={100} max={2000} step={50} placeholder="500" onChange={(next) => set("speed", next)} />
+              </div>
+              <div className="space-y-1">
+                <span className="text-xs font-medium text-ink-secondary">{tr(fr, "Sens de défilement", "Direction")}</span>
+                <Segmented
+                  value={value.direction === "prev" ? "prev" : "next"}
+                  onChange={(next) => set("direction", next === "prev" ? "prev" : undefined)}
+                  options={[
+                    ["next", tr(fr, "Droite → gauche (suivante)", "Right → left (next)")],
+                    ["prev", tr(fr, "Gauche → droite (précédente)", "Left → right (previous)")],
+                  ]}
+                />
+              </div>
+              {check("pauseOnHover", tr(fr, "Pause au survol de la souris", "Pause on mouse-over"), true)}
+              {check("pauseOnFocus", tr(fr, "Pause quand le carrousel a le focus clavier", "Pause when the carousel has keyboard focus"), true)}
+              {check("pauseWhenHidden", tr(fr, "Pause quand l’onglet du navigateur n’est pas visible", "Pause when the browser tab is hidden"), true)}
+              {check("playButton", tr(fr, "Bouton Lecture / Pause visible sur le site", "Play / Pause button on the site"), false, tr(fr, "Recommandé pour l’accessibilité si le défilement dure longtemps.", "Recommended for accessibility when autoplay runs long."))}
+            </>
+          ) : (
+            <NumInput label={tr(fr, "Vitesse de transition (ms)", "Transition speed (ms)")} value={value.speed} min={100} max={2000} step={50} placeholder="500" onChange={(next) => set("speed", next)} />
+          )}
+        </section>
+
+        {/* 5. Accessibility */}
+        <section className="space-y-1 border-t border-border pt-3 text-[11px] leading-4 text-ink-muted">
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink-secondary">5. {tr(fr, "Accessibilité (automatique)", "Accessibility (automatic)")}</p>
+          <p>• {tr(fr, "Pas de défilement automatique pour les visiteurs qui ont choisi « réduire les animations ».", "No autoplay for visitors who chose “reduce motion”.")}</p>
+          <p>• {tr(fr, "Chaque diapositive annonce sa position (« Diapositive 2 sur 5 »).", "Each slide announces its position (“Slide 2 of 5”).")}</p>
+          <p>• {tr(fr, "Flèches, points et bouton pause ont des libellés lisibles par les lecteurs d’écran.", "Arrows, dots and the pause button have screen-reader labels.")}</p>
+          <p>• {tr(fr, "Dans l’éditeur, le défilement s’arrête quand la souris est sur le carrousel.", "In the editor, autoplay stops while the mouse is over the carousel.")}</p>
+        </section>
+      </div>
+    </details>
+  );
+}
+
+/** The same panel for a card block (cards, figures, gallery) shown as a carousel. */
+function ItemsCarouselPanel({
+  block,
+  onChange,
+  onSelectElement,
+  selected,
+  defaultOpen,
+  fr,
+}: {
+  block: WebsiteSection;
+  onChange: (block: WebsiteSection) => void;
+  onSelectElement: (element: string | null) => void;
+  selected: number;
+  defaultOpen: boolean;
+  fr: boolean;
+}) {
+  const content = block.content;
+  const items = readItems(block);
+  const setItems = (next: Record<string, unknown>[]) => onChange({ ...block, content: { ...content, items: next } });
+  const labelOf = (item: Record<string, unknown>, index: number) =>
+    String(item.titleFr ?? item.captionFr ?? item.questionFr ?? item.labelFr ?? item.value ?? "").trim().slice(0, 40) ||
+    `${tr(fr, "Carte", "Card")} ${index + 1}`;
+  return (
+    <CarouselSettingsPanel
+      value={content.itemsCarousel && typeof content.itemsCarousel === "object" ? (content.itemsCarousel as Record<string, unknown>) : {}}
+      onChange={(next) => onChange({ ...block, content: { ...content, itemsCarousel: next } })}
+      slides={items.map(labelOf)}
+      selected={selected}
+      onSelect={(index) => onSelectElement(`item:${index}`)}
+      onAdd={() => addStandardItem(block, onChange, onSelectElement)}
+      onDuplicate={(index) => {
+        const next = [...items];
+        next.splice(index + 1, 0, JSON.parse(JSON.stringify(items[index])) as Record<string, unknown>);
+        setItems(next);
+        onSelectElement(`item:${index + 1}`);
+      }}
+      onRemove={(index) => {
+        setItems(items.filter((_item, position) => position !== index));
+        onSelectElement("items");
+      }}
+      onMove={(from, to) => {
+        const next = [...items];
+        const [moving] = next.splice(from, 1);
+        next.splice(to, 0, moving!);
+        setItems(next);
+      }}
+      defaultOpen={defaultOpen}
+      fr={fr}
+    />
   );
 }
 

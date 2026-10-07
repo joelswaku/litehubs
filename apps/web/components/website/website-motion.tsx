@@ -219,6 +219,18 @@ export type SliderSettings = {
   speed?: number;
   loop?: boolean;
   pauseOnHover?: boolean;
+  /** Arrows appear only when the mouse is over the carousel. */
+  arrowsOnHover?: boolean;
+  /** Finger swipe (and trackpad scroll) to change slides. */
+  swipe?: boolean;
+  /** Left / right arrows, Home and End when the carousel has the focus. */
+  keyboard?: boolean;
+  /** Autoplay direction: "next" (right to left) or "prev" (left to right). */
+  direction?: "next" | "prev";
+  pauseOnFocus?: boolean;
+  pauseWhenHidden?: boolean;
+  /** Public play / pause button. */
+  playButton?: boolean;
 };
 
 function clampInt(value: unknown, min: number, max: number, fallback: number) {
@@ -244,6 +256,13 @@ export function readSliderSettings(raw: unknown) {
     speed: clampInt(s.speed, 100, 2000, 500),
     loop: s.loop !== false,
     pauseOnHover: s.pauseOnHover !== false,
+    arrowsOnHover: s.arrowsOnHover === true,
+    swipe: s.swipe !== false,
+    keyboard: s.keyboard !== false,
+    direction: s.direction === "prev" ? ("prev" as const) : ("next" as const),
+    pauseOnFocus: s.pauseOnFocus !== false,
+    pauseWhenHidden: s.pauseWhenHidden !== false,
+    playButton: s.playButton === true,
   };
 }
 
@@ -357,7 +376,7 @@ export function WebsiteSlider({
     settings.autoplay &&
     !reduced &&
     !paused &&
-    !focused &&
+    !(settings.pauseOnFocus && focused) &&
     !((settings.pauseOnHover || editing) && hovered) &&
     pages > 1;
   React.useEffect(() => {
@@ -365,17 +384,19 @@ export function WebsiteSlider({
     const win = trackRef.current?.ownerDocument.defaultView;
     if (!win) return;
     const timer = win.setInterval(() => {
-      if (win.document.visibilityState !== "visible") return;
+      if (settings.pauseWhenHidden && win.document.visibilityState !== "visible") return;
       const m = metrics();
       if (!m) return;
       const current = Math.round(m.track.scrollLeft / m.step);
-      if (!settings.loop && current >= m.last) return;
-      goTo(current + 1);
+      const step = settings.direction === "prev" ? -1 : 1;
+      if (!settings.loop && (step > 0 ? current >= m.last : current <= 0)) return;
+      goTo(current + step);
     }, settings.interval);
     return () => win.clearInterval(timer);
-  }, [running, settings.interval, settings.loop, goTo, metrics]);
+  }, [running, settings.interval, settings.loop, settings.direction, settings.pauseWhenHidden, goTo, metrics]);
 
   const onKeyDown = (event: React.KeyboardEvent) => {
+    if (!settings.keyboard) return;
     if (event.key === "ArrowRight") {
       event.preventDefault();
       goTo(index + 1);
@@ -399,7 +420,13 @@ export function WebsiteSlider({
   const css =
     `${scope}{--pv:${fit(settings.perView)};--gap:${settings.gap}px}` +
     `@media (max-width:${BREAKPOINTS.tablet}px){${scope}{--pv:${fit(settings.perViewTablet)}}}` +
-    `@media (max-width:${BREAKPOINTS.mobile}px){${scope}{--pv:${fit(settings.perViewMobile)};--gap:${Math.min(settings.gap, 16)}px}}`;
+    `@media (max-width:${BREAKPOINTS.mobile}px){${scope}{--pv:${fit(settings.perViewMobile)};--gap:${Math.min(settings.gap, 16)}px}}` +
+    // Without swipe the slides only change with arrows, dots or autoplay.
+    (settings.swipe ? "" : `${scope} .wb-track{overflow-x:hidden;touch-action:pan-y}`) +
+    // Arrows on mouse-over only (always visible on touch screens and focus).
+    (settings.arrowsOnHover
+      ? `@media (hover:hover){${scope} .wb-arrow{opacity:0}${scope}:hover .wb-arrow,${scope} .wb-arrow:focus-visible{opacity:1}}`
+      : "");
   const canPrev = settings.loop || index > 0;
   const canNext = settings.loop || index < pages - 1;
   const arrowClass =
@@ -423,7 +450,8 @@ export function WebsiteSlider({
       <style>{css}</style>
       <div
         ref={trackRef}
-        tabIndex={0}
+        tabIndex={settings.keyboard ? 0 : undefined}
+        aria-label={settings.keyboard ? (fr ? "Diapositives — flèches gauche et droite pour naviguer" : "Slides — left and right arrows to navigate") : undefined}
         onKeyDown={onKeyDown}
         aria-live={running ? "off" : "polite"}
         className="wb-track flex snap-x snap-mandatory overflow-x-auto overscroll-x-contain rounded-[inherit] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-sky-600"
@@ -435,7 +463,7 @@ export function WebsiteSlider({
               key={position}
               role="group"
               aria-roledescription={fr ? "diapositive" : "slide"}
-              aria-label={`${position + 1} / ${count}`}
+              aria-label={fr ? `Diapositive ${position + 1} sur ${count}` : `Slide ${position + 1} of ${count}`}
               className="flex min-w-0 snap-start flex-col [&>*]:mt-0 [&>*]:h-full"
               style={{ flex: "0 0 calc((100% - (var(--pv) - 1) * var(--gap)) / var(--pv))" }}
             >
@@ -452,7 +480,7 @@ export function WebsiteSlider({
         <>
           <button
             type="button"
-            className={`${arrowClass} left-2`}
+            className={`wb-arrow ${arrowClass} left-2`}
             onClick={() => goTo(index - 1)}
             disabled={!canPrev}
             aria-label={fr ? "Diapositive précédente" : "Previous slide"}
@@ -461,7 +489,7 @@ export function WebsiteSlider({
           </button>
           <button
             type="button"
-            className={`${arrowClass} right-2`}
+            className={`wb-arrow ${arrowClass} right-2`}
             onClick={() => goTo(index + 1)}
             disabled={!canNext}
             aria-label={fr ? "Diapositive suivante" : "Next slide"}
@@ -470,9 +498,9 @@ export function WebsiteSlider({
           </button>
         </>
       ) : null}
-      {(settings.dots && pages > 1) || (settings.autoplay && !reduced && pages > 1) ? (
+      {(settings.dots && pages > 1) || (settings.playButton && settings.autoplay && !reduced && pages > 1) ? (
         <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-          {settings.autoplay && !reduced && pages > 1 ? (
+          {settings.playButton && settings.autoplay && !reduced && pages > 1 ? (
             <button
               type="button"
               onClick={() => setPaused((value) => !value)}
