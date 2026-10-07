@@ -112,7 +112,9 @@ export type WebsiteEditorBridge = {
   selectedSectionId: string | null;
   /** The element clicked inside the selected block (title, body, button…). */
   selectedElement?: string | null;
-  onSelectSection: (sectionId: string, element: string | null) => void;
+  /** clickedText: the click landed on text that has no own selectable element,
+   *  so the selection is the container around it. */
+  onSelectSection: (sectionId: string, element: string | null, clickedText?: boolean) => void;
   sectionLabel: (section: WebsiteSection) => string;
   /** Changing this number replays the entrance animations in the preview. */
   replayKey?: number;
@@ -484,6 +486,13 @@ export type WebsiteExtraElement = {
   /** Only for "group": makes the whole container a link. */
   link?: WebsiteLinkSetting;
 };
+
+/** True when a click hit text that is not itself a selectable element. */
+function textHitOf(target: HTMLElement): boolean {
+  const owner = target.closest("[data-el]");
+  if (!owner || owner === target) return false;
+  return Array.from(target.childNodes).some((node) => node.nodeType === 3 && (node.textContent ?? "").trim().length > 0);
+}
 
 const TEXT_TAGS = ["h1", "h2", "h3", "h4", "h5", "h6", "p"] as const;
 /** A semantic tag from a closed list (never free HTML). */
@@ -2161,7 +2170,7 @@ function SiteZoneView({
           onClick={(event) => {
             event.stopPropagation();
             const element = (event.target as HTMLElement).closest("[data-el]")?.getAttribute("data-el");
-            editor.onSelectSection(section.id, element ?? null);
+            editor.onSelectSection(section.id, element ?? null, textHitOf(event.target as HTMLElement));
           }}
           onKeyDown={(event) => {
             if (event.target !== event.currentTarget) return;
@@ -2732,7 +2741,7 @@ export function PublicWebsiteRenderer({
                     const element = (event.target as HTMLElement)
                       .closest("[data-el]")
                       ?.getAttribute("data-el");
-                    editor.onSelectSection(section.id, element ?? null);
+                    editor.onSelectSection(section.id, element ?? null, textHitOf(event.target as HTMLElement));
                   }}
                   onKeyDown={(event) => {
                     if (event.target !== event.currentTarget) return;

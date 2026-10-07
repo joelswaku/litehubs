@@ -3110,6 +3110,8 @@ function VisualBuilderTab({
         ?.querySelector(`[data-builder-section="${CSS.escape(id)}"]`)
         ?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 60);
+  // Set when a preview click landed on text that belongs to a container.
+  const [clickedText, setClickedText] = useState<string | null>(null);
   const selectBlock = (id: string, scroll = false, element: string | null = null) => {
     setSelectedId(id);
     setSelectedElement(element);
@@ -4027,7 +4029,10 @@ function VisualBuilderTab({
                 selectedSectionId: selectedId,
                 selectedElement,
                 replayKey,
-                onSelectSection: (id, element) => selectBlock(id, false, element),
+                onSelectSection: (id, element, text) => {
+                  setClickedText(text ? `${id}|${element ?? ""}` : null);
+                  selectBlock(id, false, element);
+                },
                 sectionLabel: label,
                 preview: previewMode,
                 previewState,
@@ -4207,6 +4212,7 @@ function VisualBuilderTab({
                     linkPages={linkPages}
                     previewState={previewState}
                     onPreviewState={setPreviewState}
+                    clickedText={clickedText === `${selectedBlock.id}|${selectedElement}`}
                     fr={fr}
                   />
                 ) : selectedZone && zoneData ? (
@@ -4841,6 +4847,7 @@ function ElementEditor({
   linkPages = [],
   previewState = null,
   onPreviewState,
+  clickedText = false,
   fr,
 }: {
   orgSlug: string;
@@ -4856,6 +4863,8 @@ function ElementEditor({
   /** State shown in the preview while "États et interactions" is edited. */
   previewState?: string | null;
   onPreviewState?: (state: string | null) => void;
+  /** The preview click hit text that has no own element (only the container). */
+  clickedText?: boolean;
   fr: boolean;
 }) {
   const [lang, setLang] = useState<"fr" | "en">(fr ? "fr" : "en");
@@ -5486,6 +5495,7 @@ function ElementEditor({
               : fields.kind
         }
         element={element}
+        clickedText={clickedText}
         breakpoint={breakpoint}
         onReplay={onReplay}
         overrideCount={Object.keys(deviceOverrides).length}
@@ -5563,6 +5573,24 @@ function NumberBox({
 
 type InspectorKind = "container" | "text" | "button" | "badges" | "media";
 type SetStyle = (key: string, value: unknown) => void;
+
+const STYLE_SUBJECTS: Record<InspectorKind, { fr: string; en: string; frameFr: string; frameEn: string; tone: string }> = {
+  container: { fr: "Style du conteneur", en: "Container style", frameFr: "", frameEn: "", tone: "bg-violet-100 text-violet-800 dark:bg-violet-400/15 dark:text-violet-200" },
+  text: { fr: "Style du texte", en: "Text style", frameFr: "Cadre autour du texte", frameEn: "Frame around the text", tone: "bg-sky-100 text-sky-800 dark:bg-sky-400/15 dark:text-sky-200" },
+  badges: { fr: "Style du texte", en: "Text style", frameFr: "Cadre autour du texte", frameEn: "Frame around the text", tone: "bg-sky-100 text-sky-800 dark:bg-sky-400/15 dark:text-sky-200" },
+  button: { fr: "Style du bouton", en: "Button style", frameFr: "Forme du bouton", frameEn: "Button shape", tone: "bg-emerald-100 text-emerald-800 dark:bg-emerald-400/15 dark:text-emerald-200" },
+  media: { fr: "Style de l’image", en: "Image style", frameFr: "Cadre de l’image", frameEn: "Image frame", tone: "bg-amber-100 text-amber-800 dark:bg-amber-400/15 dark:text-amber-200" },
+};
+
+/** A heading that splits the inspector into "the content" and "the box around it". */
+function StyleGroup({ title, hint }: { title: string; hint?: string }) {
+  return (
+    <div className="pt-1">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-secondary">{title}</p>
+      {hint ? <p className="text-[11px] leading-4 text-ink-muted">{hint}</p> : null}
+    </div>
+  );
+}
 
 function InspectorSection({
   title,
@@ -5900,6 +5928,7 @@ function StyleInspector({
   breakpoint = "desktop",
   overrideCount = 0,
   onReplay,
+  clickedText = false,
   fr,
 }: {
   orgSlug: string;
@@ -5912,17 +5941,19 @@ function StyleInspector({
   breakpoint?: Breakpoint;
   overrideCount?: number;
   onReplay?: () => void;
+  clickedText?: boolean;
   fr: boolean;
 }) {
   const isContainer = kind === "container";
+  const subject = STYLE_SUBJECTS[kind];
   const hasText = kind !== "media";
   const display = (style.display as string | undefined) ?? (isContainer ? "flex" : undefined);
   const used = (...keys: string[]) => keys.some((key) => style[key] !== undefined);
   return (
     <section className="space-y-2">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold uppercase tracking-wide text-ink-secondary">
-          {tr(fr, "Style", "Style")}
+        <span className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-semibold uppercase tracking-wide ${subject.tone}`}>
+          {tr(fr, subject.fr, subject.en)}
         </span>
         {onReset ? (
           <button
@@ -5958,6 +5989,19 @@ function StyleInspector({
           {overrideCount ? ` (${overrideCount} ${tr(fr, "ajustement(s)", "adjustment(s)")})` : ""}
         </p>
       )}
+
+      {isContainer && clickedText ? (
+        <div role="note" className="rounded-lg border border-violet-300 bg-violet-50 px-3 py-2 text-[11px] leading-5 text-violet-950 dark:border-violet-400/40 dark:bg-violet-400/10 dark:text-violet-100">
+          <strong>{tr(fr, "Vous avez cliqué sur un texte de ce conteneur.", "You clicked a text inside this container.")}</strong>{" "}
+          {tr(
+            fr,
+            "Ce texte n’a pas de réglages à lui : Disposition, Espacement, Fond et Bordure changent tout le conteneur. Pour la police, la taille ou la couleur du texte, utilisez « Texte à l’intérieur » (ouvert ci-dessous) : il s’applique à tous les textes de ce conteneur.",
+            "This text has no settings of its own: Layout, Spacing, Background and Border change the whole container. For the text font, size or colour use “Text inside” (open below): it applies to every text in this container.",
+          )}
+        </div>
+      ) : null}
+
+      {isContainer ? <StyleGroup title={tr(fr, "Disposition du conteneur", "Container layout")} /> : null}
 
       {isContainer ? (
         <InspectorSection
@@ -6094,10 +6138,11 @@ function StyleInspector({
         </InspectorSection>
       ) : null}
 
+      {hasText && isContainer ? <StyleGroup title={tr(fr, "Les textes à l’intérieur", "The texts inside")} /> : null}
       {hasText ? (
         <InspectorSection
-          title={tr(fr, "Texte", "Text")}
-          defaultOpen={!isContainer}
+          title={isContainer ? tr(fr, "Texte à l’intérieur (tous les textes du conteneur)", "Text inside (every text in the container)") : tr(fr, "Texte", "Text")}
+          defaultOpen={!isContainer || clickedText}
           active={used("fontFamily", "size", "weight", "bold", "italic", "color", "align", "lineHeight", "letterSpacing", "textTransform")}
         >
           <InspectorRow label={tr(fr, "Police", "Font")}>
@@ -6207,6 +6252,18 @@ function StyleInspector({
         </InspectorSection>
       ) : null}
 
+      <StyleGroup
+        title={isContainer ? tr(fr, "Taille, espace et cadre du conteneur", "Container size, spacing and frame") : tr(fr, subject.frameFr, subject.frameEn)}
+        hint={
+          isContainer
+            ? undefined
+            : tr(
+                fr,
+                "Taille, marges, fond et bordure de cet élément seulement. Le conteneur ou le bloc autour n’est pas modifié.",
+                "Size, margins, background and border of this element only. The container or block around it is not changed.",
+              )
+        }
+      />
       <InspectorSection
         title={tr(fr, "Dimensions", "Size")}
         active={used("width", "height", "minWidth", "maxWidth", "minHeight", "maxHeight")}
