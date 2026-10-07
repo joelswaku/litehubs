@@ -756,7 +756,16 @@ function BlockExtras({
       </div>
     ) : null;
   if (!extras.length)
-    return editing && section.section_type === "container" ? (
+    return editing && section.section_type === "container" && section.content.divMode === true ? (
+      // A label over the empty div: it adds no size, so the editor shows the
+      // div exactly as the published site does.
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 grid place-items-center px-4 text-center text-sm opacity-60"
+      >
+        {language === "fr" ? "Div vide : ajoutez des éléments à droite" : "Empty div: add elements on the right"}
+      </span>
+    ) : editing && section.section_type === "container" ? (
       <div className="grid min-h-32 w-full place-items-center rounded-2xl border-2 border-dashed border-current/30 px-4 text-center text-sm opacity-70">
         {language === "fr"
           ? "Bloc libre vide : utilisez « Ajouter dans ce bloc » à droite"
@@ -876,15 +885,18 @@ function BlockExtras({
                 data-el-kind="group"
                 data-stack={children.some((child) => !inlineTypes.has(child.type)) ? "auto" : undefined}
                 data-link-live={link && !editing ? "" : undefined}
-                className={`${space}flex flex-wrap items-center gap-3 ${link && editing ? "relative" : ""} ${
-                  editing && !children.length ? "min-h-16 w-full rounded-2xl border-2 border-dashed border-current/40 p-3" : ""
+                className={`${space}flex flex-wrap items-center gap-3 ${(link && editing) || (editing && !children.length) ? "relative" : ""} ${
+                  // Editor only: an empty div stays clickable (min height, used
+                  // only when the div has none of its own) and gets a dashed
+                  // outline, which takes no space.
+                  editing && !children.length ? "min-h-16 outline-dashed outline-2 -outline-offset-2 outline-current/40" : ""
                 }`}
               >
                 {link ? <LinkSurface link={link} editing={editing} language={language} /> : null}
                 {children.length
                   ? children.map((child) => renderItem(child, true))
                   : editing ? (
-                      <span className="w-full text-center text-sm opacity-70">
+                      <span aria-hidden="true" className="pointer-events-none absolute inset-0 grid place-items-center px-2 text-center text-sm opacity-60">
                         {language === "fr"
                           ? "Conteneur vide : sélectionnez-le puis ajoutez des éléments"
                           : "Empty container: select it, then add elements"}
@@ -992,7 +1004,7 @@ function elementStyleCss(
 function SectionBackdrop({
   section,
   index,
-  link,
+  link: blockLink,
   editing = false,
   language = "fr",
   scope: scopeName,
@@ -1014,6 +1026,8 @@ function SectionBackdrop({
   children: React.ReactNode;
 }) {
   const c = section.content;
+  // A Div block carries its link on the div itself, not on this wrapper.
+  const link = c.divMode === true ? null : blockLink;
   const color = hexColor(c.blockBackgroundColor);
   const image = safeImage(text(c, "blockBackgroundImageUrl"));
   const rawOpacity = Number(c.blockBackgroundImageOpacity);
@@ -1412,7 +1426,23 @@ function PublicSection({
         </section>
       );
     case "container":
-      // A free block: only the elements the owner placed in it.
+      if (c.divMode === true) {
+        // A Div block is one single box: no band, no inner zone. Its own
+        // style (canvas) sets width, height, background, border, padding…
+        const divLink = resolveLink(c.blockLink, website, pageLink, language);
+        return (
+          <div
+            data-el="canvas"
+            data-el-kind="group"
+            data-link-live={divLink && !editingPreview ? "" : undefined}
+            className="wb-div relative flex flex-col [&>*]:mt-0"
+          >
+            {divLink ? <LinkSurface link={divLink} editing={editingPreview} language={language} /> : null}
+            {extras}
+          </div>
+        );
+      }
+      // A free block (old format): only the elements the owner placed in it.
       return (
         <section className="mx-auto max-w-[1400px] px-5 py-12 sm:px-8 sm:py-16">
           <div

@@ -219,7 +219,7 @@ const sectionLabels: Record<SectionType, [string, string]> = {
   cta: ["Appel à l’action", "Call to action"],
   careers: ["Carrières", "Careers"],
   contact: ["Contact", "Contact"],
-  container: ["Bloc libre (div)", "Free block (div)"],
+  container: ["Div", "Div"],
 };
 const sectionHints: Record<SectionType, [string, string]> = {
   hero: ["Grande image, titre et boutons en haut de page.", "Large image, title and buttons at the top."],
@@ -232,7 +232,7 @@ const sectionHints: Record<SectionType, [string, string]> = {
   cta: ["Un message fort avec un bouton.", "A strong message with a button."],
   careers: ["Lien vers les offres d’emploi.", "Link to job openings."],
   contact: ["Coordonnées et formulaire de contact.", "Contact details and form."],
-  container: ["Vide : ajoutez vos propres textes, images, boutons, conteneurs…", "Empty: add your own texts, images, buttons, containers…"],
+  container: ["Un div vide : réglez son fond, sa taille, sa bordure… puis ajoutez dedans textes, images, boutons, carrousels ou d’autres divs.", "An empty div: set its background, size, border… then add texts, images, buttons, carousels or other divs inside."],
 };
 
 /** A short hint of what a block contains, to tell similar blocks apart. */
@@ -326,16 +326,14 @@ const toOptional = (value: string | null | undefined) => value?.trim() || null;
 function sectionSeed(type: SectionType): WebsiteSection {
   const common = { id: `local-${Date.now()}-${type}`, sort_order: 0 };
   switch (type) {
-    case "container": {
-      // Like WordPress: a new free block comes with one container inside,
-      // which can be styled, duplicated, moved or deleted like any other.
-      const first = newExtraElement("group");
+    case "container":
+      // One single div: its own style (canvas) is the box itself, with no
+      // band or inner zone around it. Children are added explicitly.
       return {
         ...common,
         section_type: type,
-        content: { extras: [first], elementOrder: [`x:${first.id}`], elementStyles: newElementStyles(first) },
+        content: { divMode: true, extras: [], elementStyles: { canvas: { ...DEFAULT_DIV_STYLE } } },
       };
-    }
     case "hero":
       return {
         ...common,
@@ -2897,7 +2895,8 @@ function VisualBuilderTab({
     JSON.stringify(blocksFromPage(page)),
   );
   const [selectedId, setSelectedIdState] = useState<string | null>(null);
-  const [selectedElement, setSelectedElement] = useState<string | null>(null);
+  // A "Div" block is one single box: selecting the block selects its div.
+  const [rawSelectedElement, setSelectedElement] = useState<string | null>(null);
   // "États et interactions": the state shown in the preview while editing it.
   const [previewState, setPreviewState] = useState<string | null>(null);
   // The structure column can be folded to give the preview more room
@@ -2918,7 +2917,7 @@ function VisualBuilderTab({
       // Not remembered, still works.
     }
   };
-  useEffect(() => setPreviewState(null), [selectedId, selectedElement]);
+  useEffect(() => setPreviewState(null), [selectedId, rawSelectedElement]);
   const [replayKey, setReplayKey] = useState(0);
   const replayAnimations = () => setReplayKey((value) => value + 1);
   // Choosing another block (or none) always clears the element selection.
@@ -3128,6 +3127,7 @@ function VisualBuilderTab({
     : selectedIndex >= 0
       ? blocks[selectedIndex]!
       : null;
+  const selectedElement = rawSelectedElement ?? (isDivBlock(selectedBlock) ? "canvas" : null);
   /** Writes the selected block, or the selected global zone. */
   const updateSelected = (block: WebsiteSection) => {
     if (selectedZone) setZone(selectedZone, (zone) => ({ ...zone, content: block.content }));
@@ -3539,7 +3539,7 @@ function VisualBuilderTab({
       label: selectedZone ? zoneLabels[selectedZone][fr ? 0 : 1] : `${selectedIndex + 1}. ${label(selectedBlock)}`,
       onClick: () => setSelectedElement(null),
     });
-    if (!selectedElement) return path;
+    if (!selectedElement || (selectedElement === "canvas" && isDivBlock(selectedBlock))) return path;
     const chain = extraChain(readExtraElements(selectedBlock.content), selectedElement);
     if (chain.length) {
       chain.forEach((item, position) => {
@@ -3976,6 +3976,14 @@ function VisualBuilderTab({
                     }}
                     onDrop={(event) => {
                       event.preventDefault();
+                      // An element dropped on a Div block goes inside the div.
+                      if (treeDrag && isDivBlock(block)) {
+                        const drag = treeDrag;
+                        treeDrag = null;
+                        setDropTargetId(null);
+                        dropInTree(block.id, drag, { element: "canvas", where: "inside" });
+                        return;
+                      }
                       dropOn(block.id);
                       setDraggedId(null);
                       setDropTargetId(null);
@@ -3984,7 +3992,7 @@ function VisualBuilderTab({
                   >
                     <div
                       className={`group flex items-center gap-0.5 rounded-lg border px-0.5 py-0.5 transition ${
-                        selectedId === block.id && !selectedElement
+                        selectedId === block.id && (!selectedElement || (selectedElement === "canvas" && isDivBlock(block)))
                           ? "border-sky-500 bg-sky-500/10"
                           : selectedId === block.id
                             ? "border-sky-500/40"
@@ -4217,7 +4225,7 @@ function VisualBuilderTab({
                   <Copy />
                 </Button>
                 )}
-                {selectedElement ? (
+                {selectedElement && !(selectedElement === "canvas" && isDivBlock(selectedBlock)) ? (
                   canDeleteElement(selectedElement) ? (
                     <Button
                       size="sm"
@@ -4697,7 +4705,7 @@ const extraTypeLabels: Record<string, [string, string]> = {
   button: ["Bouton", "Button"],
   image: ["Image", "Image"],
   spacer: ["Espace", "Spacer"],
-  group: ["Conteneur", "Container"],
+  group: ["Div", "Div"],
   slider: ["Carrousel", "Carousel"],
   logo: ["Logo", "Logo"],
   menu: ["Menu", "Menu"],
@@ -4775,6 +4783,75 @@ function slideCardStyles(item: WebsiteExtraElement): Record<string, Record<strin
 
 const isContainerType = (type: string | undefined) => type === "group" || type === "slider";
 
+/** Starting box of a new div: visible when empty, content stacked. Every
+ * value is an ordinary style the owner can change in the panel. */
+const DEFAULT_DIV_STYLE: Record<string, unknown> = {
+  display: "flex",
+  direction: "column",
+  alignItems: "start",
+  gap: 16,
+  paddingTop: 24,
+  paddingRight: 24,
+  paddingBottom: 24,
+  paddingLeft: 24,
+  minHeight: "120px",
+};
+
+/** A "Div" block: one single box (the block area is the div itself). */
+function isDivBlock(block: WebsiteSection | null | undefined): boolean {
+  return Boolean(block && block.section_type === "container" && block.content.divMode === true);
+}
+
+/** Turns an old free block (band + inner zone) into one single div, carrying
+ * its background, text colour, size and spacing over to the div itself. */
+function convertToDivBlock(block: WebsiteSection): WebsiteSection {
+  const content = { ...block.content };
+  const styles = { ...((content.elementStyles as Record<string, Record<string, unknown>> | undefined) ?? {}) };
+  const canvas: Record<string, unknown> = { ...DEFAULT_DIV_STYLE, ...(styles.canvas ?? {}) };
+  const number = (key: string) => {
+    const value = Number(content[key]);
+    return content[key] !== undefined && content[key] !== "" && Number.isFinite(value) ? value : undefined;
+  };
+  if (typeof content.blockBackgroundColor === "string" && canvas.background === undefined) canvas.background = content.blockBackgroundColor;
+  if (typeof content.blockTextColor === "string" && canvas.color === undefined) canvas.color = content.blockTextColor;
+  // The old block had 64px above and below and 32px on the sides on a
+  // computer, around a zone at least 96px high: the div keeps that size.
+  // (Tablets and phones still reduce the spacing automatically.)
+  const top = number("blockPaddingTop") ?? 64;
+  const bottom = number("blockPaddingBottom") ?? 64;
+  canvas.paddingTop = top + (Number(styles.canvas?.paddingTop) || 0);
+  canvas.paddingBottom = bottom + (Number(styles.canvas?.paddingBottom) || 0);
+  canvas.paddingLeft = 32 + (Number(styles.canvas?.paddingLeft) || 0);
+  canvas.paddingRight = 32 + (Number(styles.canvas?.paddingRight) || 0);
+  if (styles.canvas?.minHeight === undefined) canvas.minHeight = `${top + bottom + 96}px`;
+  if (number("blockMarginTop") !== undefined) canvas.marginTop = number("blockMarginTop");
+  if (number("blockMarginBottom") !== undefined) canvas.marginBottom = number("blockMarginBottom");
+  if (number("blockRadius") !== undefined) canvas.radius = number("blockRadius");
+  const width = content.blockWidth;
+  if (width !== undefined && width !== "") {
+    canvas.width = typeof width === "number" ? `${width}px` : width;
+    if (content.blockAlign !== "left") canvas.marginLeft = "auto";
+    if (content.blockAlign !== "right") canvas.marginRight = "auto";
+  }
+  if (typeof content.blockMinHeight === "string" || typeof content.blockMinHeight === "number")
+    canvas.minHeight = typeof content.blockMinHeight === "number" ? `${content.blockMinHeight}px` : content.blockMinHeight;
+  for (const key of [
+    "blockBackgroundColor",
+    "blockTextColor",
+    "blockPaddingTop",
+    "blockPaddingBottom",
+    "blockMarginTop",
+    "blockMarginBottom",
+    "blockRadius",
+    "blockWidth",
+    "blockAlign",
+    "blockMinHeight",
+    "zoneWidth",
+  ])
+    delete content[key];
+  return { ...block, content: { ...content, divMode: true, elementStyles: { ...styles, canvas } } };
+}
+
 /** WordPress-like default box for a new container: full width, vertical flex,
  * some padding and space between its elements. Slide cards keep their look. */
 function newElementStyles(item: WebsiteExtraElement): Record<string, Record<string, unknown>> {
@@ -4790,6 +4867,7 @@ function newElementStyles(item: WebsiteExtraElement): Record<string, Record<stri
       paddingBottom: 16,
       paddingLeft: 16,
       width: "full",
+      minHeight: "80px",
       ...(styles[`x:${item.id}`] ?? {}),
     };
   return styles;
@@ -5338,6 +5416,8 @@ function ElementEditor({
   };
   const label = extra
     ? (extraTypeLabels[extra.type] ?? [extra.type, extra.type])
+    : element === "canvas" && isDivBlock(block)
+      ? (["Div", "Div"] as [string, string])
     : itemMatch
       ? itemLabel()
       : (elementLabels[element] ?? [element, element]);
@@ -5363,7 +5443,7 @@ function ElementEditor({
             <Button size="icon-sm" variant="ghost" onClick={duplicateExtra} title={tr(fr, "Dupliquer l’élément", "Duplicate element")} aria-label={tr(fr, "Dupliquer l’élément", "Duplicate element")}>
               <Copy />
             </Button>
-          ) : element === "canvas" && extras.length ? (
+          ) : element === "canvas" && extras.length && !isDivBlock(block) ? (
             <Button
               size="sm"
               variant="ghost"
@@ -5477,6 +5557,31 @@ function ElementEditor({
           }
           fr={fr}
         />
+      ) : null}
+      {element === "canvas" && isDivBlock(block) ? (
+        <LinkFields
+          value={content.blockLink}
+          onChange={(next) => setContent("blockLink", next)}
+          pages={linkPages}
+          orgSlug={orgSlug}
+          subject={tr(fr, "ce div", "this div")}
+          fr={fr}
+        />
+      ) : null}
+      {element === "canvas" && block.section_type === "container" && !isDivBlock(block) && !block.id.startsWith("zone-") ? (
+        <div className="space-y-2 rounded-xl border border-amber-400/60 bg-amber-50 p-3 text-xs text-amber-950 dark:bg-amber-400/10 dark:text-amber-100">
+          <p className="font-semibold">{tr(fr, "Ancien format : une bande et une zone intérieure", "Old format: a band and an inner zone")}</p>
+          <p className="leading-5">
+            {tr(
+              fr,
+              "Ce bloc a deux boîtes : la bande extérieure (fond du bloc) et cette zone intérieure. Convertissez-le en un seul div : fond, taille, padding et marges s’appliqueront à la même boîte. Le contenu est conservé.",
+              "This block has two boxes: the outer band (block background) and this inner zone. Convert it to one single div: background, size, padding and margins will apply to the same box. Content is kept.",
+            )}
+          </p>
+          <Button size="sm" variant="secondary" onClick={() => onChange(convertToDivBlock(block))}>
+            {tr(fr, "Convertir en un seul div", "Convert to one single div")}
+          </Button>
+        </div>
       ) : null}
       {!extra && ["eyebrow", "title", "body", "sideText"].includes(element) ? (
         <LinkFields
@@ -7589,6 +7694,7 @@ function blockLabel(block: WebsiteSection, fr: boolean): string {
     const extras = readExtraElements(block.content);
     if (extras.length && extras[0]!.type === "slider")
       return fr ? "Carrousel / slider" : "Carousel / slider";
+    if (!isDivBlock(block)) return fr ? "Bloc libre (ancien format)" : "Free block (old format)";
   }
   return sectionLabels[block.section_type][fr ? 0 : 1];
 }
@@ -7674,6 +7780,8 @@ function blockTreeChildren(block: WebsiteSection, fr: boolean): TreeNode[] {
       })),
     });
   }
+  // A Div block is the div itself: its children hang directly under it.
+  if (isDivBlock(block)) return fromExtras(readExtraElements(block.content));
   if (block.section_type === "container")
     return [{ element: "canvas", label: elementDisplayName("canvas", fr), kind: "container", children: fromExtras(readExtraElements(block.content)) }];
   return [...nodes, ...fromExtras(readExtraElements(block.content))];
