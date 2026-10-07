@@ -12,6 +12,7 @@ import { poultryApi } from "@/lib/poultry-api";
 import { can } from "@/lib/permissions";
 import { useSessionUser } from "@/stores/session-store";
 import { useLanguage } from "@/providers/language-provider";
+import { confirmText } from "@/components/ui/confirm-dialog";
 
 type Model = { id: string; name: string; code: string; productionType: string };
 type Province = { id: string; name: string; code: string };
@@ -300,8 +301,8 @@ export function PoultryConfigurationTools({
                         size="sm"
                         variant="ghost"
                         disabled={climateDelete.isPending}
-                        onClick={() => {
-                          if (window.confirm(`Delete ${item.name}?`))
+                        onClick={async () => {
+                          if (await confirmText(`Delete ${item.name}?`))
                             climateDelete.mutate(item.id);
                         }}
                       >
@@ -442,8 +443,8 @@ export function PoultryConfigurationTools({
                           size="sm"
                           variant="ghost"
                           disabled={scheduleDelete.isPending}
-                          onClick={() => {
-                            if (window.confirm(`Delete ${item.vaccineName}?`))
+                          onClick={async () => {
+                            if (await confirmText(`Delete ${item.vaccineName}?`))
                               scheduleDelete.mutate({
                                 model: selectedModel!,
                                 id: item.id,

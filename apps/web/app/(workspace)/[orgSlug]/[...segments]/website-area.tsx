@@ -77,6 +77,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Field, Input, Textarea } from "@/components/ui/input";
+import { confirmDialog, confirmText as ask } from "@/components/ui/confirm-dialog";
 import { EmptyState, ErrorState, SkeletonCard } from "@/components/ui/states";
 import { del, get, orgUrl, patch, post, put } from "@/lib/api";
 import { WEBSITE_FONTS, type Breakpoint } from "@/components/website/website-element-style";
@@ -2958,17 +2959,20 @@ function VisualBuilderTab({
    * Chooses a site theme. Its zone templates can be applied too: the zones
    * then follow the theme's layouts and looks, keeping compatible content.
    */
-  const applyTheme = (key: string | undefined) => {
+  const applyTheme = async (key: string | undefined) => {
     const theme = key ? SITE_THEMES[key] : undefined;
     const withTemplates =
       theme &&
-      window.confirm(
-        tr(
+      (await confirmDialog({
+        title: tr(fr, `Appliquer aussi la mise en page « ${theme.label[0]} » ?`, `Also apply the “${theme.label[1]}” layout?`),
+        message: tr(
           fr,
-          `Appliquer aussi les modèles de « ${theme.label[0]} » à la top bar, au header et au footer ?\n\nOK : tout le design change (vos textes, liens et coordonnées compatibles sont gardés).\nAnnuler : seulement les couleurs, polices et styles.`,
-          `Also apply the “${theme.label[1]}” templates to the top bar, header and footer?\n\nOK: the whole design changes (compatible texts, links and contact details are kept).\nCancel: only colours, fonts and styles.`,
+          "« Tout le design » : la top bar, le header et le footer prennent aussi la disposition de ce thème (vos textes, liens et coordonnées compatibles sont gardés).\n« Seulement les couleurs » : couleurs, polices et styles uniquement.",
+          "“Whole design”: the top bar, header and footer also take this theme’s layout (compatible texts, links and contact details are kept).\n“Colours only”: colours, fonts and styles only.",
         ),
-      );
+        confirmLabel: tr(fr, "Tout le design", "Whole design"),
+        cancelLabel: tr(fr, "Seulement les couleurs", "Colours only"),
+      }));
     setDesign((current) => designWithTheme(current, key, Boolean(withTemplates)));
   };
   const designWithTheme = (current: SiteDesign, key: string | undefined, withTemplates: boolean): SiteDesign => {
@@ -2992,12 +2996,12 @@ function VisualBuilderTab({
     return next;
   };
   /** A complete site template: theme, zones and the design of every block. */
-  const applySiteTemplate = (key: string) => {
+  const applySiteTemplate = async (key: string) => {
     // The design of the site in production before any template: original
     // header and footer, original colours, original block designs.
     if (key === ORIGIN_TEMPLATE) {
       if (
-        !window.confirm(
+        !await ask(
           tr(
             fr,
             "Revenir au design d’origine du site (celui en production) ?\n\nLe header, le footer, les couleurs et le design des blocs d’origine reviennent. Vos pages, textes, images et liens sont gardés. Les réglages de top bar, header et footer faits ici seront retirés de ce brouillon.",
@@ -3012,7 +3016,7 @@ function VisualBuilderTab({
     const template = SITE_TEMPLATES[key];
     if (!template) return;
     if (
-      !window.confirm(
+      !await ask(
         tr(
           fr,
           `Appliquer le modèle de site « ${template.label[0]} » ?\n\nLe thème, la top bar, le header, le footer et le design des blocs de toutes les pages changent. Vos pages, textes, images et liens sont gardés. Rien n’est visible des visiteurs avant « Publier sur toutes les pages ».`,
@@ -3106,11 +3110,11 @@ function VisualBuilderTab({
     setBlocks(ordered(next));
     scrollToBlock(next[target]!.id);
   };
-  const remove = (index: number) => {
+  const remove = async (index: number) => {
     const block = blocks[index];
     if (!block) return;
     if (
-      !window.confirm(
+      !await ask(
         tr(
           fr,
           `Retirer le bloc « ${label(block)} » ? Le changement sera définitif après l’enregistrement.`,
@@ -3122,13 +3126,13 @@ function VisualBuilderTab({
     setBlocks(ordered(blocks.filter((_item, itemIndex) => itemIndex !== index)));
     setSelectedId(null);
   };
-  const deleteSelectedElement = () => {
+  const deleteSelectedElement = async () => {
     const block = selectedBlock;
     if (!block || !selectedElement) return;
     const isCard = /^item:\d+$/.test(selectedElement);
-    const name = elementDisplayName(selectedElement, fr);
+    const name = describeElement(block, selectedElement, fr);
     if (
-      !window.confirm(
+      !await ask(
         isCard
           ? tr(fr, `Supprimer « ${name} » ?`, `Delete “${name}”?`)
           : tr(fr, `Supprimer « ${name} » de ce bloc ? Le reste du bloc est conservé.`, `Delete “${name}” from this block? The rest of the block is kept.`),
@@ -3302,9 +3306,9 @@ function VisualBuilderTab({
       // The mutation already shows the error message.
     }
   };
-  const discard = () => {
+  const discard = async () => {
     if (
-      !window.confirm(
+      !await ask(
         tr(
           fr,
           "Annuler toutes les modifications non enregistrées de cette page ?",
@@ -3317,10 +3321,10 @@ function VisualBuilderTab({
     setDesign(JSON.parse(savedDesignJson) as SiteDesign);
     setSelectedId(null);
   };
-  const switchPage = (pageId: string) => {
+  const switchPage = async (pageId: string) => {
     if (
       dirty &&
-      !window.confirm(
+      !await ask(
         tr(
           fr,
           "Cette page contient des modifications non enregistrées. Changer de page quand même ?",
@@ -3629,7 +3633,7 @@ function VisualBuilderTab({
                 saving={creatingPage}
                 onCancel={() => setCreatingNew(false)}
                 onCreate={async (payload) => {
-                  if (dirtyRef.current && !window.confirm(tr(fr, "Cette page contient des modifications non enregistrées. Créer et ouvrir la nouvelle page quand même ?", "This page has unsaved changes. Create and open the new page anyway?")))
+                  if (dirtyRef.current && !await ask(tr(fr, "Cette page contient des modifications non enregistrées. Créer et ouvrir la nouvelle page quand même ?", "This page has unsaved changes. Create and open the new page anyway?")))
                     return;
                   dirtyRef.current = false;
                   openPageSettingsNext.current = true;
@@ -4014,13 +4018,13 @@ function VisualBuilderTab({
                 restoring={restoreDesign.isPending}
                 onSave={() => void saveDesign.mutateAsync(design).then(() => toast.success(tr(fr, "Brouillon du design enregistré", "Design draft saved")))}
                 onPublish={() => publishDesign.mutate()}
-                onRestore={(index) => {
-                  if (designDirty && !window.confirm(tr(fr, "Vos changements non enregistrés du design seront remplacés. Continuer ?", "Your unsaved design changes will be replaced. Continue?")))
+                onRestore={async (index) => {
+                  if (designDirty && !await ask(tr(fr, "Vos changements non enregistrés du design seront remplacés. Continuer ?", "Your unsaved design changes will be replaced. Continue?")))
                     return;
                   restoreDesign.mutate(index);
                 }}
-                onDiscardDraft={() => {
-                  if (!window.confirm(tr(fr, "Revenir au design actuellement publié ? Le brouillon sera remplacé.", "Go back to the currently published design? The draft will be replaced.")))
+                onDiscardDraft={async () => {
+                  if (!await ask(tr(fr, "Revenir au design actuellement publié ? Le brouillon sera remplacé.", "Go back to the currently published design? The draft will be replaced.")))
                     return;
                   setDesign(JSON.parse(publishedDesignJson) as SiteDesign);
                 }}
@@ -4901,9 +4905,9 @@ function ElementEditor({
     }
     onSelectElement(`x:${item.id}`);
   };
-  const removeElement = () => {
-    const name = label[fr ? 0 : 1];
-    if (!window.confirm(tr(fr, `Supprimer « ${name} » ? Le reste du bloc est conservé.`, `Delete “${name}”? The rest of the block is kept.`)))
+  const removeElement = async () => {
+    const name = extra ? describeElement(block, element, fr) : label[fr ? 0 : 1];
+    if (!await ask(tr(fr, `Supprimer « ${name} » ? Le reste du bloc est conservé.`, `Delete “${name}”? The rest of the block is kept.`)))
       return;
     const next = deleteElementFromBlock(block, element);
     if (!next) return;
@@ -6498,8 +6502,8 @@ function CarouselSettingsPanel({
                   size="icon-sm"
                   variant="ghost"
                   disabled={slides.length <= 1}
-                  onClick={() => {
-                    if (window.confirm(tr(fr, `Supprimer la diapositive ${index + 1} et son contenu ?`, `Delete slide ${index + 1} and its content?`))) onRemove(index);
+                  onClick={async () => {
+                    if (await ask(tr(fr, `Supprimer la diapositive ${index + 1} et son contenu ?`, `Delete slide ${index + 1} and its content?`))) onRemove(index);
                   }}
                   aria-label={tr(fr, `Supprimer la diapositive ${index + 1}`, `Delete slide ${index + 1}`)}
                 >
@@ -6741,8 +6745,8 @@ function ItemContentFields({
     setItems(next);
     onSelectElement(`item:${index + 1}`);
   };
-  const remove = () => {
-    if (!window.confirm(tr(fr, "Supprimer cette carte ?", "Delete this card?"))) return;
+  const remove = async () => {
+    if (!await ask(tr(fr, "Supprimer cette carte ?", "Delete this card?"))) return;
     setItems(items.filter((_candidate, position) => position !== index));
     onSelectElement(null);
   };
@@ -6898,6 +6902,15 @@ function extraChain(extras: WebsiteExtraElement[], element: string): WebsiteExtr
     if (nested.length) return [item, ...nested];
   }
   return [];
+}
+
+/** Readable name of an element, with a few words of its text: « Paragraphe : “Écrivez…” ». */
+function describeElement(block: WebsiteSection, element: string, fr: boolean): string {
+  const found = locateExtra(readExtraElements(block.content), element)?.item;
+  if (!found) return elementDisplayName(element, fr);
+  const type = (extraTypeLabels[found.type] ?? [found.type, found.type])[fr ? 0 : 1];
+  const words = ((fr ? found.textFr : found.textEn) ?? found.textFr ?? "").trim();
+  return words ? `${type} : “${words.length > 32 ? `${words.slice(0, 32)}…` : words}”` : type;
 }
 
 function elementDisplayName(element: string, fr: boolean): string {
@@ -7939,7 +7952,7 @@ function ZonePanel({
   const setContent = (patch: Record<string, unknown>) => onChange({ ...zone, content: { ...content, ...patch } });
   const writeExtras = (next: WebsiteExtraElement[], extraStyles: Record<string, unknown> = styles) =>
     setContent({ extras: next, elementOrder: next.map((item) => `x:${item.id}`), elementStyles: extraStyles });
-  const applyTemplate = (template: string) => {
+  const applyTemplate = async (template: string) => {
     if (template === zone.template) return;
     const { zone: next, leftovers } = applyZoneTemplate(name, template, zone, facts);
     if (leftovers.length) {
@@ -7947,7 +7960,7 @@ function ZonePanel({
         .map((item) => (extraTypeLabels[item.type] ?? [item.type, item.type])[fr ? 0 : 1])
         .join(", ");
       if (
-        !window.confirm(
+        !await ask(
           tr(
             fr,
             `Ce modèle n’a pas de place pour ${leftovers.length} élément(s) : ${names}.\n\nIls ne seront pas supprimés : ils sont placés dans un conteneur à la fin de la zone, à déplacer ou supprimer ensuite. Appliquer le modèle ?`,
@@ -7992,14 +8005,14 @@ function ZonePanel({
     next.splice(index + 1, 0, item);
     writeExtras(next, { ...styles, ...added });
   };
-  const removeColumn = (index: number) => {
+  const removeColumn = async (index: number) => {
     const source = extras[index];
     if (!source) return;
     const count = (function countAll(items: WebsiteExtraElement[]): number {
       return items.reduce((total, item) => total + 1 + countAll(item.children ?? []), 0);
     })(source.children ?? []);
     if (
-      !window.confirm(
+      !await ask(
         count
           ? tr(fr, `Supprimer ce conteneur et les ${count} élément(s) qu’il contient ?`, `Delete this container and the ${count} element(s) inside?`)
           : tr(fr, "Supprimer cet élément ?", "Delete this element?"),
@@ -9100,8 +9113,8 @@ function PageTemplatePanel({
         <Button
           size="sm"
           variant="ghost"
-          onClick={() => {
-            if (window.confirm(tr(fr, "Remplacer tous les blocs de cette page par ce modèle ? (Annulable avec « Annuler » tant que vous n’enregistrez pas.)", "Replace every block of this page with this template? (Undo with “Discard” as long as you don’t save.)")))
+          onClick={async () => {
+            if (await ask(tr(fr, "Remplacer tous les blocs de cette page par ce modèle ? (Annulable avec « Annuler » tant que vous n’enregistrez pas.)", "Replace every block of this page with this template? (Undo with “Discard” as long as you don’t save.)")))
               onApply(PAGE_TEMPLATES[choice]!.build(), "replace");
           }}
         >

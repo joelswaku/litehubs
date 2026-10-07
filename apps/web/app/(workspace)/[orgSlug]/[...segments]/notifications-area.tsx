@@ -36,6 +36,7 @@ import {
   type NotificationQuery,
   type NotificationTab,
 } from "@/services/notification.service";
+import { confirmText } from "@/components/ui/confirm-dialog";
 
 const PAGE_SIZE = 30;
 const CATEGORIES = [
@@ -189,7 +190,7 @@ export function NotificationsArea({ orgSlug }: { orgSlug: string }) {
   };
   const markAllRead = async () => {
     const urgent = await notificationsApi.list(orgSlug, { tab: "unread", priority: "urgent", limit: 1 });
-    if (urgent.notifications.length && !window.confirm(t("notifications.confirmUrgent"))) return;
+    if (urgent.notifications.length && !await confirmText(t("notifications.confirmUrgent"))) return;
     bulk.mutate("read-all");
   };
   const localeTag = locale === "fr" ? "fr-FR" : "en-US";

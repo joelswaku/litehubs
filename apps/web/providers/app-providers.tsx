@@ -3,6 +3,7 @@
 import { ThemeProvider } from "next-themes";
 import { NuqsAdapter } from "nuqs/adapters/next/app";
 import { Toaster } from "sonner";
+import { ConfirmDialogHost } from "@/components/ui/confirm-dialog";
 import { LanguageProvider } from "./language-provider";
 import { QueryProvider } from "./query-provider";
 import { OfflinePoultrySync } from "./offline-poultry-sync";
@@ -26,6 +27,7 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
             <OfflinePigSync />
             <PwaSupport />
             {children}
+            <ConfirmDialogHost />
             <Toaster
               position="bottom-right"
               theme="system"

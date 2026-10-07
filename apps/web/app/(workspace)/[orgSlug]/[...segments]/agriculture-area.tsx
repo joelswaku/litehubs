@@ -38,6 +38,7 @@ import { can } from "@/lib/permissions";
 import { formatBusinessDay, formatQuantity } from "@/lib/utils";
 import { useLanguage } from "@/providers/language-provider";
 import { useSessionUser } from "@/stores/session-store";
+import { confirmText } from "@/components/ui/confirm-dialog";
 
 type Area = "setup" | "planning" | "fieldwork" | "monitoring";
 type Place = { id: string; name?: string | null; code?: string | null };
@@ -773,9 +774,9 @@ export function AgricultureArea({ orgSlug }: { orgSlug: string }) {
               canDelete={canDo(resource, "delete")}
               onView={(id) => setSelected({ resource, id })}
               onEdit={(item) => setEditor({ resource, item })}
-              onDelete={(id) => {
+              onDelete={async (id) => {
                 if (
-                  window.confirm(
+                  await confirmText(
                     fr
                       ? "Supprimer définitivement cet enregistrement ?"
                       : "Delete this record permanently?",

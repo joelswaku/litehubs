@@ -11,6 +11,7 @@ import { ApiError, get, orgUrl } from "@/lib/api";
 import { dailyWorkApi } from "@/lib/daily-work-api";
 import { can } from "@/lib/permissions";
 import { useSessionUser } from "@/stores/session-store";
+import { confirmText } from "@/components/ui/confirm-dialog";
 
 type Site = { id: string; name: string };
 type Item = {
@@ -223,9 +224,9 @@ export function DailyWorkTemplateManager({
                       size="sm"
                       variant="ghost"
                       disabled={templateDelete.isPending}
-                      onClick={() => {
+                      onClick={async () => {
                         if (
-                          window.confirm(
+                          await confirmText(
                             `Delete ${template.name}? Templates with recorded runs cannot be deleted.`,
                           )
                         )
@@ -289,9 +290,9 @@ export function DailyWorkTemplateManager({
                                 size="sm"
                                 variant="ghost"
                                 disabled={itemDelete.isPending}
-                                onClick={() => {
+                                onClick={async () => {
                                   if (
-                                    window.confirm(
+                                    await confirmText(
                                       "Delete this checklist check?",
                                     )
                                   )

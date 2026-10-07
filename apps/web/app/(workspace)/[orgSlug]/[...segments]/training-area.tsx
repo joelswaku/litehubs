@@ -35,6 +35,7 @@ import { api, ApiError, del, get, orgApiUrl, orgUrl, patch, post } from "@/lib/a
 import { can } from "@/lib/permissions";
 import { useLanguage } from "@/providers/language-provider";
 import { useSessionUser } from "@/stores/session-store";
+import { confirmText } from "@/components/ui/confirm-dialog";
 
 type Employee = {
   id: string;
@@ -2108,11 +2109,11 @@ function ProfessionalCourseBuilder({
                       className="mt-3"
                       type="button"
                       loading={importAiOutline.isPending}
-                      onClick={() => {
+                      onClick={async () => {
                         if (!versionId || !aiOutlineDraft) return;
                         if (
                           replaceAiOutline &&
-                          !window.confirm(
+                          !await confirmText(
                             label(
                               fr,
                               "Replace every module, lesson and content block in this draft with this AI plan? This cannot affect published learner versions.",
@@ -2442,13 +2443,13 @@ function ProfessionalCourseBuilder({
                           size="sm"
                           variant="destructive"
                           loading={(!isDraftVersion && createRevision.isPending) || (deleteBlock.isPending && deleteBlock.variables === block.id)}
-                          onClick={() => {
+                          onClick={async () => {
                             if (!isDraftVersion) {
                               createRevision.mutate();
                               return;
                             }
                             if (
-                              window.confirm(
+                              await confirmText(
                                 label(
                                   fr,
                                   "Delete this content block? This only changes the current draft version.",

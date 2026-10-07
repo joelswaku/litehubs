@@ -27,6 +27,7 @@ import { can } from "@/lib/permissions";
 import { formatBusinessDay } from "@/lib/utils";
 import { useSessionUser } from "@/stores/session-store";
 import { useLanguage } from "@/providers/language-provider";
+import { confirmText } from "@/components/ui/confirm-dialog";
 
 type Flock = {
   id: string;
@@ -525,9 +526,9 @@ export function PoultryRecordCentre({
                 edit={canEdit ? () => detail.mutate(item.id) : undefined}
                 erase={
                   canDelete
-                    ? () => {
+                    ? async () => {
                         if (
-                          window.confirm(
+                          await confirmText(
                             "Delete this record? This cannot be undone.",
                           )
                         )

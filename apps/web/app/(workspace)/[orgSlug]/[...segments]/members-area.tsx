@@ -54,6 +54,7 @@ import { can, isOwner } from "@/lib/permissions";
 import { initialsOf } from "@/lib/utils";
 import { useLanguage } from "@/providers/language-provider";
 import { useSessionUser } from "@/stores/session-store";
+import { confirmText } from "@/components/ui/confirm-dialog";
 
 type EmployeeAccessCandidate = {
   id: string;
@@ -2897,9 +2898,9 @@ export function LocationsControl({ orgSlug }: { orgSlug: string }) {
                           size="sm"
                           variant="ghost"
                           loading={deleteProvince.isPending}
-                          onClick={() => {
+                          onClick={async () => {
                             if (
-                              window.confirm(
+                              await confirmText(
                                 fr
                                   ? `Retirer la province « ${province.name} » ? Cette action est impossible si elle contient encore des données liées.`
                                   : `Remove province “${province.name}”? This will fail if it still has linked records.`,
@@ -3001,9 +3002,9 @@ export function LocationsControl({ orgSlug }: { orgSlug: string }) {
                           size="sm"
                           variant="ghost"
                           loading={deleteSite.isPending}
-                          onClick={() => {
+                          onClick={async () => {
                             if (
-                              window.confirm(
+                              await confirmText(
                                 fr
                                   ? `Retirer le site « ${site.name} » ? Cette action est impossible s’il contient encore des données liées.`
                                   : `Remove site “${site.name}”? This will fail if it still has linked records.`,

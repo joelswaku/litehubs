@@ -27,6 +27,7 @@ import { formatBusinessDay, formatQuantity } from "@/lib/utils";
 import { useSessionUser } from "@/stores/session-store";
 import { useLanguage } from "@/providers/language-provider";
 import { PoultryConfigurationTools } from "./poultry-configuration-tools";
+import { confirmText } from "@/components/ui/confirm-dialog";
 
 type Place = { id: string; name?: string | null; code?: string | null };
 type Site = Place;
@@ -766,10 +767,10 @@ export function PoultrySetupView({ orgSlug }: { orgSlug: string }) {
                           size="sm"
                           variant="ghost"
                           disabled={modelDelete.isPending}
-                          onClick={(event) => {
+                          onClick={async (event) => {
                             event.stopPropagation();
                             if (
-                              window.confirm(
+                              await confirmText(
                                 `Delete ${model.name}? Assigned models cannot be deleted.`,
                               )
                             )
@@ -799,10 +800,10 @@ export function PoultrySetupView({ orgSlug }: { orgSlug: string }) {
                 currentModel &&
                 setMode({ kind: "target", model: currentModel, item: target })
               }
-              onDelete={(target) => {
+              onDelete={async (target) => {
                 if (
                   currentModel &&
-                  window.confirm("Delete this weekly target?")
+                  await confirmText("Delete this weekly target?")
                 )
                   targetDelete.mutate({
                     modelId: currentModel.id,
