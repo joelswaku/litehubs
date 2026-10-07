@@ -1585,8 +1585,8 @@ function BlockEditor({
               <p className="text-[11px] leading-4 text-ink-secondary">
                 {tr(
                   fr,
-                  "Ici : seulement le fond et l’espace autour du bloc. La disposition (Flexbox, grille), la largeur, la hauteur, les marges internes, la bordure, l’arrondi, l’ombre, les animations et les états se règlent sur la zone du bloc.",
-                  "Here: only the background and the space around the block. Layout (Flexbox, grid), width, height, padding, border, radius, shadow, animations and states are set on the block area.",
+                  "Ici : le fond, la taille et l’espace de tout le bloc (la bande colorée). Le style du div règle la zone de contenu à l’intérieur : disposition (Flexbox, grille), taille du contenu, marges internes, bordure, ombre, animations et états.",
+                  "Here: background, size and spacing of the whole block (the coloured band). The div style sets the content area inside: layout (Flexbox, grid), content size, padding, border, shadow, animations and states.",
                 )}
               </p>
               <Button size="sm" className="w-full" onClick={onEditArea}>
@@ -4425,6 +4425,52 @@ function BlockStyleFields({
         fr={fr}
       />
       <div className="space-y-2 border-t border-border pt-3">
+        <p className="text-sm font-medium text-ink">{tr(fr, "Taille du bloc", "Block size")}</p>
+        <p className="text-[11px] leading-4 text-ink-muted">
+          {tr(
+            fr,
+            "S’applique à tout le bloc, avec sa couleur ou son image de fond. Vide = toute la largeur. Sur téléphone, le bloc reprend toujours toute la largeur.",
+            "Applies to the whole block, with its background colour or image. Empty = full width. On phones the block always takes the full width.",
+          )}
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          <UnitInput
+            label={tr(fr, "Largeur", "Width")}
+            value={content.blockWidth}
+            units={["%", "px", "vw", "rem"]}
+            placeholder="100"
+            onChange={(value) => set("blockWidth", value)}
+          />
+          <UnitInput
+            label={tr(fr, "Hauteur minimale", "Minimum height")}
+            value={content.blockMinHeight}
+            units={["px", "vh", "rem"]}
+            placeholder="auto"
+            onChange={(value) => set("blockMinHeight", value)}
+          />
+        </div>
+        {content.blockWidth !== undefined && content.blockWidth !== "" ? (
+          <div className="space-y-1">
+            <p className="text-[11px] font-medium text-ink-muted">{tr(fr, "Position du bloc", "Block position")}</p>
+            <Segmented
+              value={content.blockAlign === "left" || content.blockAlign === "right" ? content.blockAlign : "center"}
+              onChange={(value) => set("blockAlign", value === "left" || value === "right" ? value : undefined)}
+              options={[
+                ["left", tr(fr, "À gauche", "Left")],
+                ["center", tr(fr, "Centré", "Centred")],
+                ["right", tr(fr, "À droite", "Right")],
+              ]}
+            />
+          </div>
+        ) : null}
+        <NumberBox
+          label={tr(fr, "Arrondi des coins (px)", "Corner radius (px)")}
+          value={content.blockRadius}
+          max={80}
+          onChange={(value) => set("blockRadius", value)}
+        />
+      </div>
+      <div className="space-y-2 border-t border-border pt-3">
         <p className="text-sm font-medium text-ink">
           {tr(fr, "Espacement du bloc (px)", "Block spacing (px)")}
         </p>
@@ -5829,7 +5875,7 @@ function UnitInput({
             })()
           : null;
   const isAuto = value === "auto";
-  const [unit, setUnit] = useState<string>(parsed?.unit ?? "px");
+  const [unit, setUnit] = useState<string>(parsed?.unit ?? units[0] ?? "px");
   const emit = (number: number, nextUnit: string) => {
     let clean = Math.min(9999, Math.max(allowNegative ? -9999 : 0, number));
     clean = Math.round(clean * 100) / 100;

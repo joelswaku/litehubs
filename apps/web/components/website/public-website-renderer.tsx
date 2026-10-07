@@ -24,6 +24,7 @@ import { ApiError, post } from "@/lib/api";
 import {
   BREAKPOINTS,
   SITE_RESPONSIVE_CSS,
+  cssLength,
   elementRules,
   googleFontsHref,
   type StyleValues,
@@ -1057,12 +1058,39 @@ function SectionBackdrop({
   const spacingRules = blockSpacing
     ? `[data-block-style="${scope}"]{${blockSpacing}}@media (max-width:${BREAKPOINTS.tablet}px){[data-block-style="${scope}"]{${spacingCss(0.75, 24)}}}@media (max-width:${BREAKPOINTS.mobile}px){[data-block-style="${scope}"]{${spacingCss(0.5, 16)}}}`
     : "";
+  // Optional size of the whole block (the coloured band): width, alignment,
+  // minimum height and rounded corners. Phones always get the full width.
+  const blockLength = (value: unknown, units: RegExp) => {
+    if (typeof value === "number" && Number.isFinite(value)) return `${Math.min(4000, Math.max(0, Math.round(value)))}px`;
+    const length = cssLength(value);
+    return length && length !== "auto" && units.test(length) ? length : null;
+  };
+  const blockWidth = blockLength(c.blockWidth, /(px|%|vw|rem)$/);
+  const blockMinHeight = blockLength(c.blockMinHeight, /(px|vh|rem)$/);
+  const blockRadiusNumber = Number(c.blockRadius);
+  const blockRadius =
+    c.blockRadius !== undefined && c.blockRadius !== "" && Number.isFinite(blockRadiusNumber)
+      ? Math.min(80, Math.max(0, Math.round(blockRadiusNumber)))
+      : null;
+  const sizeDeclarations = [
+    blockWidth ? `width:${blockWidth};max-width:100%` : "",
+    blockWidth && c.blockAlign !== "left" ? (c.blockAlign === "right" ? "margin-left:auto" : "margin-left:auto;margin-right:auto") : "",
+    blockMinHeight ? `min-height:${blockMinHeight}` : "",
+    blockRadius !== null ? `border-radius:${blockRadius}px` : "",
+  ]
+    .filter(Boolean)
+    .join(";");
+  const sizeRules = sizeDeclarations
+    ? `[data-block-style="${scope}"]{${sizeDeclarations}}${
+        blockWidth ? `@media (max-width:${BREAKPOINTS.mobile}px){[data-block-style="${scope}"]{width:100%}}` : ""
+      }`
+    : "";
   // Optional entrance / hover animation of the whole block.
   const blockAnimation =
     c.blockAnimation && typeof c.blockAnimation === "object"
       ? elementRules(`[data-block-style="${scope}"]`, "block", c.blockAnimation as StyleValues).join("")
       : "";
-  if (!color && !image && !textColor && !elementCss && !spacingRules && !blockAnimation && !link && !variant)
+  if (!color && !image && !textColor && !elementCss && !spacingRules && !sizeRules && !blockAnimation && !link && !variant)
     return <>{children}</>;
   return (
     <div
@@ -1075,6 +1103,7 @@ function SectionBackdrop({
     >
       {link ? <LinkSurface link={link} editing={editing} language={language} /> : null}
       {spacingRules ? <style>{spacingRules}</style> : null}
+      {sizeRules ? <style>{sizeRules}</style> : null}
       {blockAnimation ? <style>{blockAnimation}</style> : null}
       {fontsHref ? <link rel="stylesheet" href={fontsHref} precedence="default" /> : null}
       {image ? (
