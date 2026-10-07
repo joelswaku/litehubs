@@ -1245,6 +1245,7 @@ function BlockEditor({
   embedded = false,
   onReplay,
   linkPages = [],
+  onEditArea,
 }: {
   orgSlug: string;
   block: WebsiteSection;
@@ -1264,6 +1265,8 @@ function BlockEditor({
   embedded?: boolean;
   onReplay?: () => void;
   linkPages?: LinkPage[];
+  /** Free block: opens the full style of its area (the div itself). */
+  onEditArea?: () => void;
 }) {
   const [open, setOpen] = useState(embedded || index === 0);
   // The visual builder shows one group at a time and one language at a time,
@@ -1575,6 +1578,22 @@ function BlockEditor({
               subject={tr(fr, "ce bloc", "this block")}
               fr={fr}
             />
+          ) : null}
+          {show("style") && onEditArea && block.section_type === "container" ? (
+            <div className="space-y-2 rounded-xl border border-violet-300 bg-violet-50 p-3 dark:border-violet-400/40 dark:bg-violet-400/10">
+              <p className="text-sm font-semibold text-ink">{tr(fr, "Style complet du div", "Full div style")}</p>
+              <p className="text-[11px] leading-4 text-ink-secondary">
+                {tr(
+                  fr,
+                  "Ici : seulement le fond et l’espace autour du bloc. La disposition (Flexbox, grille), la largeur, la hauteur, les marges internes, la bordure, l’arrondi, l’ombre, les animations et les états se règlent sur la zone du bloc.",
+                  "Here: only the background and the space around the block. Layout (Flexbox, grid), width, height, padding, border, radius, shadow, animations and states are set on the block area.",
+                )}
+              </p>
+              <Button size="sm" className="w-full" onClick={onEditArea}>
+                <Settings2 />
+                {tr(fr, "Ouvrir le style du div (disposition, taille, bordure…)", "Open the div style (layout, size, border…)")}
+              </Button>
+            </div>
           ) : null}
           {show("style") ? (
             <BlockStyleFields
@@ -4279,6 +4298,7 @@ function VisualBuilderTab({
                   embedded
                   onReplay={replayAnimations}
                   linkPages={linkPages}
+                  onEditArea={() => setSelectedElement("canvas")}
                 />
                 </>
                 )}
