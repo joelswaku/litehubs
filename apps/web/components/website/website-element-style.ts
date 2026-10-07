@@ -493,9 +493,10 @@ export function elementRules(
   options: { stack?: boolean } = {},
 ): string[] {
   const rules: string[] = [];
-  const base = styleDeclarations(name, style);
+  const base = [...styleDeclarations(name, style), ...interactionBaseDeclarations(style)];
   if (base.length) rules.push(`${selector}{${base.join(";")}}`);
   rules.push(...animationRules(selector, style));
+  rules.push(...stateRules(selector, style));
   const media = (width: number, declarations: string[]) => {
     if (declarations.length)
       rules.push(`@media (max-width:${width}px){${selector}{${declarations.join(";")}}}`);
@@ -510,6 +511,124 @@ export function elementRules(
       BREAKPOINTS.mobile,
       styleDeclarations(name, overrideStyle({ ...style, ...(tablet ?? {}) }, mobile)),
     );
+  return rules;
+}
+
+/* ── States and interactions (normal, hover, active, focus, disabled) ───── */
+
+export const INTERACTION_STATES = ["hover", "active", "focus", "disabled"] as const;
+export type InteractionState = (typeof INTERACTION_STATES)[number];
+const STATE_PSEUDO: Record<InteractionState, string[]> = {
+  hover: [":hover"],
+  active: [":active"],
+  focus: [":focus-visible", ":focus-within"],
+  disabled: [":disabled", '[aria-disabled="true"]'],
+};
+export const CURSORS = ["auto", "default", "pointer", "zoom-in", "zoom-out", "grab", "help", "text", "move", "not-allowed"];
+export const EASINGS: Record<string, string> = {
+  ease: "ease",
+  "ease-in": "ease-in",
+  "ease-out": "ease-out",
+  "ease-in-out": "ease-in-out",
+  linear: "linear",
+  spring: "cubic-bezier(.34,1.56,.64,1)",
+};
+
+/** translate / scale / rotate from validated numbers only. */
+function transformOf(style: StyleValues): string | null {
+  const x = clampNumber(style.translateX, -400, 400);
+  const y = clampNumber(style.translateY, -400, 400);
+  const scale = clampNumber(style.scale, 10, 300);
+  const rotate = clampNumber(style.rotate, -360, 360);
+  if (x === null && y === null && scale === null && rotate === null) return null;
+  const parts: string[] = [];
+  if (x !== null || y !== null) parts.push(`translate(${Math.round(x ?? 0)}px,${Math.round(y ?? 0)}px)`);
+  if (scale !== null) parts.push(`scale(${(scale / 100).toFixed(2)})`);
+  if (rotate !== null) parts.push(`rotate(${Math.round(rotate)}deg)`);
+  return parts.join(" ");
+}
+
+function stateStyle(style: StyleValues, state: InteractionState): StyleValues | null {
+  const value = style[state];
+  return value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length
+    ? (value as StyleValues)
+    : null;
+}
+
+/** What one state changes. Every value is validated: no free CSS. */
+function stateDeclarations(state: StyleValues): { look: string[]; motion: string[] } {
+  const look: string[] = [];
+  const color = hexColor(state.color);
+  if (color) look.push(`color:${color}`);
+  const background = hexColor(state.background);
+  if (background) look.push(`background-color:${background}`);
+  const image = cssImage(state.backgroundImage);
+  if (image) look.push(`background-image:url("${image}")`, "background-size:cover", "background-position:center");
+  const borderColor = hexColor(state.borderColor);
+  const borderOpacity = clampNumber(state.borderOpacity, 0, 100);
+  const border =
+    borderColor && borderOpacity !== null && borderOpacity < 100
+      ? `color-mix(in srgb,${borderColor} ${Math.round(borderOpacity)}%,transparent)`
+      : borderColor;
+  const borderWidth = clampNumber(state.borderWidth, 0, 24);
+  if (borderWidth !== null) look.push(`border:${Math.round(borderWidth)}px solid ${border ?? "currentColor"}`);
+  else if (border) look.push(`border-color:${border}`);
+  const radius = clampNumber(state.radius, 0, 400);
+  if (radius !== null) look.push(`border-radius:${Math.round(radius)}px`);
+  const shadow = typeof state.shadow === "string" ? SHADOWS[state.shadow] : undefined;
+  if (shadow) look.push(`box-shadow:${shadow}`);
+  const opacity = clampNumber(state.opacity, 0, 100);
+  if (opacity !== null) look.push(`opacity:${(opacity / 100).toFixed(2)}`);
+  if (typeof state.cursor === "string" && CURSORS.includes(state.cursor)) look.push(`cursor:${state.cursor}`);
+  const transform = transformOf(state);
+  return { look, motion: transform ? [`transform:${transform}`] : [] };
+}
+
+function hasStates(style: StyleValues) {
+  return INTERACTION_STATES.some((state) => stateStyle(style, state));
+}
+
+/** Normal state: cursor, resting transform and the transition between states. */
+function interactionBaseDeclarations(style: StyleValues): string[] {
+  const out: string[] = [];
+  if (typeof style.cursor === "string" && CURSORS.includes(style.cursor)) out.push(`cursor:${style.cursor}`);
+  const transform = transformOf(style);
+  if (transform) out.push(`transform:${transform}`);
+  const duration = clampNumber(style.transitionDuration, 0, 3000);
+  if ((hasStates(style) || duration !== null) && !animationOf(style)) {
+    const time = Math.round(duration ?? 220);
+    const delay = Math.round(clampNumber(style.transitionDelay, 0, 3000) ?? 0);
+    const easing = EASINGS[String(style.transitionEasing)] ?? "ease";
+    out.push(
+      `transition:${["color", "background-color", "border-color", "box-shadow", "opacity", "transform", "border-radius"]
+        .map((property) => `${property} ${time}ms ${easing} ${delay}ms`)
+        .join(",")}`,
+    );
+  }
+  return out;
+}
+
+/**
+ * Hover / active / focus / disabled rules. "[data-wb-state]" lets the
+ * builder show a state while it is being edited. Movement (transform) is
+ * left out for visitors who ask for reduced motion.
+ */
+function stateRules(selector: string, style: StyleValues): string[] {
+  const rules: string[] = [];
+  for (const state of INTERACTION_STATES) {
+    const values = stateStyle(style, state);
+    if (!values) continue;
+    const { look, motion } = stateDeclarations(values);
+    const live = STATE_PSEUDO[state].map((pseudo) => `${selector}${pseudo}`);
+    const preview = `${selector}[data-wb-state="${state}"]`;
+    if (look.length) rules.push(`${[...live, preview].join(",")}{${look.join(";")}}`);
+    if (motion.length) {
+      rules.push(`@media (prefers-reduced-motion:no-preference){${live.join(",")}{${motion.join(";")}}}`);
+      rules.push(`${preview}{${motion.join(";")}}`);
+    }
+  }
+  if (hasStates(style) || style.transitionDuration !== undefined)
+    rules.push(`@media (prefers-reduced-motion:reduce){[data-site-root]:not([data-anim-preview]) ${selector}{transition:none}}`);
   return rules;
 }
 

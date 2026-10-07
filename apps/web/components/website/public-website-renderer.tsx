@@ -118,6 +118,8 @@ export type WebsiteEditorBridge = {
   replayKey?: number;
   /** "Aperçu": nothing is selectable and links work (inside the builder). */
   preview?: boolean;
+  /** Shows the selected element in a state (hover, active, focus…) while it is edited. */
+  previewState?: string | null;
   /** In preview, a link to another page of the site opens it in the builder. */
   onNavigatePage?: (slug: string) => void;
 };
@@ -533,6 +535,9 @@ function resolveWebsiteHref(
 /** Whole-area links: content stays on top and click-through, the link sits
  * underneath; real buttons / links / fields inside keep their own action. */
 const LINK_CSS = [
+  // Every clickable element keeps a visible keyboard focus (low weight: an
+  // owner's own focus style can add to it).
+  "[data-site-root] :where(a,button,summary,[tabindex]):focus-visible{outline:3px solid #0ea5e9;outline-offset:3px}",
   "[data-site-root] [data-link-live]{position:relative;isolation:isolate;cursor:pointer}",
   "[data-site-root] [data-link-live]>.wb-link{position:absolute;inset:0;z-index:-1;border-radius:inherit}",
   "[data-site-root] [data-link-live]>:not(.wb-link){pointer-events:none}",
@@ -2201,6 +2206,20 @@ export function PublicWebsiteRenderer({
   );
   const [menuOpen, setMenuOpen] = React.useState(false);
   const siteRootRef = React.useRef<HTMLElement>(null);
+  // Builder: show the selected element in the state being edited.
+  const previewState = editor?.previewState ?? null;
+  const previewSection = editor?.selectedSectionId ?? null;
+  const previewElement = editor?.selectedElement ?? null;
+  React.useEffect(() => {
+    const root = siteRootRef.current;
+    if (!root) return;
+    root.querySelectorAll("[data-wb-state]").forEach((node) => node.removeAttribute("data-wb-state"));
+    if (!previewState || !previewSection || !previewElement) return;
+    const safe = (value: string) => value.replace(/["\\]/g, "");
+    root
+      .querySelectorAll(`[data-builder-section="${safe(previewSection)}"] [data-el="${safe(previewElement)}"]`)
+      .forEach((node) => node.setAttribute("data-wb-state", previewState));
+  });
   // "data-scrolled" lets a transparent header turn solid once the page moves.
   React.useEffect(() => {
     const root = siteRootRef.current;
@@ -2670,6 +2689,12 @@ export function PublicWebsiteRenderer({
           .map((section, index) => (
             <motion.div
               key={section.id}
+              // Anchor for "Aller vers une section" links (#mon-ancre).
+              id={
+                typeof section.content.anchor === "string" && /^[a-z0-9-]{1,60}$/.test(section.content.anchor)
+                  ? section.content.anchor
+                  : undefined
+              }
               initial={
                 reduceMotion || editor
                   ? false

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -2862,6 +2862,9 @@ function VisualBuilderTab({
   );
   const [selectedId, setSelectedIdState] = useState<string | null>(null);
   const [selectedElement, setSelectedElement] = useState<string | null>(null);
+  // "États et interactions": the state shown in the preview while editing it.
+  const [previewState, setPreviewState] = useState<string | null>(null);
+  useEffect(() => setPreviewState(null), [selectedId, selectedElement]);
   const [replayKey, setReplayKey] = useState(0);
   const replayAnimations = () => setReplayKey((value) => value + 1);
   // Choosing another block (or none) always clears the element selection.
@@ -3393,6 +3396,29 @@ function VisualBuilderTab({
       labelFr: candidate.navigationLabelFr || candidate.titleFr,
       labelEn: candidate.navigationLabelEn || candidate.titleEn,
     }));
+  // "Aller vers une section": each block can receive an anchor (#…).
+  const pageSectionsValue = {
+    sections: blocks.map((block, index) => ({
+      label: `${index + 1}. ${label(block)}`,
+      anchor: typeof block.content.anchor === "string" ? block.content.anchor : undefined,
+    })),
+    ensureAnchor: (index: number) => {
+      const block = blocks[index];
+      if (!block) return "";
+      if (typeof block.content.anchor === "string" && /^[a-z0-9-]{1,60}$/.test(block.content.anchor))
+        return block.content.anchor;
+      const base = label(block)
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 40) || "section";
+      const anchor = `${base}-${index + 1}`;
+      changeBlockAt(index, { ...block, content: { ...block.content, anchor } });
+      return anchor;
+    },
+  };
   const savePageSettings = () =>
     void onSavePage({ ...pageFieldsPayload(page), settings: pageSettings }).catch(() => undefined);
   // Breadcrumb of the current selection: Page › Bloc › Conteneur… › Élément.
@@ -3953,6 +3979,7 @@ function VisualBuilderTab({
                 onSelectSection: (id, element) => selectBlock(id, false, element),
                 sectionLabel: label,
                 preview: previewMode,
+                previewState,
                 onNavigatePage: (slug) => {
                   const target = visiblePages.find((candidate) => candidate.slug === slug);
                   if (target && target.id !== page.id) switchPage(target.id);
@@ -3963,6 +3990,7 @@ function VisualBuilderTab({
         </div>
 
         {/* Right: edit the selected block or the page information */}
+        <PageSectionsContext.Provider value={pageSectionsValue}>
         <aside className="flex min-h-0 shrink-0 flex-col border-t border-border bg-surface-1 lg:w-[400px] lg:border-l lg:border-t-0">
           <SelectionBreadcrumb path={selectionPath} fr={fr} />
           {panel === "theme" ? (
@@ -4126,6 +4154,8 @@ function VisualBuilderTab({
                     breakpoint={device}
                     onReplay={replayAnimations}
                     linkPages={linkPages}
+                    previewState={previewState}
+                    onPreviewState={setPreviewState}
                     fr={fr}
                   />
                 ) : selectedZone && zoneData ? (
@@ -4227,6 +4257,7 @@ function VisualBuilderTab({
             </div>
           )}
         </aside>
+        </PageSectionsContext.Provider>
       </div>
     </section>
   );
@@ -4757,6 +4788,8 @@ function ElementEditor({
   breakpoint = "desktop",
   onReplay,
   linkPages = [],
+  previewState = null,
+  onPreviewState,
   fr,
 }: {
   orgSlug: string;
@@ -4769,6 +4802,9 @@ function ElementEditor({
   breakpoint?: Breakpoint;
   onReplay?: () => void;
   linkPages?: LinkPage[];
+  /** State shown in the preview while "États et interactions" is edited. */
+  previewState?: string | null;
+  onPreviewState?: (state: string | null) => void;
   fr: boolean;
 }) {
   const [lang, setLang] = useState<"fr" | "en">(fr ? "fr" : "en");
@@ -5407,6 +5443,15 @@ function ElementEditor({
                 }
               : undefined
         }
+        fr={fr}
+      />
+      <StatesPanel
+        orgSlug={orgSlug}
+        style={baseStyle}
+        onChange={writeStyle}
+        state={previewState}
+        onState={(next) => onPreviewState?.(next)}
+        canDisable={extra?.type === "button" || element === "primaryButton" || element === "secondaryButton"}
         fr={fr}
       />
     </div>
@@ -7128,6 +7173,12 @@ function PageLayoutFields({
 }
 
 /** "Lien au clic": an internal page, or a URL / anchor, same or new tab. */
+/** Blocks of the page being edited, for "Aller vers une section" links. */
+const PageSectionsContext = createContext<{
+  sections: Array<{ label: string; anchor?: string }>;
+  ensureAnchor: (index: number) => string;
+} | null>(null);
+
 function LinkFields({
   value,
   onChange,
@@ -7159,6 +7210,18 @@ function LinkFields({
       }
     })();
   const set = (patch: Record<string, unknown>) => onChange({ ...(link ?? {}), ...patch });
+  const pageSections = useContext(PageSectionsContext);
+  const mode = !kind
+    ? "none"
+    : kind === "page"
+      ? "page"
+      : url.startsWith("#")
+        ? "section"
+        : url.startsWith("mailto:")
+          ? "email"
+          : url.startsWith("tel:")
+            ? "phone"
+            : "external";
   const testHref =
     kind === "page" && typeof link?.page === "string"
       ? `/sites/${orgSlug}/${link.page}`
@@ -7180,15 +7243,22 @@ function LinkFields({
         </p>
       </div>
       <Segmented
-        value={kind || "none"}
+        value={mode}
         onChange={(next) => {
           if (!next || next === "none") onChange(undefined);
-          else set({ kind: next });
+          else if (next === "page") set({ kind: "page" });
+          else if (next === "section") set({ kind: "url", url: "#", newTab: undefined });
+          else if (next === "email") set({ kind: "url", url: "mailto:", newTab: undefined });
+          else if (next === "phone") set({ kind: "url", url: "tel:", newTab: undefined });
+          else set({ kind: "url", url: "https://" });
         }}
         options={[
-          ["none", tr(fr, "Aucun lien", "No link")],
+          ["none", tr(fr, "Aucun", "None")],
           ["page", tr(fr, "Page du site", "Website page")],
-          ["url", tr(fr, "URL ou ancre", "URL or anchor")],
+          ["section", tr(fr, "Section de cette page", "Section of this page")],
+          ["external", tr(fr, "Adresse externe", "External address")],
+          ["email", tr(fr, "E-mail", "Email")],
+          ["phone", tr(fr, "Téléphone", "Phone")],
         ]}
       />
       {kind === "page" ? (
@@ -7206,7 +7276,49 @@ function LinkFields({
           ))}
         </select>
       ) : null}
-      {kind === "url" ? (
+      {mode === "section" ? (
+        pageSections?.sections.length ? (
+          <select
+            value={pageSections.sections.findIndex((section) => section.anchor && `#${section.anchor}` === url)}
+            onChange={(event) => {
+              const index = Number(event.target.value);
+              if (index >= 0) set({ kind: "url", url: `#${pageSections.ensureAnchor(index)}` });
+            }}
+            className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm text-ink"
+            aria-label={tr(fr, "Section de destination", "Destination section")}
+          >
+            <option value={-1}>{tr(fr, "Choisir un bloc de la page…", "Choose a block of the page…")}</option>
+            {pageSections.sections.map((section, index) => (
+              <option key={index} value={index}>
+                {section.label}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <Input value={url} placeholder="#contact" onChange={(event) => set({ url: `#${event.target.value.replace(/^#/, "").replace(/[^a-z0-9-]/gi, "-").toLowerCase()}` })} />
+        )
+      ) : null}
+      {mode === "email" ? (
+        <Field label={tr(fr, "Adresse e-mail", "Email address")}>
+          <Input
+            type="email"
+            value={url.replace(/^mailto:/, "")}
+            placeholder="contact@exemple.com"
+            onChange={(event) => set({ url: `mailto:${event.target.value.trim()}` })}
+          />
+        </Field>
+      ) : null}
+      {mode === "phone" ? (
+        <Field label={tr(fr, "Numéro de téléphone", "Phone number")}>
+          <Input
+            type="tel"
+            value={url.replace(/^tel:/, "")}
+            placeholder="+243 000 000 000"
+            onChange={(event) => set({ url: `tel:${event.target.value.replace(/[^\d+]/g, "")}` })}
+          />
+        </Field>
+      ) : null}
+      {mode === "external" ? (
         <Field label={tr(fr, "Adresse", "Address")}>
           <Input
             value={url}
@@ -7233,14 +7345,16 @@ function LinkFields({
               onChange={(event) => set({ label: event.target.value || undefined })}
             />
           </Field>
-          <label className="flex items-center gap-2 text-xs text-ink-secondary">
-            <input
-              type="checkbox"
-              checked={link?.newTab === true}
-              onChange={(event) => set({ newTab: event.target.checked || undefined })}
-            />
-            {tr(fr, "Ouvrir dans un nouvel onglet", "Open in a new tab")}
-          </label>
+          {mode === "external" || mode === "page" ? (
+            <label className="flex items-center gap-2 text-xs text-ink-secondary">
+              <input
+                type="checkbox"
+                checked={link?.newTab === true}
+                onChange={(event) => set({ newTab: event.target.checked || undefined })}
+              />
+              {tr(fr, "Ouvrir dans un nouvel onglet", "Open in a new tab")}
+            </label>
+          ) : null}
           <div className="flex flex-wrap gap-2">
             <Button
               size="sm"
@@ -9098,5 +9212,247 @@ function GalleryImagesField({
         {tr(fr, "Chaque image ajoutée apparaît tout de suite dans l’aperçu. Pensez à enregistrer.", "Each added image shows right away in the preview. Remember to save.")}
       </p>
     </div>
+  );
+}
+
+/* ── States and interactions ─────────────────────────────────────────── */
+
+function luminance(hex: string): number {
+  const channel = (index: number) => {
+    const value = parseInt(hex.slice(index, index + 2), 16) / 255;
+    return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5);
+}
+function contrastRatio(a: string, b: string): number {
+  const [light, dark] = [luminance(a), luminance(b)].sort((x, y) => y - x) as [number, number];
+  return (light + 0.05) / (dark + 0.05);
+}
+
+const STATE_TABS: Array<[string | null, [string, string]]> = [
+  [null, ["Normal", "Normal"]],
+  ["hover", ["Survol", "Hover"]],
+  ["active", ["Clic", "Press"]],
+  ["focus", ["Focus", "Focus"]],
+  ["disabled", ["Désactivé", "Disabled"]],
+];
+const CURSOR_LABELS: Record<string, [string, string]> = {
+  auto: ["Automatique", "Automatic"],
+  default: ["Flèche", "Arrow"],
+  pointer: ["Main (cliquable)", "Hand (clickable)"],
+  "zoom-in": ["Loupe +", "Zoom in"],
+  "zoom-out": ["Loupe −", "Zoom out"],
+  grab: ["Saisir", "Grab"],
+  help: ["Aide", "Help"],
+  text: ["Texte", "Text"],
+  move: ["Déplacer", "Move"],
+  "not-allowed": ["Interdit", "Not allowed"],
+};
+
+/**
+ * "États et interactions": how the element looks in its normal, hover,
+ * pressed, keyboard-focus and disabled states, with the transition between
+ * them. The chosen state is shown in the preview while it is edited.
+ * Only validated values are stored (colours, numbers, presets): no free CSS
+ * and no script can be entered.
+ */
+function StatesPanel({
+  orgSlug,
+  style,
+  onChange,
+  state,
+  onState,
+  canDisable,
+  fr,
+}: {
+  orgSlug: string;
+  style: Record<string, unknown>;
+  onChange: (next: Record<string, unknown>) => void;
+  state: string | null;
+  onState: (state: string | null) => void;
+  canDisable: boolean;
+  fr: boolean;
+}) {
+  const current: Record<string, unknown> =
+    state && style[state] && typeof style[state] === "object" ? (style[state] as Record<string, unknown>) : state ? {} : style;
+  const set = (key: string, value: unknown) => {
+    const clean = (target: Record<string, unknown>) => {
+      if (value === undefined || value === "" || value === null) delete target[key];
+      else target[key] = value;
+      return target;
+    };
+    if (!state) {
+      onChange(clean({ ...style }));
+      return;
+    }
+    const next = clean({ ...current });
+    const result = { ...style, [state]: next };
+    if (!Object.keys(next).length) delete result[state];
+    onChange(result);
+  };
+  const resetState = () => {
+    if (!state) return;
+    const result = { ...style };
+    delete result[state];
+    onChange(result);
+  };
+  const edited = (key: string) => Boolean(style[key] && typeof style[key] === "object" && Object.keys(style[key] as object).length);
+  const textColor = typeof current.color === "string" ? current.color : typeof style.color === "string" ? style.color : null;
+  const background = typeof current.background === "string" ? current.background : typeof style.background === "string" ? style.background : null;
+  const ratio = textColor && background && /^#[0-9a-f]{6}$/i.test(textColor) && /^#[0-9a-f]{6}$/i.test(background) ? contrastRatio(textColor, background) : null;
+  const tabs = STATE_TABS.filter(([key]) => key !== "disabled" || canDisable);
+  return (
+    <InspectorSection title={tr(fr, "États et interactions", "States and interactions")} active={tabs.some(([key]) => key && edited(key))}>
+      <div className="flex flex-wrap gap-1" role="tablist" aria-label={tr(fr, "État", "State")}>
+        {tabs.map(([key, label]) => (
+          <button
+            key={key ?? "normal"}
+            type="button"
+            role="tab"
+            aria-selected={state === key}
+            onClick={() => onState(key)}
+            className={`relative rounded-md border px-2.5 py-1 text-xs font-semibold transition ${
+              state === key ? "border-violet-500 bg-violet-500/10 text-violet-700 dark:text-violet-300" : "border-border text-ink-secondary hover:text-ink"
+            }`}
+          >
+            {label[fr ? 0 : 1]}
+            {key && edited(key) ? <span className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-violet-600" /> : null}
+          </button>
+        ))}
+      </div>
+      <p className="text-[11px] text-ink-muted">
+        {state
+          ? tr(fr, "L’aperçu montre cet état. Seules les valeurs choisies ici changent ; le reste vient de l’état normal.", "The preview shows this state. Only the values set here change; the rest comes from the normal state.")
+          : tr(fr, "État normal : couleurs, fond et bordure se règlent dans les sections ci-dessus. Ici : curseur, position et transition.", "Normal state: colours, background and border are set in the sections above. Here: cursor, position and transition.")}
+      </p>
+
+      {state ? (
+        <>
+          <div className="grid grid-cols-2 gap-2">
+            <BlockColorField label={tr(fr, "Texte et icônes", "Text and icons")} value={current.color} onChange={(value) => set("color", value || undefined)} fallback="#0f172a" fr={fr} />
+            <BlockColorField label={tr(fr, "Fond", "Background")} value={current.background} onChange={(value) => set("background", value || undefined)} fallback="#ffffff" fr={fr} />
+          </div>
+          {ratio !== null && ratio < 4.5 ? (
+            <p className="rounded-md bg-amber-500/10 px-2 py-1 text-[11px] text-amber-800 dark:text-amber-300">
+              {tr(fr, `Contraste faible (${ratio.toFixed(1)}:1) : visez au moins 4,5:1 pour que le texte reste lisible.`, `Low contrast (${ratio.toFixed(1)}:1): aim for at least 4.5:1 so the text stays readable.`)}
+            </p>
+          ) : null}
+          <WebsiteImagePicker
+            orgSlug={orgSlug}
+            value={typeof current.backgroundImage === "string" ? current.backgroundImage : ""}
+            onChange={(url) => set("backgroundImage", url || undefined)}
+            fr={fr}
+            label={tr(fr, "Image de fond (facultatif)", "Background image (optional)")}
+          />
+          <div className="grid grid-cols-3 gap-1.5">
+            <NumInput label={tr(fr, "Bordure (px)", "Border (px)")} value={current.borderWidth} min={0} max={24} placeholder="—" onChange={(value) => set("borderWidth", value)} />
+            <NumInput label={tr(fr, "Opacité bordure %", "Border opacity %")} value={current.borderOpacity} min={0} max={100} placeholder="100" onChange={(value) => set("borderOpacity", value)} />
+            <NumInput label={tr(fr, "Angles (px)", "Corners (px)")} value={current.radius} min={0} max={400} placeholder="—" onChange={(value) => set("radius", value)} />
+          </div>
+          <BlockColorField label={tr(fr, "Couleur de bordure", "Border colour")} value={current.borderColor} onChange={(value) => set("borderColor", value || undefined)} fallback="#0f172a" fr={fr} />
+          <div className="grid grid-cols-2 gap-1.5">
+            <label className="space-y-1 text-xs text-ink-secondary">
+              {tr(fr, "Ombre", "Shadow")}
+              <select
+                className="h-8 w-full rounded-md border border-border bg-surface-1 px-1.5 text-xs text-ink"
+                value={typeof current.shadow === "string" ? current.shadow : ""}
+                onChange={(event) => set("shadow", event.target.value || undefined)}
+              >
+                <option value="">—</option>
+                {["none", "sm", "md", "lg", "xl"].map((key) => (
+                  <option key={key} value={key}>
+                    {key === "none" ? tr(fr, "Aucune", "None") : key.toUpperCase()}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <NumInput label={tr(fr, "Transparence (opacité %)", "Opacity %")} value={current.opacity} min={0} max={100} placeholder="100" onChange={(value) => set("opacity", value)} />
+          </div>
+        </>
+      ) : null}
+
+      <div className="space-y-1">
+        <span className="text-xs font-medium text-ink-secondary">{tr(fr, "Mouvement", "Movement")}</span>
+        <div className="grid grid-cols-4 gap-1.5">
+          <NumInput label={tr(fr, "Monter/desc. px", "Up/down px")} value={current.translateY} min={-400} max={400} placeholder="0" onChange={(value) => set("translateY", value)} />
+          <NumInput label={tr(fr, "Gauche/droite px", "Left/right px")} value={current.translateX} min={-400} max={400} placeholder="0" onChange={(value) => set("translateX", value)} />
+          <NumInput label={tr(fr, "Zoom %", "Zoom %")} value={current.scale} min={10} max={300} placeholder="100" onChange={(value) => set("scale", value)} />
+          <NumInput label={tr(fr, "Rotation °", "Rotate °")} value={current.rotate} min={-360} max={360} placeholder="0" onChange={(value) => set("rotate", value)} />
+        </div>
+        {state === "hover" ? (
+          <div className="flex flex-wrap gap-1">
+            {(
+              [
+                [tr(fr, "Soulever", "Lift"), { translateY: -6, shadow: "lg" }],
+                [tr(fr, "Agrandir", "Grow"), { scale: 104 }],
+                [tr(fr, "Assombrir", "Dim"), { opacity: 85 }],
+              ] as const
+            ).map(([label, preset]) => (
+              <button
+                key={label}
+                type="button"
+                className="rounded-md border border-border px-2 py-0.5 text-[11px] text-ink-secondary hover:border-violet-500 hover:text-ink"
+                onClick={() => onChange({ ...style, hover: { ...current, ...preset } })}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+
+      <label className="block space-y-1 text-xs text-ink-secondary">
+        {tr(fr, "Curseur", "Cursor")}
+        <select
+          className="h-8 w-full rounded-md border border-border bg-surface-1 px-1.5 text-xs text-ink"
+          value={typeof current.cursor === "string" ? current.cursor : ""}
+          onChange={(event) => set("cursor", event.target.value || undefined)}
+        >
+          <option value="">—</option>
+          {Object.entries(CURSOR_LABELS).map(([key, label]) => (
+            <option key={key} value={key}>
+              {label[fr ? 0 : 1]}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      {!state ? (
+        <div className="space-y-1">
+          <span className="text-xs font-medium text-ink-secondary">{tr(fr, "Transition entre les états", "Transition between states")}</span>
+          <div className="grid grid-cols-3 gap-1.5">
+            <NumInput label={tr(fr, "Durée (ms)", "Duration (ms)")} value={style.transitionDuration} min={0} max={3000} step={50} placeholder="220" onChange={(value) => set("transitionDuration", value)} />
+            <NumInput label={tr(fr, "Délai (ms)", "Delay (ms)")} value={style.transitionDelay} min={0} max={3000} step={50} placeholder="0" onChange={(value) => set("transitionDelay", value)} />
+            <label className="space-y-1 text-xs text-ink-secondary">
+              {tr(fr, "Type", "Easing")}
+              <select
+                className="h-8 w-full rounded-md border border-border bg-surface-1 px-1.5 text-xs text-ink"
+                value={typeof style.transitionEasing === "string" ? style.transitionEasing : "ease"}
+                onChange={(event) => set("transitionEasing", event.target.value === "ease" ? undefined : event.target.value)}
+              >
+                <option value="ease">ease</option>
+                <option value="ease-in">ease-in</option>
+                <option value="ease-out">ease-out</option>
+                <option value="ease-in-out">ease-in-out</option>
+                <option value="linear">linear</option>
+                <option value="spring">{tr(fr, "ressort (spring)", "spring")}</option>
+              </select>
+            </label>
+          </div>
+        </div>
+      ) : (
+        <Button size="sm" variant="ghost" disabled={!edited(state)} onClick={resetState}>
+          <RotateCcw />
+          {tr(fr, "Effacer cet état", "Clear this state")}
+        </Button>
+      )}
+      <p className="text-[11px] text-ink-muted">
+        {tr(
+          fr,
+          "Accessibilité préservée : le focus clavier reste toujours visible, et les mouvements sont supprimés pour les visiteurs qui réduisent les animations.",
+          "Accessibility kept: keyboard focus always stays visible, and movement is removed for visitors who reduce motion.",
+        )}
+      </p>
+    </InspectorSection>
   );
 }
