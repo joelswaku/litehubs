@@ -1245,7 +1245,7 @@ function BlockEditor({
   embedded = false,
   onReplay,
   linkPages = [],
-  onEditArea,
+  areaStyle,
 }: {
   orgSlug: string;
   block: WebsiteSection;
@@ -1265,8 +1265,8 @@ function BlockEditor({
   embedded?: boolean;
   onReplay?: () => void;
   linkPages?: LinkPage[];
-  /** Free block: opens the full style of its area (the div itself). */
-  onEditArea?: () => void;
+  /** Full style of the block's div, shown right in the Style tab. */
+  areaStyle?: ReactNode;
 }) {
   const [open, setOpen] = useState(embedded || index === 0);
   // The visual builder shows one group at a time and one language at a time,
@@ -1579,30 +1579,36 @@ function BlockEditor({
               fr={fr}
             />
           ) : null}
-          {show("style") && onEditArea ? (
-            <div className="space-y-2 rounded-xl border border-violet-300 bg-violet-50 p-3 dark:border-violet-400/40 dark:bg-violet-400/10">
-              <p className="text-sm font-semibold text-ink">{tr(fr, "Style complet du div", "Full div style")}</p>
-              <p className="text-[11px] leading-4 text-ink-secondary">
-                {tr(
-                  fr,
-                  "Ici : le fond, la taille et l’espace de tout le bloc (la bande colorée). Le style du div règle la zone de contenu à l’intérieur : disposition (Flexbox, grille), taille du contenu, marges internes, bordure, ombre, animations et états.",
-                  "Here: background, size and spacing of the whole block (the coloured band). The div style sets the content area inside: layout (Flexbox, grid), content size, padding, border, shadow, animations and states.",
-                )}
-              </p>
-              <Button size="sm" className="w-full" onClick={onEditArea}>
-                <Settings2 />
-                {tr(fr, "Ouvrir le style du div (disposition, taille, bordure…)", "Open the div style (layout, size, border…)")}
-              </Button>
-            </div>
-          ) : null}
           {show("style") ? (
-            <BlockStyleFields
-              orgSlug={orgSlug}
-              content={content}
-              set={set}
-              fr={fr}
-              onReplay={onReplay}
-            />
+            <>
+              {areaStyle ? (
+                <p className="text-xs font-semibold uppercase tracking-wide text-ink-secondary">
+                  {tr(fr, "1. La bande du bloc (toute la largeur)", "1. The block band (full width)")}
+                </p>
+              ) : null}
+              <BlockStyleFields
+                orgSlug={orgSlug}
+                content={content}
+                set={set}
+                fr={fr}
+                onReplay={onReplay}
+              />
+              {areaStyle ? (
+                <div className="space-y-2 border-t-2 border-violet-300 pt-3 dark:border-violet-400/40">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-ink-secondary">
+                    {tr(fr, "2. Le div du bloc (zone de contenu) — tout le style", "2. The block div (content area) — full style")}
+                  </p>
+                  <p className="text-[11px] leading-4 text-ink-muted">
+                    {tr(
+                      fr,
+                      "Disposition (Flexbox, grille), taille, marges, fond, bordure, arrondi, ombre, animations et états de la zone qui contient les éléments.",
+                      "Layout (Flexbox, grid), size, spacing, background, border, radius, shadow, animations and states of the area holding the elements.",
+                    )}
+                  </p>
+                  {areaStyle}
+                </div>
+              ) : null}
+            </>
           ) : null}
         </div>
       ) : null}
@@ -4349,7 +4355,24 @@ function VisualBuilderTab({
                   embedded
                   onReplay={replayAnimations}
                   linkPages={linkPages}
-                  onEditArea={() => setSelectedElement(selectedBlock.section_type === "container" ? "canvas" : "root")}
+                  areaStyle={
+                    <ElementEditor
+                      key={`${selectedBlock.id}-area`}
+                      orgSlug={orgSlug}
+                      block={selectedBlock}
+                      element={selectedBlock.section_type === "container" ? "canvas" : "root"}
+                      onChange={(value) => updateSelected(value)}
+                      onBack={() => undefined}
+                      onSelectElement={setSelectedElement}
+                      breakpoint={device}
+                      onReplay={replayAnimations}
+                      linkPages={linkPages}
+                      previewState={previewState}
+                      onPreviewState={setPreviewState}
+                      inline
+                      fr={fr}
+                    />
+                  }
                 />
                 </>
                 )}
@@ -5088,6 +5111,7 @@ function ElementEditor({
   previewState = null,
   onPreviewState,
   clickedText = false,
+  inline = false,
   fr,
 }: {
   orgSlug: string;
@@ -5105,6 +5129,8 @@ function ElementEditor({
   onPreviewState?: (state: string | null) => void;
   /** The preview click hit text that has no own element (only the container). */
   clickedText?: boolean;
+  /** Shown inside the block's Style tab: no "selected element" header. */
+  inline?: boolean;
   fr: boolean;
 }) {
   const [lang, setLang] = useState<"fr" | "en">(fr ? "fr" : "en");
@@ -5279,6 +5305,8 @@ function ElementEditor({
       : (elementLabels[element] ?? [element, element]);
   return (
     <div className="space-y-4">
+      {inline ? null : (
+      <>
       <button
         type="button"
         onClick={onBack}
@@ -5312,6 +5340,8 @@ function ElementEditor({
           ) : null}
         </div>
       </div>
+      </>
+      )}
       {(() => {
         // One "Réglages du carrousel" panel, for the carousel itself and for
         // any slide (or element inside a slide) selected in the preview.
@@ -5444,7 +5474,7 @@ function ElementEditor({
           fr={fr}
         />
       ) : null}
-      {isContainer ? (
+      {isContainer && !inline ? (
         <p className="rounded-lg bg-surface-2 px-3 py-2 text-xs leading-5 text-ink-secondary">
           {tr(
             fr,
@@ -6558,7 +6588,7 @@ function StyleInspector({
       >
         {element === "root" ? (
           <div className="space-y-2 rounded-lg bg-surface-2 p-2">
-            <InspectorRow label={tr(fr, "Largeur du bloc", "Block width")}>
+            <InspectorRow label={tr(fr, "Largeur du div", "Div width")}>
               <Segmented
                 value={style.width === "full" && style.maxWidth === "none" ? "screen" : "contained"}
                 onChange={(value) =>
@@ -6570,7 +6600,7 @@ function StyleInspector({
                 ]}
               />
             </InspectorRow>
-            <InspectorRow label={tr(fr, "Hauteur du bloc", "Block height")}>
+            <InspectorRow label={tr(fr, "Hauteur du div", "Div height")}>
               <Segmented
                 value={style.minHeight === "100vh" ? "screen" : "auto"}
                 onChange={(value) => patchStyle({ minHeight: value === "screen" ? "100vh" : undefined })}
