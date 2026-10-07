@@ -413,10 +413,8 @@ export function WebsiteSlider({
   };
 
   const scope = `[data-slider-id="${scopeId}"]`;
-  // A carousel always has something to scroll: with as many slides as
-  // visible places, one place less is shown so arrows, dots, swipe and
-  // autoplay keep working.
-  const fit = (perView: number) => (count > 1 ? Math.max(1, Math.min(perView, count - 1)) : 1);
+  // The number of visible slides chosen by the owner is always respected.
+  const fit = (perView: number) => perView;
   const css =
     `${scope}{--pv:${fit(settings.perView)};--gap:${settings.gap}px}` +
     `@media (max-width:${BREAKPOINTS.tablet}px){${scope}{--pv:${fit(settings.perViewTablet)}}}` +

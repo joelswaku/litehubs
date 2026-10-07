@@ -1331,7 +1331,7 @@ function BlockEditor({
           onClick={() => setOpen(!open)}
         >
           <p className="text-sm font-semibold text-ink">
-            {sectionLabels[block.section_type][fr ? 0 : 1]}
+            {blockLabel(block, fr)}
           </p>
           <p className="text-xs text-ink-muted">
             {tr(fr, "Bloc", "Block")} {index + 1}
@@ -3100,8 +3100,7 @@ function VisualBuilderTab({
     if (selectedZone) setZone(selectedZone, (zone) => ({ ...zone, content: block.content }));
     else if (selectedIndex >= 0) changeBlockAt(selectedIndex, block);
   };
-  const label = (block: WebsiteSection) =>
-    sectionLabels[block.section_type][fr ? 0 : 1];
+  const label = (block: WebsiteSection) => blockLabel(block, fr);
   const ordered = (next: WebsiteSection[]) =>
     next.map((block, sort_order) => ({ ...block, sort_order }));
 
@@ -5037,7 +5036,7 @@ function ElementEditor({
         className="inline-flex items-center gap-1 text-xs font-medium text-ink-secondary hover:text-brand"
       >
         <ChevronUp className="size-3.5 -rotate-90" />
-        {tr(fr, "Tout le bloc", "Whole block")} · {sectionLabels[block.section_type][fr ? 0 : 1]}
+        {tr(fr, "Tout le bloc", "Whole block")} · {blockLabel(block, fr)}
       </button>
       <div className="rounded-xl border border-sky-500/40 bg-sky-500/[.06] px-3 py-2">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-sky-600">
@@ -6588,19 +6587,22 @@ function CarouselSettingsPanel({
             <NumInput label={tr(fr, "Mobile", "Phone")} value={value.perViewMobile} min={1} max={3} placeholder="auto" onChange={(next) => set("perViewMobile", next)} />
           </div>
           <NumInput label={tr(fr, "Espace entre les diapositives (px)", "Space between slides (px)")} value={value.gap} min={0} max={80} placeholder="24" onChange={(next) => set("gap", next)} />
+          {slides.length > 0 && slides.length <= perView ? (
+            <p className="rounded-md bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-800 dark:text-amber-300">
+              {tr(
+                fr,
+                `${slides.length} diapositive(s) et ${perView} visible(s) sur ordinateur : tout est affiché, donc rien ne défile (pas de flèches, de points ni de défilement automatique sur ordinateur). Ajoutez au moins une diapositive pour qu’il défile.`,
+                `${slides.length} slide(s) and ${perView} visible on desktop: everything is shown, so nothing scrolls (no arrows, dots or autoplay on desktop). Add at least one slide to make it scroll.`,
+              )}
+            </p>
+          ) : null}
           <p className="text-[11px] text-ink-muted">
             {tr(
               fr,
               "« Visibles » = nombre de diapositives (blocs) montrées à la fois. Laissez tablette et mobile vides pour « auto » (2 puis 1).",
               "“Visible” = number of slides (blocks) shown at once. Leave tablet and phone empty for “auto” (2 then 1).",
             )}
-            {slides.length > 1 && slides.length <= perView
-              ? tr(
-                  fr,
-                  ` Avec ${slides.length} diapositives, ${slides.length - 1} sont montrées à la fois pour pouvoir défiler.`,
-                  ` With ${slides.length} slides, ${slides.length - 1} are shown at once so it can scroll.`,
-                )
-              : ""}
+
           </p>
         </section>
 
@@ -6950,6 +6952,16 @@ function extraChain(extras: WebsiteExtraElement[], element: string): WebsiteExtr
     if (nested.length) return [item, ...nested];
   }
   return [];
+}
+
+/** Name of a block. A free block that holds a carousel is called a carousel. */
+function blockLabel(block: WebsiteSection, fr: boolean): string {
+  if (block.section_type === "container") {
+    const extras = readExtraElements(block.content);
+    if (extras.length && extras[0]!.type === "slider")
+      return fr ? "Carrousel / slider" : "Carousel / slider";
+  }
+  return sectionLabels[block.section_type][fr ? 0 : 1];
 }
 
 /** Readable name of an element, with a few words of its text: « Paragraphe : “Écrivez…” ». */
