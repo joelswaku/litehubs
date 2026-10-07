@@ -43,6 +43,9 @@ interface WebsiteSettingsRow {
   address_text: string | null;
   footer_text: string | null;
   custom_domain: string | null;
+  design_draft?: Record<string, unknown> | null;
+  design_published?: Record<string, unknown> | null;
+  design_history?: Array<{ savedAt?: string; design?: Record<string, unknown> }> | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -73,6 +76,7 @@ interface WebsitePageRow {
   status: PageStatus;
   is_home: boolean;
   sort_order: number;
+  settings?: Record<string, unknown> | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -128,6 +132,14 @@ function mapSettings(row: WebsiteSettingsRow) {
     addressText: row.address_text,
     footerText: row.footer_text,
     customDomain: row.custom_domain,
+    designDraft: row.design_draft ?? {},
+    designPublished: row.design_published ?? {},
+    // Only the dates are sent; a design is restored by its position.
+    designHistory: (row.design_history ?? []).map((entry) => ({
+      savedAt: entry?.savedAt ?? null,
+      // An empty design is the site's original look (before any template).
+      original: !entry?.design || Object.keys(entry.design).length === 0,
+    })),
     createdAt: asIso(row.created_at),
     updatedAt: asIso(row.updated_at),
   };
@@ -151,6 +163,7 @@ function mapPage(row: WebsitePageRow, sections: WebsiteSectionRow[] = []) {
     status: row.status,
     isHome: row.is_home,
     sortOrder: row.sort_order,
+    settings: row.settings ?? {},
     createdAt: asIso(row.created_at),
     updatedAt: asIso(row.updated_at),
     sections: sections.map((section) => ({
@@ -1466,8 +1479,8 @@ export async function createWebsitePage(
           organization_id,website_id,slug,navigation_label_fr,navigation_label_en,
           title_fr,title_en,description_fr,description_en,seo_title_fr,seo_title_en,
           seo_description_fr,seo_description_en,template_code,is_home,sort_order,
-          created_by_member_id,updated_by_member_id
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$17)
+          created_by_member_id,updated_by_member_id,settings
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$17,$18::jsonb)
         RETURNING *`,
         [
           context.organizationId,
@@ -1487,6 +1500,7 @@ export async function createWebsitePage(
           input.isHome,
           nextOrder.rows[0]?.sort_order ?? 0,
           context.memberId,
+          JSON.stringify(input.settings ?? {}),
         ],
       );
       const page = created.rows[0]!;
@@ -1540,7 +1554,7 @@ export async function updateWebsitePage(
           slug=$3,navigation_label_fr=$4,navigation_label_en=$5,title_fr=$6,title_en=$7,
           description_fr=$8,description_en=$9,seo_title_fr=$10,seo_title_en=$11,
           seo_description_fr=$12,seo_description_en=$13,template_code=$14,is_home=$15,
-          updated_by_member_id=$16
+          updated_by_member_id=$16,settings=COALESCE($17::jsonb,settings)
         WHERE organization_id=$1 AND id=$2
         RETURNING *`,
         [
@@ -1560,6 +1574,7 @@ export async function updateWebsitePage(
           input.templateCode,
           input.isHome,
           context.memberId,
+          input.settings === undefined ? null : JSON.stringify(input.settings),
         ],
       );
       const sections = await client.query<WebsiteSectionRow>(
@@ -1772,6 +1787,73 @@ export async function setWebsitePublication(
         WHERE organization_id=$1
         RETURNING *`,
       [context.organizationId, status, context.memberId],
+    );
+    return mapSettings(result.rows[0]!);
+  });
+}
+
+/** Saves the site design as a draft (visible only in the builder). */
+export async function saveWebsiteDesignDraft(
+  context: SetupContext,
+  design: Record<string, unknown>,
+) {
+  return withTenantContext(context, async (client) => {
+    await requireWebsite(client, context.organizationId);
+    const result = await client.query<WebsiteSettingsRow>(
+      `UPDATE organization_website_settings
+          SET design_draft=$2::jsonb,updated_by_member_id=$3
+        WHERE organization_id=$1
+        RETURNING *`,
+      [context.organizationId, JSON.stringify(design), context.memberId],
+    );
+    return mapSettings(result.rows[0]!);
+  });
+}
+
+/** Publishes the draft design; the previous published design is kept in a
+ * short history (10 entries) so the owner can go back to it. */
+export async function publishWebsiteDesign(context: SetupContext) {
+  return withTenantContext(context, async (client) => {
+    await requireWebsite(client, context.organizationId);
+    const result = await client.query<WebsiteSettingsRow>(
+      `UPDATE organization_website_settings
+          -- The previous published design (the original site too, stored as
+          -- an empty design) can always be restored from the history.
+          SET design_history = CASE
+                WHEN design_published = design_draft THEN design_history
+                ELSE (
+                  SELECT COALESCE(jsonb_agg(entry), '[]'::jsonb)
+                    FROM (
+                      SELECT entry FROM jsonb_array_elements(
+                        jsonb_build_array(jsonb_build_object('savedAt', now(), 'design', design_published))
+                        || design_history
+                      ) WITH ORDINALITY AS item(entry, position)
+                      ORDER BY position
+                      LIMIT 10
+                    ) AS kept
+                )
+              END,
+              design_published=design_draft,
+              updated_by_member_id=$2
+        WHERE organization_id=$1
+        RETURNING *`,
+      [context.organizationId, context.memberId],
+    );
+    return mapSettings(result.rows[0]!);
+  });
+}
+
+/** Loads a previously published design back into the draft. */
+export async function restoreWebsiteDesign(context: SetupContext, index: number) {
+  return withTenantContext(context, async (client) => {
+    await requireWebsite(client, context.organizationId);
+    const result = await client.query<WebsiteSettingsRow>(
+      `UPDATE organization_website_settings
+          SET design_draft=COALESCE(design_history->$2::int->'design', design_draft),
+              updated_by_member_id=$3
+        WHERE organization_id=$1
+        RETURNING *`,
+      [context.organizationId, index, context.memberId],
     );
     return mapSettings(result.rows[0]!);
   });

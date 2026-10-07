@@ -168,12 +168,17 @@ api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
  * Shared across concurrent 401s. The first failure starts a refresh; the rest
  * await the same promise instead of starting their own.
  */
-let refreshInFlight: Promise<void> | null = null;
+let refreshInFlight: Promise<unknown> | null = null;
 
-async function refreshSession(): Promise<void> {
+/**
+ * One refresh at a time, for the whole tab: the API rotates refresh tokens
+ * and treats a token used twice as stolen (every session is then dropped),
+ * so two simultaneous refreshes must never be sent.
+ */
+function refreshOnce(): Promise<unknown> {
   refreshInFlight ??= (async () => {
     try {
-      await axios.post(
+      const response = await axios.post(
         `${API_PREFIX}/auth/refresh`,
         // Tells the API which workspace to point the new token at; a refresh
         // token belongs to a person, not a workspace.
@@ -182,12 +187,31 @@ async function refreshSession(): Promise<void> {
           : {},
         { withCredentials: true },
       );
+      return (response.data as { user?: unknown } | undefined)?.user ?? null;
     } finally {
       refreshInFlight = null;
     }
   })();
-
   return refreshInFlight;
+}
+
+async function refreshSession(): Promise<void> {
+  await refreshOnce();
+}
+
+/**
+ * Silent sign-in from the refresh cookie. The access cookie only lives 15
+ * minutes, so after a pause a page load lands on /login although the session
+ * is still valid (30 days); the login page calls this first and goes straight
+ * back to the page instead of asking for the password again.
+ * Returns the signed-in user, or null when there is no valid session.
+ */
+export async function resumeSession<T>(): Promise<T | null> {
+  try {
+    return ((await refreshOnce()) as T | null) ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /** Marker so a retried request cannot loop. */

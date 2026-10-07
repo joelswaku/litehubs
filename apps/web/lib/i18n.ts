@@ -48,6 +48,7 @@ const fr = {
     "Votre mot de passe a été modifié. Connectez-vous de nouveau.",
 
   "login.kicker": "Bon retour",
+  "login.resuming": "Reprise de votre session…",
   "login.title": "Connectez-vous à votre espace",
   "login.description":
     "Utilisez votre e-mail professionnel et votre mot de passe pour continuer.",
@@ -675,6 +676,7 @@ const en: Record<TranslationKey, string> = {
   "staff.passwordChanged": "Your password was changed. Please sign in again.",
 
   "login.kicker": "Welcome back",
+  "login.resuming": "Resuming your session…",
   "login.title": "Sign in to your workspace",
   "login.description": "Use your company email and password to continue.",
   "login.new": "New to LiteHubs?",

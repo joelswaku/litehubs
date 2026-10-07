@@ -231,6 +231,14 @@ const websitePageFields = {
   seoDescriptionEn: websiteOptionalText(320),
   templateCode: websiteTemplateSchema.default("blank"),
   isHome: z.boolean().default(false),
+  // Visual-builder page design (background, width, spacing, header/footer).
+  // Omitted on update = keep the current settings.
+  settings: z
+    .record(z.string().max(60), z.unknown())
+    .refine((value) => JSON.stringify(value).length <= 8_000, {
+      message: "Page settings are too large",
+    })
+    .optional(),
 };
 
 export const websitePageCreateSchema = z.object(websitePageFields).strict();
@@ -259,13 +267,15 @@ const websiteSectionTypeSchema = z.enum([
   "cta",
   "careers",
   "contact",
+  "container",
 ]);
 
 const websiteSectionContentSchema = z
   .record(z.string().max(100), z.unknown())
   .superRefine((value, ctx) => {
     try {
-      if (JSON.stringify(value).length > 24_000)
+      // Visual-builder blocks carry per-element and per-device styles.
+      if (JSON.stringify(value).length > 80_000)
         ctx.addIssue({
           code: "custom",
           message: "A block is too large. Use shorter text or fewer cards.",
@@ -327,6 +337,20 @@ export const publicWebsiteContactInputSchema = z
     website: z.string().max(0).optional(),
   })
   .strict();
+/** Site-wide design (theme + top bar / header / footer zones). */
+export const websiteDesignInputSchema = z
+  .object({
+    design: z
+      .record(z.string().max(60), z.unknown())
+      .refine((value) => JSON.stringify(value).length <= 250_000, {
+        message: "The site design is too large",
+      }),
+  })
+  .strict();
+export const websiteDesignRestoreSchema = z
+  .object({ index: z.number().int().min(0).max(9) })
+  .strict();
+
 export const websitePublicationInputSchema = z
   .object({ status: z.enum(["draft", "published", "paused"]) })
   .strict();

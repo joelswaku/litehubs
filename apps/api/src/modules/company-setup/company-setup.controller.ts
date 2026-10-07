@@ -194,6 +194,25 @@ export const setWebsitePublication: RequestHandler = async (req, res) => {
   });
 };
 
+export const saveWebsiteDesign: RequestHandler = async (req, res) => {
+  res.json({
+    website: await websiteBuilder.saveWebsiteDesignDraft(
+      contextOf(req),
+      req.body.design as Record<string, unknown>,
+    ),
+  });
+};
+
+export const publishWebsiteDesign: RequestHandler = async (req, res) => {
+  res.json({ website: await websiteBuilder.publishWebsiteDesign(contextOf(req)) });
+};
+
+export const restoreWebsiteDesign: RequestHandler = async (req, res) => {
+  res.json({
+    website: await websiteBuilder.restoreWebsiteDesign(contextOf(req), Number(req.body.index)),
+  });
+};
+
 export const listCustomerActivities: RequestHandler = async (req, res) => {
   res.json({ activities: await customerActivities.listCustomerActivities(contextOf(req)) });
 };

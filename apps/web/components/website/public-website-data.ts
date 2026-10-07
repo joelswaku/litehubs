@@ -20,9 +20,11 @@ export type PublicWebsiteResponse = {
     contactPhone: string | null;
     addressText: string | null;
     footerText: string | null;
-    pages: Array<{ slug: string; labelFr: string; labelEn: string }>;
+    design?: Record<string, unknown>;
+    pages: Array<{ slug: string; labelFr: string; labelEn: string; inMenu?: boolean }>;
   };
   page: {
+    settings?: Record<string, unknown>;
     slug: string;
     titleFr: string;
     titleEn: string;
@@ -54,13 +56,16 @@ type PublicWebsiteRendererSource = {
     contactPhone?: string | null;
     addressText?: string | null;
     footerText?: string | null;
+    design?: Record<string, unknown>;
     pages?: Array<{
       slug?: string;
       labelFr?: string;
       labelEn?: string;
+      inMenu?: boolean;
     }>;
   };
   page?: {
+    settings?: Record<string, unknown>;
     slug?: string;
     titleFr?: string;
     titleEn?: string;
@@ -77,6 +82,7 @@ type PublicWebsiteRendererSource = {
 const sectionTypes = new Set<PublicWebsitePage["sections"][number]["section_type"]>([
   "hero",
   "rich_text",
+  "container",
   "feature_grid",
   "metrics",
   "image_callout",
@@ -107,13 +113,20 @@ export function publicWebsiteRendererData(data: PublicWebsiteRendererSource): {
       contact_phone: website?.contactPhone ?? null,
       address: website?.addressText ?? null,
       footer_text: website?.footerText ?? null,
+      design:
+        website?.design && typeof website.design === "object" && !Array.isArray(website.design)
+          ? website.design
+          : undefined,
       navigation: (website?.pages ?? []).map((navigation, index) => ({
         slug: navigation.slug ?? `page-${index + 1}`,
         label_fr: navigation.labelFr ?? navigation.slug ?? "Page",
         label_en: navigation.labelEn ?? navigation.slug ?? "Page",
+        in_menu: navigation.inMenu !== false,
       })),
     },
     page: {
+      settings:
+        page?.settings && typeof page.settings === "object" ? page.settings : undefined,
       slug: page?.slug ?? "accueil",
       title_fr: page?.titleFr ?? "Accueil",
       title_en: page?.titleEn ?? "Home",

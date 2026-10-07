@@ -3,7 +3,7 @@ import Link from "next/link";
 import { CONGO_OMEGA_PUBLIC_ICONS } from "@/lib/seo";
 
 export const metadata: Metadata = {
-  title: "Page introuvable | Congo Omega",
+  title: { absolute: "Page introuvable | Congo Omega" },
   robots: { index: false, follow: false },
   ...CONGO_OMEGA_PUBLIC_ICONS,
 };

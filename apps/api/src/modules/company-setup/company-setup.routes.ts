@@ -39,6 +39,8 @@ import {
   websitePageParams,
   websitePageUpdateSchema,
   websitePublicationInputSchema,
+  websiteDesignInputSchema,
+  websiteDesignRestoreSchema,
   websiteSectionsInputSchema,
   websiteSettingsInputSchema,
   websiteMediaParams,
@@ -296,6 +298,26 @@ companySetupRoutes.delete(
   requireOrganization,
   requireOwner,
   controller.archiveWebsitePage,
+);
+companySetupRoutes.put(
+  "/organizations/:orgSlug/website/design",
+  ...inOrganization,
+  requireOwner,
+  validate({ body: websiteDesignInputSchema }),
+  controller.saveWebsiteDesign,
+);
+companySetupRoutes.post(
+  "/organizations/:orgSlug/website/design/publish",
+  ...inOrganization,
+  requireOwner,
+  controller.publishWebsiteDesign,
+);
+companySetupRoutes.post(
+  "/organizations/:orgSlug/website/design/restore",
+  ...inOrganization,
+  requireOwner,
+  validate({ body: websiteDesignRestoreSchema }),
+  controller.restoreWebsiteDesign,
 );
 companySetupRoutes.post(
   "/organizations/:orgSlug/website/publication",

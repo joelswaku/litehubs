@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -13,7 +13,7 @@ import {
   switchOrganization as switchRequest,
   type SessionUser,
 } from "@/lib/auth";
-import { ApiError, setActiveOrganizationSlug } from "@/lib/api";
+import { ApiError, resumeSession, setActiveOrganizationSlug } from "@/lib/api";
 import { STALE_TIME } from "@/lib/constants";
 import { useSessionStore } from "@/stores/session-store";
 
@@ -86,6 +86,38 @@ export function useLogin(nextPath?: string | null) {
       }
     },
   });
+}
+
+/**
+ * On the login page: when the session is still valid (only the short-lived
+ * access cookie expired), sign back in silently and return to the page the
+ * person was on. Returns true while that check is running.
+ */
+export function useResumeSession(nextPath?: string | null): boolean {
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const setUser = useSessionStore((state) => state.setUser);
+  const [checking, setChecking] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    void resumeSession<SessionUser>().then((user) => {
+      if (cancelled) return;
+      if (!user) {
+        setChecking(false);
+        return;
+      }
+      setUser(user);
+      queryClient.setQueryData(sessionKey, user);
+      if (user.activeOrganization) setActiveOrganizationSlug(user.activeOrganization.slug);
+      const safeNext =
+        nextPath && nextPath.startsWith("/") && !nextPath.startsWith("//") ? nextPath : null;
+      router.replace(safeNext ?? workspaceLandingPathFor(user));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [nextPath, queryClient, router, setUser]);
+  return checking;
 }
 
 export function useLogout() {

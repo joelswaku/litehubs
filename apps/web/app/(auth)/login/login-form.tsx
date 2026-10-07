@@ -9,7 +9,7 @@ import { Eye, EyeOff, ShieldCheck } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/input";
-import { useLogin } from "@/hooks/useAuth";
+import { useLogin, useResumeSession } from "@/hooks/useAuth";
 import { ApiError } from "@/lib/api";
 import { useLanguage } from "@/providers/language-provider";
 
@@ -33,6 +33,8 @@ export function LoginForm() {
   );
   const searchParams = useSearchParams();
   const login = useLogin(searchParams.get("next"));
+  // A session that is still valid resumes without asking for the password.
+  const resuming = useResumeSession(searchParams.get("next"));
   const [showPassword, setShowPassword] = useState(false);
   const {
     register,
@@ -63,6 +65,11 @@ export function LoginForm() {
       className="space-y-5 rounded-2xl border border-border bg-surface-1 p-5 shadow-[0_18px_50px_-28px_rgba(11,11,11,0.28)] sm:p-6"
       noValidate
     >
+      {resuming && searchParams.get("next") ? (
+        <p className="rounded-lg bg-surface-2 px-3 py-2 text-sm text-ink-secondary" role="status">
+          {t("login.resuming")}
+        </p>
+      ) : null}
       {failureMessage ? (
         <div
           className="rounded-lg border border-critical/40 bg-critical/10 px-3 py-2.5 text-sm text-critical"
