@@ -326,8 +326,16 @@ const toOptional = (value: string | null | undefined) => value?.trim() || null;
 function sectionSeed(type: SectionType): WebsiteSection {
   const common = { id: `local-${Date.now()}-${type}`, sort_order: 0 };
   switch (type) {
-    case "container":
-      return { ...common, section_type: type, content: { extras: [] } };
+    case "container": {
+      // Like WordPress: a new free block comes with one container inside,
+      // which can be styled, duplicated, moved or deleted like any other.
+      const first = newExtraElement("group");
+      return {
+        ...common,
+        section_type: type,
+        content: { extras: [first], elementOrder: [`x:${first.id}`], elementStyles: newElementStyles(first) },
+      };
+    }
     case "hero":
       return {
         ...common,
@@ -5227,6 +5235,36 @@ function ElementEditor({
     }
     onSelectElement(`x:${item.id}`);
   };
+  /** The free block's area itself: its content goes into a container, which
+   * is then duplicated, so the block holds two identical containers. */
+  const duplicateCanvas = () => {
+    const currentStyles =
+      content.elementStyles && typeof content.elementStyles === "object"
+        ? (content.elementStyles as Record<string, unknown>)
+        : {};
+    let source: WebsiteExtraElement;
+    let baseStyles: Record<string, unknown> = currentStyles;
+    if (extras.length === 1 && extras[0]!.type === "group") source = extras[0]!;
+    else {
+      source = { ...newExtraElement("group"), children: extras };
+      if (containerLevels(source) >= MAX_CONTAINER_DEPTH) {
+        toast.info(tr(fr, "Trop de conteneurs imbriqués pour dupliquer ici.", "Too many nested containers to duplicate here."));
+        return;
+      }
+      baseStyles = { ...currentStyles, ...newElementStyles(source) };
+    }
+    const { item, styles: added } = cloneWithStyles(source, baseStyles);
+    onChange({
+      ...block,
+      content: {
+        ...content,
+        extras: [source, item],
+        elementOrder: [`x:${source.id}`, `x:${item.id}`],
+        elementStyles: { ...baseStyles, ...added },
+      },
+    });
+    onSelectElement(`x:${item.id}`);
+  };
   const removeElement = async () => {
     const name = extra ? describeElement(block, element, fr) : label[fr ? 0 : 1];
     if (!await ask(tr(fr, `Supprimer « ${name} » ? Le reste du bloc est conservé.`, `Delete “${name}”? The rest of the block is kept.`)))
@@ -5324,6 +5362,16 @@ function ElementEditor({
           {extra ? (
             <Button size="icon-sm" variant="ghost" onClick={duplicateExtra} title={tr(fr, "Dupliquer l’élément", "Duplicate element")} aria-label={tr(fr, "Dupliquer l’élément", "Duplicate element")}>
               <Copy />
+            </Button>
+          ) : element === "canvas" && extras.length ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={duplicateCanvas}
+              title={tr(fr, "Met le contenu dans un conteneur et ajoute une copie à côté", "Puts the content in a container and adds a copy next to it")}
+            >
+              <Copy />
+              {tr(fr, "Dupliquer le contenu", "Duplicate content")}
             </Button>
           ) : null}
           {canDeleteElement(element) ? (
