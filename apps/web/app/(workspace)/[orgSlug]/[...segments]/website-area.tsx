@@ -4504,15 +4504,23 @@ function BlockColorField({
       <div className="flex items-center justify-between gap-2">
         <span className="text-sm font-medium text-ink">{label}</span>
         {current ? (
-          <button
-            type="button"
-            className="text-xs text-ink-muted hover:text-ink"
-            onClick={() => onChange("")}
-          >
-            {tr(fr, "Par défaut", "Default")}
-          </button>
+          <span className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1 rounded-full bg-brand/10 px-2 py-0.5 text-[11px] font-semibold text-brand">
+              <span className="size-2.5 rounded-full border border-black/10" style={{ backgroundColor: current }} />
+              {tr(fr, "Personnalisée", "Custom")}
+            </span>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 text-[11px] text-ink-muted underline-offset-2 hover:text-ink hover:underline"
+              onClick={() => onChange("")}
+              title={tr(fr, "Revenir à la couleur par défaut", "Back to the default colour")}
+            >
+              <RotateCcw className="size-3" />
+              {tr(fr, "Réinitialiser", "Reset")}
+            </button>
+          </span>
         ) : (
-          <span className="text-xs text-ink-muted">{tr(fr, "Par défaut", "Default")}</span>
+          <span className="text-xs text-ink-muted">{tr(fr, "Par défaut (aucune)", "Default (none)")}</span>
         )}
       </div>
       <div className="flex items-center gap-2">
