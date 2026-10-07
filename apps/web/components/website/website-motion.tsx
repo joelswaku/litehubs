@@ -8,7 +8,7 @@
  */
 
 import * as React from "react";
-import { ChevronLeft, ChevronRight, Pause, Play } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Pause, Play } from "lucide-react";
 import { BREAKPOINTS, animationOf, type StyleValues } from "./website-element-style";
 
 /* ── Shared CSS ─────────────────────────────────────────────────────────── */
@@ -231,6 +231,12 @@ export type SliderSettings = {
   pauseWhenHidden?: boolean;
   /** Public play / pause button. */
   playButton?: boolean;
+  /** Slides side by side (horizontal) or stacked (vertical). */
+  orientation?: "horizontal" | "vertical";
+  /** Height of a vertical carousel, in px. */
+  height?: number;
+  gapTablet?: number;
+  gapMobile?: number;
 };
 
 function clampInt(value: unknown, min: number, max: number, fallback: number) {
@@ -263,6 +269,10 @@ export function readSliderSettings(raw: unknown) {
     pauseOnFocus: s.pauseOnFocus !== false,
     pauseWhenHidden: s.pauseWhenHidden !== false,
     playButton: s.playButton === true,
+    orientation: s.orientation === "vertical" ? ("vertical" as const) : ("horizontal" as const),
+    height: clampInt(s.height, 160, 1200, 420),
+    gapTablet: s.gapTablet === undefined ? null : clampInt(s.gapTablet, 0, 80, 24),
+    gapMobile: s.gapMobile === undefined ? null : clampInt(s.gapMobile, 0, 80, 16),
   };
 }
 
@@ -292,21 +302,38 @@ export function WebsiteSlider({
   const animating = React.useRef(0);
   const count = slides.length;
 
+  const vertical = settings.orientation === "vertical";
+  // Position along the carousel's direction (left for horizontal, top for vertical).
+  const position = React.useCallback(
+    (track: HTMLElement) => (vertical ? track.scrollTop : track.scrollLeft),
+    [vertical],
+  );
+  const setPosition = React.useCallback(
+    (track: HTMLElement, value: number) => {
+      if (vertical) track.scrollTop = value;
+      else track.scrollLeft = value;
+    },
+    [vertical],
+  );
   const metrics = React.useCallback(() => {
     const track = trackRef.current;
     const items = track ? (Array.from(track.children) as HTMLElement[]) : [];
     if (!track || items.length < 1) return null;
-    const step = items.length > 1 ? items[1]!.offsetLeft - items[0]!.offsetLeft : items[0]!.offsetWidth;
-    const visible = Math.max(1, Math.round((track.clientWidth + 1) / Math.max(1, step)));
-    return { track, items, step: Math.max(1, step), last: Math.max(0, items.length - visible) };
-  }, []);
+    const step = vertical
+      ? items.length > 1 ? items[1]!.offsetTop - items[0]!.offsetTop : items[0]!.offsetHeight
+      : items.length > 1 ? items[1]!.offsetLeft - items[0]!.offsetLeft : items[0]!.offsetWidth;
+    const size = vertical ? track.clientHeight : track.clientWidth;
+    const visible = Math.max(1, Math.round((size + 1) / Math.max(1, step)));
+    const max = vertical ? track.scrollHeight - track.clientHeight : track.scrollWidth - track.clientWidth;
+    return { track, items, step: Math.max(1, step), last: Math.max(0, items.length - visible), max };
+  }, [vertical]);
 
   const sync = React.useCallback(() => {
     const m = metrics();
     if (!m) return;
     setPages(m.last + 1);
-    setIndex(Math.min(m.last, Math.round(m.track.scrollLeft / m.step)));
-  }, [metrics]);
+    setIndex(Math.min(m.last, Math.round(position(m.track) / m.step)));
+  }, [metrics, position]);
 
   React.useEffect(() => {
     const track = trackRef.current;
@@ -342,12 +369,12 @@ export function WebsiteSlider({
       let next = target;
       if (next > m.last) next = settings.loop ? 0 : m.last;
       if (next < 0) next = settings.loop ? m.last : 0;
-      const to = Math.min(next * m.step, m.track.scrollWidth - m.track.clientWidth);
-      const from = m.track.scrollLeft;
+      const to = Math.min(next * m.step, m.max);
+      const from = position(m.track);
       const win = m.track.ownerDocument.defaultView!;
       win.cancelAnimationFrame(animating.current);
       if (reduced || Math.abs(to - from) < 1) {
-        m.track.scrollLeft = to;
+        setPosition(m.track, to);
         setIndex(next);
         return;
       }
@@ -358,7 +385,7 @@ export function WebsiteSlider({
       const tick = (now: number) => {
         const t = Math.min(1, (now - start) / settings.speed);
         const eased = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-        m.track.scrollLeft = from + (to - from) * eased;
+        setPosition(m.track, from + (to - from) * eased);
         if (t < 1) animating.current = win.requestAnimationFrame(tick);
         else {
           m.track.style.scrollSnapType = "";
@@ -367,7 +394,7 @@ export function WebsiteSlider({
       };
       animating.current = win.requestAnimationFrame(tick);
     },
-    [metrics, reduced, settings.loop, settings.speed],
+    [metrics, reduced, settings.loop, settings.speed, position, setPosition],
   );
 
   // Autoplay also runs in the builder; there it pauses under the mouse so
@@ -387,20 +414,20 @@ export function WebsiteSlider({
       if (settings.pauseWhenHidden && win.document.visibilityState !== "visible") return;
       const m = metrics();
       if (!m) return;
-      const current = Math.round(m.track.scrollLeft / m.step);
+      const current = Math.round(position(m.track) / m.step);
       const step = settings.direction === "prev" ? -1 : 1;
       if (!settings.loop && (step > 0 ? current >= m.last : current <= 0)) return;
       goTo(current + step);
     }, settings.interval);
     return () => win.clearInterval(timer);
-  }, [running, settings.interval, settings.loop, settings.direction, settings.pauseWhenHidden, goTo, metrics]);
+  }, [running, settings.interval, settings.loop, settings.direction, settings.pauseWhenHidden, goTo, metrics, position]);
 
   const onKeyDown = (event: React.KeyboardEvent) => {
     if (!settings.keyboard) return;
-    if (event.key === "ArrowRight") {
+    if (event.key === "ArrowRight" || (vertical && event.key === "ArrowDown")) {
       event.preventDefault();
       goTo(index + 1);
-    } else if (event.key === "ArrowLeft") {
+    } else if (event.key === "ArrowLeft" || (vertical && event.key === "ArrowUp")) {
       event.preventDefault();
       goTo(index - 1);
     } else if (event.key === "Home") {
@@ -417,10 +444,14 @@ export function WebsiteSlider({
   const fit = (perView: number) => perView;
   const css =
     `${scope}{--pv:${fit(settings.perView)};--gap:${settings.gap}px}` +
-    `@media (max-width:${BREAKPOINTS.tablet}px){${scope}{--pv:${fit(settings.perViewTablet)}}}` +
-    `@media (max-width:${BREAKPOINTS.mobile}px){${scope}{--pv:${fit(settings.perViewMobile)};--gap:${Math.min(settings.gap, 16)}px}}` +
+    `@media (max-width:${BREAKPOINTS.tablet}px){${scope}{--pv:${fit(settings.perViewTablet)}${settings.gapTablet !== null ? `;--gap:${settings.gapTablet}px` : ""}}}` +
+    `@media (max-width:${BREAKPOINTS.mobile}px){${scope}{--pv:${fit(settings.perViewMobile)};--gap:${settings.gapMobile ?? Math.min(settings.gapTablet ?? settings.gap, 16)}px}}` +
+    // Vertical: a fixed height, slides stacked, scrolling up and down.
+    (vertical
+      ? `${scope} .wb-track{flex-direction:column;height:${settings.height}px;overflow-x:hidden;overflow-y:auto;scroll-snap-type:y mandatory;overscroll-behavior-y:contain}@media (max-width:${BREAKPOINTS.mobile}px){${scope} .wb-track{height:${Math.min(settings.height, 520)}px}}`
+      : "") +
     // Without swipe the slides only change with arrows, dots or autoplay.
-    (settings.swipe ? "" : `${scope} .wb-track{overflow-x:hidden;touch-action:pan-y}`) +
+    (settings.swipe ? "" : `${scope} .wb-track{overflow:hidden;touch-action:${vertical ? "pan-x" : "pan-y"}}`) +
     // Arrows on mouse-over only (always visible on touch screens and focus).
     (settings.arrowsOnHover
       ? `@media (hover:hover){${scope} .wb-arrow{opacity:0}${scope}:hover .wb-arrow,${scope} .wb-arrow:focus-visible{opacity:1}}`
@@ -429,6 +460,7 @@ export function WebsiteSlider({
   const canNext = settings.loop || index < pages - 1;
   const arrowClass =
     "absolute top-1/2 z-10 grid size-10 -translate-y-1/2 place-items-center rounded-full border border-slate-200 bg-white/95 text-slate-900 shadow-md transition hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600 disabled:pointer-events-none disabled:opacity-0";
+  const arrowVertical = arrowClass.replace("top-1/2", "left-1/2").replace("-translate-y-1/2", "-translate-x-1/2");
 
   return (
     <div
@@ -478,21 +510,21 @@ export function WebsiteSlider({
         <>
           <button
             type="button"
-            className={`wb-arrow ${arrowClass} left-2`}
+            className={vertical ? `wb-arrow ${arrowVertical} top-2` : `wb-arrow ${arrowClass} left-2`}
             onClick={() => goTo(index - 1)}
             disabled={!canPrev}
             aria-label={fr ? "Diapositive précédente" : "Previous slide"}
           >
-            <ChevronLeft className="size-5" />
+            {vertical ? <ChevronUp className="size-5" /> : <ChevronLeft className="size-5" />}
           </button>
           <button
             type="button"
-            className={`wb-arrow ${arrowClass} right-2`}
+            className={vertical ? `wb-arrow ${arrowVertical} bottom-2` : `wb-arrow ${arrowClass} right-2`}
             onClick={() => goTo(index + 1)}
             disabled={!canNext}
             aria-label={fr ? "Diapositive suivante" : "Next slide"}
           >
-            <ChevronRight className="size-5" />
+            {vertical ? <ChevronDown className="size-5" /> : <ChevronRight className="size-5" />}
           </button>
         </>
       ) : null}

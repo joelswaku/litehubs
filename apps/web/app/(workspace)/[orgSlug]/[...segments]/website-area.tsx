@@ -5227,6 +5227,18 @@ function ElementEditor({
               </div>
             </div>
           ) : null}
+          {extra.type === "heading" || extra.type === "text" ? (
+            <div className="space-y-1">
+              <span className="text-[11px] font-medium text-ink-secondary">
+                {tr(fr, "Balise (SEO) — le style ne change pas", "Tag (SEO) — the look does not change")}
+              </span>
+              <Segmented
+                value={extra.tag ?? (extra.type === "heading" ? "h3" : "p")}
+                onChange={(value) => updateExtra({ tag: value })}
+                options={["h1", "h2", "h3", "h4", "h5", "h6", "p"].map((tag) => [tag, tag === "p" ? tr(fr, "Paragraphe", "Paragraph") : tag.toUpperCase()] as const)}
+              />
+            </div>
+          ) : null}
           {extra.type === "text" ? (
             <Textarea
               rows={5}
@@ -5723,6 +5735,87 @@ function LengthInput({
   );
 }
 
+/**
+ * A value with its unit, chosen from a closed list (px, %, rem, vw, vh, and
+ * "auto" only where CSS allows it). Pixels are stored as plain numbers, as
+ * before, so historical values (28 = 28px) render exactly the same.
+ */
+function UnitInput({
+  label,
+  value,
+  onChange,
+  allowAuto = false,
+  allowNegative = false,
+  units = ["px", "%", "rem", "vw", "vh"],
+  placeholder = "—",
+}: {
+  label: string;
+  value: unknown;
+  onChange: (value: number | string | undefined) => void;
+  allowAuto?: boolean;
+  allowNegative?: boolean;
+  units?: string[];
+  placeholder?: string;
+}) {
+  const parsed =
+    typeof value === "number" && Number.isFinite(value)
+      ? { number: value, unit: "px" }
+      : typeof value === "string" && /^-?\d+(\.\d+)?$/.test(value)
+        ? { number: Number(value), unit: "px" }
+        : typeof value === "string"
+          ? (() => {
+              const match = value.match(/^(-?\d+(?:\.\d+)?)(px|%|rem|vh|vw)$/);
+              return match ? { number: Number(match[1]), unit: match[2]! } : null;
+            })()
+          : null;
+  const isAuto = value === "auto";
+  const [unit, setUnit] = useState<string>(parsed?.unit ?? "px");
+  const emit = (number: number, nextUnit: string) => {
+    let clean = Math.min(9999, Math.max(allowNegative ? -9999 : 0, number));
+    clean = Math.round(clean * 100) / 100;
+    onChange(nextUnit === "px" ? clean : `${clean}${nextUnit}`);
+  };
+  return (
+    <label className="flex min-w-0 flex-col gap-0.5 text-[11px] text-ink-muted">
+      {label}
+      <div className="flex min-w-0">
+        <input
+          type="number"
+          step="any"
+          placeholder={isAuto ? "auto" : placeholder}
+          value={parsed ? parsed.number : ""}
+          onChange={(event) => {
+            const text = event.target.value;
+            if (text === "") return onChange(undefined);
+            const number = Number(text);
+            if (Number.isFinite(number)) emit(number, unit === "auto" ? "px" : unit);
+          }}
+          className="h-8 w-full min-w-0 rounded-l-md border border-border bg-surface-1 px-1.5 text-sm text-ink tabular-nums"
+        />
+        <select
+          aria-label={tr(true, "Unité", "Unit")}
+          value={isAuto ? "auto" : parsed?.unit ?? unit}
+          onChange={(event) => {
+            const next = event.target.value;
+            if (next === "auto") return onChange("auto");
+            setUnit(next);
+            if (parsed) emit(parsed.number, next);
+            else if (isAuto) onChange(undefined);
+          }}
+          className="h-8 rounded-r-md border border-l-0 border-border bg-surface-2 px-0.5 text-[11px] font-semibold text-ink"
+        >
+          {units.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+          {allowAuto ? <option value="auto">auto</option> : null}
+        </select>
+      </div>
+    </label>
+  );
+}
+
 /** Four sides (top, right, bottom, left) with a "link values" switch. */
 function SidesInput({
   label,
@@ -5750,7 +5843,7 @@ function SidesInput({
     Bottom: tr(fr, "Bas", "Bottom"),
     Left: tr(fr, "Gauche", "Left"),
   };
-  const set = (side: (typeof sides)[number], value: number | undefined) =>
+  const set = (side: (typeof sides)[number], value: number | string | undefined) =>
     patchStyle(
       linked
         ? Object.fromEntries(sides.map((key) => [`${prefix}${key}`, value]))
@@ -5761,11 +5854,12 @@ function SidesInput({
       <div className="flex items-end gap-1.5">
         <div className="grid flex-1 grid-cols-4 gap-1.5">
           {sides.map((side) => (
-            <NumInput
+            <UnitInput
               key={side}
               label={names[side]}
               value={style[`${prefix}${side}`]}
-              min={min}
+              allowAuto={prefix === "margin"}
+              allowNegative={prefix === "margin" && min < 0}
               onChange={(value) => set(side, value)}
             />
           ))}
@@ -5944,9 +6038,9 @@ function StyleInspector({
                 />
               </InspectorRow>
               <div className="grid grid-cols-3 gap-1.5">
-                <NumInput label="Gap" value={style.gap} max={200} onChange={(value) => setStyle("gap", value)} />
-                <NumInput label={tr(fr, "Gap lignes", "Row gap")} value={style.rowGap} max={200} onChange={(value) => setStyle("rowGap", value)} />
-                <NumInput label={tr(fr, "Gap colonnes", "Column gap")} value={style.columnGap} max={200} onChange={(value) => setStyle("columnGap", value)} />
+                <UnitInput label="Gap" value={style.gap} onChange={(value) => setStyle("gap", value)} />
+                <UnitInput label={tr(fr, "Gap lignes", "Row gap")} value={style.rowGap} onChange={(value) => setStyle("rowGap", value)} />
+                <UnitInput label={tr(fr, "Gap colonnes", "Column gap")} value={style.columnGap} onChange={(value) => setStyle("columnGap", value)} />
               </div>
             </>
           ) : null}
@@ -6021,7 +6115,7 @@ function StyleInspector({
             </select>
           </InspectorRow>
           <div className="grid grid-cols-3 gap-1.5">
-            <NumInput label={tr(fr, "Taille (px)", "Size (px)")} value={style.size} min={8} max={160} onChange={(value) => setStyle("size", value)} />
+            <UnitInput label={tr(fr, "Taille du texte", "Text size")} value={style.size} units={["px", "rem", "%", "vw", "vh"]} onChange={(value) => setStyle("size", value)} />
             <label className="flex flex-col gap-0.5 text-[11px] text-ink-muted">
               {tr(fr, "Graisse", "Weight")}
               <select
@@ -6137,13 +6231,81 @@ function StyleInspector({
         </div>
       </InspectorSection>
 
+      {kind === "media" ? (
+        <InspectorSection title={tr(fr, "Image", "Image")} defaultOpen active={used("objectFit", "objectPosition", "aspectRatio")}>
+          <InspectorRow label={tr(fr, "Remplissage (object-fit)", "Fill (object-fit)")}>
+            <Segmented
+              value={style.objectFit}
+              onChange={(value) => setStyle("objectFit", value)}
+              options={[
+                ["cover", tr(fr, "Couvrir", "Cover")],
+                ["contain", tr(fr, "Contenir", "Contain")],
+                ["fill", tr(fr, "Étirer", "Fill")],
+                ["none", tr(fr, "Taille réelle", "None")],
+                ["scale-down", tr(fr, "Réduire si besoin", "Scale down")],
+              ]}
+            />
+          </InspectorRow>
+          <div className="grid grid-cols-2 gap-1.5">
+            <label className="flex flex-col gap-0.5 text-[11px] text-ink-muted">
+              {tr(fr, "Position de l’image", "Image position")}
+              <select
+                value={typeof style.objectPosition === "string" ? style.objectPosition : ""}
+                onChange={(event) => setStyle("objectPosition", event.target.value || undefined)}
+                className="h-8 rounded-md border border-border bg-surface-1 px-1.5 text-xs text-ink"
+              >
+                <option value="">{tr(fr, "Centre (défaut)", "Centre (default)")}</option>
+                {(
+                  [
+                    ["top", tr(fr, "Haut", "Top")],
+                    ["bottom", tr(fr, "Bas", "Bottom")],
+                    ["left", tr(fr, "Gauche", "Left")],
+                    ["right", tr(fr, "Droite", "Right")],
+                    ["top-left", tr(fr, "Haut gauche", "Top left")],
+                    ["top-right", tr(fr, "Haut droite", "Top right")],
+                    ["bottom-left", tr(fr, "Bas gauche", "Bottom left")],
+                    ["bottom-right", tr(fr, "Bas droite", "Bottom right")],
+                  ] as const
+                ).map(([key, name]) => (
+                  <option key={key} value={key}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-0.5 text-[11px] text-ink-muted">
+              {tr(fr, "Ratio (facultatif)", "Ratio (optional)")}
+              <select
+                value={typeof style.aspectRatio === "string" ? style.aspectRatio : ""}
+                onChange={(event) => setStyle("aspectRatio", event.target.value || undefined)}
+                className="h-8 rounded-md border border-border bg-surface-1 px-1.5 text-xs text-ink"
+              >
+                <option value="">{tr(fr, "Libre", "Free")}</option>
+                {["1/1", "4/3", "3/2", "16/9", "21/9", "3/4", "2/3", "9/16"].map((ratio) => (
+                  <option key={ratio} value={ratio}>
+                    {ratio.replace("/", " : ")}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <p className="text-[11px] text-ink-muted">
+            {tr(
+              fr,
+              "Largeur, hauteur et min/max : section « Dimensions ». Rayon et bordure : « Bordure ». Ombre et opacité : « Effets ». Animation : « Animations ».",
+              "Width, height and min/max: “Size”. Corners and border: “Border”. Shadow and opacity: “Effects”. Animation: “Animations”.",
+            )}
+          </p>
+        </InspectorSection>
+      ) : null}
+
       <InspectorSection
         title={tr(fr, "Espacement", "Spacing")}
         defaultOpen={isContainer}
         active={used("marginTop", "marginRight", "marginBottom", "marginLeft", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft")}
       >
-        <SidesInput label={tr(fr, "Marge extérieure (margin, px)", "Margin (px)")} prefix="margin" style={style} patchStyle={patchStyle} min={-400} fr={fr} />
-        <SidesInput label={tr(fr, "Marge intérieure (padding, px)", "Padding (px)")} prefix="padding" style={style} patchStyle={patchStyle} fr={fr} />
+        <SidesInput label={tr(fr, "Marge extérieure (margin)", "Margin")} prefix="margin" style={style} patchStyle={patchStyle} min={-400} fr={fr} />
+        <SidesInput label={tr(fr, "Marge intérieure (padding)", "Padding")} prefix="padding" style={style} patchStyle={patchStyle} fr={fr} />
       </InspectorSection>
 
       <InspectorSection
@@ -6586,7 +6748,25 @@ function CarouselSettingsPanel({
             <NumInput label={tr(fr, "Tablette", "Tablet")} value={value.perViewTablet} min={1} max={6} placeholder="auto" onChange={(next) => set("perViewTablet", next)} />
             <NumInput label={tr(fr, "Mobile", "Phone")} value={value.perViewMobile} min={1} max={3} placeholder="auto" onChange={(next) => set("perViewMobile", next)} />
           </div>
-          <NumInput label={tr(fr, "Espace entre les diapositives (px)", "Space between slides (px)")} value={value.gap} min={0} max={80} placeholder="24" onChange={(next) => set("gap", next)} />
+          <div className="grid grid-cols-3 gap-1.5">
+            <NumInput label={tr(fr, "Espace ordinateur (px)", "Gap desktop (px)")} value={value.gap} min={0} max={80} placeholder="24" onChange={(next) => set("gap", next)} />
+            <NumInput label={tr(fr, "Tablette (px)", "Tablet (px)")} value={value.gapTablet} min={0} max={80} placeholder="auto" onChange={(next) => set("gapTablet", next)} />
+            <NumInput label={tr(fr, "Mobile (px)", "Phone (px)")} value={value.gapMobile} min={0} max={80} placeholder="auto" onChange={(next) => set("gapMobile", next)} />
+          </div>
+          <div className="space-y-1">
+            <p className="text-[11px] font-medium text-ink-secondary">{tr(fr, "Direction du défilement", "Scroll direction")}</p>
+            <Segmented
+              value={value.orientation === "vertical" ? "vertical" : "horizontal"}
+              onChange={(next) => set("orientation", next === "vertical" ? "vertical" : undefined)}
+              options={[
+                ["horizontal", tr(fr, "Horizontale", "Horizontal")],
+                ["vertical", tr(fr, "Verticale", "Vertical")],
+              ]}
+            />
+          </div>
+          {value.orientation === "vertical" ? (
+            <NumInput label={tr(fr, "Hauteur du carrousel (px)", "Carousel height (px)")} value={value.height} min={160} max={1200} placeholder="420" onChange={(next) => set("height", next)} />
+          ) : null}
           {slides.length > 0 && slides.length <= perView ? (
             <p className="rounded-md bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-800 dark:text-amber-300">
               {tr(

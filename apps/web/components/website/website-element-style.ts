@@ -118,7 +118,11 @@ export function styleDeclarations(name: string, style: StyleValues): string[] {
   else if (style.bold === true) push("font-weight", 700);
   else if (style.bold === false) push("font-weight", 400);
   if (style.italic === true) push("font-style", "italic");
-  const size = clampNumber(style.size, 8, 160);
+  // A size with a unit (rem, %, vw, vh, px) is used as chosen; a plain
+  // number is the historical pixel size, which stays exactly as before.
+  const sizeLength = typeof style.size === "string" && !/^\d+(\.\d+)?$/.test(style.size) ? cssLength(style.size) : null;
+  const size = sizeLength ? null : clampNumber(style.size, 8, 160);
+  if (sizeLength && sizeLength !== "auto") push("font-size", sizeLength);
   if (size !== null) {
     const min = Math.max(14, Math.round(size * 0.6));
     push(
@@ -167,6 +171,27 @@ export function styleDeclarations(name: string, style: StyleValues): string[] {
   push("max-width", maxWidth ?? (cssLength(style.width) ? "100%" : null));
   // Media with a fixed height is cropped, never stretched.
   if (cssLength(style.height)) push("object-fit", "cover");
+  // Images: how the picture fills its box, where it is anchored, and an
+  // optional fixed ratio (closed lists only).
+  push("object-fit", pick(style.objectFit, { cover: "cover", contain: "contain", fill: "fill", none: "none", "scale-down": "scale-down" }));
+  push(
+    "object-position",
+    pick(style.objectPosition, {
+      center: "center",
+      top: "top",
+      bottom: "bottom",
+      left: "left",
+      right: "right",
+      "top-left": "left top",
+      "top-right": "right top",
+      "bottom-left": "left bottom",
+      "bottom-right": "right bottom",
+    }),
+  );
+  push(
+    "aspect-ratio",
+    pick(style.aspectRatio, { "1/1": "1 / 1", "4/3": "4 / 3", "3/2": "3 / 2", "16/9": "16 / 9", "21/9": "21 / 9", "3/4": "3 / 4", "2/3": "2 / 3", "9/16": "9 / 16" }),
+  );
   push("min-height", cssLength(style.minHeight));
   push("max-height", style.maxHeight === "none" ? "none" : cssLength(style.maxHeight));
 
@@ -206,13 +231,20 @@ export function styleDeclarations(name: string, style: StyleValues): string[] {
     const number = clampNumber(style[key], min, max);
     return number === null ? null : `${Math.round(number)}px`;
   };
-  push("gap", px("gap", 0, 200));
-  push("row-gap", px("rowGap", 0, 200));
-  push("column-gap", px("columnGap", 0, 200));
+  // Spacing: a plain number is pixels (historical values); a string carries
+  // a whitelisted unit (px, %, rem, vw, vh); "auto" only for margins.
+  const space = (key: string, min: number, max: number, allowAuto = false) => {
+    const value = style[key];
+    if (value === "auto") return allowAuto ? "auto" : null;
+    if (typeof value === "string" && !/^-?\d+(\.\d+)?$/.test(value.trim())) return cssLength(value, min < 0);
+    return px(key, min, max);
+  };
+  push("gap", space("gap", 0, 200));
+  push("row-gap", space("rowGap", 0, 200));
+  push("column-gap", space("columnGap", 0, 200));
   for (const side of ["Top", "Right", "Bottom", "Left"] as const) {
-    const margin = style[`margin${side}`] === "auto" ? "auto" : px(`margin${side}`, -400, 400);
-    push(`margin-${side.toLowerCase()}`, margin);
-    push(`padding-${side.toLowerCase()}`, px(`padding${side}`));
+    push(`margin-${side.toLowerCase()}`, space(`margin${side}`, -400, 400, true));
+    push(`padding-${side.toLowerCase()}`, space(`padding${side}`, 0, 400));
   }
 
   // ── Fond ──

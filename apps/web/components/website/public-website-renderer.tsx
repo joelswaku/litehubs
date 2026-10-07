@@ -479,9 +479,17 @@ export type WebsiteExtraElement = {
   slider?: SliderSettings;
   /** Set on elements a zone template created, until the owner edits them. */
   tpl?: boolean;
+  /** Headings and texts: semantic tag (h1 to h6, or p) for search engines. */
+  tag?: string;
   /** Only for "group": makes the whole container a link. */
   link?: WebsiteLinkSetting;
 };
+
+const TEXT_TAGS = ["h1", "h2", "h3", "h4", "h5", "h6", "p"] as const;
+/** A semantic tag from a closed list (never free HTML). */
+function textTag(value: unknown, fallback: (typeof TEXT_TAGS)[number]): (typeof TEXT_TAGS)[number] {
+  return TEXT_TAGS.includes(value as (typeof TEXT_TAGS)[number]) ? (value as (typeof TEXT_TAGS)[number]) : fallback;
+}
 
 const extraTypes = ["heading", "text", "button", "image", "spacer", "group", "slider", ...ZONE_ELEMENT_TYPES];
 /** Elements that sit in a row like buttons (a row of them wraps, it does not
@@ -751,24 +759,29 @@ function BlockExtras({
         const space = nested ? "" : "mt-5 ";
         const words = (language === "fr" ? item.textFr : item.textEn) ?? item.textFr ?? "";
         switch (item.type) {
-          case "heading":
+          case "heading": {
             if (!words) return placeholder(item.id, language === "fr" ? "Sous-titre vide" : "Empty subheading", nested);
+            // The tag is a semantic (SEO) choice; the look stays the same.
+            const Heading = textTag(item.tag, "h3");
             return (
-              <h3 key={item.id} data-el={el} className={`${space}text-2xl font-semibold leading-tight tracking-[-.025em] sm:text-3xl`}>
+              <Heading key={item.id} data-el={el} className={`${space}text-2xl font-semibold leading-tight tracking-[-.025em] sm:text-3xl`}>
                 <TextLink link={resolveLink(item.link, website, pageLink, language)}>
                   <AnimatedText name={el} text={words} />
                 </TextLink>
-              </h3>
+              </Heading>
             );
-          case "text":
+          }
+          case "text": {
             if (!words) return placeholder(item.id, language === "fr" ? "Paragraphe vide" : "Empty paragraph", nested);
+            const Paragraph = textTag(item.tag, "p");
             return (
-              <p key={item.id} data-el={el} className={`${space}max-w-2xl whitespace-pre-line text-base leading-7 opacity-85`}>
+              <Paragraph key={item.id} data-el={el} className={`${space}max-w-2xl whitespace-pre-line text-base leading-7 opacity-85`}>
                 <TextLink link={resolveLink(item.link, website, pageLink, language)}>
                   <AnimatedText name={el} text={words} />
                 </TextLink>
-              </p>
+              </Paragraph>
             );
+          }
           case "button": {
             const buttonLink = resolveLink(item.link, website, pageLink, language);
             const href = buttonLink?.href ?? safeHref(resolveWebsiteHref(item.href ?? "", website, pageLink));
