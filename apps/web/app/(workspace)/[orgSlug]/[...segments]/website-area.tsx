@@ -63,6 +63,7 @@ import {
   TextIcon,
   Trash2,
   Undo2,
+  Redo2,
   Unlink2,
   Upload,
   UsersRound,
@@ -94,6 +95,13 @@ import {
   type PublicWebsitePage,
   type WebsiteSection,
 } from "@/components/website/public-website-renderer";
+import {
+  BuilderCanvasOverlay,
+  dragState,
+  type BuilderDrag,
+  type DropTarget,
+  type ElementInfo,
+} from "@/components/website/builder-overlay";
 import {
   DEFAULT_TEMPLATES,
   SITE_THEMES,
@@ -2935,6 +2943,73 @@ function VisualBuilderTab({
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const frameDocument = useRef<Document | null>(null);
   const dirty = JSON.stringify(blocks) !== savedSnapshot;
+  // Undo / redo of every change to the page's blocks (Ctrl+Z, Ctrl+Shift+Z).
+  // Quick successive edits (typing) count as one step.
+  const history = useRef<{ past: string[]; future: string[]; last: string; at: number; skip: boolean }>({
+    past: [],
+    future: [],
+    last: JSON.stringify(blocks),
+    at: 0,
+    skip: false,
+  });
+  const [, setHistoryVersion] = useState(0);
+  useEffect(() => {
+    const entry = history.current;
+    const now = JSON.stringify(blocks);
+    if (now === entry.last) return;
+    if (entry.skip) {
+      entry.skip = false;
+      entry.last = now;
+      setHistoryVersion((value) => value + 1);
+      return;
+    }
+    const time = Date.now();
+    if (time - entry.at > 600 || !entry.past.length) entry.past.push(entry.last);
+    if (entry.past.length > 100) entry.past.shift();
+    entry.future = [];
+    entry.last = now;
+    entry.at = time;
+    setHistoryVersion((value) => value + 1);
+  }, [blocks]);
+  const restoreHistory = (direction: "undo" | "redo") => {
+    const entry = history.current;
+    const from = direction === "undo" ? entry.past : entry.future;
+    const to = direction === "undo" ? entry.future : entry.past;
+    const snapshot = from.pop();
+    if (snapshot === undefined) return;
+    to.push(entry.last);
+    entry.skip = true;
+    entry.at = 0;
+    const restored = JSON.parse(snapshot) as WebsiteSection[];
+    setBlocks(restored);
+    // Keep the selection only if it still exists.
+    const block = restored.find((candidate) => candidate.id === selectedId);
+    if (!block) setSelectedId(null);
+    else if (rawSelectedElement?.startsWith("x:") && !locateExtra(readExtraElements(block.content), rawSelectedElement))
+      setSelectedElement(null);
+    setHistoryVersion((value) => value + 1);
+  };
+  const undo = () => restoreHistory("undo");
+  const redo = () => restoreHistory("redo");
+  const undoRef = useRef({ undo, redo });
+  undoRef.current = { undo, redo };
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+      if (!(event.ctrlKey || event.metaKey)) return;
+      const key = event.key.toLowerCase();
+      if (key === "z" && !event.shiftKey) {
+        event.preventDefault();
+        undoRef.current.undo();
+      } else if ((key === "z" && event.shiftKey) || key === "y") {
+        event.preventDefault();
+        undoRef.current.redo();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
   const loadedPageId = useRef<string | null>(page?.id ?? null);
@@ -3093,6 +3168,8 @@ function VisualBuilderTab({
     if (!pageChanged && dirtyRef.current) return;
     const next = blocksFromPage(page);
     loadedPageId.current = page?.id ?? null;
+    if (pageChanged) history.current = { past: [], future: [], last: JSON.stringify(next), at: 0, skip: false };
+    else history.current.skip = true;
     setBlocks(next);
     setSavedSnapshot(JSON.stringify(next));
     setAdding(false);
@@ -3209,11 +3286,15 @@ function VisualBuilderTab({
   const duplicate = (index: number) => {
     const block = blocks[index];
     if (!block) return;
-    const copy: WebsiteSection = {
-      ...block,
-      id: `local-${Date.now()}-copy`,
-      content: JSON.parse(JSON.stringify(block.content)) as Record<string, unknown>,
-    };
+    const content = JSON.parse(JSON.stringify(block.content)) as Record<string, unknown>;
+    // Anchors stay unique on the page: the copy gets its own (or none).
+    if (typeof content.anchor === "string" && content.anchor) {
+      const taken = new Set(blocks.map((candidate) => candidate.content.anchor));
+      let number = 2;
+      while (taken.has(`${content.anchor}-${number}`)) number += 1;
+      content.anchor = `${String(content.anchor).slice(0, 55)}-${number}`;
+    }
+    const copy: WebsiteSection = { ...block, id: `local-${Date.now()}-copy`, content };
     const next = [...blocks];
     next.splice(index + 1, 0, copy);
     setBlocks(ordered(next));
@@ -3230,9 +3311,10 @@ function VisualBuilderTab({
       next = moveExtraInBlock(block, drag.move, target);
       element = drag.move;
     } else if (drag.add) {
-      const item = ZONE_ELEMENT_TYPES.includes(drag.add)
-        ? (zoneElement(drag.add, siteFacts) as WebsiteExtraElement)
-        : newExtraElement(drag.add);
+      const addType = drag.add as WebsiteExtraElement["type"];
+      const item = ZONE_ELEMENT_TYPES.includes(addType)
+        ? (zoneElement(addType, siteFacts) as WebsiteExtraElement)
+        : newExtraElement(addType);
       next = placeExtraInBlock(block, item, target);
       if (next) {
         const styles = newElementStyles(item);
@@ -3259,6 +3341,61 @@ function VisualBuilderTab({
     }
     changeBlockAt(index, next);
     selectBlock(blockId, false, element);
+  };
+  // ── Tools drawn over the preview: toolbar, "+" buttons, drag and drop ──
+  const blockById = (id: string) => blocks.find((candidate) => candidate.id === id) ?? null;
+  const canvasCanDrop = (blockId: string, drag: BuilderDrag, target: DropTarget) => {
+    const block = blockById(blockId);
+    if (!block) return false;
+    if (drag.move) return Boolean(moveExtraInBlock(block, drag.move, target));
+    if (drag.add)
+      return Boolean(placeExtraInBlock(block, { id: "probe", type: drag.add as WebsiteExtraElement["type"] }, target));
+    return false;
+  };
+  const canvasDescribe = (blockId: string, element: string): ElementInfo | null => {
+    const block = blockById(blockId);
+    if (!block) return null;
+    const divCanvas = element === "canvas" && isDivBlock(block);
+    const found = locateExtra(readExtraElements(block.content), element)?.item;
+    return {
+      label: divCanvas ? "Div" : describeElement(block, element, fr),
+      movable: Boolean(found),
+      duplicable: divCanvas || Boolean(duplicateInBlock(block, element)),
+      deletable: divCanvas || canDeleteElement(element),
+      container: element === "canvas" || isContainerType(found?.type),
+    };
+  };
+  const canvasDuplicate = (blockId: string, element: string) => {
+    const index = blocks.findIndex((candidate) => candidate.id === blockId);
+    const block = blocks[index];
+    if (!block) return;
+    if (element === "canvas" || element === "root") {
+      duplicate(index);
+      return;
+    }
+    const result = duplicateInBlock(block, element);
+    if (!result) {
+      toast.info(tr(fr, "Cet élément ne peut pas être dupliqué.", "This element can’t be duplicated."));
+      return;
+    }
+    changeBlockAt(index, result.block);
+    selectBlock(blockId, false, result.element);
+  };
+  const canvasDelete = async (blockId: string, element: string) => {
+    const index = blocks.findIndex((candidate) => candidate.id === blockId);
+    const block = blocks[index];
+    if (!block) return;
+    if (element === "canvas" && isDivBlock(block)) {
+      await remove(index);
+      return;
+    }
+    const name = describeElement(block, element, fr);
+    if (!await ask(tr(fr, `Supprimer « ${name} » ? Le reste du bloc est conservé.`, `Delete “${name}”? The rest of the block is kept.`)))
+      return;
+    const next = deleteElementFromBlock(block, element);
+    if (!next) return;
+    changeBlockAt(index, next);
+    selectBlock(blockId, false, null);
   };
   const addExtra = (type: WebsiteExtraElement["type"]) => {
     if (!selectedBlock) return;
@@ -3674,6 +3811,28 @@ function VisualBuilderTab({
               </button>
             ))}
           </div>
+          <div className="inline-flex items-center">
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              onClick={undo}
+              disabled={!history.current.past.length}
+              title={tr(fr, "Annuler la dernière action (Ctrl+Z)", "Undo last action (Ctrl+Z)")}
+              aria-label={tr(fr, "Annuler la dernière action", "Undo last action")}
+            >
+              <Undo2 />
+            </Button>
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              onClick={redo}
+              disabled={!history.current.future.length}
+              title={tr(fr, "Rétablir (Ctrl+Maj+Z)", "Redo (Ctrl+Shift+Z)")}
+              aria-label={tr(fr, "Rétablir", "Redo")}
+            >
+              <Redo2 />
+            </Button>
+          </div>
           {anyDirty ? (
             <Button size="sm" variant="ghost" onClick={discard}>
               <RotateCcw />
@@ -3977,9 +4136,9 @@ function VisualBuilderTab({
                     onDrop={(event) => {
                       event.preventDefault();
                       // An element dropped on a Div block goes inside the div.
-                      if (treeDrag && isDivBlock(block)) {
-                        const drag = treeDrag;
-                        treeDrag = null;
+                      if (dragState.current && isDivBlock(block)) {
+                        const drag = dragState.current;
+                        dragState.current = null;
                         setDropTargetId(null);
                         dropInTree(block.id, drag, { element: "canvas", where: "inside" });
                         return;
@@ -4125,6 +4284,22 @@ function VisualBuilderTab({
                 },
               }}
             />
+            {previewMode ? null : (
+              <BuilderCanvasOverlay
+                selectedId={selectedId}
+                selectedElement={selectedElement}
+                fr={fr}
+                editable={(id) => blocks.some((candidate) => candidate.id === id)}
+                describe={canvasDescribe}
+                canDrop={canvasCanDrop}
+                onDrop={(id, drag, target) => dropInTree(id, drag, target)}
+                onInsert={(id, type, target) => dropInTree(id, { add: type }, target)}
+                onDuplicate={canvasDuplicate}
+                onDelete={(id, element) => void canvasDelete(id, element)}
+                onUndo={undo}
+                onRedo={redo}
+              />
+            )}
           </BuilderPreviewFrame>
         </div>
 
@@ -4272,12 +4447,12 @@ function VisualBuilderTab({
                       type="button"
                       draggable={!selectedZone}
                       onDragStart={(event) => {
-                        treeDrag = { add: type };
+                        dragState.current = { add: type };
                         event.dataTransfer.effectAllowed = "copy";
                         event.dataTransfer.setData("text/plain", type);
                       }}
                       onDragEnd={() => {
-                        treeDrag = null;
+                        dragState.current = null;
                       }}
                       onClick={() => addExtra(type)}
                       title={extraTypeLabels[type]![fr ? 0 : 1]}
@@ -4875,7 +5050,6 @@ function newElementStyles(item: WebsiteExtraElement): Record<string, Record<stri
 
 /** Where a dragged element lands: inside a container, or before/after an element.
  * "canvas" (inside) means the top level of the block. */
-type DropTarget = { element: string; where: "inside" | "before" | "after" };
 const TOP_LEVEL_BUILT_INS = ["eyebrow", "title", "body", "buttons", "badges"];
 
 /** How many containers are nested in an element (itself included). */
@@ -4945,6 +5119,68 @@ function moveExtraInBlock(block: WebsiteSection, source: string, target: DropTar
     content: { ...block.content, extras: mapExtra(extras, location.item.id, () => null) },
   };
   return placeExtraInBlock(detached, location.item, target);
+}
+
+/** Duplicates any element of a block: an added element (with everything inside
+ * it, styles, links and animations, under new ids), a built-in text or button
+ * (as an added copy), or a card. The copy lands right after the original. */
+function duplicateInBlock(block: WebsiteSection, element: string): { block: WebsiteSection; element: string } | null {
+  const content = block.content;
+  const styles = (content.elementStyles as Record<string, unknown> | undefined) ?? {};
+  const extras = readExtraElements(content);
+  const location = locateExtra(extras, element);
+  if (location) {
+    const { item, styles: added } = cloneWithStyles(location.item, styles);
+    const placed = placeExtraInBlock(block, item, { element, where: "after" });
+    if (!placed) return null;
+    return { block: { ...placed, content: { ...placed.content, elementStyles: { ...styles, ...added } } }, element: `x:${item.id}` };
+  }
+  if (["eyebrow", "title", "body", "primaryButton", "secondaryButton"].includes(element)) {
+    if (hiddenElementsOf(block).includes(element)) return null;
+    const fields = elementFieldKeys(block.section_type, element);
+    const read = (keys?: string[]) => {
+      const key = keys ? storedKey(content, keys) : undefined;
+      return key ? String(content[key] ?? "") : "";
+    };
+    const type: WebsiteExtraElement["type"] = fields.kind === "button" ? "button" : element === "title" ? "heading" : "text";
+    const base = newExtraElement(type);
+    const item: WebsiteExtraElement = {
+      ...base,
+      id: `${base.id}${(cloneSeed++).toString(36)}`,
+      textFr: read(fields.fr) || base.textFr,
+      textEn: read(fields.en) || base.textEn,
+      ...(type === "button" ? { href: read(fields.href) || base.href } : {}),
+    };
+    const placed = placeExtraInBlock(block, item, { element: movableElement(element), where: "after" });
+    if (!placed) return null;
+    const own = styles[element];
+    return {
+      block: own
+        ? { ...placed, content: { ...placed.content, elementStyles: { ...styles, [`x:${item.id}`]: JSON.parse(JSON.stringify(own)) as unknown } } }
+        : placed,
+      element: `x:${item.id}`,
+    };
+  }
+  const card = element.match(/^item:(\d+)$/);
+  if (card && Array.isArray(content.items)) {
+    const index = Number(card[1]);
+    const items = [...(content.items as unknown[])];
+    if (index >= items.length || items.length >= 24) return null;
+    items.splice(index + 1, 0, JSON.parse(JSON.stringify(items[index])) as unknown);
+    // Card styles are keyed by position: later cards move one place down.
+    const nextStyles: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(styles)) {
+      const match = key.match(/^item:(\d+)(:.*)?$/);
+      if (!match) nextStyles[key] = value;
+      else {
+        const position = Number(match[1]);
+        nextStyles[`item:${position > index ? position + 1 : position}${match[2] ?? ""}`] = value;
+        if (position === index) nextStyles[`item:${index + 1}${match[2] ?? ""}`] = JSON.parse(JSON.stringify(value)) as unknown;
+      }
+    }
+    return { block: { ...block, content: { ...content, items, elementStyles: nextStyles } }, element: `item:${index + 1}` };
+  }
+  return null;
 }
 
 /** Containers an element can be moved into (for the "Move into" list). */
@@ -5441,6 +5677,21 @@ function ElementEditor({
           <p className="min-w-0 flex-1 text-sm font-semibold text-ink">{label[fr ? 0 : 1]}</p>
           {extra ? (
             <Button size="icon-sm" variant="ghost" onClick={duplicateExtra} title={tr(fr, "Dupliquer l’élément", "Duplicate element")} aria-label={tr(fr, "Dupliquer l’élément", "Duplicate element")}>
+              <Copy />
+            </Button>
+          ) : element !== "canvas" && element !== "root" && duplicateInBlock(block, element) ? (
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              onClick={() => {
+                const result = duplicateInBlock(block, element);
+                if (!result) return;
+                onChange(result.block);
+                onSelectElement(result.element);
+              }}
+              title={tr(fr, "Dupliquer l’élément", "Duplicate element")}
+              aria-label={tr(fr, "Dupliquer l’élément", "Duplicate element")}
+            >
               <Copy />
             </Button>
           ) : element === "canvas" && extras.length && !isDivBlock(block) ? (
@@ -7788,8 +8039,7 @@ function blockTreeChildren(block: WebsiteSection, fr: boolean): TreeNode[] {
 }
 
 /** What is being dragged in the structure tree: an element or a new one. */
-type TreeDrag = { move?: string; add?: WebsiteExtraElement["type"] };
-let treeDrag: TreeDrag | null = null;
+type TreeDrag = BuilderDrag;
 
 /** Which drop positions a tree node accepts. */
 function dropZonesOf(node: TreeNode): { inside: boolean; around: boolean } {
@@ -7822,8 +8072,8 @@ function TreeNodes({
   const setHint = setSharedHint ?? setOwnHint;
   const whereAt = (node: TreeNode, event: React.DragEvent<HTMLElement>): DropTarget["where"] | null => {
     const zones = dropZonesOf(node);
-    if (!treeDrag || (!zones.inside && !zones.around)) return null;
-    if (treeDrag.move === node.element) return null;
+    if (!dragState.current || (!zones.inside && !zones.around)) return null;
+    if (dragState.current.move === node.element) return null;
     const rect = event.currentTarget.getBoundingClientRect();
     const ratio = (event.clientY - rect.top) / Math.max(1, rect.height);
     if (zones.inside && (!zones.around || (ratio > 0.28 && ratio < 0.72))) return "inside";
@@ -7843,12 +8093,12 @@ function TreeNodes({
               draggable={draggable}
               onDragStart={(event) => {
                 event.stopPropagation();
-                treeDrag = { move: node.element };
+                dragState.current = { move: node.element };
                 event.dataTransfer.effectAllowed = "move";
                 event.dataTransfer.setData("text/plain", node.element);
               }}
               onDragEnd={() => {
-                treeDrag = null;
+                dragState.current = null;
                 setHint(null);
               }}
               onDragOver={
@@ -7869,9 +8119,9 @@ function TreeNodes({
                 onDrop
                   ? (event) => {
                       const where = whereAt(node, event);
-                      const drag = treeDrag;
+                      const drag = dragState.current;
                       setHint(null);
-                      treeDrag = null;
+                      dragState.current = null;
                       if (!where || !drag) return;
                       event.preventDefault();
                       event.stopPropagation();
