@@ -2,6 +2,8 @@
 
 import * as React from "react";
 import {
+  ArrowDown,
+  ArrowUp,
   Copy,
   GalleryHorizontal,
   GripVertical,
@@ -20,7 +22,7 @@ import {
  * "canvas" (inside) means the top level of a free block / div. */
 export type DropTarget = { element: string; where: "inside" | "before" | "after" };
 /** What is being dragged: an existing element (move) or a new one (add). */
-export type BuilderDrag = { move?: string; add?: string; section?: string };
+export type BuilderDrag = { move?: string; add?: string; section?: string; block?: string };
 /** Shared by the palette, the structure tree and the page overlay. */
 export const dragState: { current: BuilderDrag | null } = { current: null };
 
@@ -36,7 +38,7 @@ export const INSERT_TYPES = [
 
 type Box = { top: number; left: number; width: number; height: number };
 type PlusButton = { key: string; x: number; y: number; section: string; target: DropTarget; small: boolean; title: string };
-type Hint = { section: string; target: DropTarget; box: Box; horizontal: boolean };
+type Hint = { section: string; target: DropTarget; box: Box; horizontal: boolean; block?: boolean };
 type Menu = { section: string; target: DropTarget; x: number; y: number };
 
 export type ElementInfo = { label: string; movable: boolean; duplicable: boolean; deletable: boolean; container: boolean };
@@ -78,6 +80,8 @@ export function BuilderCanvasOverlay({
   onRedo,
   inlineText,
   onInlineText,
+  onMoveBlock,
+  blockLabel,
 }: {
   selectedId: string | null;
   selectedElement: string | null;
@@ -95,14 +99,23 @@ export function BuilderCanvasOverlay({
   /** The text of an element that can be written in the page (null: not a text). */
   inlineText: (section: string, element: string, language: "fr" | "en") => InlineText | null;
   onInlineText: (section: string, element: string, language: "fr" | "en", value: string) => void;
+  /** Moves a whole block before or after another block of the page. */
+  onMoveBlock: (block: string, target: string, where: "before" | "after") => void;
+  blockLabel: (block: string) => string;
 }) {
   const rootRef = React.useRef<HTMLDivElement>(null);
   const [hovered, setHovered] = React.useState<{ section: string; element: string } | null>(null);
+  const [hoveredBlock, setHoveredBlock] = React.useState<string | null>(null);
   const [menu, setMenu] = React.useState<Menu | null>(null);
   const [hint, setHint] = React.useState<Hint | null>(null);
-  const [layout, setLayout] = React.useState<{ toolbar: (Box & { section: string; element: string }) | null; pluses: PlusButton[] }>({
+  const [layout, setLayout] = React.useState<{
+    toolbar: (Box & { section: string; element: string }) | null;
+    pluses: PlusButton[];
+    blockBar: (Box & { section: string; previous: string | null; next: string | null }) | null;
+  }>({
     toolbar: null,
     pluses: [],
+    blockBar: null,
   });
   const [tick, setTick] = React.useState(0);
   const [editing, setEditing] = React.useState<Editing | null>(null);
@@ -110,8 +123,8 @@ export function BuilderCanvasOverlay({
   const t = (french: string, english: string) => (fr ? french : english);
 
   // Latest callbacks, for native listeners registered once.
-  const props = React.useRef({ editable, canDrop, onDrop, onUndo, onRedo, inlineText });
-  props.current = { editable, canDrop, onDrop, onUndo, onRedo, inlineText };
+  const props = React.useRef({ editable, canDrop, onDrop, onUndo, onRedo, inlineText, onMoveBlock });
+  props.current = { editable, canDrop, onDrop, onUndo, onRedo, inlineText, onMoveBlock };
 
   const doc = () => rootRef.current?.ownerDocument ?? null;
   const boxOf = (node: Element): Box => {
@@ -184,7 +197,7 @@ export function BuilderCanvasOverlay({
 
   const computeLayout = () => {
     const document = doc();
-    if (!document) return { toolbar: null, pluses: [] };
+    if (!document) return { toolbar: null, pluses: [], blockBar: null };
     let toolbar: (Box & { section: string; element: string }) | null = null;
     const pluses: PlusButton[] = [];
     const seen = new Set<string>();
@@ -213,7 +226,22 @@ export function BuilderCanvasOverlay({
         if (!Array.from(group.children).some((child) => child.hasAttribute("data-el"))) plusesFor(section, group, pluses, seen);
       });
     });
-    return { toolbar, pluses };
+    // The block bar: on the hovered block, else on the selected one.
+    const blockIds = Array.from(document.querySelectorAll("[data-builder-section]"))
+      .map((node) => node.getAttribute("data-builder-section")!)
+      .filter((id) => props.current.editable(id));
+    const barId = hoveredBlock && blockIds.includes(hoveredBlock) ? hoveredBlock : selectedId && blockIds.includes(selectedId) ? selectedId : null;
+    const barNode = barId ? sectionNode(barId) : null;
+    const position = barId ? blockIds.indexOf(barId) : -1;
+    const blockBar = barNode && barId
+      ? {
+          ...boxOf(barNode),
+          section: barId,
+          previous: position > 0 ? blockIds[position - 1]! : null,
+          next: position < blockIds.length - 1 ? blockIds[position + 1]! : null,
+        }
+      : null;
+    return { toolbar, pluses, blockBar };
   };
 
   // Positions are read after the preview has rendered (never during render).
@@ -303,6 +331,9 @@ export function BuilderCanvasOverlay({
     const onMove = (event: PointerEvent) => {
       if (inOverlay(event.target)) return;
       const target = event.target as Element | null;
+      const blockId = target?.closest?.("[data-builder-section]")?.getAttribute("data-builder-section") ?? null;
+      const block = blockId && props.current.editable(blockId) ? blockId : null;
+      setHoveredBlock((current) => (current === block ? current : block));
       const group = target?.closest?.('[data-el-kind="group"]');
       const section = group?.closest("[data-builder-section]")?.getAttribute("data-builder-section");
       const element = group?.getAttribute("data-el");
@@ -319,6 +350,15 @@ export function BuilderCanvasOverlay({
     const targetAt = (event: DragEvent): Hint | null => {
       const drag = dragState.current;
       if (!drag || inOverlay(event.target)) return null;
+      if (drag.block) {
+        // A whole block: before or after the block under the pointer.
+        const sectionElement = (event.target as Element | null)?.closest?.("[data-builder-section]");
+        const section = sectionElement?.getAttribute("data-builder-section");
+        if (!sectionElement || !section || !props.current.editable(section) || section === drag.block) return null;
+        const rect = sectionElement.getBoundingClientRect();
+        const where = event.clientY < rect.top + rect.height / 2 ? "before" : "after";
+        return { section, target: { element: section, where }, box: boxOf(sectionElement), horizontal: false, block: true };
+      }
       const node = (event.target as Element | null)?.closest?.("[data-el]");
       const sectionElement = node?.closest("[data-builder-section]");
       const section = sectionElement?.getAttribute("data-builder-section");
@@ -363,6 +403,10 @@ export function BuilderCanvasOverlay({
       if (!next || !drag) return;
       event.preventDefault();
       dragState.current = null;
+      if (drag.block) {
+        props.current.onMoveBlock(drag.block, next.section, next.target.where === "before" ? "before" : "after");
+        return;
+      }
       props.current.onDrop(next.section, drag, next.target);
     };
     const onDragEnd = () => setHint(null);
@@ -473,10 +517,74 @@ export function BuilderCanvasOverlay({
             }}
           >
             <span className="absolute -top-5 left-0 rounded bg-violet-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">
-              {hint.target.where === "before" ? t("Insérer avant", "Insert before") : t("Insérer après", "Insert after")}
+              {hint.block
+                ? hint.target.where === "before"
+                  ? t("Déplacer le bloc ici (avant)", "Move the block here (before)")
+                  : t("Déplacer le bloc ici (après)", "Move the block here (after)")
+                : hint.target.where === "before"
+                  ? t("Insérer avant", "Insert before")
+                  : t("Insérer après", "Insert after")}
             </span>
           </div>
         )
+      ) : null}
+
+      {layout.blockBar && !editing ? (
+        <div
+          data-builder-blockbar=""
+          style={{
+            position: "absolute",
+            top: layout.blockBar.top + 6,
+            left: layout.blockBar.left + layout.blockBar.width - 8,
+            transform: "translateX(-100%)",
+            pointerEvents: "auto",
+          }}
+          className="flex items-center gap-0.5 rounded-lg bg-sky-700 px-1 py-0.5 text-white shadow-lg"
+        >
+          <span
+            draggable
+            role="button"
+            tabIndex={-1}
+            title={t("Glisser pour déplacer le bloc", "Drag to move the block")}
+            aria-label={t("Déplacer le bloc", "Move the block")}
+            onDragStart={(event) => {
+              const bar = layout.blockBar!;
+              dragState.current = { block: bar.section };
+              event.dataTransfer.effectAllowed = "move";
+              event.dataTransfer.setData("text/plain", bar.section);
+              const node = sectionNode(bar.section);
+              if (isHtml(node)) event.dataTransfer.setDragImage(node, 20, 20);
+            }}
+            onDragEnd={() => {
+              dragState.current = null;
+              setHint(null);
+            }}
+            className="inline-flex h-7 cursor-grab items-center gap-1 rounded-md px-1.5 text-[11px] font-semibold hover:bg-white/20 active:cursor-grabbing"
+          >
+            <GripVertical className="size-4" />
+            <span className="max-w-36 truncate">{blockLabel(layout.blockBar.section)}</span>
+          </span>
+          <button
+            type="button"
+            className={button}
+            disabled={!layout.blockBar.previous}
+            title={t("Monter le bloc", "Move block up")}
+            aria-label={t("Monter le bloc", "Move block up")}
+            onClick={() => layout.blockBar?.previous && onMoveBlock(layout.blockBar.section, layout.blockBar.previous, "before")}
+          >
+            <ArrowUp className="size-4" />
+          </button>
+          <button
+            type="button"
+            className={button}
+            disabled={!layout.blockBar.next}
+            title={t("Descendre le bloc", "Move block down")}
+            aria-label={t("Descendre le bloc", "Move block down")}
+            onClick={() => layout.blockBar?.next && onMoveBlock(layout.blockBar.section, layout.blockBar.next, "after")}
+          >
+            <ArrowDown className="size-4" />
+          </button>
+        </div>
       ) : null}
 
       {layout.pluses.map((plus) => (

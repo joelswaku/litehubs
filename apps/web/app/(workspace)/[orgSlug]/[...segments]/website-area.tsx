@@ -3406,6 +3406,19 @@ function VisualBuilderTab({
       write: (text: string) => ({ ...block, content: { ...content, [key]: text } }),
     };
   };
+  /** Drag (or ↑ ↓) of a whole block in the preview. */
+  const moveBlockTo = (sourceId: string, targetId: string, where: "before" | "after") => {
+    if (sourceId === targetId) return;
+    const moving = blocks.find((candidate) => candidate.id === sourceId);
+    if (!moving) return;
+    const rest = blocks.filter((candidate) => candidate.id !== sourceId);
+    let index = rest.findIndex((candidate) => candidate.id === targetId);
+    if (index < 0) return;
+    if (where === "after") index += 1;
+    rest.splice(index, 0, moving);
+    setBlocks(ordered(rest));
+    selectBlock(sourceId, false, null);
+  };
   const canvasDuplicate = (blockId: string, element: string) => {
     const index = blocks.findIndex((candidate) => candidate.id === blockId);
     const block = blocks[index];
@@ -4343,6 +4356,11 @@ function VisualBuilderTab({
                   const block = blockById(id);
                   const found = block ? inlineTextOf(block, element, language) : null;
                   return found ? { value: found.value, multiline: found.multiline } : null;
+                }}
+                onMoveBlock={moveBlockTo}
+                blockLabel={(id) => {
+                  const index = blocks.findIndex((candidate) => candidate.id === id);
+                  return index >= 0 ? `${index + 1}. ${label(blocks[index]!)}` : "";
                 }}
                 onInlineText={(id, element, language, value) => {
                   const index = blocks.findIndex((candidate) => candidate.id === id);
