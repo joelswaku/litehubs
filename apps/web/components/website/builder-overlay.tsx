@@ -417,7 +417,37 @@ export function BuilderCanvasOverlay({
         if (props.current.canDrop(section, drag, target)) return { section, target, box, horizontal };
       return null;
     };
+    // The mouse wheel does not scroll during a drag: near the top or bottom
+    // edge of the preview, the page scrolls by itself (faster closer to it).
+    let scrollSpeed = 0;
+    let scrollFrame = 0;
+    const scrollLoop = () => {
+      if (!scrollSpeed || !dragState.current) {
+        scrollFrame = 0;
+        return;
+      }
+      win.scrollBy(0, scrollSpeed);
+      scrollFrame = requestAnimationFrame(scrollLoop);
+    };
+    const autoScroll = (event: DragEvent) => {
+      const edge = Math.min(120, win.innerHeight / 4);
+      const fromTop = event.clientY;
+      const fromBottom = win.innerHeight - event.clientY;
+      scrollSpeed =
+        fromTop < edge
+          ? -Math.ceil(((edge - fromTop) / edge) * 24)
+          : fromBottom < edge
+            ? Math.ceil(((edge - fromBottom) / edge) * 24)
+            : 0;
+      if (scrollSpeed && !scrollFrame) scrollFrame = requestAnimationFrame(scrollLoop);
+    };
+    const stopScroll = () => {
+      scrollSpeed = 0;
+      cancelAnimationFrame(scrollFrame);
+      scrollFrame = 0;
+    };
     const onDragOver = (event: DragEvent) => {
+      if (dragState.current) autoScroll(event);
       const next = targetAt(event);
       // A block being dragged can always be released: no "forbidden" cursor.
       if (dragState.current?.block) event.preventDefault();
@@ -430,6 +460,7 @@ export function BuilderCanvasOverlay({
     const onDropEvent = (event: DragEvent) => {
       const next = targetAt(event);
       const drag = dragState.current;
+      stopScroll();
       setHint(null);
       setDragLabel(null);
       if (drag?.block) event.preventDefault();
@@ -443,8 +474,13 @@ export function BuilderCanvasOverlay({
       props.current.onDrop(next.section, drag, next.target);
     };
     const onDragEnd = () => {
+      stopScroll();
       setHint(null);
       setDragLabel(null);
+    };
+    // Leaving the preview (pointer over the editor around it) stops scrolling.
+    const onDragLeave = (event: DragEvent) => {
+      if (!event.relatedTarget) stopScroll();
     };
     const onKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
@@ -475,6 +511,7 @@ export function BuilderCanvasOverlay({
     document.addEventListener("dragover", onDragOver);
     document.addEventListener("drop", onDropEvent);
     document.addEventListener("dragend", onDragEnd);
+    document.addEventListener("dragleave", onDragLeave);
     document.addEventListener("keydown", onKey);
     document.addEventListener("pointerdown", onPointerDown);
     document.addEventListener("dblclick", onDoubleClick);
@@ -488,6 +525,8 @@ export function BuilderCanvasOverlay({
       document.removeEventListener("dragover", onDragOver);
       document.removeEventListener("drop", onDropEvent);
       document.removeEventListener("dragend", onDragEnd);
+      document.removeEventListener("dragleave", onDragLeave);
+      stopScroll();
       document.removeEventListener("keydown", onKey);
       document.removeEventListener("pointerdown", onPointerDown);
       document.removeEventListener("dblclick", onDoubleClick);
