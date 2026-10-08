@@ -69,7 +69,12 @@ import {
 import { can, isOwner } from "@/lib/permissions";
 import { useLanguage } from "@/providers/language-provider";
 import { useSessionUser } from "@/stores/session-store";
-import { RecordPhoto } from "@/components/record-photo";
+import {
+  RecordPhoto,
+  RECORD_PHOTO_ACCEPT,
+  recordPhotoKey,
+  replaceRecordPhoto,
+} from "@/components/record-photo";
 
 type Row = Record<string, unknown> & { id: string };
 type BenefitTargets = {
@@ -1242,6 +1247,20 @@ export function ProjectsArea({ orgSlug }: { orgSlug: string }) {
             )
             .map((image) => api.delete(orgUrl(orgSlug, `images/${image.id}`))),
         );
+      }
+      if (resource === "materials" && assetPhoto) {
+        const materialId = String(record?.id ?? result.record?.id ?? "");
+        if (!materialId) throw new Error("The saved material has no identifier");
+        await replaceRecordPhoto(
+          orgSlug,
+          "materials",
+          materialId,
+          assetPhoto,
+          String(result.record?.name ?? body.name ?? "Material"),
+        );
+        await client.invalidateQueries({
+          queryKey: recordPhotoKey(orgSlug, "materials", materialId),
+        });
       }
       if (
         resource === "quality-checks" &&
@@ -7793,8 +7812,13 @@ function EditorDialog({
       expenseEvidenceValue instanceof File && expenseEvidenceValue.size > 0
         ? expenseEvidenceValue
         : undefined;
+    // The asset channel also carries a project material's photo.
     const assetPhotoValue =
-      editor.kind === "asset" ? form.get("assetPhoto") : null;
+      editor.kind === "asset"
+        ? form.get("assetPhoto")
+        : editor.kind === "material"
+          ? form.get("materialPhoto")
+          : null;
     const assetPhoto =
       assetPhotoValue instanceof File && assetPhotoValue.size > 0
         ? assetPhotoValue
@@ -11003,6 +11027,23 @@ function EditorFields({
           label(fr, "Preferred supplier", "Fournisseur privilégié"),
           supplierOptions,
         )}
+        <Field
+          label={label(fr, "Material photo", "Photo du matériau")}
+          htmlFor="materialPhoto"
+          className="md:col-span-2"
+          hint={label(
+            fr,
+            "Optional. Without a photo, the linked stock item's photo is shown.",
+            "Facultative. Sans photo, celle de l’article en stock relié s’affiche.",
+          )}
+        >
+          <Input
+            id="materialPhoto"
+            name="materialPhoto"
+            type="file"
+            accept={RECORD_PHOTO_ACCEPT}
+          />
+        </Field>
         {common}
       </>
     );
