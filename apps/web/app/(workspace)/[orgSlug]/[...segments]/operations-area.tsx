@@ -250,6 +250,64 @@ const nice = (value: unknown) =>
   text(value)
     .replace(/_/g, " ")
     .replace(/\b\w/g, (letter) => letter.toUpperCase()) || "—";
+/** Readable card for inventory items and warehouses: labelled facts, no raw ids. */
+function InventoryFactCard({
+  title,
+  subtitle,
+  facts,
+  badge,
+  open,
+  openLabel,
+}: {
+  title: string;
+  subtitle?: string;
+  facts: Array<[string, string]>;
+  badge?: { label: string; good: boolean };
+  open?: () => void;
+  openLabel: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={open}
+      disabled={!open}
+      className="group flex w-full items-start justify-between gap-3 rounded-xl border border-border bg-surface-1 px-4 py-3.5 text-left shadow-sm transition enabled:hover:-translate-y-px enabled:hover:border-brand/35 enabled:hover:bg-surface-2 enabled:hover:shadow-md"
+    >
+      <span className="min-w-0 flex-1">
+        <span className="flex flex-wrap items-center gap-2">
+          <span className="truncate text-sm font-semibold text-ink">
+            {title}
+          </span>
+          {badge ? (
+            <Badge variant={badge.good ? "good" : "neutral"}>
+              {badge.label}
+            </Badge>
+          ) : null}
+        </span>
+        {subtitle ? (
+          <span className="mt-0.5 block truncate text-[11px] text-ink-muted">
+            {subtitle}
+          </span>
+        ) : null}
+        <span className="mt-2 grid gap-x-4 gap-y-1 text-xs sm:grid-cols-2">
+          {facts
+            .filter(([, value]) => value)
+            .map(([label, value]) => (
+              <span key={label} className="min-w-0 truncate">
+                <span className="text-ink-muted">{label} : </span>
+                <span className="font-medium text-ink-secondary">{value}</span>
+              </span>
+            ))}
+        </span>
+      </span>
+      {open ? (
+        <span className="shrink-0 text-xs font-semibold text-brand group-hover:underline">
+          {openLabel}
+        </span>
+      ) : null}
+    </button>
+  );
+}
 const tone = (value: unknown) =>
   [
     "completed",
@@ -3623,6 +3681,8 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
   const canRecordStockMovement = can(user, "inventory.movements.create");
   const canCreateInventoryItem = can(user, "inventory.items.create");
   const canCreateWarehouse = can(user, "inventory.warehouses.create");
+  const canUpdateItems = can(user, "inventory.items.update");
+  const canUpdateWarehouses = can(user, "inventory.warehouses.update");
   const openInventoryCreate = (target: "item" | "warehouse") => {
     setInventoryCreateTarget(target);
     setInventoryCreateVersion((value) => value + 1);
@@ -4483,6 +4543,33 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
             )}
             rows={filteredItems}
             fields={["code", "category", "unit", "reorderLevel"]}
+            renderCard={(item, open) => (
+              <InventoryFactCard
+                title={text(item.name) || text(item.code) || "—"}
+                subtitle={text(item.code)}
+                facts={[
+                  [
+                    copy(fr, "Category", "Catégorie"),
+                    text(item.category)
+                      ? inventoryCategoryName(item.category, fr).replace(/^./, (letter) =>
+                          letter.toLocaleUpperCase(),
+                        )
+                      : "",
+                  ],
+                  [copy(fr, "Unit", "Unité"), text(item.unit)],
+                  [
+                    copy(fr, "Alert level", "Seuil d’alerte"),
+                    item.reorderLevel === null ||
+                    item.reorderLevel === undefined ||
+                    item.reorderLevel === ""
+                      ? ""
+                      : `${Number(item.reorderLevel).toLocaleString(fr ? "fr-FR" : "en-US")} ${text(item.unit)}`.trim(),
+                  ],
+                ]}
+                open={canUpdateItems ? open : undefined}
+                openLabel={copy(fr, "Open", "Ouvrir")}
+              />
+            )}
             form={itemFields}
             emptyTitle={copy(
               fr,
@@ -4517,6 +4604,31 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
             )}
             rows={filteredWarehouses}
             fields={["code", "siteId", "isActive"]}
+            renderCard={(warehouse, open) => {
+              const site = siteById.get(text(warehouse.siteId));
+              const province = (refs.provinces.data ?? []).find(
+                (candidate) => text(candidate.id) === text(site?.provinceId),
+              );
+              const active = warehouse.isActive !== false;
+              return (
+                <InventoryFactCard
+                  title={text(warehouse.name) || text(warehouse.code) || "—"}
+                  subtitle={text(warehouse.code)}
+                  badge={{
+                    label: active
+                      ? copy(fr, "Active", "Actif")
+                      : copy(fr, "Inactive", "Inactif"),
+                    good: active,
+                  }}
+                  facts={[
+                    [copy(fr, "Site", "Site"), text(site?.name) || "—"],
+                    [copy(fr, "Province", "Province"), text(province?.name)],
+                  ]}
+                  open={canUpdateWarehouses ? open : undefined}
+                  openLabel={copy(fr, "Open", "Ouvrir")}
+                />
+              );
+            }}
             form={storageFields}
             emptyTitle={copy(
               fr,
