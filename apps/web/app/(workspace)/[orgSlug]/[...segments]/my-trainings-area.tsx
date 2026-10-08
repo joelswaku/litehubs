@@ -1059,6 +1059,7 @@ function ProfessionalTrainingReader({
   const heartbeatRef = useRef<Record<string, number>>({});
   const sidebarBeforeFocusRef = useRef<boolean | null>(null);
   const [focusMode, setFocusMode] = useState(false);
+  const readerRef = useRef<HTMLElement | null>(null);
   const sidebarCollapsed = useUiStore((state) => state.sidebarCollapsed);
   const setSidebarCollapsed = useUiStore((state) => state.setSidebarCollapsed);
   useEffect(() => {
@@ -1080,8 +1081,21 @@ function ProfessionalTrainingReader({
         sidebarBeforeFocusRef.current = null;
       }
     };
+    const handleFullscreenExit = () => {
+      if (document.fullscreenElement) return;
+      setFocusMode(false);
+      const previous = sidebarBeforeFocusRef.current;
+      if (previous !== null) {
+        setSidebarCollapsed(previous);
+        sidebarBeforeFocusRef.current = null;
+      }
+    };
     document.addEventListener("keydown", handleEscape);
-    return () => document.removeEventListener("keydown", handleEscape);
+    document.addEventListener("fullscreenchange", handleFullscreenExit);
+    return () => {
+      document.removeEventListener("keydown", handleEscape);
+      document.removeEventListener("fullscreenchange", handleFullscreenExit);
+    };
   }, [focusMode, setSidebarCollapsed]);
   const progress = useMutation({
     mutationFn: ({
@@ -1165,6 +1179,8 @@ function ProfessionalTrainingReader({
       setSidebarCollapsed(previous);
       sidebarBeforeFocusRef.current = null;
     }
+    if (typeof document !== "undefined" && document.fullscreenElement)
+      void document.exitFullscreen().catch(() => undefined);
   };
   const toggleReadingSpace = () => {
     if (focusMode) {
@@ -1174,6 +1190,11 @@ function ProfessionalTrainingReader({
     sidebarBeforeFocusRef.current = sidebarCollapsed;
     setSidebarCollapsed(true);
     setFocusMode(true);
+    // Real full screen when the browser allows it; the fixed reading layer
+    // below already fills the window when it does not.
+    const target = readerRef.current;
+    if (target?.requestFullscreen && !document.fullscreenElement)
+      void target.requestFullscreen().catch(() => undefined);
   };
   const openLesson = (index: number, row: ProfessionalLesson, closeOutline = false) => {
     setLessonIndex(index);
@@ -1224,7 +1245,15 @@ function ProfessionalTrainingReader({
     </div>
   );
   return (
-    <main className={`mx-auto max-w-7xl space-y-4 p-4 sm:p-5 lg:p-7 ${focusMode ? "bg-page" : ""}`}>
+    <main
+      ref={readerRef}
+      className={
+        focusMode
+          ? "fixed inset-0 z-[70] space-y-2 overflow-y-auto bg-page p-2 sm:p-3"
+          : "mx-auto max-w-7xl space-y-4 p-4 sm:p-5 lg:p-7"
+      }
+    >
+      {focusMode ? null : (
       <Link
         href={`/${orgSlug}/my-trainings`}
         className="inline-flex items-center gap-2 text-sm font-semibold text-brand hover:underline"
@@ -1232,7 +1261,8 @@ function ProfessionalTrainingReader({
         <ArrowLeft className="size-4" />
         {label(fr, "My training", "Mes formations")}
       </Link>
-      <header className={`relative overflow-hidden rounded-2xl border border-brand/20 bg-[radial-gradient(circle_at_87%_12%,rgba(129,140,248,.25),transparent_28%),linear-gradient(135deg,#102b55,#24488f_58%,#6643ae)] p-3.5 text-white shadow-[0_18px_40px_-30px_rgba(13,36,85,.95)] sm:p-4`}>
+      )}
+      <header className={`relative overflow-hidden rounded-2xl border border-brand/20 bg-[radial-gradient(circle_at_87%_12%,rgba(129,140,248,.25),transparent_28%),linear-gradient(135deg,#102b55,#24488f_58%,#6643ae)] p-3.5 text-white shadow-[0_18px_40px_-30px_rgba(13,36,85,.95)] ${focusMode ? "py-2.5 sm:px-4 sm:py-2.5" : "sm:p-4"}`}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <h1 className="truncate text-lg font-semibold tracking-tight sm:text-xl">
@@ -1324,7 +1354,7 @@ function ProfessionalTrainingReader({
               </div>
             </aside>
           ) : null}
-        <article className="rounded-2xl border border-border bg-surface-1 p-5 shadow-sm sm:p-7">
+        <article className={`rounded-2xl border border-border bg-surface-1 shadow-sm ${focusMode ? "p-3 sm:p-4" : "p-5 sm:p-7"}`}>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[.14em] text-brand">
@@ -1702,7 +1732,13 @@ function ProfessionalBlockReader({
       </div>
       <div className="p-4">
         {body ? (
-          <p className="whitespace-pre-wrap text-sm leading-7 text-ink-secondary">
+          <p
+            className={
+              focusMode
+                ? "mx-auto max-w-4xl whitespace-pre-wrap text-base leading-8 text-ink sm:text-lg sm:leading-9"
+                : "whitespace-pre-wrap text-sm leading-7 text-ink-secondary"
+            }
+          >
             {body}
           </p>
         ) : null}
@@ -1715,7 +1751,7 @@ function ProfessionalBlockReader({
           <div className={focusMode ? "relative flex items-center justify-center overflow-hidden rounded-xl bg-black" : "relative mt-3 overflow-hidden rounded-xl bg-black"}>
             <video
               ref={videoRef}
-              className={focusMode ? "h-auto max-h-[calc(100dvh-16rem)] w-auto max-w-full object-contain" : "aspect-video w-full"}
+              className={focusMode ? "h-[calc(100dvh-13rem)] max-h-[calc(100dvh-13rem)] w-full object-contain" : "aspect-video w-full"}
               src={secureUrl}
               onLoadedMetadata={(event) => {
                 const video = event.currentTarget;
@@ -1806,7 +1842,7 @@ function ProfessionalBlockReader({
           <iframe
             title={block.title ?? "Training document"}
             src={secureUrl}
-            className="mt-3 h-[32rem] w-full rounded-xl border border-border bg-white"
+            className={`mt-3 w-full rounded-xl border border-border bg-white ${focusMode ? "h-[calc(100dvh-13rem)]" : "h-[32rem]"}`}
           />
         ) : null}
         {block.externalUrl ? (
