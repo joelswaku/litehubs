@@ -6794,6 +6794,54 @@ function StyleInspector({
         </p>
       )}
 
+      {element !== "root" ? (
+        <div className="space-y-1 rounded-lg border border-border bg-surface-1 px-3 py-2">
+          <p className="text-xs font-semibold text-ink">
+            {isContainer
+              ? tr(fr, "Position du div dans son parent", "Div position in its parent")
+              : tr(fr, "Position dans son parent", "Position in its parent")}
+          </p>
+          <Segmented
+            value={
+              style.width === "full"
+                ? "full"
+                : style.marginLeft === "auto" && style.marginRight === "auto"
+                  ? "center"
+                  : style.marginLeft === "auto"
+                    ? "right"
+                    : style.marginRight === "auto"
+                      ? "left"
+                      : undefined
+            }
+            onChange={(value) => {
+              // Auto margins move the whole box in a block, flex or grid parent.
+              // A full-width box cannot move: it fits its content first.
+              const width = style.width === "full" ? "auto" : style.width;
+              if (value === "left") patchStyle({ width, marginLeft: 0, marginRight: "auto", alignSelf: "start" });
+              else if (value === "center") patchStyle({ width, marginLeft: "auto", marginRight: "auto", alignSelf: "center" });
+              else if (value === "right") patchStyle({ width, marginLeft: "auto", marginRight: 0, alignSelf: "end" });
+              else if (value === "full") patchStyle({ width: "full", marginLeft: undefined, marginRight: undefined, alignSelf: "stretch" });
+              else patchStyle({ marginLeft: undefined, marginRight: undefined, alignSelf: undefined });
+            }}
+            options={[
+              ["left", tr(fr, "À gauche", "Left")],
+              ["center", tr(fr, "Centré", "Centred")],
+              ["right", tr(fr, "À droite", "Right")],
+              ["full", tr(fr, "Toute la largeur", "Full width")],
+            ]}
+          />
+          <p className="text-[11px] leading-4 text-ink-muted">
+            {isContainer
+              ? tr(
+                  fr,
+                  "Déplace tout le div. « Disposition » plus bas range les éléments à l’intérieur du div.",
+                  "Moves the whole div. “Layout” below arranges the elements inside the div.",
+                )
+              : tr(fr, "Déplace tout l’élément dans le div qui le contient.", "Moves the whole element inside the div that holds it.")}
+          </p>
+        </div>
+      ) : null}
+
       {isContainer && clickedText ? (
         <div role="note" className="rounded-lg border border-violet-300 bg-violet-50 px-3 py-2 text-[11px] leading-5 text-violet-950 dark:border-violet-400/40 dark:bg-violet-400/10 dark:text-violet-100">
           <strong>{tr(fr, "Vous avez cliqué sur un texte de ce conteneur.", "You clicked a text inside this container.")}</strong>{" "}
