@@ -1845,14 +1845,16 @@ function SectionHeading({
     <div
       className={
         centered
-          ? "wb-heading mx-auto flex max-w-3xl flex-col items-center text-center"
-          : "wb-heading flex max-w-3xl flex-col items-start"
+          ? // Full width: elements added to the block can use the block's whole
+            // width. The title and text keep their readable width (same look).
+            "wb-heading flex w-full flex-col items-center text-center"
+          : "wb-heading flex w-full flex-col items-start"
       }
     >
       {eyebrow ? (
         <p
           data-el="eyebrow"
-          className={`mb-3 text-xs font-bold uppercase tracking-[.18em] ${inverted ? "text-amber-100/70" : "text-emerald-700"}`}
+          className={`mb-3 max-w-3xl text-xs font-bold uppercase tracking-[.18em] ${inverted ? "text-amber-100/70" : "text-emerald-700"}`}
         >
           <TextLink name="eyebrow"><AnimatedText name="eyebrow" text={eyebrow} /></TextLink>
         </p>
@@ -1860,7 +1862,7 @@ function SectionHeading({
       {title ? (
         <h2
           data-el="title"
-          className={`text-3xl font-semibold leading-[1.08] tracking-[-.035em] sm:text-4xl lg:text-[2.7rem] ${inverted ? "text-white" : "text-slate-950"}`}
+          className={`max-w-3xl text-3xl font-semibold leading-[1.08] tracking-[-.035em] sm:text-4xl lg:text-[2.7rem] ${inverted ? "text-white" : "text-slate-950"}`}
         >
           <TextLink name="title"><AnimatedText name="title" text={title} /></TextLink>
         </h2>
@@ -1868,7 +1870,7 @@ function SectionHeading({
       {body ? (
         <p
           data-el="body"
-          className={`mt-5 text-base leading-7 sm:text-[1.05rem] ${inverted ? "text-white/75" : "text-slate-600"}`}
+          className={`mt-5 max-w-3xl text-base leading-7 sm:text-[1.05rem] ${inverted ? "text-white/75" : "text-slate-600"}`}
         >
           <TextLink name="body"><AnimatedText name="body" text={body} /></TextLink>
         </p>
