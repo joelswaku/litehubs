@@ -2453,6 +2453,8 @@ export function PublicWebsiteRenderer({
     <main
       ref={siteRootRef}
       data-site-root=""
+      // Builder only: the language shown, for writing texts in the page.
+      data-wb-lang={editor ? language : undefined}
       data-header-variant={headerVariant}
       data-footer-variant={footerVariant}
       className="relative min-h-screen bg-[#fbfcf8] text-slate-950"

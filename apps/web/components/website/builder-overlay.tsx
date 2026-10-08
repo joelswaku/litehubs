@@ -10,6 +10,7 @@ import {
   LayoutPanelTop,
   MousePointerClick,
   MoveVertical,
+  PencilLine,
   Plus,
   TextIcon,
   Trash2,
@@ -39,8 +40,22 @@ type Hint = { section: string; target: DropTarget; box: Box; horizontal: boolean
 type Menu = { section: string; target: DropTarget; x: number; y: number };
 
 export type ElementInfo = { label: string; movable: boolean; duplicable: boolean; deletable: boolean; container: boolean };
+/** A text that can be written directly in the page. */
+export type InlineText = { value: string; multiline: boolean };
+type Editing = {
+  section: string;
+  element: string;
+  language: "fr" | "en";
+  original: string;
+  multiline: boolean;
+  box: Box;
+  style: React.CSSProperties;
+};
 
 const isGroup = (node: Element | null) => node?.getAttribute("data-el-kind") === "group";
+/** The preview is an iframe: its nodes fail `instanceof HTMLElement` of this window. */
+const isHtml = (node: Element | null | undefined): node is HTMLElement =>
+  Boolean(node && "style" in node && (node as HTMLElement).style);
 
 /**
  * Editing tools drawn over the live preview (inside its iframe): the selected
@@ -61,6 +76,8 @@ export function BuilderCanvasOverlay({
   onDelete,
   onUndo,
   onRedo,
+  inlineText,
+  onInlineText,
 }: {
   selectedId: string | null;
   selectedElement: string | null;
@@ -75,6 +92,9 @@ export function BuilderCanvasOverlay({
   onDelete: (section: string, element: string) => void;
   onUndo: () => void;
   onRedo: () => void;
+  /** The text of an element that can be written in the page (null: not a text). */
+  inlineText: (section: string, element: string, language: "fr" | "en") => InlineText | null;
+  onInlineText: (section: string, element: string, language: "fr" | "en", value: string) => void;
 }) {
   const rootRef = React.useRef<HTMLDivElement>(null);
   const [hovered, setHovered] = React.useState<{ section: string; element: string } | null>(null);
@@ -85,11 +105,13 @@ export function BuilderCanvasOverlay({
     pluses: [],
   });
   const [tick, setTick] = React.useState(0);
+  const [editing, setEditing] = React.useState<Editing | null>(null);
+  const editorRef = React.useRef<HTMLDivElement>(null);
   const t = (french: string, english: string) => (fr ? french : english);
 
   // Latest callbacks, for native listeners registered once.
-  const props = React.useRef({ editable, canDrop, onDrop, onUndo, onRedo });
-  props.current = { editable, canDrop, onDrop, onUndo, onRedo };
+  const props = React.useRef({ editable, canDrop, onDrop, onUndo, onRedo, inlineText });
+  props.current = { editable, canDrop, onDrop, onUndo, onRedo, inlineText };
 
   const doc = () => rootRef.current?.ownerDocument ?? null;
   const boxOf = (node: Element): Box => {
@@ -200,6 +222,72 @@ export function BuilderCanvasOverlay({
     setLayout((current) => (JSON.stringify(current) === JSON.stringify(next) ? current : next));
   });
 
+  /** Writing in the page: the text is edited in place, over the element
+   * (the element itself is hidden meanwhile, so React keeps owning it). */
+  const startEditing = (section: string, element: string) => {
+    const document = doc();
+    const node = elementNode(section, element);
+    if (!document || !isHtml(node)) return false;
+    const language = document.querySelector("[data-wb-lang]")?.getAttribute("data-wb-lang") === "en" ? "en" : "fr";
+    const info = props.current.inlineText(section, element, language);
+    if (!info) return false;
+    // Only one text at a time: the previous one is shown again.
+    if (editing) {
+      const previous = elementNode(editing.section, editing.element);
+      if (isHtml(previous)) previous.style.visibility = "";
+    }
+    const css = document.defaultView!.getComputedStyle(node);
+    node.style.visibility = "hidden";
+    setMenu(null);
+    setEditing({
+      section,
+      element,
+      language,
+      original: info.value,
+      multiline: info.multiline,
+      box: boxOf(node),
+      style: {
+        fontFamily: css.fontFamily,
+        fontSize: css.fontSize,
+        fontWeight: css.fontWeight as React.CSSProperties["fontWeight"],
+        fontStyle: css.fontStyle,
+        lineHeight: css.lineHeight,
+        letterSpacing: css.letterSpacing,
+        textTransform: css.textTransform as React.CSSProperties["textTransform"],
+        textAlign: css.textAlign as React.CSSProperties["textAlign"],
+        color: css.color,
+        paddingTop: css.paddingTop,
+        paddingRight: css.paddingRight,
+        paddingBottom: css.paddingBottom,
+        paddingLeft: css.paddingLeft,
+      },
+    });
+    return true;
+  };
+  const stopEditing = (cancel = false) => {
+    const current = editing;
+    if (!current) return;
+    if (cancel) onInlineText(current.section, current.element, current.language, current.original);
+    const node = elementNode(current.section, current.element);
+    if (isHtml(node)) node.style.visibility = "";
+    setEditing(null);
+  };
+  const startRef = React.useRef(startEditing);
+  startRef.current = startEditing;
+  React.useEffect(() => {
+    const editor = editorRef.current;
+    if (!editing || !editor) return;
+    editor.textContent = editing.original;
+    editor.focus();
+    const selection = editor.ownerDocument.getSelection();
+    const range = editor.ownerDocument.createRange();
+    range.selectNodeContents(editor);
+    range.collapse(false);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    // Only when an edit starts: typing must never reset the text.
+  }, [editing?.section, editing?.element]);
+
   // Hover, scroll, resize, drag and drop, keyboard shortcuts.
   React.useEffect(() => {
     const document = doc();
@@ -295,12 +383,21 @@ export function BuilderCanvasOverlay({
     const onPointerDown = (event: PointerEvent) => {
       if (!inOverlay(event.target)) setMenu(null);
     };
+    const onDoubleClick = (event: MouseEvent) => {
+      if (inOverlay(event.target)) return;
+      const node = (event.target as Element | null)?.closest?.("[data-el]");
+      const section = node?.closest("[data-builder-section]")?.getAttribute("data-builder-section");
+      const element = node?.getAttribute("data-el");
+      if (!node || !section || !element || !props.current.editable(section)) return;
+      if (startRef.current(section, element)) event.preventDefault();
+    };
     document.addEventListener("pointermove", onMove);
     document.addEventListener("dragover", onDragOver);
     document.addEventListener("drop", onDropEvent);
     document.addEventListener("dragend", onDragEnd);
     document.addEventListener("keydown", onKey);
     document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("dblclick", onDoubleClick);
     win.addEventListener("scroll", bump, { passive: true });
     win.addEventListener("resize", bump);
     const observer = new ResizeObserver(bump);
@@ -313,6 +410,7 @@ export function BuilderCanvasOverlay({
       document.removeEventListener("dragend", onDragEnd);
       document.removeEventListener("keydown", onKey);
       document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("dblclick", onDoubleClick);
       win.removeEventListener("scroll", bump);
       win.removeEventListener("resize", bump);
       observer.disconnect();
@@ -401,7 +499,7 @@ export function BuilderCanvasOverlay({
         </button>
       ))}
 
-      {toolbar && info ? (
+      {toolbar && info && !editing ? (
         <div
           data-builder-toolbar=""
           style={{ position: "absolute", left: Math.max(4, toolbar.left), top: toolbarTop, pointerEvents: "auto" }}
@@ -420,7 +518,7 @@ export function BuilderCanvasOverlay({
                 event.dataTransfer.effectAllowed = "move";
                 event.dataTransfer.setData("text/plain", toolbar.element);
                 const node = elementNode(toolbar.section, toolbar.element);
-                if (node instanceof HTMLElement) event.dataTransfer.setDragImage(node, 12, 12);
+                if (isHtml(node)) event.dataTransfer.setDragImage(node, 12, 12);
               }}
               onDragEnd={() => {
                 dragState.current = null;
@@ -430,6 +528,17 @@ export function BuilderCanvasOverlay({
             >
               <GripVertical className="size-4" />
             </span>
+          ) : null}
+          {inlineText(toolbar.section, toolbar.element, "fr") ? (
+            <button
+              type="button"
+              className={button}
+              title={t("Écrire dans la page (ou double-clic sur le texte)", "Write in the page (or double-click the text)")}
+              aria-label={t("Modifier le texte", "Edit text")}
+              onClick={() => startEditing(toolbar.section, toolbar.element)}
+            >
+              <PencilLine className="size-4" />
+            </button>
           ) : null}
           <button
             type="button"
@@ -471,6 +580,60 @@ export function BuilderCanvasOverlay({
             <Trash2 className="size-4" />
           </button>
         </div>
+      ) : null}
+
+      {editing ? (
+        <div
+          ref={editorRef}
+          data-builder-inline=""
+          contentEditable="plaintext-only"
+          suppressContentEditableWarning
+          role="textbox"
+          aria-multiline={editing.multiline}
+          aria-label={t("Texte en cours d’écriture", "Text being written")}
+          spellCheck
+          onInput={(event) =>
+            onInlineText(editing.section, editing.element, editing.language, (event.currentTarget.innerText ?? "").replace(/\n$/, ""))
+          }
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              stopEditing(true);
+            } else if (event.key === "Enter" && (!editing.multiline || event.ctrlKey || event.metaKey)) {
+              event.preventDefault();
+              stopEditing();
+            }
+          }}
+          onBlur={() => stopEditing()}
+          style={{
+            ...editing.style,
+            position: "absolute",
+            top: editing.box.top,
+            left: editing.box.left,
+            width: Math.max(40, editing.box.width),
+            minHeight: editing.box.height,
+            whiteSpace: "pre-wrap",
+            overflowWrap: "anywhere",
+            outline: "2px solid #7c3aed",
+            outlineOffset: 2,
+            borderRadius: 4,
+            background: "rgba(255,255,255,.04)",
+            cursor: "text",
+            pointerEvents: "auto",
+            caretColor: "#7c3aed",
+          }}
+        />
+      ) : null}
+      {editing ? (
+        <span
+          style={{ position: "absolute", top: editing.box.top - 24, left: editing.box.left, pointerEvents: "none" }}
+          className="rounded bg-violet-600 px-1.5 py-0.5 text-[10px] font-semibold text-white"
+        >
+          {editing.language.toUpperCase()} ·{" "}
+          {editing.multiline
+            ? t("Entrée : nouvelle ligne · Ctrl+Entrée ou clic ailleurs : terminer · Échap : annuler", "Enter: new line · Ctrl+Enter or click outside: done · Esc: cancel")
+            : t("Entrée ou clic ailleurs : terminer · Échap : annuler", "Enter or click outside: done · Esc: cancel")}
+        </span>
       ) : null}
 
       {menu ? (

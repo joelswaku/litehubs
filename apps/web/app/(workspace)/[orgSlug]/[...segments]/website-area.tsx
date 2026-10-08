@@ -3365,6 +3365,47 @@ function VisualBuilderTab({
       container: element === "canvas" || isContainerType(found?.type),
     };
   };
+  /** Writing in the page: which stored text an element shows, per language. */
+  const inlineTextOf = (block: WebsiteSection, element: string, language: "fr" | "en") => {
+    const content = block.content;
+    const found = locateExtra(readExtraElements(content), element)?.item;
+    if (found) {
+      if (!["heading", "text", "button"].includes(found.type)) return null;
+      const value = language === "en" ? (found.textEn ?? found.textFr ?? "") : (found.textFr ?? "");
+      return { value, multiline: found.type === "text", write: (text: string) => {
+        const extras = mapExtra(readExtraElements(content), found.id, (item) => ({
+          ...item,
+          [language === "en" ? "textEn" : "textFr"]: text,
+          tpl: undefined,
+        }));
+        return { ...block, content: { ...content, extras } };
+      } };
+    }
+    const card = element.match(/^item:(\d+):(title|body|label)$/);
+    if (card && Array.isArray(content.items)) {
+      const index = Number(card[1]);
+      const part = card[2]!;
+      const item = (content.items as Record<string, unknown>[])[index];
+      if (!item) return null;
+      const key = `${part}_${language}`;
+      const value = typeof item[key] === "string" ? (item[key] as string) : typeof item[part] === "string" ? (item[part] as string) : "";
+      return { value, multiline: part === "body", write: (text: string) => {
+        const items = [...(content.items as Record<string, unknown>[])];
+        items[index] = { ...items[index], [key]: text };
+        return { ...block, content: { ...content, items } };
+      } };
+    }
+    if (!["eyebrow", "title", "body", "sideText", "primaryButton", "secondaryButton", "sideLink"].includes(element)) return null;
+    const fields = elementFieldKeys(block.section_type, element);
+    const keys = language === "en" ? fields.en : fields.fr;
+    if (!keys) return null;
+    const key = storedKey(content, keys);
+    return {
+      value: String(content[key] ?? ""),
+      multiline: element === "body" || element === "sideText",
+      write: (text: string) => ({ ...block, content: { ...content, [key]: text } }),
+    };
+  };
   const canvasDuplicate = (blockId: string, element: string) => {
     const index = blocks.findIndex((candidate) => candidate.id === blockId);
     const block = blocks[index];
@@ -4298,6 +4339,18 @@ function VisualBuilderTab({
                 onDelete={(id, element) => void canvasDelete(id, element)}
                 onUndo={undo}
                 onRedo={redo}
+                inlineText={(id, element, language) => {
+                  const block = blockById(id);
+                  const found = block ? inlineTextOf(block, element, language) : null;
+                  return found ? { value: found.value, multiline: found.multiline } : null;
+                }}
+                onInlineText={(id, element, language, value) => {
+                  const index = blocks.findIndex((candidate) => candidate.id === id);
+                  const block = blocks[index];
+                  const found = block ? inlineTextOf(block, element, language) : null;
+                  if (!found || found.value === value) return;
+                  changeBlockAt(index, found.write(value));
+                }}
               />
             )}
           </BuilderPreviewFrame>
