@@ -843,6 +843,16 @@ function RecordFields({
               label="Humidity (%)"
               value={item?.humidityPercent}
             />
+            <NumberField
+              name="lightHours"
+              label="Light (h/day)"
+              value={item?.lightHours}
+            />
+            <NumberField
+              name="ammoniaPpm"
+              label="Ammonia (ppm)"
+              value={item?.ammoniaPpm}
+            />
           </>
         ) : null}
         {resource === "mortality" ? (
@@ -932,6 +942,11 @@ function RecordFields({
               name="bagCount"
               label="Bag count"
               value={item?.bagCount}
+            />
+            <NumberField
+              name="unitPrice"
+              label="Price per kg (outside stock)"
+              value={item?.unitPrice}
             />
             <Text
               name="batchNumber"
@@ -1554,6 +1569,8 @@ function buildBody(
       cullsCount: numberValue(form, "cullsCount"),
       temperatureC: optionalNumber(form, "temperatureC"),
       humidityPercent: optionalNumber(form, "humidityPercent"),
+      lightHours: optionalNumber(form, "lightHours"),
+      ammoniaPpm: optionalNumber(form, "ammoniaPpm"),
       notes,
     };
   if (resource === "mortality")
@@ -1578,6 +1595,7 @@ function buildBody(
       feedStage: textValue(form, "feedStage"),
       quantityKg: numberValue(form, "quantityKg"),
       bagCount: optionalNumber(form, "bagCount"),
+      unitPrice: optionalNumber(form, "unitPrice"),
       batchNumber: optional(form, "batchNumber"),
       inventoryItemId: optional(form, "inventoryItemId"),
       warehouseId: optional(form, "warehouseId"),

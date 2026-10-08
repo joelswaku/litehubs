@@ -20,7 +20,7 @@ export interface PoultryContext {
   isOwner: boolean;
 }
 
-type Scope = "organization" | "province" | "site" | "self";
+export type Scope = "organization" | "province" | "site" | "self";
 type Input = Record<string, unknown>;
 type Row = Record<string, unknown>;
 type RecordResource = Exclude<PoultryResource, "houses" | "flocks">;
@@ -47,6 +47,8 @@ const records: Record<RecordResource, RecordConfig> = {
       cullsCount: "culls_count",
       temperatureC: "temperature_c",
       humidityPercent: "humidity_percent",
+      lightHours: "light_hours",
+      ammoniaPpm: "ammonia_ppm",
       notes: "notes",
     },
   },
@@ -80,6 +82,7 @@ const records: Record<RecordResource, RecordConfig> = {
       feedStage: "feed_stage",
       quantityKg: "quantity_kg",
       bagCount: "bag_count",
+      unitPrice: "unit_price",
       batchNumber: "batch_number",
       inventoryItemId: "inventory_item_id",
       warehouseId: "warehouse_id",
@@ -365,7 +368,7 @@ function mapRow(row: Row) {
   return mapped;
 }
 
-async function scopeOf(
+export async function scopeOf(
   client: PoolClient,
   context: PoultryContext,
 ): Promise<Scope> {
@@ -406,7 +409,7 @@ type EmployeePoultryLocation = {
 
 /** A self-scoped employee may work only at the site on their active employee
  * profile. They cannot browse another site or another employee's records. */
-async function ownEmployeePoultryLocation(
+export async function ownEmployeePoultryLocation(
   client: PoolClient,
   context: PoultryContext,
 ): Promise<EmployeePoultryLocation | null> {
@@ -449,7 +452,7 @@ async function assertEmployeePoultrySiteScope(
   }
 }
 
-function addScope(
+export function addScope(
   scope: Scope,
   context: PoultryContext,
   provinceSql: string,
@@ -461,7 +464,7 @@ function addScope(
   return `EXISTS (SELECT 1 FROM member_provinces mp WHERE mp.organization_id = $1 AND mp.member_id = $${values.length} AND mp.province_id = ${provinceSql})`;
 }
 
-function addSelfSiteScope(
+export function addSelfSiteScope(
   siteId: string,
   siteSql: string,
   values: unknown[],
@@ -1052,6 +1055,31 @@ async function assertActiveCompatibleHouse(
       "This house already has an active flock. Close or transfer that flock first.",
     );
 
+  // Vide sanitaire: a house must stay empty for its minimum downtime after the
+  // previous flock left, so the cleaning and disinfection can work.
+  const downtimeDays = Number(houseRow.min_downtime_days ?? 0);
+  if (downtimeDays > 0) {
+    const lastClosed = await client.query<{ days_empty: number }>(
+      `SELECT (CURRENT_DATE - MAX(COALESCE(closed_at, updated_at::date)))::int AS days_empty
+         FROM poultry_flocks
+        WHERE organization_id = $1 AND house_id = $2
+          AND status = ANY($3::text[])
+          AND ($4::uuid IS NULL OR id <> $4::uuid)
+       HAVING MAX(COALESCE(closed_at, updated_at::date)) IS NOT NULL`,
+      [
+        context.organizationId,
+        houseRow.id,
+        ["closed", "sold", "depleted"],
+        excludeFlockId ?? null,
+      ],
+    );
+    const daysEmpty = lastClosed.rows[0]?.days_empty;
+    if (daysEmpty != null && daysEmpty < downtimeDays && !context.isOwner)
+      throw new ConflictError(
+        `This house is still in its sanitary downtime (vide sanitaire): ${downtimeDays - daysEmpty} day(s) remaining. Only the company owner can start a flock earlier.`,
+      );
+  }
+
   if (birdCount > Number(houseRow.capacity)) {
     if (
       typeof capacityOverrideReason !== "string" ||
@@ -1216,10 +1244,11 @@ export async function createPoultryRecord(
              organization_id, site_id, code, name, house_type, capacity,
              is_active, operational_status, description, length_m, width_m,
              floor_area_m2, ventilation_type, water_system, feeding_system,
-             heating_system, notes, created_by_user_id, updated_by_user_id
+             heating_system, notes, created_by_user_id, updated_by_user_id,
+             min_downtime_days
            ) VALUES (
              $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-             $13, $14, $15, $16, $17, $18, $18
+             $13, $14, $15, $16, $17, $18, $18, $19
            ) RETURNING id`,
           [
             context.organizationId,
@@ -1240,6 +1269,7 @@ export async function createPoultryRecord(
             input.heatingSystem ?? null,
             input.notes ?? null,
             context.userId,
+            typeof input.minDowntimeDays === "number" ? input.minDowntimeDays : 14,
           ],
         );
         return mapRow(await house(client, context, result.rows[0]!.id));
@@ -1545,6 +1575,7 @@ export async function updatePoultryRecord(
             waterSystem: "water_system",
             feedingSystem: "feeding_system",
             heatingSystem: "heating_system",
+            minDowntimeDays: "min_downtime_days",
             notes: "notes",
           },
           prepared,

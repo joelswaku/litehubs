@@ -18,6 +18,9 @@ function parameter(req: Request, name: string): string {
 }
 
 const alertingResources = new Set<PoultryResource>([
+  "daily-records",
+  "feed",
+  "water",
   "mortality",
   "health",
   "weights",

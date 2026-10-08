@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { PoolClient } from "pg";
 import { withTenantContext } from "../../utils/tenant-query";
+import { poultryEarlyWarnings } from "../poultry/poultry-early-warnings";
 
 /** Context deliberately matches a workspace membership without depending on a module. */
 export interface AlertEvaluationContext {
@@ -238,6 +239,32 @@ async function poultrySignals(
       dedupeKey: `poultry:vaccine:${text(row, "flock_id")}:${text(row, "schedule_id")}`,
       observedValue: overdue,
       thresholdValue: 0,
+    });
+  }
+
+  // Early warnings: intake drops, mortality spikes and house climate.
+  const titles: Record<string, string> = {
+    water_drop: "Water intake drop",
+    feed_drop: "Feed intake drop",
+    mortality_spike: "Mortality spike",
+    temperature_out_of_range: "House temperature out of range",
+    humidity_out_of_range: "House humidity out of range",
+    ammonia_high: "Ammonia too high",
+  };
+  for (const warning of await poultryEarlyWarnings(client, organizationId)) {
+    if (warning.code === "records_missing") continue;
+    signals.push({
+      domain: "poultry",
+      severity: warning.severity,
+      title: `${titles[warning.code] ?? warning.code}: ${warning.flockName}`,
+      detail: warning.message,
+      provinceId: warning.provinceId,
+      siteId: warning.siteId,
+      subjectTable: "poultry_flocks",
+      subjectId: warning.flockId,
+      dedupeKey: `poultry:early:${warning.code}:${warning.flockId}:${warning.date}`,
+      observedValue: warning.observed,
+      thresholdValue: warning.reference,
     });
   }
   return signals;
