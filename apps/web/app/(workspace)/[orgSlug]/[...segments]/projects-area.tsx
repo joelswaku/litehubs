@@ -69,6 +69,7 @@ import {
 import { can, isOwner } from "@/lib/permissions";
 import { useLanguage } from "@/providers/language-provider";
 import { useSessionUser } from "@/stores/session-store";
+import { RecordPhoto } from "@/components/record-photo";
 
 type Row = Record<string, unknown> & { id: string };
 type BenefitTargets = {
@@ -6185,16 +6186,37 @@ function ProjectContent({
                   className="rounded-xl border border-border bg-surface-2/45 p-4"
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-ink">
-                        {String(item.name)}
-                      </p>
-                      <p className="mt-1 text-xs text-ink-secondary">
-                        {String(
-                          item.category ?? label(fr, "Material", "Matériau"),
-                        )}{" "}
-                        · {String(item.unit ?? "—")}
-                      </p>
+                    <div className="flex min-w-0 items-start gap-3">
+                      {item.id ? (
+                        <RecordPhoto
+                          orgSlug={orgSlug}
+                          resource="materials"
+                          recordId={String(item.id)}
+                          name={String(item.name ?? "")}
+                          fallback={
+                            item.inventoryItemId
+                              ? {
+                                  resource: "inventory-items",
+                                  recordId: String(item.inventoryItemId),
+                                }
+                              : null
+                          }
+                          editable={canControl("projects.update")}
+                          fr={fr}
+                          className="size-16"
+                        />
+                      ) : null}
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-ink">
+                          {String(item.name)}
+                        </p>
+                        <p className="mt-1 text-xs text-ink-secondary">
+                          {String(
+                            item.category ?? label(fr, "Material", "Matériau"),
+                          )}{" "}
+                          · {String(item.unit ?? "—")}
+                        </p>
+                      </div>
                     </div>
                     <div className="flex flex-wrap justify-end gap-2">
                       <span className="rounded-lg border border-border bg-surface-1 px-2.5 py-1 text-xs font-medium text-ink-secondary">

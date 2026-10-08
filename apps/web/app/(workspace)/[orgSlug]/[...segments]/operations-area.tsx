@@ -38,6 +38,12 @@ import {
 import { can, isOwner } from "@/lib/permissions";
 import { useLanguage } from "@/providers/language-provider";
 import { useSessionUser } from "@/stores/session-store";
+import {
+  RecordPhoto,
+  RECORD_PHOTO_ACCEPT,
+  recordPhotoKey,
+  replaceRecordPhoto,
+} from "@/components/record-photo";
 
 export type OperationsAreaKind =
   | "tasks"
@@ -258,6 +264,7 @@ function InventoryFactCard({
   badge,
   open,
   openLabel,
+  media,
 }: {
   title: string;
   subtitle?: string;
@@ -265,14 +272,16 @@ function InventoryFactCard({
   badge?: { label: string; good: boolean };
   open?: () => void;
   openLabel: string;
+  media?: ReactNode;
 }) {
   return (
     <button
       type="button"
       onClick={open}
       disabled={!open}
-      className="group flex w-full items-start justify-between gap-3 rounded-xl border border-border bg-surface-1 px-4 py-3.5 text-left shadow-sm transition enabled:hover:-translate-y-px enabled:hover:border-brand/35 enabled:hover:bg-surface-2 enabled:hover:shadow-md"
+      className="group flex w-full items-start gap-3 rounded-xl border border-border bg-surface-1 px-4 py-3.5 text-left shadow-sm transition enabled:hover:-translate-y-px enabled:hover:border-brand/35 enabled:hover:bg-surface-2 enabled:hover:shadow-md"
     >
+      {media}
       <span className="min-w-0 flex-1">
         <span className="flex flex-wrap items-center gap-2">
           <span className="truncate text-sm font-semibold text-ink">
@@ -3638,6 +3647,337 @@ function TasksWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
     </main>
   );
 }
+/** Full record of one stock item: photo, identity, stock per warehouse, movements. */
+function InventoryItemDetailDialog({
+  orgSlug,
+  item,
+  balances,
+  movements,
+  warehouseById,
+  fr,
+  canEditPhoto,
+  onClose,
+  onEdit,
+  onMove,
+}: {
+  orgSlug: string;
+  item: Row;
+  balances: Row[];
+  movements: Row[];
+  warehouseById: Map<string, Row>;
+  fr: boolean;
+  canEditPhoto: boolean;
+  onClose: () => void;
+  onEdit?: () => void;
+  onMove?: (warehouseId: string) => void;
+}) {
+  const locale = fr ? "fr-FR" : "en-US";
+  const unit = text(item.unit);
+  const heading = text(item.name) || text(item.code) || "—";
+  const quantity = (value: unknown) =>
+    `${amount(value).toLocaleString(locale)} ${unit}`.trim();
+  const totals = balances.reduce(
+    (sum, balance) => ({
+      onHand: sum.onHand + amount(balance.quantityOnHand),
+      reserved: sum.reserved + amount(balance.quantityReserved),
+      available: sum.available + amount(balance.quantityAvailable),
+    }),
+    { onHand: 0, reserved: 0, available: 0 },
+  );
+  const reorder =
+    item.reorderLevel === null ||
+    item.reorderLevel === undefined ||
+    item.reorderLevel === ""
+      ? null
+      : amount(item.reorderLevel);
+  const low = reorder !== null && totals.available <= reorder;
+  const category = text(item.category)
+    ? inventoryCategoryName(item.category, fr).replace(/^./, (letter) =>
+        letter.toLocaleUpperCase(),
+      )
+    : "—";
+  const facts: Array<[string, string]> = [
+    [copy(fr, "Code / SKU", "Code / SKU"), text(item.code) || "—"],
+    [copy(fr, "Category", "Catégorie"), category],
+    [copy(fr, "Unit", "Unité"), unit || "—"],
+    [
+      copy(fr, "Alert level", "Seuil d’alerte"),
+      reorder === null ? "—" : quantity(reorder),
+    ],
+    [
+      copy(fr, "Standard unit cost", "Coût unitaire standard"),
+      item.standardUnitCost === null ||
+      item.standardUnitCost === undefined ||
+      item.standardUnitCost === ""
+        ? "—"
+        : amount(item.standardUnitCost).toLocaleString(locale),
+    ],
+    [
+      copy(fr, "Status", "Statut"),
+      item.isActive === false
+        ? copy(fr, "Inactive", "Inactif")
+        : copy(fr, "Active", "Actif"),
+    ],
+  ];
+  const recent = [...movements]
+    .sort((left, right) =>
+      `${text(right.movementDate)}${text(right.createdAt)}`.localeCompare(
+        `${text(left.movementDate)}${text(left.createdAt)}`,
+      ),
+    )
+    .slice(0, 12);
+
+  return (
+    <div
+      className="fixed inset-0 z-[80] overflow-y-auto bg-ink/55 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={`inventory-item-${text(item.id)}`}
+      onMouseDown={onClose}
+    >
+      <section
+        className="mx-auto my-5 w-full max-w-5xl overflow-hidden rounded-2xl border border-border bg-surface-1 shadow-2xl"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header className="flex flex-wrap items-start justify-between gap-4 border-b border-border bg-surface-2 px-5 py-4 sm:px-6">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-[.13em] text-brand">
+              {copy(fr, "Stock item", "Fiche article")}
+            </p>
+            <h2
+              id={`inventory-item-${text(item.id)}`}
+              className="mt-1 truncate text-xl font-semibold text-ink sm:text-2xl"
+            >
+              {heading}
+            </h2>
+            <p className="mt-1 text-sm text-ink-secondary">
+              {text(item.code)}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {onEdit ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                onClick={onEdit}
+              >
+                <Settings2 />
+                {copy(fr, "Edit", "Modifier")}
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              size="icon-sm"
+              variant="ghost"
+              onClick={onClose}
+              aria-label={copy(fr, "Close", "Fermer")}
+            >
+              <X />
+            </Button>
+          </div>
+        </header>
+        <div className="max-h-[78vh] overflow-y-auto p-5 sm:p-6">
+          <div className="grid gap-5 lg:grid-cols-[minmax(14rem,18rem)_1fr]">
+            <section className="rounded-2xl border border-border bg-surface-2 p-4">
+              <RecordPhoto
+                orgSlug={orgSlug}
+                resource="inventory-items"
+                recordId={text(item.id)}
+                name={heading}
+                editable={canEditPhoto}
+                fr={fr}
+                className="aspect-square w-full"
+              />
+              <p className="mt-3 text-center text-xs text-ink-muted">
+                {canEditPhoto
+                  ? copy(
+                      fr,
+                      "Click the picture to add or change the photo.",
+                      "Cliquez sur l’image pour ajouter ou changer la photo.",
+                    )
+                  : copy(fr, "Item photo", "Photo de l’article")}
+              </p>
+            </section>
+            <div className="space-y-5">
+              <div className="grid gap-3 sm:grid-cols-3">
+                {[
+                  [
+                    copy(fr, "Available", "Disponible"),
+                    quantity(totals.available),
+                    low
+                      ? "border-critical/25 bg-critical/10 text-critical"
+                      : "border-good/25 bg-good/10 text-good-ink",
+                  ],
+                  [
+                    copy(fr, "On hand", "En stock"),
+                    quantity(totals.onHand),
+                    "border-brand/20 bg-brand/10 text-brand",
+                  ],
+                  [
+                    copy(fr, "Reserved", "Réservé"),
+                    quantity(totals.reserved),
+                    "border-border bg-surface-2 text-ink-secondary",
+                  ],
+                ].map(([title, value, tone]) => (
+                  <div key={title} className={`rounded-xl border px-4 py-3 ${tone}`}>
+                    <p className="text-[11px] font-semibold uppercase tracking-[.11em] opacity-80">
+                      {title}
+                    </p>
+                    <p className="mt-1 text-xl font-semibold">{value}</p>
+                  </div>
+                ))}
+              </div>
+              {low ? (
+                <p className="rounded-xl border border-critical/30 bg-critical/10 px-3 py-2 text-sm font-medium text-critical">
+                  {copy(
+                    fr,
+                    "Stock is at or below the alert level: plan a purchase.",
+                    "Le stock est au seuil d’alerte ou en dessous : prévoyez un achat.",
+                  )}
+                </p>
+              ) : null}
+              <section className="rounded-2xl border border-border bg-surface-1 p-4">
+                <h3 className="text-sm font-semibold text-ink">
+                  {copy(fr, "Item identity", "Identité de l’article")}
+                </h3>
+                <dl className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  {facts.map(([label, value]) => (
+                    <div
+                      key={label}
+                      className="min-w-0 rounded-xl bg-surface-2 px-3 py-2.5"
+                    >
+                      <dt className="text-xs font-medium text-ink-muted">
+                        {label}
+                      </dt>
+                      <dd className="mt-1 break-words text-sm font-semibold text-ink">
+                        {value}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </section>
+            </div>
+          </div>
+          <section className="mt-5 rounded-2xl border border-border bg-surface-1 p-4">
+            <h3 className="text-sm font-semibold text-ink">
+              {copy(fr, "Stock per warehouse", "Stock par entrepôt")}
+            </h3>
+            {balances.length ? (
+              <div className="mt-3 divide-y divide-border">
+                {balances.map((balance) => (
+                  <div
+                    key={text(balance.id)}
+                    className="flex flex-wrap items-center justify-between gap-3 py-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-ink">
+                        {text(balance.warehouseName)}
+                      </p>
+                      <p className="mt-0.5 truncate text-xs text-ink-secondary">
+                        {text(balance.siteName)}
+                        {text(balance.provinceName)
+                          ? ` · ${text(balance.provinceName)}`
+                          : ""}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      <span className="rounded-lg border border-good/25 bg-good/10 px-2.5 py-1 font-semibold text-good-ink">
+                        {copy(fr, "Available", "Disponible")} ·{" "}
+                        {quantity(balance.quantityAvailable)}
+                      </span>
+                      <span className="rounded-lg border border-border bg-surface-2 px-2.5 py-1 font-medium text-ink-secondary">
+                        {copy(fr, "Reserved", "Réservé")} ·{" "}
+                        {amount(balance.quantityReserved).toLocaleString(locale)}
+                      </span>
+                      {onMove ? (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => onMove(text(balance.warehouseId))}
+                        >
+                          {copy(fr, "Move", "Mouvement")}
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-2 text-sm text-ink-secondary">
+                {copy(
+                  fr,
+                  "No stock for this item yet.",
+                  "Pas encore de stock pour cet article.",
+                )}
+              </p>
+            )}
+          </section>
+          <section className="mt-5 rounded-2xl border border-border bg-surface-1 p-4">
+            <h3 className="text-sm font-semibold text-ink">
+              {copy(fr, "Latest movements", "Derniers mouvements")}
+            </h3>
+            {recent.length ? (
+              <div className="mt-3 divide-y divide-border">
+                {recent.map((movement) => {
+                  const outbound = inventoryMovementIsOutbound(
+                    movement.movementType,
+                  );
+                  const warehouse = warehouseById.get(
+                    text(movement.warehouseId),
+                  );
+                  return (
+                    <div
+                      key={text(movement.id)}
+                      className="flex flex-wrap items-center justify-between gap-3 py-2.5"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-ink">
+                          {inventoryMovementLabel(movement.movementType, fr)}
+                        </p>
+                        <p className="mt-0.5 truncate text-xs text-ink-secondary">
+                          {date(movement.movementDate)}
+                          {warehouse ? ` · ${text(warehouse.name)}` : ""}
+                          {text(movement.performedByName)
+                            ? ` · ${copy(fr, "by", "par")} ${text(movement.performedByName)}`
+                            : ""}
+                        </p>
+                      </div>
+                      <span
+                        className={`rounded-lg px-2.5 py-1 text-sm font-bold ${
+                          outbound
+                            ? "bg-critical/10 text-critical"
+                            : "bg-brand/10 text-brand"
+                        }`}
+                      >
+                        {outbound ? "−" : "+"}
+                        {quantity(Math.abs(amount(movement.quantityDelta)))}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="mt-2 text-sm text-ink-secondary">
+                {copy(fr, "No movements yet.", "Aucun mouvement pour l’instant.")}
+              </p>
+            )}
+          </section>
+          {text(item.notes) ? (
+            <section className="mt-5 rounded-2xl border border-border bg-surface-2 p-4">
+              <h3 className="text-sm font-semibold text-ink">
+                {copy(fr, "Notes", "Notes")}
+              </h3>
+              <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-ink-secondary">
+                {text(item.notes)}
+              </p>
+            </section>
+          ) : null}
+        </div>
+      </section>
+    </div>
+  );
+}
 function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
   const user = useSessionUser();
   const client = useQueryClient();
@@ -3678,6 +4018,11 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
     "item" | "warehouse" | null
   >(null);
   const [inventoryCreateVersion, setInventoryCreateVersion] = useState(0);
+  const [itemDetailId, setItemDetailId] = useState<string | null>(null);
+  const [itemEditSignal, setItemEditSignal] = useState<{
+    requestId: number;
+    row: Row | "new";
+  } | null>(null);
   const canRecordStockMovement = can(user, "inventory.movements.create");
   const canCreateInventoryItem = can(user, "inventory.items.create");
   const canCreateWarehouse = can(user, "inventory.warehouses.create");
@@ -3945,6 +4290,17 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
       label: copy(fr, "Active", "Actif"),
       type: "checkbox",
       defaultValue: true,
+    },
+    {
+      key: "photo",
+      label: copy(fr, "Item photo", "Photo de l’article"),
+      type: "file",
+      accept: RECORD_PHOTO_ACCEPT,
+      hint: copy(
+        fr,
+        "Optional. Replaces the current photo.",
+        "Facultative. Remplace la photo actuelle.",
+      ),
     },
     { key: "notes", label: copy(fr, "Notes", "Notes"), type: "textarea" },
   ];
@@ -4413,17 +4769,40 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
                   return (
                     <article
                       key={balance.id}
-                      className={`grid ${stockGridColumns} gap-3 px-4 py-4 transition-colors hover:bg-brand/[0.035] md:items-center md:gap-4`}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setItemDetailId(text(balance.itemId))}
+                      onKeyDown={(event) => {
+                        if (
+                          event.target === event.currentTarget &&
+                          (event.key === "Enter" || event.key === " ")
+                        ) {
+                          event.preventDefault();
+                          setItemDetailId(text(balance.itemId));
+                        }
+                      }}
+                      title={copy(fr, "Open the item record", "Ouvrir la fiche de l’article")}
+                      className={`grid ${stockGridColumns} cursor-pointer gap-3 px-4 py-4 transition-colors hover:bg-brand/[0.05] focus-visible:bg-brand/[0.05] focus-visible:outline-none md:items-center md:gap-4`}
                     >
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-ink">
-                          {text(balance.itemName)}
-                        </p>
-                        <p className="mt-1 truncate text-xs text-ink-secondary">
-                          {text(balance.itemCode) ||
-                            text(balance.itemCategory) ||
-                            copy(fr, "Inventory item", "Article de stock")}
-                        </p>
+                      <div className="flex min-w-0 items-center gap-3">
+                        <RecordPhoto
+                          orgSlug={orgSlug}
+                          resource="inventory-items"
+                          recordId={text(balance.itemId)}
+                          name={text(balance.itemName)}
+                          fr={fr}
+                          className="size-11"
+                        />
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-ink group-hover:text-brand">
+                            {text(balance.itemName)}
+                          </p>
+                          <p className="mt-1 truncate text-xs text-ink-secondary">
+                            {text(balance.itemCode) ||
+                              text(balance.itemCategory) ||
+                              copy(fr, "Inventory item", "Article de stock")}
+                          </p>
+                        </div>
                       </div>
                       <div className="min-w-0">
                         <p className="truncate text-sm font-medium text-ink">
@@ -4472,13 +4851,14 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
                           <Button
                             size="sm"
                             variant="secondary"
-                            onClick={() =>
+                            onClick={(event) => {
+                              event.stopPropagation();
                               setMovementDefaults({
                                 warehouseId: text(balance.warehouseId),
                                 itemId: text(balance.itemId),
                                 movementDate: today(),
-                              })
-                            }
+                              });
+                            }}
                           >
                             {copy(fr, "Move", "Mouvement")}
                           </Button>
@@ -4543,8 +4923,37 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
             )}
             rows={filteredItems}
             fields={["code", "category", "unit", "reorderLevel"]}
+            editSignal={itemEditSignal}
+            afterSave={async (item, files) => {
+              const photo = files?.photo;
+              if (!photo || !text(item.id)) return;
+              await replaceRecordPhoto(
+                orgSlug,
+                "inventory-items",
+                text(item.id),
+                photo,
+                text(item.name) || text(item.code),
+              );
+              await client.invalidateQueries({
+                queryKey: recordPhotoKey(
+                  orgSlug,
+                  "inventory-items",
+                  text(item.id),
+                ),
+              });
+            }}
             renderCard={(item, open) => (
               <InventoryFactCard
+                media={
+                  <RecordPhoto
+                    orgSlug={orgSlug}
+                    resource="inventory-items"
+                    recordId={text(item.id)}
+                    name={text(item.name)}
+                    fr={fr}
+                    className="size-14"
+                  />
+                }
                 title={text(item.name) || text(item.code) || "—"}
                 subtitle={text(item.code)}
                 facts={[
@@ -4566,8 +4975,8 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
                       : `${Number(item.reorderLevel).toLocaleString(fr ? "fr-FR" : "en-US")} ${text(item.unit)}`.trim(),
                   ],
                 ]}
-                open={canUpdateItems ? open : undefined}
-                openLabel={copy(fr, "Open", "Ouvrir")}
+                open={() => setItemDetailId(text(item.id))}
+                openLabel={copy(fr, "Details", "Détails")}
               />
             )}
             form={itemFields}
@@ -4762,6 +5171,68 @@ function InventoryWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
           )}
         </Panel>
       </QueryState>
+      {itemDetailId
+        ? (() => {
+            const detailItem =
+              itemById.get(itemDetailId) ??
+              (() => {
+                const balance = (balances.data ?? []).find(
+                  (row) => text(row.itemId) === itemDetailId,
+                );
+                return balance
+                  ? ({
+                      id: itemDetailId,
+                      name: balance.itemName,
+                      code: balance.itemCode,
+                      category: balance.itemCategory,
+                      unit: balance.itemUnit,
+                    } as Row)
+                  : null;
+              })();
+            if (!detailItem) return null;
+            return (
+              <InventoryItemDetailDialog
+                orgSlug={orgSlug}
+                item={detailItem}
+                balances={(balances.data ?? []).filter(
+                  (row) => text(row.itemId) === itemDetailId,
+                )}
+                movements={(movements.data ?? []).filter(
+                  (row) => text(row.itemId) === itemDetailId,
+                )}
+                warehouseById={warehouseById}
+                fr={fr}
+                canEditPhoto={canUpdateItems}
+                onClose={() => setItemDetailId(null)}
+                onEdit={
+                  canUpdateItems && itemById.has(itemDetailId)
+                    ? () => {
+                        const row = itemById.get(itemDetailId);
+                        setItemDetailId(null);
+                        if (row)
+                          setItemEditSignal((current) => ({
+                            requestId: (current?.requestId ?? 0) + 1,
+                            row,
+                          }));
+                      }
+                    : undefined
+                }
+                onMove={
+                  canRecordStockMovement
+                    ? (warehouseId) => {
+                        setItemDetailId(null);
+                        setMovementDefaults({
+                          warehouseId,
+                          itemId: itemDetailId,
+                          movementDate: today(),
+                        });
+                      }
+                    : undefined
+                }
+              />
+            );
+          })()
+        : null}
       {movementDefaults ? (
         <Editor
           title={copy(
