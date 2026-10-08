@@ -1311,9 +1311,15 @@ export async function recordLearnerBlockProgress(
             ),
           )
         : 15;
-      watched += Math.min(Math.max(0, nextPosition - position), elapsed + 15);
+      // Watched time is credited at real speed only: the progress made since
+      // the last heartbeat can never exceed the time that really passed (plus
+      // a small network margin). Playing faster therefore earns less than the
+      // video's length and the minimum watched percentage is not reached.
+      const duration =
+        asNumber(content.durationSeconds) || asNumber(input.durationSeconds);
+      watched += Math.min(Math.max(0, nextPosition - position), elapsed + 3);
+      if (duration > 0) watched = Math.min(watched, Math.ceil(duration));
       position = nextPosition;
-      const duration = asNumber(content.durationSeconds);
       if (
         duration > 0 &&
         (watched / duration) * 100 >= Number(block.minimum_watched_percent)

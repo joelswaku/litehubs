@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Award,
   BookOpenCheck,
+  MessageCircleQuestion,
   CalendarClock,
   CheckCircle2,
   ChevronRight,
@@ -263,7 +264,9 @@ export function TrainingArea({ orgSlug }: { orgSlug: string }) {
   const canCreate = can(user, "training.create");
   const canUpdate = can(user, "training.create");
   const canReadEmployees = can(user, "employees.read");
-  const [tab, setTab] = useState<"catalogue" | "assignments" | "history">(
+  const [tab, setTab] = useState<
+    "catalogue" | "assignments" | "history" | "questions"
+  >(
     "catalogue",
   );
   const [selected, setSelected] = useState<Course | null>(null);
@@ -589,6 +592,11 @@ export function TrainingArea({ orgSlug }: { orgSlug: string }) {
             label(fr, "Learning paths", "Parcours"),
           ],
           ["history", Award, label(fr, "Certificates", "Certificats")],
+          [
+            "questions",
+            MessageCircleQuestion,
+            label(fr, "Learner questions", "Questions des apprenants"),
+          ],
         ].map(([value, Icon, text]) => (
           <button
             key={String(value)}
@@ -1067,6 +1075,9 @@ export function TrainingArea({ orgSlug }: { orgSlug: string }) {
             </div>
           </aside>
         </section>
+      ) : null}
+      {tab === "questions" ? (
+        <LearnerQuestionsInbox orgSlug={orgSlug} fr={fr} />
       ) : null}
       {tab === "history" ? (
         <section className="overflow-hidden rounded-2xl border border-border bg-surface-1 shadow-sm">
@@ -2567,6 +2578,10 @@ function ProfessionalCourseBuilder({
                       form.get("minimumWatchedPercent") || 90,
                     ),
                     allowDownload: form.get("allowDownload") === "on",
+                    captions:
+                      String(form.get("captions") ?? "").trim() || null,
+                    transcript:
+                      String(form.get("transcript") ?? "").trim() || null,
                     sortOrder: Number(
                       form.get("sortOrder") ||
                         (selectedLesson.blocks?.length ?? 0) + 1,
@@ -2778,6 +2793,46 @@ function ProfessionalCourseBuilder({
                     />
                   </Field>
                 </div>
+                <Field
+                  label={label(
+                    fr,
+                    "Video subtitles (WebVTT)",
+                    "Sous-titres de la vidéo (WebVTT)",
+                  )}
+                  hint={label(
+                    fr,
+                    "Optional, for video or audio. One timing line then the text, e.g. 00:00:00.000 --> 00:00:04.000 then Welcome. Learners turn them on with the CC button.",
+                    "Facultatif, pour une vidéo ou un audio. Une ligne de temps puis le texte, par ex. 00:00:00.000 --> 00:00:04.000 puis Bienvenue. L’apprenant les affiche avec le bouton CC.",
+                  )}
+                >
+                  <Textarea
+                    name="captions"
+                    rows={4}
+                    defaultValue={editingBlock?.captions ?? ""}
+                    placeholder={"WEBVTT\n\n00:00:00.000 --> 00:00:04.000\nBienvenue"}
+                  />
+                </Field>
+                <Field
+                  label={label(fr, "Transcript", "Transcription")}
+                  hint={label(
+                    fr,
+                    "Optional full text of the video or audio, shown under the player.",
+                    "Facultatif : le texte complet de la vidéo ou de l’audio, affiché sous le lecteur.",
+                  )}
+                >
+                  <Textarea
+                    name="transcript"
+                    rows={3}
+                    defaultValue={editingBlock?.transcript ?? ""}
+                  />
+                </Field>
+                <p className="text-xs leading-5 text-ink-secondary">
+                  {label(
+                    fr,
+                    "Text formatting: start a line with # for a title, - for a bullet, 1. for a step; write **bold** or *italic*.",
+                    "Mise en forme du texte : commencez une ligne par # pour un titre, - pour une puce, 1. pour une étape ; écrivez **gras** ou *italique*.",
+                  )}
+                </p>
                 <div className="flex flex-wrap gap-4 text-sm text-ink">
                   <label className="flex items-center gap-2">
                     <input name="isRequired" type="checkbox" defaultChecked={editingBlock ? Boolean(editingBlock.is_required) : true} />
@@ -3995,5 +4050,175 @@ function RecordDialog({
         </div>
       </form>
     </Dialog>
+  );
+}
+
+type LearnerQuestion = {
+  id: string;
+  lessonTitle: string | null;
+  courseName: string | null;
+  employeeName: string | null;
+  question: string;
+  answer: string | null;
+  answeredByName: string | null;
+  answeredAt: string | null;
+  createdAt: string;
+};
+
+/** Questions learners asked about a lesson; the trainer answers them here. */
+function LearnerQuestionsInbox({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
+  const client = useQueryClient();
+  const [status, setStatus] = useState<"open" | "answered" | "all">("open");
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const key = ["training-lesson-questions", orgSlug, status];
+  const list = useQuery({
+    queryKey: key,
+    queryFn: () =>
+      get<{ questions: LearnerQuestion[] }>(
+        orgUrl(orgSlug, `training/lesson-questions?status=${status}`),
+      ),
+  });
+  const answer = useMutation({
+    mutationFn: ({ id, text }: { id: string; text: string }) =>
+      patch(orgUrl(orgSlug, `training/lesson-questions/${id}/answer`), {
+        answer: text,
+      }),
+    onSuccess: (_result, variables) => {
+      setDrafts((current) => {
+        const next = { ...current };
+        delete next[variables.id];
+        return next;
+      });
+      void client.invalidateQueries({
+        queryKey: ["training-lesson-questions", orgSlug],
+      });
+    },
+  });
+  const questions = list.data?.questions ?? [];
+  const when = (value: string) =>
+    new Date(value).toLocaleString(fr ? "fr-FR" : "en-US", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+  return (
+    <section className="overflow-hidden rounded-2xl border border-border bg-surface-1 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border p-5">
+        <div>
+          <h2 className="text-base font-semibold text-ink">
+            {label(fr, "Learner questions", "Questions des apprenants")}
+          </h2>
+          <p className="mt-1 text-xs leading-5 text-ink-secondary">
+            {label(
+              fr,
+              "Employees ask from a lesson; your answer appears in their lesson and they are notified.",
+              "Les employés posent leur question depuis une leçon ; votre réponse s’affiche dans leur leçon et ils sont prévenus.",
+            )}
+          </p>
+        </div>
+        <div className="flex gap-1 rounded-xl border border-border bg-surface-2 p-1">
+          {(
+            [
+              ["open", label(fr, "To answer", "À répondre")],
+              ["answered", label(fr, "Answered", "Répondues")],
+              ["all", label(fr, "All", "Toutes")],
+            ] as const
+          ).map(([value, text]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setStatus(value)}
+              className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${status === value ? "bg-brand text-white" : "text-ink-secondary hover:text-ink"}`}
+            >
+              {text}
+            </button>
+          ))}
+        </div>
+      </div>
+      {list.isPending ? (
+        <div className="p-5">
+          <SkeletonCard rows={4} />
+        </div>
+      ) : list.isError ? (
+        <div className="p-5">
+          <ErrorState
+            description={list.error instanceof ApiError ? list.error.message : undefined}
+            onRetry={() => void list.refetch()}
+          />
+        </div>
+      ) : questions.length ? (
+        <ul className="divide-y divide-border">
+          {questions.map((item) => (
+            <li key={item.id} className="p-5">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-brand">
+                    {item.courseName} · {item.lessonTitle}
+                  </p>
+                  <p className="mt-1 text-sm font-medium text-ink">{item.question}</p>
+                  <p className="mt-1 text-xs text-ink-muted">
+                    {item.employeeName ?? "—"} · {when(item.createdAt)}
+                  </p>
+                </div>
+                {item.answer ? (
+                  <Badge variant="good">{label(fr, "Answered", "Répondue")}</Badge>
+                ) : (
+                  <Badge variant="warning">{label(fr, "To answer", "À répondre")}</Badge>
+                )}
+              </div>
+              {item.answer ? (
+                <div className="mt-3 rounded-xl border border-good/25 bg-good/10 p-3 text-sm">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-good-ink">
+                    {label(fr, "Answer", "Réponse")}
+                    {item.answeredByName ? ` · ${item.answeredByName}` : ""}
+                    {item.answeredAt ? ` · ${when(item.answeredAt)}` : ""}
+                  </p>
+                  <p className="mt-1 whitespace-pre-wrap text-ink">{item.answer}</p>
+                </div>
+              ) : (
+                <div className="mt-3">
+                  <Textarea
+                    rows={3}
+                    value={drafts[item.id] ?? ""}
+                    onChange={(event) =>
+                      setDrafts((current) => ({
+                        ...current,
+                        [item.id]: event.target.value,
+                      }))
+                    }
+                    placeholder={label(fr, "Your answer…", "Votre réponse…")}
+                  />
+                  <Button
+                    className="mt-2"
+                    size="sm"
+                    disabled={!(drafts[item.id] ?? "").trim()}
+                    loading={answer.isPending && answer.variables?.id === item.id}
+                    onClick={() =>
+                      answer.mutate({ id: item.id, text: (drafts[item.id] ?? "").trim() })
+                    }
+                  >
+                    {label(fr, "Send the answer", "Envoyer la réponse")}
+                  </Button>
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div className="p-5">
+          <EmptyState
+            title={
+              status === "open"
+                ? label(fr, "No question waiting", "Aucune question en attente")
+                : label(fr, "No question yet", "Aucune question pour l’instant")
+            }
+            description={label(
+              fr,
+              "Questions asked from a lesson appear here.",
+              "Les questions posées depuis une leçon apparaissent ici.",
+            )}
+          />
+        </div>
+      )}
+    </section>
   );
 }

@@ -275,6 +275,8 @@ export const learnerBlockProgressSchema = z.object({
     "response",
   ]),
   videoPositionSeconds: z.coerce.number().int().min(0).max(172800).optional(),
+  /** Length of the media as read by the player; used when the course did not store it. */
+  durationSeconds: z.coerce.number().min(1).max(172800).optional(),
   checklistItemIds: z
     .array(z.string().trim().min(1).max(120))
     .max(100)
@@ -306,3 +308,19 @@ export type ApplyAiOutlineInput = z.infer<typeof applyAiOutlineSchema>;
 export type LearnerBlockProgressInput = z.infer<
   typeof learnerBlockProgressSchema
 >;
+
+/* Learner notes and questions about a lesson. */
+export const learnerLessonParams = lmsAssignmentParams.extend({ lessonId: id });
+export const lessonNoteSchema = z
+  .object({ note: z.string().max(20000) })
+  .strict();
+export const lessonQuestionSchema = z
+  .object({ question: text(4000) })
+  .strict();
+export const lessonQuestionParams = orgParams.extend({ questionId: id });
+export const lessonQuestionAnswerSchema = z
+  .object({ answer: text(8000) })
+  .strict();
+export const lessonQuestionQuery = z.object({
+  status: z.enum(["open", "answered", "all"]).optional(),
+});

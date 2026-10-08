@@ -36,7 +36,7 @@ import {
   NoAccessState,
   SkeletonCard,
 } from "@/components/ui/states";
-import { ApiError, get, orgApiUrl, orgUrl, patch, post } from "@/lib/api";
+import { ApiError, get, orgApiUrl, orgUrl, patch, post, put } from "@/lib/api";
 import { can } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/providers/language-provider";
@@ -1512,6 +1512,15 @@ function ProfessionalTrainingReader({
               <ArrowRight className="size-4" />
             </Button>
           </div>
+          <div className="mt-4">
+            <LessonNotesPanel
+              key={lesson.id}
+              orgSlug={orgSlug}
+              assignmentId={assignmentId}
+              lessonId={lesson.id}
+              fr={fr}
+            />
+          </div>
         </article>
         </div>
       </section>
@@ -1710,6 +1719,51 @@ function ProfessionalBlockReader({
   );
   const [isPlaying, setIsPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
+  const [duration, setDuration] = useState(0);
+  const [currentTime, setCurrentTime] = useState(
+    Math.max(0, Number(block.progress.videoPositionSeconds ?? 0)),
+  );
+  const [furthest, setFurthest] = useState(
+    Math.max(0, Number(block.progress.videoPositionSeconds ?? 0)),
+  );
+  const [captionsOn, setCaptionsOn] = useState(true);
+  // Captions are stored as WebVTT text on the block; the player needs a URL.
+  const captionsUrl = useMemo(() => {
+    const vtt = (block.captions ?? "").trim();
+    if (!vtt) return null;
+    const textTrack = vtt.startsWith("WEBVTT") ? vtt : `WEBVTT\n\n${vtt}`;
+    // A data URL needs no clean-up (a blob URL can be revoked too early).
+    return `data:text/vtt;charset=utf-8,${encodeURIComponent(textTrack)}`;
+  }, [block.captions]);
+  useEffect(() => {
+    const track = videoRef.current?.textTracks?.[0];
+    if (track) track.mode = captionsOn ? "showing" : "hidden";
+  }, [captionsOn, captionsUrl]);
+  /** Progress is earned at normal speed only: any other rate is reset. */
+  const keepNormalSpeed = (video: HTMLVideoElement) => {
+    if (video.playbackRate !== 1) video.playbackRate = 1;
+    if (video.defaultPlaybackRate !== 1) video.defaultPlaybackRate = 1;
+  };
+  const heartbeat = (position: number) =>
+    action({
+      action: "heartbeat",
+      videoPositionSeconds: position,
+      ...(duration > 0 ? { durationSeconds: Math.ceil(duration) } : {}),
+    });
+  const seekTo = (seconds: number) => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.currentTime = Math.max(0, Math.min(seconds, maxWatchedRef.current));
+  };
+  const watchedSeconds = Math.max(0, Number(block.progress.watchedSeconds ?? 0));
+  const requiredPercent = Math.max(
+    1,
+    Math.min(100, Number(block.minimumWatchedPercent || 90)),
+  );
+  const watchedPercent =
+    duration > 0
+      ? Math.min(100, Math.round((watchedSeconds / duration) * 100))
+      : 0;
   const videoFrameRef = useRef<HTMLDivElement | null>(null);
   const [videoFullscreen, setVideoFullscreen] = useState(false);
   useEffect(() => {
@@ -1770,16 +1824,18 @@ function ProfessionalBlockReader({
         ) : null}
       </div>
       <div className={focusMode && block.type === "video" ? "p-0" : "p-4"}>
-        {body ? (
-          <p
+        {body && block.type === "heading" ? (
+          <h3
             className={
               focusMode
-                ? "mx-auto max-w-4xl whitespace-pre-wrap text-base leading-8 text-ink sm:text-lg sm:leading-9"
-                : "whitespace-pre-wrap text-sm leading-7 text-ink-secondary"
+                ? "mx-auto max-w-4xl text-2xl font-semibold tracking-tight text-ink sm:text-3xl"
+                : "text-xl font-semibold tracking-tight text-ink sm:text-2xl"
             }
           >
             {body}
-          </p>
+          </h3>
+        ) : body ? (
+          <RichText text={body} large={focusMode} />
         ) : null}
         {block.type === "callout" ? (
           <div className="mt-3 rounded-xl border border-warning/30 bg-warning/10 p-3 text-sm text-ink">
@@ -1809,22 +1865,32 @@ function ProfessionalBlockReader({
               }
               style={
                 focusMode && !videoFullscreen
-                  ? { height: "calc(100dvh - 13.5rem)" }
+                  ? { height: "calc(100dvh - 17rem)" }
                   : undefined
               }
               src={secureUrl}
+              controlsList="nodownload noplaybackrate"
+              disablePictureInPicture
+              onContextMenu={(event) => event.preventDefault()}
               onLoadedMetadata={(event) => {
                 const video = event.currentTarget;
+                keepNormalSpeed(video);
+                if (Number.isFinite(video.duration)) setDuration(video.duration);
                 const savedPosition = Math.max(
                   0,
                   Number(block.progress.videoPositionSeconds ?? 0),
                 );
                 maxWatchedRef.current = savedPosition;
+                setFurthest(savedPosition);
                 if (savedPosition > 0 && savedPosition < video.duration) {
                   video.currentTime = savedPosition;
                 }
               }}
-              onPlay={() => setIsPlaying(true)}
+              onRateChange={(event) => keepNormalSpeed(event.currentTarget)}
+              onPlay={(event) => {
+                keepNormalSpeed(event.currentTarget);
+                setIsPlaying(true);
+              }}
               onSeeking={(event) => {
                 const video = event.currentTarget;
                 const maximum = maxWatchedRef.current;
@@ -1833,25 +1899,82 @@ function ProfessionalBlockReader({
                 }
               }}
               onTimeUpdate={(event) => {
-                const current = Math.floor(event.currentTarget.currentTime);
+                const exact = event.currentTarget.currentTime;
+                const current = Math.floor(exact);
+                setCurrentTime(exact);
                 maxWatchedRef.current = Math.max(maxWatchedRef.current, current);
+                setFurthest(maxWatchedRef.current);
                 const last = heartbeatRef.current[block.id] ?? 0;
                 if (current - last >= 12) {
                   heartbeatRef.current[block.id] = current;
-                  action({ action: "heartbeat", videoPositionSeconds: current });
+                  heartbeat(current);
                 }
               }}
+              onEnded={(event) =>
+                heartbeat(Math.floor(event.currentTarget.currentTime))
+              }
               onVolumeChange={(event) => setMuted(event.currentTarget.muted)}
               onPause={(event) => {
                 setIsPlaying(false);
-                action({
-                  action: "heartbeat",
-                  videoPositionSeconds: Math.floor(
-                    event.currentTarget.currentTime,
-                  ),
-                });
+                heartbeat(Math.floor(event.currentTarget.currentTime));
               }}
-            />
+            >
+              {captionsUrl ? (
+                <track
+                  kind="subtitles"
+                  src={captionsUrl}
+                  srcLang={fr ? "fr" : "en"}
+                  label={label(fr, "Subtitles", "Sous-titres")}
+                  default
+                />
+              ) : null}
+            </video>
+            <div className="absolute inset-x-3 bottom-[60px] z-10 rounded-lg bg-black/55 px-3 pt-2 pb-1 backdrop-blur-sm sm:inset-x-6">
+              <div
+                className="relative h-2 cursor-pointer rounded-full bg-white/25"
+                role="slider"
+                tabIndex={0}
+                aria-label={label(fr, "Video position", "Position dans la vidéo")}
+                aria-valuemin={0}
+                aria-valuemax={Math.round(duration)}
+                aria-valuenow={Math.round(currentTime)}
+                onClick={(event) => {
+                  if (!duration) return;
+                  const box = event.currentTarget.getBoundingClientRect();
+                  seekTo(((event.clientX - box.left) / box.width) * duration);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "ArrowLeft") seekTo(currentTime - 5);
+                  if (event.key === "ArrowRight") seekTo(currentTime + 5);
+                }}
+                title={label(
+                  fr,
+                  "You can go back, but not beyond what you have already watched.",
+                  "Vous pouvez revenir en arrière, mais pas au-delà de ce que vous avez déjà regardé.",
+                )}
+              >
+                <div
+                  className="absolute inset-y-0 left-0 rounded-full bg-white/45"
+                  style={{
+                    width: `${duration ? Math.min(100, (furthest / duration) * 100) : 0}%`,
+                  }}
+                />
+                <div
+                  className="absolute inset-y-0 left-0 rounded-full bg-brand"
+                  style={{
+                    width: `${duration ? Math.min(100, (currentTime / duration) * 100) : 0}%`,
+                  }}
+                />
+              </div>
+              <div className="mt-1 flex justify-between text-[11px] font-medium text-white">
+                <span>{clock(currentTime)}</span>
+                <span>
+                  {duration
+                    ? `${clock(duration)} · ${label(fr, "remaining", "reste")} ${clock(Math.max(0, duration - currentTime))}`
+                    : "—"}
+                </span>
+              </div>
+            </div>
             <div className="absolute bottom-[22px] left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5">
               <button
                 type="button"
@@ -1895,9 +2018,49 @@ function ProfessionalBlockReader({
               >
                 {videoFullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
               </button>
-
+              {captionsUrl ? (
+                <button
+                  type="button"
+                  onClick={() => setCaptionsOn((value) => !value)}
+                  aria-pressed={captionsOn}
+                  aria-label={label(fr, "Subtitles", "Sous-titres")}
+                  title={label(fr, "Subtitles", "Sous-titres")}
+                  className={`grid h-8 place-items-center rounded-full border px-2 text-[11px] font-bold shadow-md backdrop-blur-sm transition ${captionsOn ? "border-white bg-white text-black" : "border-white/30 bg-black/70 text-white hover:bg-black/90"}`}
+                >
+                  CC
+                </button>
+              ) : null}
             </div>
-
+          </div>
+        ) : null}
+        {secureUrl && block.type === "video" && !complete ? (
+          <div className={`mt-2 rounded-xl border border-brand/20 bg-brand/[.04] px-3 py-2 ${focusMode ? "mx-2 mb-2" : ""}`}>
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+              <span className="font-medium text-ink">
+                {label(
+                  fr,
+                  `Watch at least ${requiredPercent}% of the video at normal speed.`,
+                  `Regardez au moins ${requiredPercent} % de la vidéo à vitesse normale.`,
+                )}
+              </span>
+              <span className="font-semibold text-brand">
+                {duration
+                  ? label(
+                      fr,
+                      `Watched: ${watchedPercent}% / ${requiredPercent}%`,
+                      `Regardé : ${watchedPercent} % / ${requiredPercent} %`,
+                    )
+                  : label(fr, "Loading…", "Chargement…")}
+              </span>
+            </div>
+            <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-surface-3">
+              <div
+                className="h-full rounded-full bg-good transition-[width]"
+                style={{
+                  width: `${Math.min(100, (watchedPercent / requiredPercent) * 100)}%`,
+                }}
+              />
+            </div>
           </div>
         ) : null}
         {secureUrl && block.type === "audio" ? (
@@ -1915,7 +2078,15 @@ function ProfessionalBlockReader({
             }}
           />
         ) : null}
-        {secureUrl && ["document", "file", "image"].includes(block.type) ? (
+        {secureUrl && block.type === "image" ? (
+          <ZoomableImage
+            src={secureUrl}
+            alt={block.title ?? label(fr, "Training image", "Image de formation")}
+            fr={fr}
+            onOpen={() => action({ action: "open" })}
+          />
+        ) : null}
+        {secureUrl && ["document", "file"].includes(block.type) ? (
           <iframe
             title={block.title ?? "Training document"}
             src={secureUrl}
@@ -1944,6 +2115,23 @@ function ProfessionalBlockReader({
               {block.transcript}
             </p>
           </details>
+        ) : null}
+        {items.length && block.type === "checklist" && !complete ? (
+          <p className="mt-4 text-xs font-medium text-ink-secondary">
+            {label(fr, "Checked", "Cochés")} :{" "}
+            <b className="text-ink">
+              {Array.isArray(block.progress.checklistState)
+                ? block.progress.checklistState.length
+                : 0}{" "}
+              / {items.length}
+            </b>{" "}
+            ·{" "}
+            {label(
+              fr,
+              "check every required item to complete this step.",
+              "cochez chaque élément requis pour terminer cette étape.",
+            )}
+          </p>
         ) : null}
         {items.length ? (
           <div className="mt-4 space-y-2">
@@ -2221,6 +2409,346 @@ function ProfessionalBlockReader({
               "Cette leçon attend la vérification d’un responsable après l’observation de votre travail.",
             )}
           </p>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+/** 75 → "1:15", 3725 → "1:02:05". */
+function clock(seconds: number) {
+  const total = Math.max(0, Math.floor(seconds || 0));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const rest = String(total % 60).padStart(2, "0");
+  return hours
+    ? `${hours}:${String(minutes).padStart(2, "0")}:${rest}`
+    : `${minutes}:${rest}`;
+}
+
+/** **bold** and *italic* inside one line, rendered as React text (never HTML). */
+function inlineMarks(text: string, keyPrefix: string) {
+  const parts: React.ReactNode[] = [];
+  const pattern = /(\*\*[^*]+\*\*|\*[^*\s][^*]*\*)/g;
+  let last = 0;
+  let index = 0;
+  for (const match of text.matchAll(pattern)) {
+    const start = match.index ?? 0;
+    if (start > last) parts.push(text.slice(last, start));
+    const token = match[0];
+    parts.push(
+      token.startsWith("**") ? (
+        <strong key={`${keyPrefix}-${index}`} className="font-semibold text-ink">
+          {token.slice(2, -2)}
+        </strong>
+      ) : (
+        <em key={`${keyPrefix}-${index}`}>{token.slice(1, -1)}</em>
+      ),
+    );
+    last = start + token.length;
+    index += 1;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return parts;
+}
+
+/**
+ * Lesson text with light formatting written by the trainer:
+ * "# " / "## " titles, "- " bullets, "1. " numbered steps, **bold**, *italic*,
+ * blank line = new paragraph. Plain text keeps working unchanged.
+ */
+function RichText({ text, large }: { text: string; large: boolean }) {
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  const blocks: React.ReactNode[] = [];
+  let paragraph: string[] = [];
+  let list: { ordered: boolean; items: string[] } | null = null;
+  const bodyClass = large
+    ? "text-base leading-8 text-ink sm:text-lg sm:leading-9"
+    : "text-sm leading-7 text-ink-secondary";
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    const key = `p-${blocks.length}`;
+    blocks.push(
+      <p key={key} className={`${bodyClass} whitespace-pre-wrap`}>
+        {inlineMarks(paragraph.join("\n"), key)}
+      </p>,
+    );
+    paragraph = [];
+  };
+  const flushList = () => {
+    if (!list) return;
+    const key = `l-${blocks.length}`;
+    const ListTag = list.ordered ? "ol" : "ul";
+    blocks.push(
+      <ListTag
+        key={key}
+        className={`${bodyClass} space-y-1 pl-6 ${list.ordered ? "list-decimal" : "list-disc"}`}
+      >
+        {list.items.map((item, index) => (
+          <li key={`${key}-${index}`}>{inlineMarks(item, `${key}-${index}`)}</li>
+        ))}
+      </ListTag>,
+    );
+    list = null;
+  };
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    const heading = /^(#{1,3})\s+(.*)$/.exec(line);
+    const bullet = /^\s*[-*•]\s+(.*)$/.exec(line);
+    const numbered = /^\s*\d+[.)]\s+(.*)$/.exec(line);
+    if (heading) {
+      flushParagraph();
+      flushList();
+      const level = heading[1]!.length;
+      const key = `h-${blocks.length}`;
+      blocks.push(
+        <p
+          key={key}
+          role="heading"
+          aria-level={level + 2}
+          className={`font-semibold tracking-tight text-ink ${
+            level === 1
+              ? large ? "text-2xl" : "text-xl"
+              : level === 2
+                ? large ? "text-xl" : "text-lg"
+                : large ? "text-lg" : "text-base"
+          }`}
+        >
+          {inlineMarks(heading[2]!, key)}
+        </p>,
+      );
+    } else if (bullet || numbered) {
+      flushParagraph();
+      const ordered = Boolean(numbered);
+      if (list && list.ordered !== ordered) flushList();
+      if (!list) list = { ordered, items: [] };
+      list.items.push((bullet ?? numbered)![1]!);
+    } else if (!line.trim()) {
+      flushParagraph();
+      flushList();
+    } else {
+      flushList();
+      paragraph.push(line);
+    }
+  }
+  flushParagraph();
+  flushList();
+  return (
+    <div className={`space-y-3 ${large ? "mx-auto max-w-4xl" : ""}`}>{blocks}</div>
+  );
+}
+
+/** A lesson image: shown in full, a click opens it large (Échap / click closes). */
+function ZoomableImage({
+  src,
+  alt,
+  fr,
+  onOpen,
+}: {
+  src: string;
+  alt: string;
+  fr: boolean;
+  onOpen: () => void;
+}) {
+  const [zoomed, setZoomed] = useState(false);
+  useEffect(() => {
+    if (!zoomed) return;
+    const close = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setZoomed(false);
+    };
+    document.addEventListener("keydown", close);
+    return () => document.removeEventListener("keydown", close);
+  }, [zoomed]);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => {
+          setZoomed(true);
+          onOpen();
+        }}
+        className="group relative mt-3 block w-full overflow-hidden rounded-xl border border-border bg-surface-2"
+        aria-label={label(fr, "Enlarge the image", "Agrandir l’image")}
+      >
+        {/* Private training file served by the API. */}
+        <img src={src} alt={alt} className="mx-auto max-h-[32rem] w-auto object-contain" />
+        <span className="absolute right-2 bottom-2 inline-flex items-center gap-1 rounded-full bg-black/65 px-2.5 py-1 text-[11px] font-semibold text-white opacity-80 group-hover:opacity-100">
+          <Maximize2 className="size-3" />
+          {label(fr, "Enlarge", "Agrandir")}
+        </span>
+      </button>
+      {zoomed ? (
+        <div
+          className="fixed inset-0 z-[90] grid place-items-center bg-black/85 p-3"
+          role="dialog"
+          aria-modal="true"
+          aria-label={alt}
+          onClick={() => setZoomed(false)}
+        >
+          <img src={src} alt={alt} className="max-h-[94dvh] max-w-[96vw] rounded-lg object-contain" />
+          <button
+            type="button"
+            className="absolute top-3 right-3 rounded-full bg-white/90 px-3 py-1.5 text-sm font-semibold text-black"
+            onClick={() => setZoomed(false)}
+          >
+            {label(fr, "Close", "Fermer")}
+          </button>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+type LessonQuestion = {
+  id: string;
+  question: string;
+  answer: string | null;
+  answeredByName: string | null;
+  answeredAt: string | null;
+  createdAt: string;
+};
+
+/** Private notes for one lesson and questions to the trainer. */
+function LessonNotesPanel({
+  orgSlug,
+  assignmentId,
+  lessonId,
+  fr,
+}: {
+  orgSlug: string;
+  assignmentId: string;
+  lessonId: string;
+  fr: boolean;
+}) {
+  const client = useQueryClient();
+  const key = ["my-training-notes", orgSlug, assignmentId, lessonId];
+  const data = useQuery({
+    queryKey: key,
+    queryFn: () =>
+      get<{ note: string; noteUpdatedAt: string | null; questions: LessonQuestion[] }>(
+        orgUrl(orgSlug, `my-trainings/${assignmentId}/lessons/${lessonId}/notes`),
+      ),
+  });
+  const [note, setNote] = useState<string | null>(null);
+  const [question, setQuestion] = useState("");
+  const saveNote = useMutation({
+    mutationFn: (value: string) =>
+      put(orgUrl(orgSlug, `my-trainings/${assignmentId}/lessons/${lessonId}/note`), {
+        note: value,
+      }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: key }),
+  });
+  const ask = useMutation({
+    mutationFn: (value: string) =>
+      post(orgUrl(orgSlug, `my-trainings/${assignmentId}/lessons/${lessonId}/questions`), {
+        question: value,
+      }),
+    onSuccess: () => {
+      setQuestion("");
+      void client.invalidateQueries({ queryKey: key });
+    },
+  });
+  const noteValue = note ?? data.data?.note ?? "";
+  const questions = data.data?.questions ?? [];
+  const waiting = questions.filter((item) => !item.answer).length;
+  return (
+    <section className="grid gap-4 rounded-2xl border border-border bg-surface-1 p-4 shadow-sm lg:grid-cols-2">
+      <div>
+        <h3 className="text-sm font-semibold text-ink">
+          {label(fr, "My notes", "Mes notes")}
+        </h3>
+        <p className="mt-0.5 text-xs text-ink-secondary">
+          {label(
+            fr,
+            "Only you can read them. Saved for this lesson.",
+            "Vous seul pouvez les lire. Elles restent attachées à cette leçon.",
+          )}
+        </p>
+        <Textarea
+          className="mt-2 min-h-32"
+          value={noteValue}
+          onChange={(event) => setNote(event.target.value)}
+          placeholder={label(fr, "Write what you want to remember…", "Notez ce que vous voulez retenir…")}
+        />
+        <div className="mt-2 flex items-center gap-3">
+          <Button
+            size="sm"
+            variant="secondary"
+            loading={saveNote.isPending}
+            disabled={note === null || note === (data.data?.note ?? "")}
+            onClick={() => saveNote.mutate(noteValue, { onSuccess: () => setNote(null) })}
+          >
+            {label(fr, "Save note", "Enregistrer la note")}
+          </Button>
+          {saveNote.isSuccess && note === null ? (
+            <span className="text-xs text-good">{label(fr, "Saved", "Enregistrée")}</span>
+          ) : null}
+          {saveNote.isError ? (
+            <span className="text-xs text-critical">{errorText(saveNote.error, fr)}</span>
+          ) : null}
+        </div>
+      </div>
+      <div>
+        <h3 className="text-sm font-semibold text-ink">
+          {label(fr, "Ask the trainer", "Poser une question au formateur")}
+          {waiting ? (
+            <Badge className="ml-2" variant="warning">
+              {waiting} {label(fr, "waiting", "en attente")}
+            </Badge>
+          ) : null}
+        </h3>
+        <p className="mt-0.5 text-xs text-ink-secondary">
+          {label(
+            fr,
+            "The trainer is notified and the answer appears here.",
+            "Le formateur est prévenu et la réponse s’affiche ici.",
+          )}
+        </p>
+        <Textarea
+          className="mt-2 min-h-20"
+          value={question}
+          onChange={(event) => setQuestion(event.target.value)}
+          placeholder={label(fr, "Your question about this lesson…", "Votre question sur cette leçon…")}
+        />
+        <Button
+          className="mt-2"
+          size="sm"
+          loading={ask.isPending}
+          disabled={!question.trim()}
+          onClick={() => ask.mutate(question.trim())}
+        >
+          {label(fr, "Send the question", "Envoyer la question")}
+        </Button>
+        {ask.isError ? (
+          <p className="mt-1 text-xs text-critical">{errorText(ask.error, fr)}</p>
+        ) : null}
+        {questions.length ? (
+          <ul className="mt-3 max-h-72 space-y-2 overflow-y-auto pr-1">
+            {questions.map((item) => (
+              <li key={item.id} className="rounded-xl border border-border bg-surface-2 p-3 text-sm">
+                <p className="font-medium text-ink">{item.question}</p>
+                <p className="mt-0.5 text-[11px] text-ink-muted">
+                  {new Date(item.createdAt).toLocaleString(fr ? "fr-FR" : "en-US", {
+                    dateStyle: "medium",
+                    timeStyle: "short",
+                  })}
+                </p>
+                {item.answer ? (
+                  <div className="mt-2 rounded-lg border border-good/25 bg-good/10 p-2.5">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-good-ink">
+                      {label(fr, "Answer", "Réponse")}
+                      {item.answeredByName ? ` · ${item.answeredByName}` : ""}
+                    </p>
+                    <p className="mt-1 whitespace-pre-wrap text-ink">{item.answer}</p>
+                  </div>
+                ) : (
+                  <p className="mt-2 text-xs font-medium text-warning-ink">
+                    {label(fr, "Waiting for the trainer’s answer", "En attente de la réponse du formateur")}
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
         ) : null}
       </div>
     </section>

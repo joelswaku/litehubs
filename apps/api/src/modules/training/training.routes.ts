@@ -5,6 +5,7 @@ import { requireOrganization } from "../../middleware/organization.middleware";
 import { validate } from "../../middleware/validation.middleware";
 import * as controller from "./training.controller";
 import * as lmsController from "./lms.controller";
+import * as questionsController from "./training-questions.controller";
 import {
   assignmentParams,
   assignmentQuery,
@@ -56,6 +57,12 @@ import {
   trainingAiAssistantSchema,
   applyAiOutlineSchema,
   updateBlockSchema,
+  learnerLessonParams,
+  lessonNoteSchema,
+  lessonQuestionSchema,
+  lessonQuestionParams,
+  lessonQuestionAnswerSchema,
+  lessonQuestionQuery,
 } from "./lms.validation";
 export const trainingRoutes = Router();
 trainingRoutes.get(
@@ -450,4 +457,46 @@ trainingRoutes.get(
   requireOrganization,
   requireActiveEmployeeProfile,
   lmsController.learnerCertificatePdf,
+);
+
+// Learner notes (private) and questions to the trainer, per lesson.
+trainingRoutes.get(
+  "/organizations/:orgSlug/my-trainings/:assignmentId/lessons/:lessonId/notes",
+  authenticate,
+  validate({ params: learnerLessonParams }),
+  requireOrganization,
+  requireActiveEmployeeProfile,
+  questionsController.lessonNotesAndQuestions,
+);
+trainingRoutes.put(
+  "/organizations/:orgSlug/my-trainings/:assignmentId/lessons/:lessonId/note",
+  authenticate,
+  validate({ params: learnerLessonParams, body: lessonNoteSchema }),
+  requireOrganization,
+  requireActiveEmployeeProfile,
+  questionsController.saveLessonNote,
+);
+trainingRoutes.post(
+  "/organizations/:orgSlug/my-trainings/:assignmentId/lessons/:lessonId/questions",
+  authenticate,
+  validate({ params: learnerLessonParams, body: lessonQuestionSchema }),
+  requireOrganization,
+  requireActiveEmployeeProfile,
+  questionsController.askLessonQuestion,
+);
+trainingRoutes.get(
+  "/organizations/:orgSlug/training/lesson-questions",
+  authenticate,
+  validate({ params: organizationParams, query: lessonQuestionQuery }),
+  requireOrganization,
+  requirePermission("training.create"),
+  questionsController.listLessonQuestions,
+);
+trainingRoutes.patch(
+  "/organizations/:orgSlug/training/lesson-questions/:questionId/answer",
+  authenticate,
+  validate({ params: lessonQuestionParams, body: lessonQuestionAnswerSchema }),
+  requireOrganization,
+  requirePermission("training.create"),
+  questionsController.answerLessonQuestion,
 );
