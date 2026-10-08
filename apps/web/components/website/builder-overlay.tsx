@@ -449,11 +449,17 @@ export function BuilderCanvasOverlay({
     const onDragOver = (event: DragEvent) => {
       if (dragState.current) autoScroll(event);
       const next = targetAt(event);
+      // The drop effect must match what the drag allows ("move" for blocks
+      // and elements, "copy" for new ones), or the browser refuses the drop.
+      const effect = dragState.current?.move || dragState.current?.block ? "move" : "copy";
       // A block being dragged can always be released: no "forbidden" cursor.
-      if (dragState.current?.block) event.preventDefault();
+      if (dragState.current?.block) {
+        event.preventDefault();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+      }
       if (next) {
         event.preventDefault();
-        if (event.dataTransfer) event.dataTransfer.dropEffect = dragState.current?.move ? "move" : "copy";
+        if (event.dataTransfer) event.dataTransfer.dropEffect = effect;
       }
       setHint((current) => (JSON.stringify(current) === JSON.stringify(next) ? current : next));
     };
