@@ -5779,9 +5779,9 @@ function ProjectContent({
               "before" in adjustment ? (
                 <div
                   key={String(title)}
-                  className="overflow-hidden rounded-xl border border-border"
+                  className="overflow-hidden rounded-xl border border-brand/30"
                 >
-                  <div className="bg-brand/10 px-4 py-3">
+                  <div className="bg-brand/20 px-4 py-3">
                     <p className="text-[11px] font-semibold uppercase tracking-[.11em] text-brand">
                       {title}
                     </p>
@@ -5789,8 +5789,8 @@ function ProjectContent({
                       {money(value, project.currencyCode, locale)}
                     </p>
                   </div>
-                  <div className="border-t border-warning/30 bg-warning/10 px-4 py-2.5">
-                    <p className="text-[11px] font-semibold uppercase tracking-[.11em] text-warning">
+                  <div className="border-t border-warning/40 bg-warning/25 px-4 py-2.5">
+                    <p className="text-[11px] font-semibold uppercase tracking-[.11em] text-amber-700 dark:text-amber-300">
                       {label(fr, "Budget adjusted", "Budget ajusté")}
                     </p>
                     <p className="mt-1 text-sm font-semibold text-ink">
