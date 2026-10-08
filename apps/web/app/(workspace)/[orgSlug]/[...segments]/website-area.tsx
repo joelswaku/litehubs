@@ -5325,7 +5325,7 @@ const elementLabels: Record<string, [string, string]> = {
   buttons: ["Groupe de boutons", "Button group"],
   canvas: ["Zone du bloc libre (div)", "Free block area (div)"],
   root: ["Div du bloc", "Block div"],
-  panel: ["Cadre du bloc", "Block frame"],
+  panel: ["Cadre du bloc (fond, bordure…)", "Block frame (background, border…)"],
   media: ["Zone image", "Image area"],
   items: ["Ensemble des cartes", "All cards area"],
   sideCard: ["Carte latérale", "Side card"],
@@ -8139,6 +8139,19 @@ function blockTreeChildren(block: WebsiteSection, fr: boolean): TreeNode[] {
       children: [],
     });
   const items = Array.isArray(block.content.items) ? (block.content.items as unknown[]) : [];
+  // Frames that hold the block's content (their own background, border…).
+  const frames: Record<string, string[]> = {
+    hero: ["panel", "sideCard"],
+    feature_grid: ["panel"],
+    metrics: ["panel"],
+    image_callout: ["panel", "media"],
+    cta: ["panel"],
+    careers: ["panel"],
+    contact: ["panel"],
+  };
+  for (const name of [...(frames[block.section_type] ?? [])].reverse())
+    if (!hidden.includes(name))
+      nodes.unshift({ element: name, label: elementDisplayName(name, fr), kind: "container", children: [] });
   if (items.length && ["feature_grid", "metrics", "gallery", "faq"].includes(block.section_type)) {
     nodes.push({
       element: "items",

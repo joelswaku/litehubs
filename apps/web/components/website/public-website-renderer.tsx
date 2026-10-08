@@ -1261,7 +1261,7 @@ function PublicSection({
     case "hero":
       return (
         <section className="mx-auto max-w-[1500px] px-3 pt-3 sm:px-6 sm:pt-6 lg:px-8">
-          <div className="wb-hero relative isolate min-h-[590px] overflow-hidden rounded-[2rem] bg-slate-950 text-white shadow-[0_36px_80px_-46px_rgba(15,23,42,.88)] sm:min-h-[650px] sm:rounded-[2.5rem]">
+          <div data-el="panel" className="wb-hero relative isolate min-h-[590px] overflow-hidden rounded-[2rem] bg-slate-950 text-white shadow-[0_36px_80px_-46px_rgba(15,23,42,.88)] sm:min-h-[650px] sm:rounded-[2.5rem]">
             {source ? (
               <img
                 src={source}
@@ -1269,7 +1269,11 @@ function PublicSection({
                 className="wb-hero-img absolute inset-0 -z-30 size-full object-cover"
               />
             ) : null}
-            <div className="wb-hero-shade absolute inset-0 -z-20 bg-gradient-to-r from-slate-950/[.94] via-slate-950/[.66] to-slate-950/[.14]" />
+            {/* The dark shade keeps the text readable over a photo; without a
+                photo it would hide the frame's own colour (same look as before). */}
+            {source ? (
+              <div className="wb-hero-shade absolute inset-0 -z-20 bg-gradient-to-r from-slate-950/[.94] via-slate-950/[.66] to-slate-950/[.14]" />
+            ) : null}
             <div className="wb-hero-ring absolute -right-24 top-0 -z-10 size-[28rem] rounded-full border border-white/10" />
             <div className="wb-hero-ring absolute -right-10 top-12 -z-10 size-[19rem] rounded-full border border-white/15" />
             <div className="wb-hero-grid grid min-h-[590px] items-end gap-8 p-7 pb-9 sm:min-h-[650px] sm:p-12 sm:pb-12 lg:grid-cols-[minmax(0,1fr)_270px] lg:p-16 lg:pb-14">
@@ -1404,12 +1408,18 @@ function PublicSection({
                     </div>
                   </>
                 ) : (
-                  <div className="absolute bottom-0 left-0 right-0 rounded-3xl border border-white/15 bg-white/[.10] p-5 backdrop-blur-xl">
+                  <div data-el="sideCard" className="absolute bottom-0 left-0 right-0 rounded-3xl border border-white/15 bg-white/[.10] p-5 backdrop-blur-xl">
                     <Sparkles className="size-5 text-amber-200" />
-                    <p className="mt-5 text-sm font-semibold leading-6 text-white">
-                      {language === "fr"
-                        ? "Une vision locale, un impact durable."
-                        : "Local vision, lasting impact."}
+                    <p data-el="sideText" className="mt-5 text-sm font-semibold leading-6 text-white">
+                      {text(
+                        c,
+                        language === "fr" ? "side_text_fr" : "side_text_en",
+                        text(
+                          c,
+                          language === "fr" ? "sideTextFr" : "sideTextEn",
+                          language === "fr" ? "Une vision locale, un impact durable." : "Local vision, lasting impact.",
+                        ),
+                      )}
                     </p>
                     <p className="mt-2 text-xs leading-5 text-white/64">
                       {text(

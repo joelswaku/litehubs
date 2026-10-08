@@ -288,7 +288,7 @@ export function BuilderCanvasOverlay({
       section,
       element,
       language,
-      original: info.value,
+      original: info.value || (node.textContent ?? "").trim(),
       multiline: info.multiline,
       box: boxOf(node),
       style: {
