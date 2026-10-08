@@ -124,12 +124,17 @@ export function BuilderCanvasOverlay({
   const [dragLabel, setDragLabel] = React.useState<string | null>(null);
   const ghostRef = React.useRef<HTMLDivElement>(null);
   const useGhost = (event: React.DragEvent, label: string) => {
-    setDragLabel(label);
     const ghost = ghostRef.current;
     if (ghost) {
       ghost.textContent = label;
       event.dataTransfer.setDragImage(ghost, 14, 14);
     }
+    // Chrome cancels a drag whose source changes during "dragstart": the bars
+    // fade out only once the drag has really begun.
+    const win = ghost?.ownerDocument.defaultView ?? window;
+    win.setTimeout(() => {
+      if (dragState.current) setDragLabel(label);
+    }, 0);
   };
   const editorRef = React.useRef<HTMLDivElement>(null);
   const t = (french: string, english: string) => (fr ? french : english);
@@ -509,7 +514,7 @@ export function BuilderCanvasOverlay({
       <div
         ref={ghostRef}
         aria-hidden="true"
-        style={{ position: "absolute", left: -10000, top: 0, pointerEvents: "none" }}
+        style={{ position: "fixed", left: 0, top: -120, pointerEvents: "none", zIndex: 2147483647 }}
         className="max-w-56 truncate rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white shadow-lg"
       />
       {hint ? (
