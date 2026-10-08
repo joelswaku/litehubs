@@ -119,6 +119,18 @@ export function BuilderCanvasOverlay({
   });
   const [tick, setTick] = React.useState(0);
   const [editing, setEditing] = React.useState<Editing | null>(null);
+  // While dragging: a small label as the drag image (never the whole block),
+  // and the "+" buttons and bars are hidden so they don't get in the way.
+  const [dragLabel, setDragLabel] = React.useState<string | null>(null);
+  const ghostRef = React.useRef<HTMLDivElement>(null);
+  const useGhost = (event: React.DragEvent, label: string) => {
+    setDragLabel(label);
+    const ghost = ghostRef.current;
+    if (ghost) {
+      ghost.textContent = label;
+      event.dataTransfer.setDragImage(ghost, 14, 14);
+    }
+  };
   const editorRef = React.useRef<HTMLDivElement>(null);
   const t = (french: string, english: string) => (fr ? french : english);
 
@@ -349,16 +361,28 @@ export function BuilderCanvasOverlay({
     };
     const targetAt = (event: DragEvent): Hint | null => {
       const drag = dragState.current;
-      if (!drag || inOverlay(event.target)) return null;
+      if (!drag) return null;
       if (drag.block) {
-        // A whole block: before or after the block under the pointer.
-        const sectionElement = (event.target as Element | null)?.closest?.("[data-builder-section]");
-        const section = sectionElement?.getAttribute("data-builder-section");
-        if (!sectionElement || !section || !props.current.editable(section) || section === drag.block) return null;
-        const rect = sectionElement.getBoundingClientRect();
-        const where = event.clientY < rect.top + rect.height / 2 ? "before" : "after";
-        return { section, target: { element: section, where }, box: boxOf(sectionElement), horizontal: false, block: true };
+        // A whole block: the gap between blocks nearest to the pointer,
+        // wherever the pointer is (gaps, header, editor buttons included).
+        const blocks = Array.from(document.querySelectorAll("[data-builder-section]")).filter((node) =>
+          props.current.editable(node.getAttribute("data-builder-section")!),
+        );
+        if (!blocks.length) return null;
+        let index = blocks.findIndex((node) => {
+          const rect = node.getBoundingClientRect();
+          return event.clientY < rect.top + rect.height / 2;
+        });
+        if (index < 0) index = blocks.length;
+        const source = blocks.findIndex((node) => node.getAttribute("data-builder-section") === drag.block);
+        // Dropping right before or after itself changes nothing.
+        if (index === source || index === source + 1) return null;
+        const anchor = index < blocks.length ? blocks[index]! : blocks[blocks.length - 1]!;
+        const where = index < blocks.length ? "before" : "after";
+        const section = anchor.getAttribute("data-builder-section")!;
+        return { section, target: { element: section, where }, box: boxOf(anchor), horizontal: false, block: true };
       }
+      if (inOverlay(event.target)) return null;
       const node = (event.target as Element | null)?.closest?.("[data-el]");
       const sectionElement = node?.closest("[data-builder-section]");
       const section = sectionElement?.getAttribute("data-builder-section");
@@ -390,6 +414,8 @@ export function BuilderCanvasOverlay({
     };
     const onDragOver = (event: DragEvent) => {
       const next = targetAt(event);
+      // A block being dragged can always be released: no "forbidden" cursor.
+      if (dragState.current?.block) event.preventDefault();
       if (next) {
         event.preventDefault();
         if (event.dataTransfer) event.dataTransfer.dropEffect = dragState.current?.move ? "move" : "copy";
@@ -400,6 +426,8 @@ export function BuilderCanvasOverlay({
       const next = targetAt(event);
       const drag = dragState.current;
       setHint(null);
+      setDragLabel(null);
+      if (drag?.block) event.preventDefault();
       if (!next || !drag) return;
       event.preventDefault();
       dragState.current = null;
@@ -409,7 +437,10 @@ export function BuilderCanvasOverlay({
       }
       props.current.onDrop(next.section, drag, next.target);
     };
-    const onDragEnd = () => setHint(null);
+    const onDragEnd = () => {
+      setHint(null);
+      setDragLabel(null);
+    };
     const onKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (event.key === "Escape") setMenu(null);
@@ -475,6 +506,12 @@ export function BuilderCanvasOverlay({
       data-builder-overlay=""
       style={{ position: "absolute", left: 0, top: 0, width: 0, height: 0, zIndex: 2147483000, pointerEvents: "none" }}
     >
+      <div
+        ref={ghostRef}
+        aria-hidden="true"
+        style={{ position: "absolute", left: -10000, top: 0, pointerEvents: "none" }}
+        className="max-w-56 truncate rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white shadow-lg"
+      />
       {hint ? (
         hint.target.where === "inside" ? (
           <div
@@ -537,7 +574,9 @@ export function BuilderCanvasOverlay({
             top: layout.blockBar.top + 6,
             left: layout.blockBar.left + layout.blockBar.width - 8,
             transform: "translateX(-100%)",
-            pointerEvents: "auto",
+            // Kept in the page while dragging (removing it would stop the drag).
+            pointerEvents: dragLabel ? "none" : "auto",
+            opacity: dragLabel ? 0 : 1,
           }}
           className="flex items-center gap-0.5 rounded-lg bg-sky-700 px-1 py-0.5 text-white shadow-lg"
         >
@@ -552,12 +591,12 @@ export function BuilderCanvasOverlay({
               dragState.current = { block: bar.section };
               event.dataTransfer.effectAllowed = "move";
               event.dataTransfer.setData("text/plain", bar.section);
-              const node = sectionNode(bar.section);
-              if (isHtml(node)) event.dataTransfer.setDragImage(node, 20, 20);
+              useGhost(event, blockLabel(bar.section));
             }}
             onDragEnd={() => {
               dragState.current = null;
               setHint(null);
+              setDragLabel(null);
             }}
             className="inline-flex h-7 cursor-grab items-center gap-1 rounded-md px-1.5 text-[11px] font-semibold hover:bg-white/20 active:cursor-grabbing"
           >
@@ -587,7 +626,7 @@ export function BuilderCanvasOverlay({
         </div>
       ) : null}
 
-      {layout.pluses.map((plus) => (
+      {(dragLabel ? [] : layout.pluses).map((plus) => (
         <button
           key={plus.key}
           type="button"
@@ -610,7 +649,13 @@ export function BuilderCanvasOverlay({
       {toolbar && info && !editing ? (
         <div
           data-builder-toolbar=""
-          style={{ position: "absolute", left: Math.max(4, toolbar.left), top: toolbarTop, pointerEvents: "auto" }}
+          style={{
+            position: "absolute",
+            left: Math.max(4, toolbar.left),
+            top: toolbarTop,
+            pointerEvents: dragLabel ? "none" : "auto",
+            opacity: dragLabel ? 0 : 1,
+          }}
           className="flex items-center gap-0.5 rounded-lg bg-slate-900 px-1 py-0.5 text-white shadow-lg"
         >
           <span className="max-w-40 truncate px-1.5 text-[11px] font-semibold">{info.label}</span>
@@ -625,12 +670,12 @@ export function BuilderCanvasOverlay({
                 dragState.current = { move: toolbar.element, section: toolbar.section };
                 event.dataTransfer.effectAllowed = "move";
                 event.dataTransfer.setData("text/plain", toolbar.element);
-                const node = elementNode(toolbar.section, toolbar.element);
-                if (isHtml(node)) event.dataTransfer.setDragImage(node, 12, 12);
+                useGhost(event, info.label);
               }}
               onDragEnd={() => {
                 dragState.current = null;
                 setHint(null);
+                setDragLabel(null);
               }}
               className={`${button} cursor-grab active:cursor-grabbing`}
             >
