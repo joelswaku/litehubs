@@ -1249,7 +1249,7 @@ function ProfessionalTrainingReader({
       ref={readerRef}
       className={
         focusMode
-          ? "fixed inset-0 z-[70] space-y-2 overflow-y-auto bg-page p-2 sm:p-3"
+          ? "fixed inset-0 z-[70] flex flex-col gap-2 overflow-y-auto bg-page p-2"
           : "mx-auto max-w-7xl space-y-4 p-4 sm:p-5 lg:p-7"
       }
     >
@@ -1262,12 +1262,23 @@ function ProfessionalTrainingReader({
         {label(fr, "My training", "Mes formations")}
       </Link>
       )}
-      <header className={`relative overflow-hidden rounded-2xl border border-brand/20 bg-[radial-gradient(circle_at_87%_12%,rgba(129,140,248,.25),transparent_28%),linear-gradient(135deg,#102b55,#24488f_58%,#6643ae)] p-3.5 text-white shadow-[0_18px_40px_-30px_rgba(13,36,85,.95)] ${focusMode ? "py-2.5 sm:px-4 sm:py-2.5" : "sm:p-4"}`}>
+      <header className={`relative overflow-hidden rounded-2xl border border-brand/20 bg-[radial-gradient(circle_at_87%_12%,rgba(129,140,248,.25),transparent_28%),linear-gradient(135deg,#102b55,#24488f_58%,#6643ae)] p-3.5 text-white shadow-[0_18px_40px_-30px_rgba(13,36,85,.95)] ${focusMode ? "shrink-0 py-2 sm:px-4 sm:py-2" : "sm:p-4"}`}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <h1 className="truncate text-lg font-semibold tracking-tight sm:text-xl">
               {course.assignment.course.name}
             </h1>
+            {focusMode ? (
+              <p className="mt-0.5 text-[11px] text-indigo-50/90">
+                {label(fr, "Progress", "Progression")} ·{" "}
+                <b className="text-white">{course.assignment.progressPercent}%</b>
+                {"  ·  "}
+                {label(fr, "Lessons", "Leçons")} ·{" "}
+                <b className="text-white">
+                  {completedCount}/{requiredCount}
+                </b>
+              </p>
+            ) : (
             <p className="mt-1 max-w-3xl truncate text-xs text-indigo-50/90 sm:text-sm">
               {course.assignment.course.summary ??
                 label(
@@ -1276,6 +1287,7 @@ function ProfessionalTrainingReader({
                   "Terminez chaque leçon et évaluation requise pour valider ce parcours.",
                 )}
             </p>
+            )}
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <Badge variant={statusVariant(course.assignment.status)}>
@@ -1295,6 +1307,8 @@ function ProfessionalTrainingReader({
             </Button>
           </div>
         </div>
+        {focusMode ? null : (
+        <>
         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
           <span className="rounded-md bg-white/10 px-2 py-1 text-indigo-50">
             {label(fr, "Progress", "Progression")} · <b className="text-white">{course.assignment.progressPercent}%</b>
@@ -1312,6 +1326,8 @@ function ProfessionalTrainingReader({
             style={{ width: `${course.assignment.progressPercent}%` }}
           />
         </div>
+        </>
+        )}
       </header>
       <section className="space-y-3">
         <details
@@ -1354,16 +1370,18 @@ function ProfessionalTrainingReader({
               </div>
             </aside>
           ) : null}
-        <article className={`rounded-2xl border border-border bg-surface-1 shadow-sm ${focusMode ? "p-3 sm:p-4" : "p-5 sm:p-7"}`}>
-          <div className="flex flex-wrap items-start justify-between gap-3">
+        <article className={`rounded-2xl border border-border bg-surface-1 shadow-sm ${focusMode ? "p-2 sm:p-3" : "p-5 sm:p-7"}`}>
+          <div className={`flex flex-wrap justify-between ${focusMode ? "items-center gap-2" : "items-start gap-3"}`}>
             <div>
+              {focusMode ? null : (
               <p className="text-xs font-semibold uppercase tracking-[.14em] text-brand">
                 {module.title}
               </p>
-              <h2 className="mt-1 text-2xl font-semibold tracking-tight text-ink">
+              )}
+              <h2 className={focusMode ? "text-base font-semibold text-ink" : "mt-1 text-2xl font-semibold tracking-tight text-ink"}>
                 {lesson.title}
               </h2>
-              {lesson.summary ? (
+              {lesson.summary && !focusMode ? (
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-ink-secondary">
                   {lesson.summary}
                 </p>
@@ -1391,15 +1409,15 @@ function ProfessionalTrainingReader({
               ) : null}
             </div>
           </div>
-          {lesson.estimatedDurationMinutes ? (
+          {lesson.estimatedDurationMinutes && !focusMode ? (
             <p className="mt-3 inline-flex items-center gap-1.5 text-xs text-ink-muted">
               <Clock3 className="size-3.5" />
               {lesson.estimatedDurationMinutes} {label(fr, "min", "min")}
             </p>
           ) : null}
           {activeBlock ? (
-            <div className="mt-6">
-              <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-brand/15 bg-brand/[.04] px-3 py-2 text-xs text-ink-secondary">
+            <div className={focusMode ? "mt-2" : "mt-6"}>
+              <div className={`mb-3 items-center justify-between gap-3 rounded-xl border border-brand/15 bg-brand/[.04] px-3 py-2 text-xs text-ink-secondary ${focusMode ? "hidden" : "flex"}`}>
                 <span className="font-semibold text-brand">
                   {label(
                     fr,
@@ -1467,7 +1485,7 @@ function ProfessionalTrainingReader({
               {errorText(progress.error ?? quiz.error, fr)}
             </p>
           ) : null}
-          <div className="mt-7 flex items-center justify-between gap-3 border-t border-border pt-5">
+          <div className={`flex items-center justify-between gap-3 border-t border-border ${focusMode ? "mt-2 pt-2" : "mt-7 pt-5"}`}>
             <Button
               type="button"
               variant="secondary"
@@ -1692,6 +1710,27 @@ function ProfessionalBlockReader({
   );
   const [isPlaying, setIsPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
+  const videoFrameRef = useRef<HTMLDivElement | null>(null);
+  const [videoFullscreen, setVideoFullscreen] = useState(false);
+  useEffect(() => {
+    const sync = () =>
+      setVideoFullscreen(
+        Boolean(videoFrameRef.current) &&
+          document.fullscreenElement === videoFrameRef.current,
+      );
+    document.addEventListener("fullscreenchange", sync);
+    return () => document.removeEventListener("fullscreenchange", sync);
+  }, []);
+  const toggleVideoFullscreen = () => {
+    const frame = videoFrameRef.current;
+    if (!frame) return;
+    if (document.fullscreenElement === frame) {
+      void document.exitFullscreen().catch(() => undefined);
+      return;
+    }
+    if (frame.requestFullscreen)
+      void frame.requestFullscreen().catch(() => undefined);
+  };
   const togglePlayback = async () => {
     const video = videoRef.current;
     if (!video) return;
@@ -1714,7 +1753,7 @@ function ProfessionalBlockReader({
   };
   return (
     <section className="overflow-hidden rounded-2xl border border-border bg-surface-1">
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border bg-surface-2/60 px-3 py-2">
+      <div className={`flex-wrap items-start justify-between gap-3 border-b border-border bg-surface-2/60 px-3 py-2 ${focusMode && block.type === "video" ? "hidden" : "flex"}`}>
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-brand">
             {words(block.type)}
@@ -1730,7 +1769,7 @@ function ProfessionalBlockReader({
           <Badge variant="good">{label(fr, "Complete", "Terminé")}</Badge>
         ) : null}
       </div>
-      <div className="p-4">
+      <div className={focusMode && block.type === "video" ? "p-0" : "p-4"}>
         {body ? (
           <p
             className={
@@ -1748,10 +1787,31 @@ function ProfessionalBlockReader({
           </div>
         ) : null}
         {secureUrl && block.type === "video" ? (
-          <div className={focusMode ? "relative flex items-center justify-center overflow-hidden rounded-xl bg-black" : "relative mt-3 overflow-hidden rounded-xl bg-black"}>
+          <div
+            ref={videoFrameRef}
+            onDoubleClick={toggleVideoFullscreen}
+            className={
+              videoFullscreen
+                ? "relative flex h-screen w-screen items-center justify-center bg-black"
+                : focusMode
+                  ? `relative flex items-center justify-center overflow-hidden rounded-xl bg-black ${body ? "mt-3" : ""}`
+                  : "relative mt-3 overflow-hidden rounded-xl bg-black"
+            }
+          >
             <video
               ref={videoRef}
-              className={focusMode ? "h-[calc(100dvh-13rem)] max-h-[calc(100dvh-13rem)] w-full object-contain" : "aspect-video w-full"}
+              className={
+                videoFullscreen
+                  ? "h-screen max-h-screen w-full object-contain"
+                  : focusMode
+                    ? "w-full object-contain"
+                    : "aspect-video w-full"
+              }
+              style={
+                focusMode && !videoFullscreen
+                  ? { height: "calc(100dvh - 13.5rem)" }
+                  : undefined
+              }
               src={secureUrl}
               onLoadedMetadata={(event) => {
                 const video = event.currentTarget;
@@ -1818,6 +1878,23 @@ function ProfessionalBlockReader({
               >
                 {muted ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}
               </button>
+              <button
+                type="button"
+                onClick={toggleVideoFullscreen}
+                aria-label={
+                  videoFullscreen
+                    ? label(fr, "Exit full screen", "Quitter le plein écran")
+                    : label(fr, "Full screen video", "Vidéo en plein écran")
+                }
+                title={
+                  videoFullscreen
+                    ? label(fr, "Exit full screen", "Quitter le plein écran")
+                    : label(fr, "Full screen video", "Vidéo en plein écran")
+                }
+                className="grid size-8 place-items-center rounded-full border border-white/30 bg-black/70 text-white shadow-md backdrop-blur-sm transition hover:bg-black/90"
+              >
+                {videoFullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+              </button>
 
             </div>
 
@@ -1842,7 +1919,8 @@ function ProfessionalBlockReader({
           <iframe
             title={block.title ?? "Training document"}
             src={secureUrl}
-            className={`mt-3 w-full rounded-xl border border-border bg-white ${focusMode ? "h-[calc(100dvh-13rem)]" : "h-[32rem]"}`}
+            className={`mt-3 w-full rounded-xl border border-border bg-white ${focusMode ? "" : "h-[32rem]"}`}
+            style={focusMode ? { height: "calc(100dvh - 12rem)" } : undefined}
           />
         ) : null}
         {block.externalUrl ? (
