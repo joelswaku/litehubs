@@ -5773,31 +5773,51 @@ function ProjectContent({
                   { before: number; after: number; actorName: string } | null,
                 ]
               >
-            ).map(([title, value, tone, adjustment]) => (
-              <div
-                key={String(title)}
-                className="rounded-xl border border-border bg-surface-2/55 px-4 py-3"
-              >
-                <p className="text-[11px] font-semibold uppercase tracking-[.11em] text-ink-muted">
-                  {title}
-                </p>
-                <p className={`mt-1 text-xl font-semibold ${tone}`}>
-                  {money(value, project.currencyCode, locale)}
-                </p>
-                {adjustment &&
-                typeof adjustment === "object" &&
-                "before" in adjustment ? (
-                  <p className="mt-2 border-t border-border/70 pt-2 text-[11px] leading-4 text-ink-secondary">
-                    {label(fr, "Last adjustment", "Dernier ajustement")} ·{" "}
-                    {money(adjustment.before, project.currencyCode, locale)} →{" "}
-                    {money(adjustment.after, project.currencyCode, locale)}
-                    {adjustment.actorName
-                      ? ` · ${label(fr, "by", "par")} ${adjustment.actorName}`
-                      : ""}
+            ).map(([title, value, tone, adjustment]) =>
+              adjustment &&
+              typeof adjustment === "object" &&
+              "before" in adjustment ? (
+                <div
+                  key={String(title)}
+                  className="overflow-hidden rounded-xl border border-border"
+                >
+                  <div className="bg-brand/10 px-4 py-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[.11em] text-brand">
+                      {title}
+                    </p>
+                    <p className="mt-1 text-xl font-semibold text-ink">
+                      {money(value, project.currencyCode, locale)}
+                    </p>
+                  </div>
+                  <div className="border-t border-warning/30 bg-warning/10 px-4 py-2.5">
+                    <p className="text-[11px] font-semibold uppercase tracking-[.11em] text-warning">
+                      {label(fr, "Budget adjusted", "Budget ajusté")}
+                    </p>
+                    <p className="mt-1 text-sm font-semibold text-ink">
+                      {money(adjustment.before, project.currencyCode, locale)} →{" "}
+                      {money(adjustment.after, project.currencyCode, locale)}
+                    </p>
+                    {adjustment.actorName ? (
+                      <p className="mt-0.5 text-[11px] leading-4 text-ink-secondary">
+                        {label(fr, "by", "par")} {adjustment.actorName}
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              ) : (
+                <div
+                  key={String(title)}
+                  className="rounded-xl border border-border bg-surface-2/55 px-4 py-3"
+                >
+                  <p className="text-[11px] font-semibold uppercase tracking-[.11em] text-ink-muted">
+                    {title}
                   </p>
-                ) : null}
-              </div>
-            ))}
+                  <p className={`mt-1 text-xl font-semibold ${tone}`}>
+                    {money(value, project.currencyCode, locale)}
+                  </p>
+                </div>
+              ),
+            )}
           </div>
           {number(summary?.budget?.utilizationPercent) >= 100 ? (
             <p className="mt-4 rounded-xl border border-critical/35 bg-critical/10 px-3 py-2 text-sm font-medium text-critical">
