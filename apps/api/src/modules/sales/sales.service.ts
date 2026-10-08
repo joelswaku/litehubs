@@ -157,6 +157,17 @@ async function assertOfferAvailable(client: PoolClient, context: SalesContext, o
   const offer = found.rows[0]!;
   await assertProvinceScope(client, context, offer.province_id as string | null);
   if (!offer.is_available) throw new BadRequestError("This product is not available for sale");
+  if (offer.source_type === "egg_flock" || offer.source_type === "poultry_flock") {
+    // Food safety: birds and eggs cannot be sold before the withdrawal period
+    // (délai d'attente) of a treatment has ended.
+    const withdrawal = await client.query<{ product_name: string; until: string }>(
+      "SELECT product_name, withdrawal_end_date::text AS until FROM poultry_treatment_records WHERE organization_id=$1 AND flock_id=$2 AND withdrawal_end_date >= CURRENT_DATE ORDER BY withdrawal_end_date DESC LIMIT 1",
+      [context.organizationId, offer.source_id],
+    );
+    const active = withdrawal.rows[0];
+    if (active)
+      throw new BadRequestError(`This flock is under a treatment withdrawal period (${active.product_name}) until ${active.until}; it cannot be sold before then`);
+  }
   const availability = await offerWithAvailability(client, context, offer);
   if (requested > number(availability.availableQuantity) + 0.00001)
     throw new BadRequestError(`Only ${availability.availableQuantity} ${offer.unit} is available to sell`);

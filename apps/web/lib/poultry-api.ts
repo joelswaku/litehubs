@@ -182,6 +182,24 @@ export const poultryApi = {
     },
   },
 
+  insights<T>(orgSlug: string, query?: PoultryQuery) {
+    return get<T>(base(orgSlug, `insights${queryString(query)}`));
+  },
+  evaluateAlerts<T>(orgSlug: string) {
+    return post<T>(base(orgSlug, "insights/evaluate-alerts"), {});
+  },
+  flockCosts: {
+    list<T>(orgSlug: string, flockId: string) {
+      return get<T>(base(orgSlug, `flocks/${flockId}/costs`));
+    },
+    create<T>(orgSlug: string, flockId: string, body: PoultryBody) {
+      return post<T>(base(orgSlug, `flocks/${flockId}/costs`), body);
+    },
+    remove<T>(orgSlug: string, flockId: string, costId: string) {
+      return del<T>(base(orgSlug, `flocks/${flockId}/costs/${costId}`));
+    },
+  },
+
   flockPerformance<T>(orgSlug: string, flockId: string, query?: PoultryQuery) {
     return get<T>(
       base(orgSlug, `flocks/${flockId}/performance${queryString(query)}`),

@@ -125,6 +125,7 @@ const houseCreate = z.object({
   waterSystem: nullableText(150),
   feedingSystem: nullableText(150),
   heatingSystem: nullableText(150),
+  minDowntimeDays: z.number().int().min(0).max(180).optional(),
   notes: nullableText(2_000),
 });
 const houseUpdate = nonEmptyUpdate({
@@ -144,6 +145,7 @@ const houseUpdate = nonEmptyUpdate({
   waterSystem: nullableText(150),
   feedingSystem: nullableText(150),
   heatingSystem: nullableText(150),
+  minDowntimeDays: z.number().int().min(0).max(180).optional(),
   notes: nullableText(2_000),
 });
 
@@ -211,6 +213,8 @@ const dailyRecordCreate = z.object({
   cullsCount: nonNegativeInteger.default(0),
   temperatureC: z.number().min(-20).max(70).nullable().optional(),
   humidityPercent: z.number().min(0).max(100).nullable().optional(),
+  lightHours: z.number().min(0).max(24).nullable().optional(),
+  ammoniaPpm: z.number().min(0).max(500).nullable().optional(),
   notes: nullableText(2_000),
 });
 const dailyRecordUpdate = nonEmptyUpdate({
@@ -221,6 +225,8 @@ const dailyRecordUpdate = nonEmptyUpdate({
   cullsCount: nonNegativeInteger.optional(),
   temperatureC: z.number().min(-20).max(70).nullable().optional(),
   humidityPercent: z.number().min(0).max(100).nullable().optional(),
+  lightHours: z.number().min(0).max(24).nullable().optional(),
+  ammoniaPpm: z.number().min(0).max(500).nullable().optional(),
   notes: nullableText(2_000),
 });
 
@@ -293,6 +299,7 @@ const feedCreate = z.object({
     .default("other"),
   quantityKg: positiveDecimal,
   bagCount: nonNegativeDecimal.nullable().optional(),
+  unitPrice: nonNegativeDecimal.nullable().optional(),
   batchNumber: nullableText(150),
   inventoryItemId: idSchema.nullable().optional(),
   warehouseId: idSchema.nullable().optional(),
@@ -315,6 +322,7 @@ const feedUpdate = nonEmptyUpdate({
     .optional(),
   quantityKg: positiveDecimal.optional(),
   bagCount: nonNegativeDecimal.nullable().optional(),
+  unitPrice: nonNegativeDecimal.nullable().optional(),
   batchNumber: nullableText(150),
   inventoryItemId: idSchema.nullable().optional(),
   warehouseId: idSchema.nullable().optional(),

@@ -45,6 +45,7 @@ import { useSessionUser } from "@/stores/session-store";
 import { PoultrySetupView } from "./poultry-setup-view";
 import { PoultryRecordCentre } from "./poultry-record-centre";
 import { PoultryWorkPlanner } from "./poultry-work-planner";
+import { PoultryInsightsView } from "./poultry-insights-view";
 
 const RESOURCES = [
   "houses",
@@ -65,7 +66,13 @@ const RESOURCES = [
 ] as const;
 type Resource = (typeof RESOURCES)[number];
 type Tab =
-  "overview" | "production" | "health" | "records" | "performance" | "setup";
+  | "overview"
+  | "pilotage"
+  | "production"
+  | "health"
+  | "records"
+  | "performance"
+  | "setup";
 type Place = { id: string; name?: string | null; code?: string | null };
 type Province = { id: string; code: string; name: string; isActive?: boolean };
 type Employee = {
@@ -721,6 +728,14 @@ export function PoultryArea({ orgSlug }: { orgSlug: string }) {
           String(form.get("humidityPercent") ?? "") === ""
             ? null
             : n("humidityPercent"),
+        lightHours:
+          String(form.get("lightHours") ?? "") === ""
+            ? null
+            : n("lightHours"),
+        ammoniaPpm:
+          String(form.get("ammoniaPpm") ?? "") === ""
+            ? null
+            : n("ammoniaPpm"),
         notes,
       };
     else if (entry === "feed")
@@ -731,6 +746,10 @@ export function PoultryArea({ orgSlug }: { orgSlug: string }) {
         feedStage: String(form.get("feedStage") ?? "other"),
         quantityKg: n("quantityKg"),
         bagCount: n("bagCount"),
+        unitPrice:
+          String(form.get("unitPrice") ?? "") === ""
+            ? null
+            : n("unitPrice"),
         batchNumber: String(form.get("batchNumber") ?? "").trim() || null,
         inventoryItemId: String(form.get("inventoryItemId") ?? "").trim() || null,
         warehouseId: String(form.get("warehouseId") ?? "").trim() || null,
@@ -991,6 +1010,7 @@ export function PoultryArea({ orgSlug }: { orgSlug: string }) {
         {(
           [
             ["overview", copy.overview],
+            ["pilotage", fr ? "Pilotage et rentabilité" : "Cockpit & profit"],
             ["production", copy.production],
             ["health", copy.health],
             ["records", fr ? "Registre" : "Records"],
@@ -1187,6 +1207,15 @@ export function PoultryArea({ orgSlug }: { orgSlug: string }) {
             )}
           </aside>
         </section>
+      ) : null}
+      {tab === "pilotage" ? (
+        <PoultryInsightsView
+          orgSlug={orgSlug}
+          fr={fr}
+          provinceId={provinceId || undefined}
+          productionType={productionType || undefined}
+          canEditCosts={can(user, "poultry.flocks.update")}
+        />
       ) : null}
       {tab === "health" ? <HealthView copy={copy} list={list} /> : null}
       {tab === "records" ? (
@@ -2801,6 +2830,16 @@ function EntryForm({
             label={tr("Humidity (%)", "Humidite (%)")}
             decimal
           />
+          <NumberField
+            name="lightHours"
+            label={tr("Light (hours per day)", "Lumiere (heures par jour)")}
+            decimal
+          />
+          <NumberField
+            name="ammoniaPpm"
+            label={tr("Ammonia (ppm)", "Ammoniac (ppm)")}
+            decimal
+          />
         </Grid>
       ) : null}
       {entry === "feed" ? (
@@ -2850,6 +2889,14 @@ function EntryForm({
             name="bagCount"
             label={tr("Bag count", "Nombre de sacs")}
             initial="0"
+            decimal
+          />
+          <NumberField
+            name="unitPrice"
+            label={tr(
+              "Price per kg (if not from stock)",
+              "Prix par kg (si hors stock)",
+            )}
             decimal
           />
           <TextField

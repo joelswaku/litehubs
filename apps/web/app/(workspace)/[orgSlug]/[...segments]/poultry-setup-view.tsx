@@ -47,6 +47,7 @@ type House = {
   waterSystem?: string | null;
   feedingSystem?: string | null;
   heatingSystem?: string | null;
+  minDowntimeDays?: number | null;
   site?: Place | null;
 };
 type Model = {
@@ -1161,6 +1162,10 @@ function HouseForm({
       waterSystem: stringValue(form, "waterSystem"),
       feedingSystem: stringValue(form, "feedingSystem"),
       heatingSystem: stringValue(form, "heatingSystem"),
+      minDowntimeDays: Math.max(
+        0,
+        Math.min(180, Math.round(Number(form.get("minDowntimeDays") ?? 14) || 0)),
+      ),
     });
   }
 
@@ -1353,6 +1358,23 @@ function HouseForm({
           <Input
             name="heatingSystem"
             defaultValue={item?.heatingSystem ?? ""}
+          />
+        </Field>
+        <Field
+          label={tx(
+            fr,
+            "Sanitary downtime between flocks (days)",
+            "Vide sanitaire entre deux lots (jours)",
+          )}
+          htmlFor="house-downtime"
+        >
+          <Input
+            name="minDowntimeDays"
+            type="number"
+            min="0"
+            max="180"
+            step="1"
+            defaultValue={String(item?.minDowntimeDays ?? 14)}
           />
         </Field>
       </div>

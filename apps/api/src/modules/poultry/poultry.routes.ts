@@ -6,6 +6,7 @@ import { validate } from "../../middleware/validation.middleware";
 import { ForbiddenError } from "../../utils/errors";
 import * as controller from "./poultry.controller";
 import { poultryPerformanceRoutes } from "./poultry-performance.routes";
+import { poultryInsightsRoutes } from "./poultry-insights.routes";
 import {
   flockProfileParams,
   organizationParams,
@@ -89,6 +90,7 @@ poultryRoutes.get(
 );
 
 poultryRoutes.use(poultryPerformanceRoutes);
+poultryRoutes.use(poultryInsightsRoutes);
 
 poultryRoutes.get(
   "/organizations/:orgSlug/poultry/flocks/:flockId/profile.pdf",
