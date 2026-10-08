@@ -100,8 +100,37 @@ function displayDate(value: string, locale: string) {
   return new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 }
 
+/** Categories a member may switch off; every other category is mandatory (mirrors the API). */
+const OPTIONAL_CATEGORIES = [
+  "project", "maintenance", "inventory", "procurement", "finance", "poultry",
+  "pigs", "agriculture", "veterinary", "report", "general",
+] as const;
+const MANDATORY_CATEGORIES = CATEGORIES.filter(
+  (item) => !(OPTIONAL_CATEGORIES as readonly string[]).includes(item),
+);
+
+function categoryTone(category: string, priority: NotificationPriority) {
+  if (priority === "urgent") return "bg-critical/12 text-critical";
+  if (["alert", "incident", "security", "discipline"].includes(category)) return "bg-warning/15 text-warning-ink";
+  if (["payroll", "finance", "procurement"].includes(category)) return "bg-good/12 text-good-ink";
+  if (["training", "document", "contract"].includes(category)) return "bg-[#6643ae]/12 text-[#6643ae] dark:text-[#b9a3ec]";
+  return "bg-brand/10 text-brand";
+}
+
+function dayLabel(value: string, fr: boolean, locale: string) {
+  const day = new Date(value);
+  const today = new Date();
+  const start = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const difference = Math.round((start(today) - start(day)) / 86_400_000);
+  if (difference === 0) return fr ? "Aujourd’hui" : "Today";
+  if (difference === 1) return fr ? "Hier" : "Yesterday";
+  if (difference < 7) return fr ? "Cette semaine" : "This week";
+  return new Intl.DateTimeFormat(locale, { month: "long", year: "numeric" }).format(day);
+}
+
 export function NotificationsArea({ orgSlug }: { orgSlug: string }) {
   const { locale, t } = useLanguage();
+  const fr = locale === "fr";
   const router = useRouter();
   const searchParams = useSearchParams();
   const markReadOnOpen = searchParams.get("markRead") === "1";
@@ -177,9 +206,10 @@ export function NotificationsArea({ orgSlug }: { orgSlug: string }) {
     };
   }, [markReadOnOpen, orgSlug, refresh, router]);
 
+  // Opening a notification marks it read and follows its link; it stays in
+  // the inbox (archiving is a separate, explicit action).
   const open = async (item: NotificationItem) => {
     if (!item.isRead) await notificationsApi.read(orgSlug, item.id);
-    await notificationsApi.archive(orgSlug, item.id);
     await refresh();
     const path = notificationActionPath(orgSlug, item);
     if (path) router.push(path);
@@ -193,47 +223,103 @@ export function NotificationsArea({ orgSlug }: { orgSlug: string }) {
     if (urgent.notifications.length && !await confirmText(t("notifications.confirmUrgent"))) return;
     bulk.mutate("read-all");
   };
-  const localeTag = locale === "fr" ? "fr-FR" : "en-US";
+  const clearFilters = () => {
+    setCategory("");
+    setPriority("");
+    setProvinceId("");
+    setDateRange("");
+    setSearch("");
+    setOffset(0);
+  };
+  const filtered = Boolean(category || priority || provinceId || dateRange || search.trim());
+  const localeTag = fr ? "fr-FR" : "en-US";
   const notifications = inbox.data?.notifications ?? [];
   const total = inbox.data?.pagination.total ?? 0;
+  const groups = useMemo(() => {
+    const result: Array<{ label: string; items: NotificationItem[] }> = [];
+    for (const item of notifications) {
+      const label = dayLabel(item.createdAt, fr, localeTag);
+      const last = result[result.length - 1];
+      if (last && last.label === label) last.items.push(item);
+      else result.push({ label, items: [item] });
+    }
+    return result;
+  }, [fr, localeTag, notifications]);
+  const selectClass = "h-9 rounded-lg border border-border bg-surface-1 px-3 text-sm text-ink focus:border-brand focus:outline-none";
   return (
-    <main className="mx-auto max-w-7xl space-y-5 p-4 sm:p-6 lg:p-8">
-      <header className="overflow-hidden rounded-3xl border border-border bg-[radial-gradient(circle_at_top_right,rgba(26,115,232,.16),transparent_42%),linear-gradient(135deg,var(--surface-1),var(--surface-2))] p-5 shadow-sm sm:p-7">
-        <div className="flex flex-wrap items-start justify-between gap-4">
+    <main className="mx-auto max-w-6xl space-y-4 p-4 sm:p-6 lg:p-8">
+      <header className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <span className="grid size-11 place-items-center rounded-xl bg-brand text-brand-ink shadow-sm"><BellRing className="size-5" aria-hidden /></span>
           <div>
-            <div className="flex items-center gap-2 text-brand"><BellRing className="size-5" aria-hidden /><span className="text-sm font-semibold">LiteHubs</span></div>
-            <h1 className="mt-2 text-2xl font-semibold tracking-[-.025em] text-ink sm:text-3xl">{t("notifications.title")}</h1>
-            <p className="mt-1 max-w-xl text-sm leading-6 text-ink-secondary">{t("notifications.subtitle")}</p>
+            <h1 className="text-xl font-semibold tracking-[-.02em] text-ink sm:text-2xl">{t("notifications.title")}</h1>
+            <p className="text-sm text-ink-secondary">
+              {unreadCount > 0
+                ? fr
+                  ? `${unreadCount > 99 ? "99+" : unreadCount} non lue${unreadCount > 1 ? "s" : ""} · ${t("notifications.subtitle")}`
+                  : `${unreadCount > 99 ? "99+" : unreadCount} unread · ${t("notifications.subtitle")}`
+                : fr ? "Vous êtes à jour." : "You are all caught up."}
+            </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {unreadCount > 0 ? <Badge variant="critical">{t("notifications.unreadCount", { count: unreadCount > 99 ? "99+" : unreadCount })}</Badge> : null}
-            <Button variant="secondary" size="sm" onClick={() => setPreferencesOpen(true)}><Settings2 />{t("notifications.preferences")}</Button>
-            <Button size="sm" onClick={() => void markAllRead()} loading={bulk.isPending}><CheckCheck />{t("notifications.markAllRead")}</Button>
-          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="secondary" size="sm" onClick={() => setPreferencesOpen(true)}><Settings2 />{t("notifications.preferences")}</Button>
+          <Button size="sm" onClick={() => void markAllRead()} loading={bulk.isPending} disabled={unreadCount === 0}><CheckCheck />{t("notifications.markAllRead")}</Button>
         </div>
       </header>
 
-      <section className="rounded-2xl border border-border bg-surface-1 p-3 shadow-sm sm:p-4">
-        <div className="flex flex-wrap gap-2" role="tablist" aria-label={t("notifications.title")}>
-          {(["all", "unread", "important", "archived"] as NotificationTab[]).map((item) => (
-            <button key={item} type="button" role="tab" aria-selected={tab === item} onClick={() => changeTab(item)} className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${tab === item ? "bg-brand text-brand-ink" : "text-ink-secondary hover:bg-surface-2 hover:text-ink"}`}>{t(`notifications.${item}` as const)}</button>
-          ))}
-          <div className="ml-auto hidden sm:block">{tab !== "archived" ? <Button size="sm" variant="ghost" onClick={() => bulk.mutate("archive-read")} loading={bulk.isPending}><Archive />{t("notifications.archiveRead")}</Button> : null}</div>
-        </div>
-        <div className="mt-3 grid gap-2 lg:grid-cols-[minmax(0,1fr)_repeat(4,minmax(130px,auto))]">
-          <label className="relative block"><Search className="pointer-events-none absolute left-3 top-2.5 size-4 text-ink-muted" aria-hidden /><Input value={search} onChange={(event) => { setSearch(event.target.value); setOffset(0); }} className="pl-9" placeholder={t("notifications.search")} aria-label={t("notifications.search")} /></label>
-          <select value={category} onChange={(event) => { setCategory(event.target.value); setOffset(0); }} className="h-9 rounded-md border border-border-strong bg-surface-1 px-3 text-sm text-ink" aria-label={t("notifications.category")}><option value="">{t("notifications.allCategories")}</option>{CATEGORIES.map((item) => <option key={item} value={item}>{t(categoryKey(item))}</option>)}</select>
-          <select value={priority} onChange={(event) => { setPriority(event.target.value as "" | NotificationPriority); setOffset(0); }} className="h-9 rounded-md border border-border-strong bg-surface-1 px-3 text-sm text-ink" aria-label={t("notifications.priority")}><option value="">{t("notifications.allPriorities")}</option>{PRIORITIES.map((item) => <option key={item} value={item}>{t(priorityKey(item))}</option>)}</select>
-          {(provinces.data?.provinces.length ?? 0) > 1 ? <select value={provinceId} onChange={(event) => { setProvinceId(event.target.value); setOffset(0); }} className="h-9 rounded-md border border-border-strong bg-surface-1 px-3 text-sm text-ink" aria-label={t("notifications.province")}><option value="">{t("notifications.allProvinces")}</option>{provinces.data?.provinces.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select> : null}
-          <select value={dateRange} onChange={(event) => { setDateRange(event.target.value); setOffset(0); }} className="h-9 rounded-md border border-border-strong bg-surface-1 px-3 text-sm text-ink" aria-label={t("notifications.date")}><option value="">{t("notifications.allDates")}</option><option value="today">{t("notifications.today")}</option><option value="week">{t("notifications.last7Days")}</option><option value="month">{t("notifications.last30Days")}</option></select>
-        </div>
-      </section>
-
       <section className="overflow-hidden rounded-2xl border border-border bg-surface-1 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-3 py-2.5 sm:px-4">
+          <div className="flex flex-wrap gap-1 rounded-xl bg-surface-2 p-1" role="tablist" aria-label={t("notifications.title")}>
+            {(["all", "unread", "important", "archived"] as NotificationTab[]).map((item) => (
+              <button
+                key={item}
+                type="button"
+                role="tab"
+                aria-selected={tab === item}
+                onClick={() => changeTab(item)}
+                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${tab === item ? "bg-surface-1 text-ink shadow-sm" : "text-ink-secondary hover:text-ink"}`}
+              >
+                {t(`notifications.${item}` as const)}
+                {item === "unread" && unreadCount > 0 ? (
+                  <span className="rounded-full bg-critical px-1.5 text-[11px] font-semibold leading-5 text-white">{unreadCount > 99 ? "99+" : unreadCount}</span>
+                ) : null}
+              </button>
+            ))}
+          </div>
+          {tab !== "archived" ? (
+            <Button size="sm" variant="ghost" onClick={() => bulk.mutate("archive-read")} loading={bulk.isPending}><Archive />{t("notifications.archiveRead")}</Button>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap items-center gap-2 border-b border-border bg-surface-2/40 px-3 py-2.5 sm:px-4">
+          <label className="relative min-w-[14rem] flex-1">
+            <Search className="pointer-events-none absolute left-3 top-2.5 size-4 text-ink-muted" aria-hidden />
+            <Input value={search} onChange={(event) => { setSearch(event.target.value); setOffset(0); }} className="h-9 pl-9" placeholder={t("notifications.search")} aria-label={t("notifications.search")} />
+          </label>
+          <select value={category} onChange={(event) => { setCategory(event.target.value); setOffset(0); }} className={selectClass} aria-label={t("notifications.category")}><option value="">{t("notifications.allCategories")}</option>{CATEGORIES.map((item) => <option key={item} value={item}>{t(categoryKey(item))}</option>)}</select>
+          <select value={priority} onChange={(event) => { setPriority(event.target.value as "" | NotificationPriority); setOffset(0); }} className={selectClass} aria-label={t("notifications.priority")}><option value="">{t("notifications.allPriorities")}</option>{PRIORITIES.map((item) => <option key={item} value={item}>{t(priorityKey(item))}</option>)}</select>
+          {(provinces.data?.provinces.length ?? 0) > 1 ? <select value={provinceId} onChange={(event) => { setProvinceId(event.target.value); setOffset(0); }} className={selectClass} aria-label={t("notifications.province")}><option value="">{t("notifications.allProvinces")}</option>{provinces.data?.provinces.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select> : null}
+          <select value={dateRange} onChange={(event) => { setDateRange(event.target.value); setOffset(0); }} className={selectClass} aria-label={t("notifications.date")}><option value="">{t("notifications.allDates")}</option><option value="today">{t("notifications.today")}</option><option value="week">{t("notifications.last7Days")}</option><option value="month">{t("notifications.last30Days")}</option></select>
+          {filtered ? <Button size="sm" variant="ghost" onClick={clearFilters}><X />{fr ? "Effacer" : "Clear"}</Button> : null}
+        </div>
+
         {inbox.isLoading ? <div className="space-y-1 p-3"><SkeletonCard rows={3} /><SkeletonCard rows={3} /></div> : null}
         {inbox.isError ? <ErrorState title={t("notifications.loadFailed")} description={(inbox.error as Error).message} onRetry={() => void inbox.refetch()} /> : null}
-        {!inbox.isLoading && !inbox.isError && !notifications.length ? <EmptyState icon={Inbox} title={t("notifications.empty")} description={t("notifications.emptyDescription")} /> : null}
-        {!inbox.isLoading && !inbox.isError && notifications.length ? <div className="divide-y divide-border">{notifications.map((item) => <NotificationCard key={item.id} item={item} locale={localeTag} language={locale} onOpen={() => void open(item)} onAction={(action) => mutate.mutate({ action, item })} loading={mutate.isPending} />)}</div> : null}
+        {!inbox.isLoading && !inbox.isError && !notifications.length ? <div className="py-6"><EmptyState icon={Inbox} title={t("notifications.empty")} description={t("notifications.emptyDescription")} /></div> : null}
+        {!inbox.isLoading && !inbox.isError && notifications.length ? (
+          <div>
+            {groups.map((group) => (
+              <div key={group.label}>
+                <p className="sticky top-0 z-[1] border-b border-border bg-surface-2/90 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[.12em] text-ink-muted backdrop-blur sm:px-5">{group.label}</p>
+                <div className="divide-y divide-border">
+                  {group.items.map((item) => (
+                    <NotificationCard key={item.id} item={item} fr={fr} locale={localeTag} language={locale} onOpen={() => void open(item)} onAction={(action) => mutate.mutate({ action, item })} loading={mutate.isPending && mutate.variables?.item.id === item.id} />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
         {offset + notifications.length < total ? <div className="border-t border-border p-3 text-center"><Button variant="secondary" size="sm" onClick={() => setOffset((current) => current + PAGE_SIZE)}>{t("notifications.loadMore")}</Button></div> : null}
       </section>
       {preferencesOpen ? <PreferencesDialog orgSlug={orgSlug} onClose={() => setPreferencesOpen(false)} /> : null}
@@ -287,24 +373,89 @@ function localizedNotificationCopy(item: NotificationItem, language: "fr" | "en"
       message: due?.[1] && due[2] ? `La formation « ${due[1]} » doit être terminée le ${notificationDate(due[2], language)}.` : "Une formation arrive bientôt à échéance.",
     };
   }
+  const frenchTitles: Record<string, string> = {
+    training_certificate_issued: "Certificat de formation délivré",
+    training_question_asked: "Nouvelle question sur une leçon",
+    training_question_answered: "Le formateur a répondu à votre question",
+    training_validation_required: "Formation à valider",
+    training_completion_approved: "Formation validée",
+    training_completion_returned: "Formation renvoyée pour complément",
+  };
+  if (frenchTitles[item.type]) return { title: frenchTitles[item.type]!, message: item.message };
   if (["employment_contract_available", "contract_available"].includes(item.type)) {
     return { title: "Contrat de travail disponible", message: "Votre contrat de travail est disponible dans Mes contrats." };
   }
   return { title: item.title, message: item.message };
 }
-function NotificationCard({ item, locale, language, onOpen, onAction, loading }: { item: NotificationItem; locale: string; language: "fr" | "en"; onOpen: () => void; onAction: (action: "read" | "unread" | "archive" | "delete") => void; loading: boolean }) {
+function NotificationCard({ item, fr, locale, language, onOpen, onAction, loading }: { item: NotificationItem; fr: boolean; locale: string; language: "fr" | "en"; onOpen: () => void; onAction: (action: "read" | "unread" | "archive" | "delete") => void; loading: boolean }) {
   const { t } = useLanguage();
   const Icon = categoryIcon(item.category);
   const copy = localizedNotificationCopy(item, language);
-  return <article className={`group relative flex gap-3 p-4 transition-colors sm:p-5 ${!item.isRead ? "bg-brand-subtle/45" : "hover:bg-surface-2/70"}`}>
-    <div className={`grid size-10 shrink-0 place-items-center rounded-xl ${item.priority === "urgent" ? "bg-critical/15 text-critical" : "bg-brand/10 text-brand"}`}><Icon className="size-5" aria-hidden /></div>
-    <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"><div className="flex flex-wrap items-center gap-2"><h2 className="text-sm font-semibold text-ink">{copy.title}</h2>{!item.isRead ? <span className="size-2 rounded-full bg-critical" aria-label={t("notifications.unread")} /> : null}<Badge variant={severityVariant(item.priority)}>{t(priorityKey(item.priority))}</Badge><Badge variant="outline" icon={false}>{t(categoryKey(item.category))}</Badge></div>{copy.message ? <p className="mt-1 line-clamp-2 text-sm leading-6 text-ink-secondary">{copy.message}</p> : null}<p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-muted"><Clock3 className="size-3" aria-hidden />{relativeTime(item.createdAt, locale)}<span aria-hidden>·</span><time dateTime={item.createdAt}>{displayDate(item.createdAt, locale)}</time>{item.actor?.fullName ? <><span aria-hidden>·</span><span>{item.actor.fullName}</span></> : null}{item.province?.name ? <><span aria-hidden>·</span><span>{item.province.name}</span></> : null}</p></button>
-    <div className="flex shrink-0 items-start gap-1"><Button variant="ghost" size="icon-sm" onClick={() => onAction(item.isRead ? "unread" : "read")} disabled={loading} aria-label={item.isRead ? t("notifications.markUnread") : t("notifications.markRead")}>{item.isRead ? <Bell className="size-4" /> : <Check className="size-4" />}</Button><details className="relative"><summary className="grid size-8 cursor-pointer place-items-center rounded-md text-ink-secondary hover:bg-surface-3 hover:text-ink" aria-label={t("notifications.preferences")}><MoreHorizontal className="size-4" /></summary><div className="absolute right-0 z-20 mt-1 w-44 rounded-lg border border-border bg-surface-1 p-1 shadow-lg"><button type="button" onClick={() => onAction("archive")} className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-ink-secondary hover:bg-surface-2"><Archive className="size-3.5" />{t("notifications.archive")}</button><button type="button" onClick={() => onAction("delete")} className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-critical hover:bg-critical/10"><Trash2 className="size-3.5" />{t("notifications.delete")}</button></div></details>{item.actionUrl ? <ChevronRight className="mt-2 size-4 text-ink-muted" aria-hidden /> : null}</div>
-  </article>;
+  const [menuOpen, setMenuOpen] = useState(false);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = () => setMenuOpen(false);
+    window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, [menuOpen]);
+  const important = item.priority === "urgent" || item.priority === "high";
+  return (
+    <article className={`group relative flex gap-3 px-4 py-3.5 transition-colors sm:px-5 ${!item.isRead ? "bg-brand/[0.045] hover:bg-brand/[0.07]" : "hover:bg-surface-2/60"}`}>
+      {!item.isRead ? <span className="absolute inset-y-0 left-0 w-[3px] bg-brand" aria-hidden /> : null}
+      <div className={`grid size-9 shrink-0 place-items-center rounded-lg ${categoryTone(item.category, item.priority)}`}><Icon className="size-[18px]" aria-hidden /></div>
+      <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <h2 className={`text-sm ${!item.isRead ? "font-semibold text-ink" : "font-medium text-ink-secondary"}`}>{copy.title}</h2>
+          {important ? <Badge variant={severityVariant(item.priority)}>{t(priorityKey(item.priority))}</Badge> : null}
+          <span className="text-xs text-ink-muted">{t(categoryKey(item.category))}</span>
+        </div>
+        {copy.message ? <p className={`mt-0.5 line-clamp-2 text-sm leading-6 ${!item.isRead ? "text-ink-secondary" : "text-ink-muted"}`}>{copy.message}</p> : null}
+        <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-ink-muted">
+          <Clock3 className="size-3" aria-hidden />
+          <time dateTime={item.createdAt} title={displayDate(item.createdAt, locale)}>{relativeTime(item.createdAt, locale)}</time>
+          {item.actor?.fullName ? <><span aria-hidden>·</span><span>{item.actor.fullName}</span></> : null}
+          {item.province?.name ? <><span aria-hidden>·</span><span>{item.province.name}</span></> : null}
+        </p>
+      </button>
+      <div className="flex shrink-0 items-center gap-1 self-start">
+        {!item.isRead ? (
+          <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={() => onAction("read")} disabled={loading} title={t("notifications.markRead")}>
+            <Check className="size-4" />
+            <span className="hidden sm:inline">{fr ? "Lu" : "Read"}</span>
+          </Button>
+        ) : null}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={(event) => { event.stopPropagation(); setMenuOpen((value) => !value); }}
+            className="grid size-8 place-items-center rounded-md text-ink-muted hover:bg-surface-3 hover:text-ink"
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            aria-label={fr ? "Plus d’actions" : "More actions"}
+          >
+            <MoreHorizontal className="size-4" />
+          </button>
+          {menuOpen ? (
+            <div role="menu" className="absolute right-0 z-20 mt-1 w-52 rounded-lg border border-border bg-surface-1 p-1 shadow-lg" onClick={(event) => event.stopPropagation()}>
+              {item.isRead ? (
+                <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onAction("unread"); }} className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-ink-secondary hover:bg-surface-2"><Bell className="size-3.5" />{t("notifications.markUnread")}</button>
+              ) : null}
+              {!item.isArchived ? (
+                <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onAction("archive"); }} className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-ink-secondary hover:bg-surface-2"><Archive className="size-3.5" />{t("notifications.archive")}</button>
+              ) : null}
+              <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onAction("delete"); }} className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-critical hover:bg-critical/10"><Trash2 className="size-3.5" />{t("notifications.delete")}</button>
+            </div>
+          ) : null}
+        </div>
+        {item.actionUrl ? <ChevronRight className="size-4 text-ink-muted" aria-hidden /> : null}
+      </div>
+    </article>
+  );
 }
 
 function PreferencesDialog({ orgSlug, onClose }: { orgSlug: string; onClose: () => void }) {
   const { locale, setLocale, t } = useLanguage();
+  const fr = locale === "fr";
   const queryClient = useQueryClient();
   const { refresh } = useNotificationCenter();
   const preferences = useQuery({ queryKey: ["notification-preferences", orgSlug], queryFn: () => notificationsApi.preferences(orgSlug) });
@@ -322,11 +473,88 @@ function PreferencesDialog({ orgSlug, onClose }: { orgSlug: string; onClose: () 
   if (preferences.isError) return <DialogShell title={t("notifications.settingsTitle")} onClose={onClose}><ErrorState title={t("notifications.loadFailed")} onRetry={() => void preferences.refetch()} /></DialogShell>;
   const profile = preferences.data!.profile;
   const existing = new Map(preferences.data!.categories.map((item) => [item.category, item]));
-  const submit = (event: React.FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); const categories: CategoryPreference[] = CATEGORIES.map((item) => { const value = existing.get(item); return { category: item, inApp: form.get(`inApp-${item}`) === "on", email: form.get(`email-${item}`) === "on", minEmailSeverity: value?.minEmailSeverity ?? "warning" }; }); save.mutate({ inAppEnabled: form.get("inAppEnabled") === "on", emailEnabled: form.get("emailEnabled") === "on", smsEnabled: form.get("smsEnabled") === "on", pushEnabled: form.get("pushEnabled") === "on", digestFrequency: String(form.get("digestFrequency")) as "none" | "daily" | "weekly", quietHoursStart: String(form.get("quietHoursStart") || "") || null, quietHoursEnd: String(form.get("quietHoursEnd") || "") || null, preferredLanguage: String(form.get("preferredLanguage")) as "fr" | "en", categories }); };
-  return <DialogShell title={t("notifications.settingsTitle")} onClose={onClose}><form onSubmit={submit} className="space-y-5"><p className="text-sm leading-6 text-ink-secondary">{t("notifications.settingsDescription")}</p><div className="grid gap-3 sm:grid-cols-2">{([ ["inAppEnabled", "notifications.inApp"], ["emailEnabled", "notifications.email"], ["smsEnabled", "notifications.sms"], ["pushEnabled", "notifications.push"] ] as const).map(([name, label]) => <label key={name} className="flex items-center gap-2 rounded-lg border border-border p-3 text-sm text-ink"><input name={name} type="checkbox" defaultChecked={profile[name]} />{t(label)}</label>)}</div><div className="grid gap-4 sm:grid-cols-2"><Field label={t("notifications.digest")}><select name="digestFrequency" defaultValue={profile.digestFrequency} className="h-9 w-full rounded-md border border-border-strong bg-surface-1 px-3 text-sm text-ink"><option value="none">{t("notifications.none")}</option><option value="daily">{t("notifications.daily")}</option><option value="weekly">{t("notifications.weekly")}</option></select></Field><Field label={t("notifications.language")}><select name="preferredLanguage" defaultValue={profile.preferredLanguage || locale} className="h-9 w-full rounded-md border border-border-strong bg-surface-1 px-3 text-sm text-ink"><option value="fr">Français</option><option value="en">English</option></select></Field><Field label={`${t("notifications.quietHours")} · ${t("notifications.start")}`}><Input name="quietHoursStart" type="time" defaultValue={profile.quietHoursStart ?? ""} /></Field><Field label={`${t("notifications.quietHours")} · ${t("notifications.end")}`}><Input name="quietHoursEnd" type="time" defaultValue={profile.quietHoursEnd ?? ""} /></Field></div><section><h3 className="text-sm font-semibold text-ink">{t("notifications.categorySettings")}</h3><div className="mt-3 divide-y divide-border rounded-lg border border-border">{CATEGORIES.map((category) => { const setting = existing.get(category); return <div key={category} className="flex items-center justify-between gap-3 px-3 py-2.5"><span className="text-sm text-ink">{t(categoryKey(category))}</span><div className="flex gap-3 text-xs text-ink-secondary"><label className="flex items-center gap-1"><input name={`inApp-${category}`} type="checkbox" defaultChecked={setting?.inApp ?? true} />{t("notifications.inAppShort")}</label><label className="flex items-center gap-1"><input name={`email-${category}`} type="checkbox" defaultChecked={setting?.email ?? false} />{t("notifications.emailShort")}</label></div></div>; })}</div></section><div className="flex justify-end gap-2"><Button type="button" variant="secondary" onClick={onClose}>{t("members.cancel")}</Button><Button type="submit" loading={save.isPending}><Check />{t("notifications.savePreferences")}</Button></div></form></DialogShell>;
+  const submit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    // Only optional categories are sent: mandatory ones cannot be switched off.
+    const categories: CategoryPreference[] = OPTIONAL_CATEGORIES.map((item) => {
+      const value = existing.get(item);
+      return { category: item, inApp: form.get(`inApp-${item}`) === "on", email: form.get(`email-${item}`) === "on", minEmailSeverity: value?.minEmailSeverity ?? "warning" };
+    });
+    save.mutate({
+      emailEnabled: form.get("emailEnabled") === "on",
+      digestFrequency: String(form.get("digestFrequency")) as "none" | "daily" | "weekly",
+      quietHoursStart: String(form.get("quietHoursStart") || "") || null,
+      quietHoursEnd: String(form.get("quietHoursEnd") || "") || null,
+      preferredLanguage: String(form.get("preferredLanguage")) as "fr" | "en",
+      categories,
+    });
+  };
+  const selectClass = "h-9 w-full rounded-lg border border-border bg-surface-1 px-3 text-sm text-ink";
+  return (
+    <DialogShell title={t("notifications.settingsTitle")} onClose={onClose}>
+      <form onSubmit={submit} className="space-y-5">
+        <section className="rounded-xl border border-brand/20 bg-brand/[0.05] p-4">
+          <p className="flex items-center gap-2 text-sm font-semibold text-ink"><BellRing className="size-4 text-brand" aria-hidden />{fr ? "Toujours reçues" : "Always delivered"}</p>
+          <p className="mt-1 text-xs leading-5 text-ink-secondary">
+            {fr
+              ? "Ces notifications concernent votre travail, votre paie et la sécurité. Elles ne peuvent pas être désactivées."
+              : "These notices concern your work, your pay and safety. They cannot be turned off."}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {MANDATORY_CATEGORIES.map((item) => (
+              <span key={item} className="rounded-full border border-border bg-surface-1 px-2.5 py-0.5 text-xs text-ink-secondary">{t(categoryKey(item))}</span>
+            ))}
+          </div>
+        </section>
+
+        <section>
+          <h3 className="text-sm font-semibold text-ink">{fr ? "Informations facultatives" : "Optional updates"}</h3>
+          <p className="mt-0.5 text-xs text-ink-secondary">{fr ? "Choisissez ce que vous voulez suivre." : "Choose what you want to follow."}</p>
+          <div className="mt-3 overflow-hidden rounded-xl border border-border">
+            <div className="grid grid-cols-[1fr_5.5rem_4.5rem] gap-2 border-b border-border bg-surface-2 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
+              <span>{fr ? "Catégorie" : "Category"}</span>
+              <span className="text-center">{t("notifications.inAppShort")}</span>
+              <span className="text-center">{t("notifications.emailShort")}</span>
+            </div>
+            <div className="divide-y divide-border">
+              {OPTIONAL_CATEGORIES.map((category) => {
+                const setting = existing.get(category);
+                return (
+                  <div key={category} className="grid grid-cols-[1fr_5.5rem_4.5rem] items-center gap-2 px-3 py-2">
+                    <span className="text-sm text-ink">{t(categoryKey(category))}</span>
+                    <span className="text-center"><input aria-label={`${t(categoryKey(category))} · ${t("notifications.inAppShort")}`} name={`inApp-${category}`} type="checkbox" className="size-4 accent-[var(--brand)]" defaultChecked={setting?.inApp ?? true} /></span>
+                    <span className="text-center"><input aria-label={`${t(categoryKey(category))} · ${t("notifications.emailShort")}`} name={`email-${category}`} type="checkbox" className="size-4 accent-[var(--brand)]" defaultChecked={setting?.email ?? false} /></span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+
+        <section className="grid gap-4 sm:grid-cols-2">
+          <label className="flex items-start gap-2 rounded-xl border border-border p-3 text-sm text-ink sm:col-span-2">
+            <input name="emailEnabled" type="checkbox" className="mt-0.5 size-4 accent-[var(--brand)]" defaultChecked={profile.emailEnabled} />
+            <span>
+              <span className="font-medium">{fr ? "Recevoir aussi par e-mail" : "Also receive by e-mail"}</span>
+              <span className="block text-xs text-ink-secondary">{fr ? "Les notifications importantes vous sont aussi envoyées par e-mail." : "Important notices are also sent to your e-mail."}</span>
+            </span>
+          </label>
+          <Field label={t("notifications.digest")}><select name="digestFrequency" defaultValue={profile.digestFrequency} className={selectClass}><option value="none">{t("notifications.none")}</option><option value="daily">{t("notifications.daily")}</option><option value="weekly">{t("notifications.weekly")}</option></select></Field>
+          <Field label={t("notifications.language")}><select name="preferredLanguage" defaultValue={profile.preferredLanguage || locale} className={selectClass}><option value="fr">Français</option><option value="en">English</option></select></Field>
+          <Field label={`${t("notifications.quietHours")} · ${t("notifications.start")}`}><Input name="quietHoursStart" type="time" defaultValue={profile.quietHoursStart ?? ""} /></Field>
+          <Field label={`${t("notifications.quietHours")} · ${t("notifications.end")}`}><Input name="quietHoursEnd" type="time" defaultValue={profile.quietHoursEnd ?? ""} /></Field>
+        </section>
+        <div className="flex justify-end gap-2 border-t border-border pt-4">
+          <Button type="button" variant="secondary" onClick={onClose}>{t("members.cancel")}</Button>
+          <Button type="submit" loading={save.isPending}><Check />{t("notifications.savePreferences")}</Button>
+        </div>
+      </form>
+    </DialogShell>
+  );
 }
 
 function DialogShell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   const { t } = useLanguage();
-  return <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-4"><section role="dialog" aria-modal="true" aria-label={title} className="mx-auto my-6 max-w-2xl rounded-2xl border border-border bg-surface-1 p-5 shadow-2xl sm:p-6"><div className="flex items-start justify-between gap-3"><h2 className="text-lg font-semibold text-ink">{title}</h2><Button size="icon-sm" variant="ghost" onClick={onClose} aria-label={t("members.close")}><X /></Button></div><div className="mt-5">{children}</div></section></div>;
+  return <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-4" onMouseDown={onClose}><section role="dialog" aria-modal="true" aria-label={title} onMouseDown={(event) => event.stopPropagation()} className="mx-auto my-6 max-w-2xl rounded-2xl border border-border bg-surface-1 p-5 shadow-2xl sm:p-6"><div className="flex items-start justify-between gap-3"><h2 className="text-lg font-semibold text-ink">{title}</h2><Button size="icon-sm" variant="ghost" onClick={onClose} aria-label={t("members.close")}><X /></Button></div><div className="mt-5">{children}</div></section></div>;
 }

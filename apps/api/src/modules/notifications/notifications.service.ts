@@ -133,6 +133,34 @@ const categories = new Set([
   "report",
 ]);
 
+/**
+ * Work, pay, HR, compliance and safety notices every member must receive in
+ * the in-app inbox. They cannot be switched off in the preferences; only the
+ * informational categories below stay optional.
+ */
+export const MANDATORY_NOTIFICATION_CATEGORIES = new Set([
+  "alert",
+  "escalation",
+  "approval",
+  "task",
+  "leave",
+  "payroll",
+  "training",
+  "invitation",
+  "document",
+  "contract",
+  "attendance",
+  "schedule",
+  "discipline",
+  "incident",
+  "security",
+]);
+const optionalCategories = [...categories].filter(
+  (category) => !MANDATORY_NOTIFICATION_CATEGORIES.has(category),
+);
+/** Repeating reminders (overdue work) come back once a week, not every day. */
+const reminderWeek = () => Math.floor(Date.now() / 604_800_000);
+
 function mapNotification(row: NotificationRow) {
   return {
     id: row.id,
@@ -403,6 +431,7 @@ export async function createNotificationInTransaction(
   // E-mail is an independent delivery channel. A person may choose to keep a
   // quiet in-app inbox while still receiving farm safety alerts by e-mail.
   if (
+    !MANDATORY_NOTIFICATION_CATEGORIES.has(input.category) &&
     (!profile.in_app_enabled || !categoryAllowsInApp) &&
     !emailPending &&
     priority !== "urgent"
@@ -754,12 +783,16 @@ export async function getNotificationPreferences(context: NotificationContext) {
         quietHoursEnd: profile.quiet_hours_end,
         preferredLanguage: profile.preferred_language,
       },
-      categories: categoryPreferences.rows.map((row) => ({
-        category: row.category,
-        inApp: row.in_app,
-        email: row.email,
-        minEmailSeverity: row.min_email_severity,
-      })),
+      categories: categoryPreferences.rows
+        .filter((row) => !MANDATORY_NOTIFICATION_CATEGORIES.has(row.category))
+        .map((row) => ({
+          category: row.category,
+          inApp: row.in_app,
+          email: row.email,
+          minEmailSeverity: row.min_email_severity,
+        })),
+      mandatoryCategories: [...MANDATORY_NOTIFICATION_CATEGORIES],
+      optionalCategories,
     };
   });
 }
@@ -814,6 +847,8 @@ export async function updateNotificationPreferences(
     );
     for (const preference of input.categories ?? []) {
       if (!categories.has(preference.category)) continue;
+      // Mandatory categories always stay on in the inbox.
+      if (MANDATORY_NOTIFICATION_CATEGORIES.has(preference.category)) continue;
       await client.query(
         `INSERT INTO notification_preferences (organization_id,member_id,category,in_app,email,min_email_severity)
          VALUES ($1,$2,$3,$4,$5,$6)
@@ -844,12 +879,16 @@ export async function updateNotificationPreferences(
     );
     return {
       profile: next,
-      categories: categoryPreferences.rows.map((row) => ({
-        category: row.category,
-        inApp: row.in_app,
-        email: row.email,
-        minEmailSeverity: row.min_email_severity,
-      })),
+      categories: categoryPreferences.rows
+        .filter((row) => !MANDATORY_NOTIFICATION_CATEGORIES.has(row.category))
+        .map((row) => ({
+          category: row.category,
+          inApp: row.in_app,
+          email: row.email,
+          minEmailSeverity: row.min_email_severity,
+        })),
+      mandatoryCategories: [...MANDATORY_NOTIFICATION_CATEGORIES],
+      optionalCategories,
     };
   });
 }
@@ -984,7 +1023,7 @@ export async function runScheduledNotificationRemindersForOrganization(
         actionUrl: `/my-trainings/${assignment.assignment_id}`,
         entityType: "training_assignment",
         entityId: assignment.assignment_id,
-        deduplicationKey: `training_overdue:${assignment.assignment_id}:${new Date().toISOString().slice(0, 10)}`,
+        deduplicationKey: `training_overdue:${assignment.assignment_id}:w${reminderWeek()}`,
       });
     }
     const dueTasks = await client.query<{
@@ -1046,7 +1085,7 @@ export async function runScheduledNotificationRemindersForOrganization(
         actionUrl: "/my-tasks",
         entityType: "management_project_task",
         entityId: task.id,
-        deduplicationKey: `task-overdue:${task.id}:${new Date().toISOString().slice(0, 10)}`,
+        deduplicationKey: `task-overdue:${task.id}:w${reminderWeek()}`,
       });
     }
     const dueMaintenance = await client.query<{
