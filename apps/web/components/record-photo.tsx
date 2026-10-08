@@ -16,9 +16,10 @@ export const RECORD_PHOTO_ACCEPT =
 
 type ImageRow = Record<string, unknown>;
 
-export type PhotoResource = "inventory-items" | "materials";
+export type PhotoResource = "inventory-items" | "materials" | "assets";
 
 const photoType: Record<PhotoResource, string> = {
+  assets: "equipment_photo",
   "inventory-items": "inventory_item_photo",
   materials: "project_material_photo",
 };

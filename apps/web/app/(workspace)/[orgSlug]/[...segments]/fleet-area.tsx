@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useState, type MouseEvent, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -29,6 +29,7 @@ import {
 import { can, isOwner } from "@/lib/permissions";
 import { useLanguage } from "@/providers/language-provider";
 import { useSessionUser } from "@/stores/session-store";
+import { RecordPhoto } from "@/components/record-photo";
 
 type Row = Record<string, unknown> & { id: string };
 type ChecklistItem = {
@@ -851,6 +852,412 @@ export function FleetArea({
   );
 }
 
+const responsibilityLabel = (responsibility: unknown, fr: boolean) => {
+  const labels: Record<string, [string, string]> = {
+    driver: ["Driver", "Conducteur"],
+    operator: ["Operator", "Opérateur"],
+    fleet_controller: ["Fleet controller", "Contrôleur flotte"],
+    maintenance_controller: ["Maintenance", "Maintenance"],
+    gate_verifier: ["Gate verifier", "Vérificateur portail"],
+  };
+  const label = labels[value(responsibility)];
+  return label ? (fr ? label[1] : label[0]) : value(responsibility);
+};
+
+/** Everything about one vehicle or engine: photo, identity, rules, people, sheets. */
+function FleetProfileDetailDialog({
+  profile,
+  runs,
+  orgSlug,
+  fr,
+  personal,
+  canManage,
+  canStart,
+  onClose,
+  onEdit,
+  onAssign,
+  onStart,
+  onReturn,
+}: {
+  profile: Row;
+  runs: Row[];
+  orgSlug: string;
+  fr: boolean;
+  personal: boolean;
+  canManage: boolean;
+  canStart: boolean;
+  onClose: () => void;
+  onEdit: (profile: Row) => void;
+  onAssign: (profile: Row) => void;
+  onStart: (profile: Row) => void;
+  onReturn: (run: Row) => void;
+}) {
+  const authorizations = (profile.authorizations as Row[] | undefined) ?? [];
+  const meterUnit =
+    value(profile.meterType) === "mileage_km"
+      ? "km"
+      : value(profile.meterType) === "engine_hours"
+        ? "h"
+        : "";
+  const consumptionUnit =
+    value(profile.expectedConsumptionUnit) === "litres_per_100km"
+      ? "L/100 km"
+      : "L/h";
+  const num = (input: unknown) =>
+    value(input) && Number.isFinite(Number(input))
+      ? Number(input).toLocaleString(fr ? "fr-FR" : "en-US", {
+          maximumFractionDigits: 2,
+        })
+      : value(input);
+  const yes = copy(fr, "Yes", "Oui");
+  const no = copy(fr, "No", "Non");
+  const flag = (input: unknown) => (input ? yes : no);
+  const name = value(profile.assetName) || value(profile.assetNumber) || "—";
+  const groups: Array<{ title: string; facts: Array<[string, string]> }> = [
+    {
+      title: copy(fr, "Identity", "Identité"),
+      facts: [
+        [copy(fr, "Asset number", "Numéro d’actif"), value(profile.assetNumber) || "—"],
+        [copy(fr, "Type", "Type"), kindLabel(profile.operationKind, fr)],
+        [
+          copy(fr, "Status", "Statut"),
+          profile.openRunId
+            ? copy(fr, "Out", "En sortie")
+            : copy(fr, "Available", "Disponible"),
+        ],
+        [copy(fr, "Site / farm", "Site / ferme"), value(profile.siteName) || "—"],
+        [copy(fr, "Project", "Projet"), value(profile.projectName) || "—"],
+        [copy(fr, "Fuel", "Carburant"), value(profile.fuelType) || "—"],
+      ],
+    },
+    {
+      title: copy(fr, "Meter and fuel", "Compteur et carburant"),
+      facts: [
+        [
+          copy(fr, "Current meter", "Compteur actuel"),
+          value(profile.currentMeterReading)
+            ? `${num(profile.currentMeterReading)} ${meterUnit}`.trim()
+            : "—",
+        ],
+        [
+          copy(fr, "Tank capacity", "Capacité du réservoir"),
+          value(profile.fuelTankCapacityLitres)
+            ? `${num(profile.fuelTankCapacityLitres)} L`
+            : "—",
+        ],
+        [
+          copy(fr, "Consumption target", "Norme de consommation"),
+          value(profile.expectedConsumption)
+            ? `${num(profile.expectedConsumption)} ${consumptionUnit}`
+            : "—",
+        ],
+        [
+          copy(fr, "Tolerance", "Tolérance"),
+          value(profile.consumptionTolerancePercent)
+            ? `${num(profile.consumptionTolerancePercent)} %`
+            : "—",
+        ],
+        [
+          copy(fr, "Daily meter required", "Relevé compteur obligatoire"),
+          flag(profile.dailyMeterRequired),
+        ],
+      ],
+    },
+    {
+      title: copy(fr, "Controls", "Contrôles"),
+      facts: [
+        [copy(fr, "Pre-trip check", "Contrôle avant départ"), flag(profile.requiresPreTrip)],
+        [copy(fr, "Post-trip check", "Contrôle au retour"), flag(profile.requiresPostTrip)],
+        [copy(fr, "Gate check", "Contrôle au portail"), flag(profile.requiresGateCheck)],
+        [
+          copy(fr, "Licence required", "Permis requis"),
+          profile.requiresOperatorLicence
+            ? value(profile.requiredLicenceClass)
+              ? `${yes} · ${value(profile.requiredLicenceClass)}`
+              : yes
+            : no,
+        ],
+        [
+          copy(fr, "Block when maintenance is due", "Bloquer si entretien dû"),
+          flag(profile.preventDispatchWhenDue),
+        ],
+        [
+          copy(fr, "Open alerts", "Alertes ouvertes"),
+          value(profile.openAlertCount) || "0",
+        ],
+      ],
+    },
+    {
+      title: copy(fr, "Controllers", "Contrôleurs"),
+      facts: [
+        [
+          copy(fr, "Fleet controller", "Contrôleur flotte"),
+          value(profile.fleetControllerName) || "—",
+        ],
+        [
+          copy(fr, "Maintenance controller", "Contrôleur maintenance"),
+          value(profile.maintenanceControllerName) || "—",
+        ],
+      ],
+    },
+  ];
+  const sortedRuns = [...runs].sort((left, right) =>
+    `${value(right.runDate)}${value(right.dispatchedAt)}`.localeCompare(
+      `${value(left.runDate)}${value(left.dispatchedAt)}`,
+    ),
+  );
+
+  return (
+    <div
+      className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-3 sm:p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={`fleet-profile-${value(profile.id)}`}
+      onMouseDown={onClose}
+    >
+      <section
+        className="mx-auto my-4 w-full max-w-5xl overflow-hidden rounded-2xl border border-border bg-surface-1 shadow-2xl"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header className="flex flex-wrap items-start justify-between gap-4 border-b border-border bg-surface-2 px-5 py-4 sm:px-6">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-[.13em] text-brand">
+              {copy(fr, "Vehicle / engine record", "Fiche de l’engin")}
+            </p>
+            <h2
+              id={`fleet-profile-${value(profile.id)}`}
+              className="mt-1 truncate text-xl font-semibold text-ink sm:text-2xl"
+            >
+              {name}
+            </h2>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <Badge variant="info">{kindLabel(profile.operationKind, fr)}</Badge>
+              {profile.openRunId ? (
+                <Badge variant="warning">{copy(fr, "Out", "En sortie")}</Badge>
+              ) : (
+                <Badge variant="good">{copy(fr, "Available", "Disponible")}</Badge>
+              )}
+              <span className="text-xs text-ink-secondary">
+                {value(profile.assetNumber)} ·{" "}
+                {value(profile.siteName) || copy(fr, "No site", "Sans site")}
+              </span>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {canManage ? (
+              <Button size="sm" variant="secondary" onClick={() => onEdit(profile)}>
+                <Pencil />
+                {copy(fr, "Settings", "Réglages")}
+              </Button>
+            ) : null}
+            {canManage ? (
+              <Button size="sm" variant="secondary" onClick={() => onAssign(profile)}>
+                <UserRound />
+                {copy(fr, "Assign", "Affecter")}
+              </Button>
+            ) : null}
+            {canStart ? (
+              <Button size="sm" onClick={() => onStart(profile)}>
+                <ClipboardCheck />
+                {canManage
+                  ? copy(fr, "Complete sheet", "Remplir la fiche")
+                  : copy(fr, "Start sheet", "Démarrer la fiche")}
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={onClose}
+              aria-label={copy(fr, "Close", "Fermer")}
+            >
+              <X />
+            </Button>
+          </div>
+        </header>
+        <div className="max-h-[calc(100dvh-10rem)] overflow-y-auto p-5 sm:p-6">
+          <div className="grid gap-5 lg:grid-cols-[minmax(15rem,20rem)_1fr]">
+            <div className="space-y-4">
+              <RecordPhoto
+                orgSlug={orgSlug}
+                resource="assets"
+                recordId={value(profile.assetId)}
+                name={name}
+                fr={fr}
+                className="aspect-[4/3] w-full"
+              />
+              <section className="rounded-xl border border-border bg-surface-2 p-3">
+                <p className="text-xs font-semibold uppercase tracking-[.1em] text-ink-secondary">
+                  {copy(fr, "Responsibilities", "Responsabilités")}
+                </p>
+                {authorizations.length ? (
+                  <ul className="mt-2 space-y-1.5">
+                    {authorizations.map((authorization) => (
+                      <li
+                        key={`${value(authorization.memberId)}-${value(authorization.responsibility)}`}
+                        className="flex items-center justify-between gap-2 rounded-lg bg-surface-1 px-2.5 py-1.5 text-sm"
+                      >
+                        <span className="truncate font-medium text-ink">
+                          {value(authorization.memberName) || "—"}
+                        </span>
+                        <span className="shrink-0 text-xs text-ink-secondary">
+                          {responsibilityLabel(authorization.responsibility, fr)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-2 text-xs text-warning-ink">
+                    {copy(
+                      fr,
+                      "Assign a driver before creating a sheet.",
+                      "Affectez un conducteur avant de créer une fiche.",
+                    )}
+                  </p>
+                )}
+              </section>
+            </div>
+            <div className="space-y-4">
+              {groups.map((group) => (
+                <section
+                  key={group.title}
+                  className="rounded-xl border border-border bg-surface-1 p-4"
+                >
+                  <h3 className="text-sm font-semibold text-ink">{group.title}</h3>
+                  <dl className="mt-3 grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
+                    {group.facts.map(([label, fact]) => (
+                      <div key={label} className="min-w-0 rounded-lg bg-surface-2 px-3 py-2">
+                        <dt className="text-xs font-medium text-ink-muted">{label}</dt>
+                        <dd className="mt-0.5 break-words text-sm font-semibold text-ink">
+                          {fact}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                </section>
+              ))}
+            </div>
+          </div>
+          <section className="mt-5 rounded-xl border border-border bg-surface-1 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-ink">
+                {copy(fr, "Daily sheets", "Fiches quotidiennes")}
+              </h3>
+              <Badge variant="info">
+                {runs.length} {copy(fr, "sheet(s)", "fiche(s)")}
+              </Badge>
+            </div>
+            {sortedRuns.length ? (
+              <div className="mt-3 space-y-2">
+                {sortedRuns.map((run) => {
+                  const start = Number(run.startMeter);
+                  const end = Number(run.endMeter);
+                  const distance =
+                    value(run.startMeter) && value(run.endMeter) && end >= start
+                      ? `${(end - start).toLocaleString(fr ? "fr-FR" : "en-US")} ${meterUnit}`.trim()
+                      : "";
+                  const facts: Array<[string, string]> = [
+                    [copy(fr, "Sheet date", "Date de la fiche"), dateLabel(run.runDate, fr)],
+                    [copy(fr, "Driver", "Conducteur"), value(run.operatorName) || "—"],
+                    [copy(fr, "Purpose", "Motif"), value(run.purpose) || "—"],
+                    [copy(fr, "Destination", "Destination"), value(run.destination) || "—"],
+                    [
+                      copy(fr, "Meter", "Compteur"),
+                      value(run.startMeter)
+                        ? `${num(run.startMeter)} → ${num(run.endMeter) || "…"} ${meterUnit}`.trim()
+                        : "—",
+                    ],
+                    [copy(fr, "Distance / time", "Distance / durée"), distance || "—"],
+                    [
+                      copy(fr, "Fuel", "Carburant"),
+                      value(run.openingFuelLitres)
+                        ? `${num(run.openingFuelLitres)} → ${num(run.closingFuelLitres) || "…"} L`
+                        : "—",
+                    ],
+                    [
+                      copy(fr, "Signed by", "Signée par"),
+                      value(run.preTripSignerName) || "—",
+                    ],
+                  ];
+                  return (
+                    <article
+                      key={value(run.id)}
+                      className="rounded-lg border border-border bg-surface-2 p-3"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-sm font-semibold text-ink">
+                            {value(run.runCode) || copy(fr, "Sheet", "Fiche")}
+                          </p>
+                          <Badge variant={tone(run.status)}>
+                            {stateLabel(run.status, fr)}
+                          </Badge>
+                        </div>
+                        <div className="flex gap-2">
+                          {(personal || canManage) && value(run.status) === "open" ? (
+                            <Button size="sm" onClick={() => onReturn(run)}>
+                              <CheckCircle2 />
+                              {copy(fr, "Return", "Clôturer")}
+                            </Button>
+                          ) : null}
+                          <a
+                            className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-surface-1 px-3 text-xs font-semibold text-ink hover:bg-surface-2"
+                            href={orgApiUrl(
+                              orgSlug,
+                              `my-fleet/runs/${value(run.id)}/export.pdf`,
+                            )}
+                          >
+                            <Download className="size-3.5" />
+                            PDF
+                          </a>
+                        </div>
+                      </div>
+                      <dl className="mt-2 grid gap-x-4 gap-y-1 text-xs sm:grid-cols-2 lg:grid-cols-4">
+                        {facts.map(([label, fact]) => (
+                          <div key={label} className="min-w-0">
+                            <dt className="text-ink-muted">{label}</dt>
+                            <dd className="truncate font-medium text-ink-secondary">{fact}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                      {value(run.returnNotes) ? (
+                        <p className="mt-2 text-xs text-ink-secondary">
+                          {value(run.returnNotes)}
+                        </p>
+                      ) : null}
+                    </article>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="mt-2 text-sm text-ink-secondary">
+                {copy(
+                  fr,
+                  "No daily sheet for this equipment yet.",
+                  "Aucune fiche quotidienne pour cet engin pour le moment.",
+                )}
+              </p>
+            )}
+          </section>
+          {value(profile.notes) ? (
+            <section className="mt-5 rounded-xl border border-border bg-surface-2 p-4">
+              <h3 className="text-sm font-semibold text-ink">{copy(fr, "Notes", "Notes")}</h3>
+              <p className="mt-2 whitespace-pre-wrap text-sm text-ink-secondary">
+                {value(profile.notes)}
+              </p>
+            </section>
+          ) : null}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/** Clicks on buttons, links or fields inside a card keep their own action. */
+const fromControl = (event: MouseEvent) =>
+  event.target instanceof Element &&
+  Boolean(event.target.closest("button,a,input,select,textarea,label"));
+
 function FleetEquipmentCards({
   profiles,
   runs,
@@ -874,8 +1281,51 @@ function FleetEquipmentCards({
   onStart: (profile: Row) => void;
   onReturn: (run: Row) => void;
 }) {
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const detail = detailId
+    ? profiles.find((profile) => value(profile.id) === detailId)
+    : undefined;
+  const startableFor = (profile: Row) => {
+    const authorizations = (profile.authorizations as Row[] | undefined) ?? [];
+    const hasDriver = authorizations.some((authorization) =>
+      ["driver", "operator"].includes(value(authorization.responsibility)),
+    );
+    return (
+      !profile.openRunId && (personal ? hasDriver : canManage && hasDriver)
+    );
+  };
   return (
     <section className="rounded-2xl border border-border bg-surface-1">
+      {detail ? (
+        <FleetProfileDetailDialog
+          profile={detail}
+          runs={runs.filter(
+            (run) => value(run.fleetProfileId) === value(detail.id),
+          )}
+          orgSlug={orgSlug}
+          fr={fr}
+          personal={personal}
+          canManage={canManage}
+          canStart={startableFor(detail)}
+          onClose={() => setDetailId(null)}
+          onEdit={(profile) => {
+            setDetailId(null);
+            onEdit(profile);
+          }}
+          onAssign={(profile) => {
+            setDetailId(null);
+            onAssign(profile);
+          }}
+          onStart={(profile) => {
+            setDetailId(null);
+            onStart(profile);
+          }}
+          onReturn={(run) => {
+            setDetailId(null);
+            onReturn(run);
+          }}
+        />
+      ) : null}
       <div className="border-b border-border px-4 py-4">
         <h2 className="font-semibold text-ink">
           {personal
@@ -911,13 +1361,39 @@ function FleetEquipmentCards({
               !profile.openRunId &&
               (personal ? drivers.length > 0 : canManage && drivers.length > 0);
             return (
-              <article className="p-4 sm:p-5" key={profile.id}>
+              <article
+                className="cursor-pointer p-4 transition-colors hover:bg-brand/[0.035] sm:p-5"
+                key={profile.id}
+                onClick={(event) => {
+                  if (!fromControl(event)) setDetailId(value(profile.id));
+                }}
+              >
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <button
+                      type="button"
+                      className="shrink-0 rounded-xl focus-visible:outline-2 focus-visible:outline-brand"
+                      onClick={() => setDetailId(value(profile.id))}
+                      aria-label={copy(fr, "Open the record", "Ouvrir la fiche")}
+                    >
+                      <RecordPhoto
+                        orgSlug={orgSlug}
+                        resource="assets"
+                        recordId={value(profile.assetId)}
+                        name={value(profile.assetName)}
+                        fr={fr}
+                        className="size-16 sm:size-20"
+                      />
+                    </button>
+                    <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-base font-semibold text-ink">
+                      <button
+                        type="button"
+                        className="text-left text-base font-semibold text-ink hover:text-brand hover:underline"
+                        onClick={() => setDetailId(value(profile.id))}
+                      >
                         {value(profile.assetName)}
-                      </h3>
+                      </button>
                       <Badge variant="info">
                         {kindLabel(profile.operationKind, fr)}
                       </Badge>
@@ -936,6 +1412,10 @@ function FleetEquipmentCards({
                       {value(profile.siteName) ||
                         copy(fr, "No site", "Sans site")}
                     </p>
+                    <p className="mt-1 text-xs font-medium text-brand">
+                      {copy(fr, "Open the full record", "Voir la fiche complète")} →
+                    </p>
+                    </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {canManage ? (
