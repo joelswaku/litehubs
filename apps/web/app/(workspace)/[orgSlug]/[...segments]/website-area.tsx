@@ -6298,9 +6298,9 @@ const STYLE_SUBJECTS: Record<InspectorKind, { fr: string; en: string; frameFr: s
   container: { fr: "Style du conteneur", en: "Container style", frameFr: "", frameEn: "", tone: "bg-violet-100 text-violet-800 dark:bg-violet-400/15 dark:text-violet-200" },
   text: { fr: "Style du texte", en: "Text style", frameFr: "Cadre autour du texte", frameEn: "Frame around the text", tone: "bg-sky-100 text-sky-800 dark:bg-sky-400/15 dark:text-sky-200" },
   badges: { fr: "Style du texte", en: "Text style", frameFr: "Cadre autour du texte", frameEn: "Frame around the text", tone: "bg-sky-100 text-sky-800 dark:bg-sky-400/15 dark:text-sky-200" },
-  button: { fr: "Style du bouton", en: "Button style", frameFr: "Forme du bouton", frameEn: "Button shape", tone: "bg-emerald-100 text-emerald-800 dark:bg-emerald-400/15 dark:text-emerald-200" },
+  button: { fr: "Style du bouton", en: "Button style", frameFr: "Le bouton lui-même (fond, bordure, taille)", frameEn: "The button itself (background, border, size)", tone: "bg-emerald-100 text-emerald-800 dark:bg-emerald-400/15 dark:text-emerald-200" },
   box: { fr: "Style de l’élément (div)", en: "Element style (div)", frameFr: "Taille, espace et cadre", frameEn: "Size, spacing and frame", tone: "bg-violet-100 text-violet-800 dark:bg-violet-400/15 dark:text-violet-200" },
-  media: { fr: "Style de l’image", en: "Image style", frameFr: "Cadre de l’image", frameEn: "Image frame", tone: "bg-amber-100 text-amber-800 dark:bg-amber-400/15 dark:text-amber-200" },
+  media: { fr: "Style de l’image", en: "Image style", frameFr: "L’image elle-même (taille, bordure, ombre)", frameEn: "The image itself (size, border, shadow)", tone: "bg-amber-100 text-amber-800 dark:bg-amber-400/15 dark:text-amber-200" },
 };
 
 /** A heading that splits the inspector into "the content" and "the box around it". */
@@ -6668,6 +6668,18 @@ function StyleInspector({
   const isContainer = kind === "container";
   const subject = STYLE_SUBJECTS[kind];
   const hasText = kind !== "media" && kind !== "box";
+  // A text is a text: only text CSS (font, size, colour, alignment) and its
+  // place in the div. Box CSS (size, background, border, padding, shadow)
+  // belongs to divs, so a text never looks like a box of its own.
+  const textOnly = kind === "text" || kind === "badges";
+  const BOX_KEYS = [
+    "width", "height", "minWidth", "maxWidth", "minHeight", "maxHeight",
+    "paddingTop", "paddingRight", "paddingBottom", "paddingLeft",
+    "background", "gradientFrom", "gradientTo", "gradientAngle", "backgroundImage", "overlayColor", "overlayOpacity",
+    "borderWidth", "borderStyle", "borderColor", "radius", "radiusTopLeft", "radiusTopRight", "radiusBottomRight", "radiusBottomLeft",
+    "shadow", "position", "top", "right", "bottom", "left", "zIndex",
+  ];
+  const boxKeysUsed = textOnly ? BOX_KEYS.filter((key) => style[key] !== undefined) : [];
   const display = (style.display as string | undefined) ?? (isContainer && element !== "root" ? "flex" : undefined);
   const used = (...keys: string[]) => keys.some((key) => style[key] !== undefined);
   return (
@@ -6974,17 +6986,48 @@ function StyleInspector({
       ) : null}
 
       <StyleGroup
-        title={isContainer ? tr(fr, "Taille, espace et cadre du conteneur", "Container size, spacing and frame") : tr(fr, subject.frameFr, subject.frameEn)}
+        title={
+          isContainer
+            ? tr(fr, "Taille, espace et cadre du div", "Div size, spacing and frame")
+            : textOnly
+              ? tr(fr, "Place du texte dans son div", "Text placement in its div")
+              : tr(fr, subject.frameFr, subject.frameEn)
+        }
         hint={
           isContainer
             ? undefined
-            : tr(
-                fr,
-                "Taille, marges, fond et bordure de cet élément seulement. Le conteneur ou le bloc autour n’est pas modifié.",
-                "Size, margins, background and border of this element only. The container or block around it is not changed.",
-              )
+            : textOnly
+              ? tr(
+                  fr,
+                  "Un texte n’a pas de boîte : réglez ici ses marges et son alignement. Le fond, la bordure, le padding et la taille se règlent sur le div qui le contient.",
+                  "A text has no box: set its margins and alignment here. Background, border, padding and size are set on the div that holds it.",
+                )
+              : tr(
+                  fr,
+                  "Ces réglages s’appliquent à cet élément lui-même, pas au div qui le contient.",
+                  "These settings apply to this element itself, not to the div that holds it.",
+                )
         }
       />
+      {boxKeysUsed.length ? (
+        <div className="space-y-1.5 rounded-lg border border-amber-400/60 bg-amber-50 px-3 py-2 text-[11px] leading-4 text-amber-950 dark:bg-amber-400/10 dark:text-amber-100">
+          <p>
+            {tr(
+              fr,
+              "Ce texte a encore des réglages de boîte (fond, bordure, taille ou padding) d’une ancienne version : ils le font ressembler à un div.",
+              "This text still has box settings (background, border, size or padding) from an older version: they make it look like a div.",
+            )}
+          </p>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => patchStyle(Object.fromEntries(boxKeysUsed.map((key) => [key, undefined])))}
+          >
+            {tr(fr, "Retirer ces réglages de boîte", "Remove these box settings")}
+          </Button>
+        </div>
+      ) : null}
+      {textOnly ? null : (
       <InspectorSection
         title={tr(fr, "Dimensions", "Size")}
         active={used("width", "height", "minWidth", "maxWidth", "minHeight", "maxHeight")}
@@ -7035,6 +7078,7 @@ function StyleInspector({
           <LengthInput label={tr(fr, "Hauteur max.", "Max height")} value={style.maxHeight} allowNone onChange={(value) => setStyle("maxHeight", value)} />
         </div>
       </InspectorSection>
+      )}
 
       {kind === "media" ? (
         <InspectorSection title={tr(fr, "Image", "Image")} defaultOpen active={used("objectFit", "objectPosition", "aspectRatio")}>
@@ -7110,9 +7154,13 @@ function StyleInspector({
         active={used("marginTop", "marginRight", "marginBottom", "marginLeft", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft")}
       >
         <SidesInput label={tr(fr, "Marge extérieure (margin)", "Margin")} prefix="margin" style={style} patchStyle={patchStyle} min={-400} fr={fr} />
-        <SidesInput label={tr(fr, "Marge intérieure (padding)", "Padding")} prefix="padding" style={style} patchStyle={patchStyle} fr={fr} />
+        {textOnly ? null : (
+          <SidesInput label={tr(fr, "Marge intérieure (padding)", "Padding")} prefix="padding" style={style} patchStyle={patchStyle} fr={fr} />
+        )}
       </InspectorSection>
 
+      {textOnly ? null : (
+      <>
       <InspectorSection
         title={tr(fr, "Fond", "Background")}
         active={used("background", "gradientFrom", "gradientTo", "backgroundImage", "overlayColor")}
@@ -7234,6 +7282,8 @@ function StyleInspector({
         ) : null}
         <NumInput label={tr(fr, "Superposition (z-index)", "Stacking (z-index)")} value={style.zIndex} min={-10} max={100} onChange={(value) => setStyle("zIndex", value)} />
       </InspectorSection>
+      </>
+      )}
 
       {isContainer ? (
         <InspectorSection title={tr(fr, "Débordement", "Overflow")} active={used("overflow")}>
@@ -7243,7 +7293,7 @@ function StyleInspector({
 
       {element !== "canvas" && element !== "root" ? (
         <InspectorSection
-          title={tr(fr, "Comme élément enfant", "As a child element")}
+          title={textOnly ? tr(fr, "Placement dans le div", "Placement in the div") : tr(fr, "Comme élément enfant", "As a child element")}
           active={used("order", "flexGrow", "flexShrink", "flexBasis", "alignSelf")}
         >
           <p className="text-[11px] text-ink-muted">
