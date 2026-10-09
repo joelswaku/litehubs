@@ -47,6 +47,7 @@ type Mailbox = {
   lastCheckedAt: string | null;
   unseenCount: number;
   signature: string | null;
+  aliases?: string[];
   canSend: boolean;
   username?: string;
   imapHost?: string;
@@ -93,6 +94,7 @@ type MessageDetail = {
   candidates: { id: string; fullName: string; status: string; email: string; jobTitle: string }[];
 };
 type ComposeDraft = {
+  fromAddress?: string;
   to: string;
   cc: string;
   bcc: string;
@@ -163,6 +165,7 @@ export function MailArea({ orgSlug }: { orgSlug: string }) {
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [unreadOnly, setUnreadOnly] = useState(false);
+  const [toFilter, setToFilter] = useState<string | null>(null);
   const [openUid, setOpenUid] = useState<number | null>(null);
   const [compose, setCompose] = useState<ComposeDraft | null>(null);
   const [settings, setSettings] = useState<Mailbox | "new" | null>(null);
@@ -195,10 +198,10 @@ export function MailArea({ orgSlug }: { orgSlug: string }) {
     refetchInterval: 120_000,
   });
   const messages = useQuery({
-    queryKey: ["mail-messages", orgSlug, mailboxId, folder, page, search, unreadOnly],
+    queryKey: ["mail-messages", orgSlug, mailboxId, folder, page, search, unreadOnly, toFilter],
     queryFn: () =>
       get<{ total: number; pageSize: number; messages: MessageSummary[] }>(orgUrl(orgSlug, `${base}/messages`), {
-        params: { folder, page, search: search || undefined, unread: unreadOnly ? "true" : undefined },
+        params: { folder, page, search: search || undefined, unread: unreadOnly ? "true" : undefined, to: toFilter || undefined },
       }),
     enabled: Boolean(mailboxId) && current?.status !== "disabled",
     refetchInterval: 60_000,
@@ -289,7 +292,12 @@ export function MailArea({ orgSlug }: { orgSlug: string }) {
     const clean = subject.replace(/^((re|tr|fwd?)\s*:\s*)+/i, "");
     const self = current?.emailAddress.toLowerCase();
     const replyTargets = message.replyTo.length ? message.replyTo : message.from;
-    const others = [...message.to, ...message.cc].filter((item) => item.address.toLowerCase() !== self);
+    // Answer from the alias the message was sent to (e.g. recrutement@).
+    const own = [current?.emailAddress ?? "", ...(current?.aliases ?? [])].map((item) => item.toLowerCase());
+    const receivedOn = [...message.to, ...message.cc].map((item) => item.address.toLowerCase()).find((item) => own.includes(item));
+    const others = [...message.to, ...message.cc].filter(
+      (item) => item.address.toLowerCase() !== self && !own.includes(item.address.toLowerCase()),
+    );
     setCompose({
       title:
         mode === "forward"
@@ -297,6 +305,7 @@ export function MailArea({ orgSlug }: { orgSlug: string }) {
           : mode === "all"
             ? tr(fr, "Répondre à tous", "Reply all")
             : tr(fr, "Répondre", "Reply"),
+      fromAddress: receivedOn ?? toFilter ?? undefined,
       to: mode === "forward" ? "" : addresses(replyTargets),
       cc: mode === "all" ? addresses(others) : "",
       bcc: "",
@@ -326,6 +335,7 @@ export function MailArea({ orgSlug }: { orgSlug: string }) {
                 onChange={(event) => {
                   setMailboxId(event.target.value);
                   openFolder("INBOX");
+                  setToFilter(null);
                 }}
               >
                 {list.map((item) => (
@@ -357,7 +367,15 @@ export function MailArea({ orgSlug }: { orgSlug: string }) {
             <Button
               size="sm"
               onClick={() =>
-                setCompose({ title: tr(fr, "Nouveau message", "New message"), to: "", cc: "", bcc: "", subject: "", body: "" })
+                setCompose({
+                  title: tr(fr, "Nouveau message", "New message"),
+                  fromAddress: toFilter ?? undefined,
+                  to: "",
+                  cc: "",
+                  bcc: "",
+                  subject: "",
+                  body: "",
+                })
               }
             >
               <PenSquare className="size-3.5" />
@@ -426,6 +444,34 @@ export function MailArea({ orgSlug }: { orgSlug: string }) {
                 })
               )}
             </div>
+            {current?.aliases?.length ? (
+              <div className="mt-3 border-t border-border pt-3">
+                <p className="px-2.5 pb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
+                  {tr(fr, "Reçus sur", "Received on")}
+                </p>
+                <div className="flex gap-1 overflow-x-auto lg:flex-col">
+                  {[null, current.emailAddress, ...current.aliases].map((address) => {
+                    const active = toFilter === address;
+                    return (
+                      <button
+                        key={address ?? "all"}
+                        type="button"
+                        onClick={() => {
+                          setToFilter(address);
+                          setPage(1);
+                          setOpenUid(null);
+                        }}
+                        className={`shrink-0 truncate rounded-lg px-2.5 py-1.5 text-left text-xs transition ${
+                          active ? "bg-brand/10 font-semibold text-brand" : "text-ink-secondary hover:bg-surface-2 hover:text-ink"
+                        }`}
+                      >
+                        {address ?? tr(fr, "Toutes les adresses", "All addresses")}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
           </nav>
 
           {/* Message list */}
@@ -834,6 +880,7 @@ function ComposeDialog({
   const send = useMutation({
     mutationFn: async () => {
       const data = new FormData();
+      if (form.fromAddress) data.append("fromAddress", form.fromAddress);
       data.append("to", form.to);
       if (form.cc) data.append("cc", form.cc);
       if (form.bcc) data.append("bcc", form.bcc);
@@ -903,9 +950,25 @@ function ComposeDialog({
           send.mutate();
         }}
       >
-        <p className="text-xs text-ink-secondary">
-          {tr(fr, "De :", "From:")} <span className="font-medium text-ink">{mailbox.displayName ? `${mailbox.displayName} <${mailbox.emailAddress}>` : mailbox.emailAddress}</span>
-        </p>
+        {mailbox.aliases?.length ? (
+          <Field label={tr(fr, "De", "From")}>
+            <select
+              className="h-10 w-full rounded-md border border-border-strong bg-surface-1 px-3 text-sm text-ink"
+              value={form.fromAddress ?? mailbox.emailAddress}
+              onChange={(event) => set("fromAddress", event.target.value)}
+            >
+              {[mailbox.emailAddress, ...mailbox.aliases].map((address) => (
+                <option key={address} value={address}>
+                  {mailbox.displayName ? `${mailbox.displayName} <${address}>` : address}
+                </option>
+              ))}
+            </select>
+          </Field>
+        ) : (
+          <p className="text-xs text-ink-secondary">
+            {tr(fr, "De :", "From:")} <span className="font-medium text-ink">{mailbox.displayName ? `${mailbox.displayName} <${mailbox.emailAddress}>` : mailbox.emailAddress}</span>
+          </p>
+        )}
         <Field label={tr(fr, "À", "To")} required>
           <div className="flex gap-2">
             <Input required value={form.to} placeholder="nom@exemple.com, autre@exemple.com" onChange={(event) => set("to", event.target.value)} />
@@ -1072,6 +1135,7 @@ function MailboxSettingsDialog({
     smtpPort: 465,
     smtpSecure: true,
     signature: "",
+    aliases: "",
     status: "active" as "active" | "disabled",
     memberIds: [] as string[],
   };
@@ -1087,6 +1151,7 @@ function MailboxSettingsDialog({
     smtpPort: item.smtpPort ?? blank.smtpPort,
     smtpSecure: item.smtpSecure ?? true,
     signature: item.signature ?? "",
+    aliases: (item.aliases ?? []).join(", "),
     status: item.status === "disabled" ? ("disabled" as const) : ("active" as const),
     memberIds: item.memberIds ?? [],
   });
@@ -1101,6 +1166,10 @@ function MailboxSettingsDialog({
         username: form.username || undefined,
         password: form.password || undefined,
         signature: form.signature || undefined,
+        aliases: form.aliases
+          .split(/[\s,;]+/)
+          .map((item) => item.trim().toLowerCase())
+          .filter(Boolean),
       };
       return selected
         ? put<{ mailbox: Mailbox }>(orgUrl(orgSlug, `mail/mailboxes/${selected.id}`), body)
@@ -1187,6 +1256,16 @@ function MailboxSettingsDialog({
             hint={selected ? tr(fr, "Laissez vide pour garder le mot de passe actuel.", "Leave empty to keep the current password.") : undefined}
           >
             <Input type="password" autoComplete="new-password" required={!selected} value={form.password} onChange={(event) => set("password", event.target.value)} />
+          </Field>
+          <Field
+            label={tr(fr, "Alias de cette boîte", "Aliases of this mailbox")}
+            hint={tr(
+              fr,
+              "Ex. : recrutement@congoomega.com, contact@congoomega.com. Les alias Hostinger n’ont pas de mot de passe : ils arrivent dans cette boîte et peuvent servir d’adresse d’envoi.",
+              "E.g. recrutement@congoomega.com. Hostinger aliases have no password: they deliver into this mailbox and can be used as the sender.",
+            )}
+          >
+            <Input value={form.aliases} onChange={(event) => set("aliases", event.target.value)} placeholder="recrutement@congoomega.com, contact@congoomega.com" />
           </Field>
           <button type="button" className="text-xs font-semibold text-brand hover:underline" onClick={() => setAdvanced(!advanced)}>
             {advanced ? tr(fr, "Masquer les réglages serveur", "Hide server settings") : tr(fr, "Réglages serveur (Hostinger par défaut)", "Server settings (Hostinger by default)")}

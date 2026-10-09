@@ -49,6 +49,7 @@ function mapMailbox(row: Row, includeSettings: boolean) {
     lastCheckedAt: row.last_checked_at ?? null,
     unseenCount: Number(row.unseen_count ?? 0),
     signature: (row.signature as string | null) ?? null,
+    aliases: ((row.aliases as string[] | null) ?? []).filter(Boolean),
     canSend: Boolean(row.can_send),
     ...(includeSettings
       ? {
@@ -278,6 +279,11 @@ export async function saveMailbox(context: MailContext, input: MailboxInput, mai
         throw new BadRequestError("This address is already connected");
       throw error;
     }
+    const aliases = [...new Set(input.aliases)].filter((alias) => alias !== input.emailAddress);
+    await client.query(
+      `UPDATE organization_mailboxes SET aliases=$3::text[] WHERE organization_id=$1 AND id=$2`,
+      [context.organizationId, id, aliases],
+    );
     await client.query(
       `DELETE FROM organization_mailbox_members WHERE organization_id=$1 AND mailbox_id=$2 AND NOT (member_id = ANY($3::uuid[]))`,
       [context.organizationId, id, input.memberIds],
@@ -379,6 +385,8 @@ export async function listMessages(context: MailContext, mailboxId: string, quer
           }
         : { all: true };
       if (query.unread) criteria.seen = false;
+      // Messages received on one alias (e.g. recrutement@) of the mailbox.
+      if (query.to) criteria.to = query.to;
       const uids = ((await client.search(criteria, { uid: true })) || []).sort((a, b) => b - a);
       const total = uids.length;
       const pageUids = uids.slice((query.page - 1) * PAGE_SIZE, query.page * PAGE_SIZE);
@@ -712,8 +720,13 @@ export async function sendMessage(
           ...(original.messageId ? [original.messageId] : []),
         ]
       : [];
+    // Hostinger lets a mailbox send as any of its aliases with the same login.
+    const allowedFrom = [connection.email.toLowerCase(), ...((row.aliases as string[] | null) ?? [])];
+    const fromAddress = input.fromAddress && allowedFrom.includes(input.fromAddress) ? input.fromAddress : connection.email;
+    if (input.fromAddress && !allowedFrom.includes(input.fromAddress))
+      throw new BadRequestError("This sender address is not an alias of the mailbox");
     const options: Mail.Options = {
-      from: connection.displayName ? { name: connection.displayName, address: connection.email } : connection.email,
+      from: connection.displayName ? { name: connection.displayName, address: fromAddress } : fromAddress,
       to: input.to,
       cc: input.cc.length ? input.cc : undefined,
       bcc: input.bcc.length ? input.bcc : undefined,
@@ -728,7 +741,7 @@ export async function sendMessage(
     try {
       await smtpTransport(connection).sendMail({
         envelope: {
-          from: connection.email,
+          from: fromAddress,
           to: [...input.to, ...input.cc, ...input.bcc].map((item) => item.replace(/^.*<(.+)>$/, "$1")),
         },
         raw,

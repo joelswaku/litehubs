@@ -38,6 +38,10 @@ export const mailboxInput = z.object({
   signature: optionalText(2000),
   status: z.enum(["active", "disabled"]).optional(),
   memberIds: z.array(id).max(200).default([]),
+  aliases: z
+    .array(z.string().trim().toLowerCase().email("Enter a valid alias address").max(255))
+    .max(20)
+    .default([]),
 });
 
 export const folderQuery = z.object({
@@ -46,6 +50,7 @@ export const folderQuery = z.object({
 export const messageListQuery = folderQuery.extend({
   page: z.coerce.number().int().min(1).max(1000).default(1),
   search: optionalText(200),
+  to: z.string().trim().toLowerCase().email().max(255).optional(),
   unread: z
     .enum(["true", "false"])
     .optional()
@@ -83,6 +88,7 @@ export const sendInput = z.object({
   to: addressList.refine((list) => list.length > 0, "Add at least one recipient"),
   cc: addressList,
   bcc: addressList,
+  fromAddress: z.string().trim().toLowerCase().email().max(255).optional(),
   subject: z.string().trim().max(500).default(""),
   body: z.string().max(200_000).default(""),
   replyToUid: z.coerce.number().int().positive().optional(),
