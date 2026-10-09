@@ -63,7 +63,14 @@ function WorkspaceChrome({ orgSlug, children }: { orgSlug: string; children: Rea
   const mobileNavOpen = useUiStore((state) => state.mobileNavOpen);
   const setMobileNavOpen = useUiStore((state) => state.setMobileNavOpen);
   const basePath = `/${orgSlug}`;
-  const counts = { notifications: unreadCount };
+  // Team chat badge: unread messages in the team room and private threads.
+  const chatUnread = useQuery({
+    queryKey: ["chat-unread", orgSlug],
+    queryFn: () => get<{ unread: number }>(orgUrl(orgSlug, "chat/unread")),
+    refetchInterval: 30_000,
+    retry: false,
+  });
+  const counts = { notifications: unreadCount, chat: chatUnread.data?.unread ?? 0 };
   const profile = useWorkspaceProfile(orgSlug);
   const employeeProfile = useQuery({
     queryKey: ["training-current-employee", orgSlug, user?.id],

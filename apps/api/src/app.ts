@@ -36,6 +36,7 @@ import { salesRoutes } from "./modules/sales";
 import { appointmentRoutes } from "./modules/appointments";
 import { careersRoutes } from "./modules/careers";
 import { mailRoutes } from "./modules/mail";
+import { chatRoutes } from "./modules/chat";
 import { publicAccountRoutes } from "./modules/public-accounts";
 
 export const API_PREFIX = "/api/v1";
@@ -105,6 +106,7 @@ export function createApp(): Application {
   app.use(API_PREFIX, appointmentRoutes);
   app.use(API_PREFIX, careersRoutes);
   app.use(API_PREFIX, mailRoutes);
+  app.use(API_PREFIX, chatRoutes);
 
   // Tenant module routers mount here as they are built. Each one goes under
   // /organizations/:orgSlug and behind requireOrganization, so no handler can

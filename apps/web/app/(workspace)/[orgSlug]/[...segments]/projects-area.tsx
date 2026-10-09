@@ -738,6 +738,11 @@ export function ProjectsArea({ orgSlug }: { orgSlug: string }) {
   const fr = locale === "fr";
   const ownerOnly = isOwner(user);
   const [projectId, setProjectId] = useState<string | null>(null);
+  // Links shared in the team chat open a project directly: ?project=<id>.
+  useEffect(() => {
+    const wanted = new URLSearchParams(window.location.search).get("project");
+    if (wanted) setProjectId(wanted);
+  }, []);
   const [tab, setTab] = useState<Tab>("overview");
   const [editor, setEditor] = useState<Editor>(null);
   const [accessDocument, setAccessDocument] = useState<Row | null>(null);

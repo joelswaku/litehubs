@@ -22,6 +22,7 @@ import {
   HeartPulse,
   Landmark,
   LayoutDashboard,
+  MessagesSquare,
   Mail,
   PanelsTopLeft,
   type LucideIcon,
@@ -68,7 +69,7 @@ export interface NavItem {
   /** Any one of these reveals the item. Absent means always visible. */
   permission?: PermissionCode | PermissionCode[];
   /** Shows a live count badge, fetched by the sidebar. */
-  badge?: "alerts" | "approvals" | "notifications";
+  badge?: "alerts" | "approvals" | "notifications" | "chat";
   /** Additional role requirement for a platform-console entry. */
   platformRole?: string | string[];
   /** Visible only to the owner of the active workspace. */
@@ -508,6 +509,12 @@ export const WORKSPACE_NAV: NavGroup[] = [
         path: "/notifications",
         icon: Bell,
         badge: "notifications",
+      },
+      {
+        label: "Chat",
+        path: "/chat",
+        icon: MessagesSquare,
+        badge: "chat",
       },
       {
         label: "Mail",

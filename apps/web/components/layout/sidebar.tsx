@@ -56,7 +56,7 @@ export function Sidebar({
 }: {
   groups: NavGroup[];
   basePath: string;
-  counts?: Partial<Record<"alerts" | "approvals" | "notifications", number>>;
+  counts?: Partial<Record<"alerts" | "approvals" | "notifications" | "chat", number>>;
   plane?: "workspace" | "platform";
 }) {
   const { t } = useLanguage();
