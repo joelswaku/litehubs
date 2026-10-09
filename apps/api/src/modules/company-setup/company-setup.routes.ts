@@ -7,6 +7,7 @@ import { authenticate } from "../../middleware/auth.middleware";
 import { requireOrganization } from "../../middleware/organization.middleware";
 import {
   requireOwner,
+  requireOwnerOr,
   requirePermission,
 } from "../../middleware/permissions.middleware";
 import { validate } from "../../middleware/validation.middleware";
@@ -165,26 +166,26 @@ companySetupRoutes.put(
 companySetupRoutes.get(
   "/organizations/:orgSlug/website",
   ...inOrganization,
-  requireOwner,
+  requireOwnerOr("website.read"),
   controller.getWebsiteBuilder,
 );
 companySetupRoutes.put(
   "/organizations/:orgSlug/website",
   ...inOrganization,
-  requireOwner,
+  requireOwnerOr("website.edit"),
   validate({ body: websiteSettingsInputSchema }),
   controller.saveWebsiteSettings,
 );
 companySetupRoutes.get(
   "/organizations/:orgSlug/website/media",
   ...inOrganization,
-  requireOwner,
+  requireOwnerOr("website.read"),
   controller.listWebsiteMedia,
 );
 companySetupRoutes.post(
   "/organizations/:orgSlug/website/media",
   ...inOrganization,
-  requireOwner,
+  requireOwnerOr("website.edit"),
   websiteMediaFiles,
   controller.uploadWebsiteMedia,
 );
@@ -193,7 +194,7 @@ companySetupRoutes.delete(
   authenticate,
   validate({ params: websiteMediaParams }),
   requireOrganization,
-  requireOwner,
+  requireOwnerOr("website.edit"),
   controller.deleteWebsiteMedia,
 );
 // Owner-managed marketing cards for the separate public customer area.  These
@@ -201,13 +202,13 @@ companySetupRoutes.delete(
 companySetupRoutes.get(
   "/organizations/:orgSlug/website/customer-activities",
   ...inOrganization,
-  requireOwner,
+  requireOwnerOr("website.read"),
   controller.listCustomerActivities,
 );
 companySetupRoutes.post(
   "/organizations/:orgSlug/website/customer-activities",
   ...inOrganization,
-  requireOwner,
+  requireOwnerOr("website.edit"),
   validate({ body: customerActivityCreateSchema }),
   controller.createCustomerActivity,
 );
@@ -216,7 +217,7 @@ companySetupRoutes.patch(
   authenticate,
   validate({ params: customerActivityParams, body: customerActivityUpdateSchema }),
   requireOrganization,
-  requireOwner,
+  requireOwnerOr("website.edit"),
   controller.updateCustomerActivity,
 );
 companySetupRoutes.post(
@@ -224,7 +225,7 @@ companySetupRoutes.post(
   authenticate,
   validate({ params: customerActivityParams, body: customerActivityShareSchema }),
   requireOrganization,
-  requireOwner,
+  requireOwnerOr("website.edit"),
   controller.shareCustomerActivity,
 );
 companySetupRoutes.delete(
@@ -232,39 +233,39 @@ companySetupRoutes.delete(
   authenticate,
   validate({ params: customerActivityParams }),
   requireOrganization,
-  requireOwner,
+  requireOwnerOr("website.edit"),
   controller.archiveCustomerActivity,
 );
 companySetupRoutes.post(
   "/organizations/:orgSlug/website/pages",
   ...inOrganization,
-  requireOwner,
+  requireOwnerOr("website.edit"),
   validate({ body: websitePageCreateSchema }),
   controller.createWebsitePage,
 );
 companySetupRoutes.put(
   "/organizations/:orgSlug/website/pages/order",
   ...inOrganization,
-  requireOwner,
+  requireOwnerOr("website.edit"),
   validate({ body: websitePageOrderSchema }),
   controller.reorderWebsitePages,
 );
 companySetupRoutes.post(
   "/organizations/:orgSlug/website/starter-pages",
   ...inOrganization,
-  requireOwner,
+  requireOwnerOr("website.edit"),
   controller.addWebsiteStarterPages,
 );
 companySetupRoutes.post(
   "/organizations/:orgSlug/website/complete-starter-pages",
   ...inOrganization,
-  requireOwner,
+  requireOwnerOr("website.edit"),
   controller.completeWebsiteStarterPages,
 );
 companySetupRoutes.post(
   "/organizations/:orgSlug/website/visual-highlights",
   ...inOrganization,
-  requireOwner,
+  requireOwnerOr("website.edit"),
   controller.addWebsiteVisualHighlights,
 );
 companySetupRoutes.patch(
@@ -272,7 +273,7 @@ companySetupRoutes.patch(
   authenticate,
   validate({ params: websitePageParams, body: websitePageUpdateSchema }),
   requireOrganization,
-  requireOwner,
+  requireOwnerOr("website.edit"),
   controller.updateWebsitePage,
 );
 companySetupRoutes.put(
@@ -280,7 +281,7 @@ companySetupRoutes.put(
   authenticate,
   validate({ params: websitePageParams, body: websiteSectionsInputSchema }),
   requireOrganization,
-  requireOwner,
+  requireOwnerOr("website.edit"),
   controller.replaceWebsiteSections,
 );
 companySetupRoutes.post(
@@ -288,7 +289,7 @@ companySetupRoutes.post(
   authenticate,
   validate({ params: websitePageParams }),
   requireOrganization,
-  requireOwner,
+  requireOwnerOr("website.publish"),
   controller.publishWebsitePage,
 );
 companySetupRoutes.delete(
@@ -296,33 +297,33 @@ companySetupRoutes.delete(
   authenticate,
   validate({ params: websitePageParams }),
   requireOrganization,
-  requireOwner,
+  requireOwnerOr("website.publish"),
   controller.archiveWebsitePage,
 );
 companySetupRoutes.put(
   "/organizations/:orgSlug/website/design",
   ...inOrganization,
-  requireOwner,
+  requireOwnerOr("website.edit"),
   validate({ body: websiteDesignInputSchema }),
   controller.saveWebsiteDesign,
 );
 companySetupRoutes.post(
   "/organizations/:orgSlug/website/design/publish",
   ...inOrganization,
-  requireOwner,
+  requireOwnerOr("website.publish"),
   controller.publishWebsiteDesign,
 );
 companySetupRoutes.post(
   "/organizations/:orgSlug/website/design/restore",
   ...inOrganization,
-  requireOwner,
+  requireOwnerOr("website.edit"),
   validate({ body: websiteDesignRestoreSchema }),
   controller.restoreWebsiteDesign,
 );
 companySetupRoutes.post(
   "/organizations/:orgSlug/website/publication",
   ...inOrganization,
-  requireOwner,
+  requireOwnerOr("website.publish"),
   validate({ body: websitePublicationInputSchema }),
   controller.setWebsitePublication,
 );

@@ -720,6 +720,18 @@ const systemRoleCopy: Record<
     en: { name: string; description: string };
   }
 > = {
+  website_manager: {
+    fr: {
+      name: "Gestionnaire du site web",
+      description:
+        "Modifie et publie le site web public de l’entreprise (pages, design, images, activités). Ne peut pas changer le domaine.",
+    },
+    en: {
+      name: "Website manager",
+      description:
+        "Edits and publishes the company public website (pages, design, media, activities). Cannot change the domain.",
+    },
+  },
   appointment_receptionist: {
     fr: {
       name: "Réception et rendez-vous",
@@ -1098,6 +1110,30 @@ function RolePermissionDialog({
                 ? "Les permissions essentielles de gestion de l’entreprise et des accès restent verrouillées afin d’éviter de bloquer le propriétaire hors des réglages."
                 : "Core company and access-management permissions stay locked to prevent the Owner from being locked out of Settings."}
             </p>
+          ) : null}
+          {role.code === "website_manager" ? (
+            <div className="mt-4 rounded-2xl border border-brand/20 bg-brand/5 p-3.5 text-xs leading-5 text-ink-secondary">
+              <p className="font-semibold text-ink">
+                {fr ? "Accès au site web" : "Website access"}
+              </p>
+              <ul className="mt-1.5 list-disc space-y-1 pl-4">
+                <li>
+                  {fr
+                    ? "Ouvre « Site web » : pages, design, images, activités clients et aperçu."
+                    : "Opens “Website”: pages, design, media, customer activities and preview."}
+                </li>
+                <li>
+                  {fr
+                    ? "Peut publier ou retirer des pages et le site. Retirez « website.publish » pour qu’il prépare seulement des brouillons."
+                    : "Can publish or unpublish pages and the site. Remove “website.publish” to allow drafts only."}
+                </li>
+                <li>
+                  {fr
+                    ? "Le domaine (congoomega.com) reste réservé au propriétaire."
+                    : "The domain stays reserved to the owner."}
+                </li>
+              </ul>
+            </div>
           ) : null}
           {role.code === "appointment_receptionist" ? (
             <div className="mt-4 rounded-2xl border border-brand/20 bg-brand/5 p-3.5 text-xs leading-5 text-ink-secondary">

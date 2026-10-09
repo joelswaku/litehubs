@@ -85,6 +85,8 @@ import { EmptyState, ErrorState, SkeletonCard } from "@/components/ui/states";
 import { del, get, orgUrl, patch, post, put } from "@/lib/api";
 import { WEBSITE_FONTS, type Breakpoint } from "@/components/website/website-element-style";
 import { useLanguage } from "@/providers/language-provider";
+import { isOwner } from "@/lib/permissions";
+import { useSessionUser } from "@/stores/session-store";
 import {
   PublicWebsiteRenderer,
   congoOmegaLandingSections,
@@ -2440,6 +2442,8 @@ function WebsiteIdentityForm({
   onSave: (payload: Record<string, unknown>) => void;
   fr: boolean;
 }) {
+  // Website managers edit the site; only the owner can change its domain.
+  const ownerUser = isOwner(useSessionUser());
   const initialForm = useMemo(
     () => ({
       displayName: initial?.displayName ?? organization.displayName,
@@ -2580,13 +2584,18 @@ function WebsiteIdentityForm({
             <div className="mt-3">
               <Field
                 label={tr(fr, "Domaine", "Domain")}
-                hint={tr(
-                  fr,
-                  "Exemple : congoomega.com — sans https:// ni www.",
-                  "Example: congoomega.com — without https:// or www.",
-                )}
+                hint={
+                  ownerUser
+                    ? tr(
+                        fr,
+                        "Exemple : congoomega.com — sans https:// ni www.",
+                        "Example: congoomega.com — without https:// or www.",
+                      )
+                    : tr(fr, "Seul le propriétaire peut modifier le domaine.", "Only the owner can change the domain.")
+                }
               >
                 <Input
+                  disabled={!ownerUser}
                   placeholder="congoomega.com"
                   value={form.customDomain}
                   onChange={(event) =>

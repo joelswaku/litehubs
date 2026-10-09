@@ -129,3 +129,20 @@ export const requireOwner: RequestHandler = (req, _res, next) => {
     next(error);
   }
 };
+
+/** The owner, or a member holding every listed permission (e.g. a website
+ * manager the owner chose in the role library). */
+export function requireOwnerOr(...codes: string[]): RequestHandler {
+  return (req, _res, next) => {
+    try {
+      const membership = membershipOf(req);
+      if (membership.isOwner) return next();
+      const missing = codes.filter((code) => !membership.permissions.includes(code));
+      if (missing.length)
+        throw new ForbiddenError("You do not have permission to do that", { required: codes, missing });
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
+}

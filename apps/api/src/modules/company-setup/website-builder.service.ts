@@ -1121,10 +1121,19 @@ export async function saveWebsiteSettings(
   return withTenantContext(context, async (client) => {
     // www is an alias of the same public site, never a second tenant domain.
     // Normalising here keeps direct API clients consistent with the owner UI.
-    const customDomain = input.customDomain?.replace(/^www\./i, "") ?? null;
+    let customDomain = input.customDomain?.replace(/^www\./i, "") ?? null;
     await client.query("SELECT id FROM organizations WHERE id=$1 FOR UPDATE", [
       context.organizationId,
     ]);
+    // The public domain decides where the company website answers. Website
+    // managers may edit everything else; only the owner may change the domain.
+    if (!context.isOwner) {
+      const current = await client.query<{ custom_domain: string | null }>(
+        `SELECT custom_domain FROM organization_website_settings WHERE organization_id=$1`,
+        [context.organizationId],
+      );
+      customDomain = current.rows[0]?.custom_domain ?? null;
+    }
     let saved: WebsiteSettingsRow;
     try {
       const result = await client.query<WebsiteSettingsRow>(

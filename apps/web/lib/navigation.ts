@@ -487,14 +487,14 @@ export const WORKSPACE_NAV: NavGroup[] = [
         path: "/company-rules",
         icon: BookOpenCheck,
       },
-      // One owner-only entry point. Its own workspace contains pages, blocks,
-      // design, media, preview and publication — never a scattered set of
-      // website links throughout operational menus.
+      // One entry point for the owner and the members the owner made website
+      // managers (role library). Its own workspace contains pages, blocks,
+      // design, media, preview and publication.
       {
         label: "Website",
         path: "/website",
         icon: PanelsTopLeft,
-        ownerOnly: true,
+        permission: "website.read",
       },
     ],
   },
