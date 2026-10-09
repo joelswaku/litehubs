@@ -4762,7 +4762,7 @@ function ProjectContent({
                           {String(task.assignedMemberName)}
                         </p>
                       ) : null}
-                      {task.blockedReason ? (
+                      {task.blockedReason && task.status === "blocked" ? (
                         <p className="mt-1 text-xs text-serious">
                           {String(task.blockedReason)}
                         </p>
@@ -7189,7 +7189,11 @@ function EditorDialog({
         // A real zero must stay zero; only a blank number becomes null.
         progressPercent: nullableNumber(form, "progressPercent") ?? 0,
         estimatedCost: nullableNumber(form, "estimatedCost"),
-        blockedReason: nullableValue(form, "blockedReason"),
+        // A blocker is kept only while the task is blocked.
+        blockedReason:
+          String(form.get("status") ?? "") === "blocked"
+            ? nullableValue(form, "blockedReason")
+            : null,
         notes: nullableValue(form, "notes"),
       };
     } else if (editor.kind === "risk") {
@@ -9806,8 +9810,13 @@ function EditorFields({
           </p>
         )}{" "}
         <Field
-          label={label(fr, "Blocked by / reason", "Blocage / raison")}
+          label={label(fr, "Blocked by / reason (only if blocked)", "Blocage / raison (seulement si bloquée)")}
           htmlFor="blockedReason"
+          hint={label(
+            fr,
+            "Fill this in only when the status is Blocked. It is cleared for any other status.",
+            "À remplir seulement si le statut est « Bloquée ». Il est effacé pour tout autre statut.",
+          )}
           className="md:col-span-2"
           error={fieldError("blockedReason")}
         >
@@ -17222,7 +17231,7 @@ function TaskDetailDialog({
               </ol>
             </section>
           ) : null}
-          {detail(["blockedReason"]) ? (
+          {status === "blocked" && detail(["blockedReason"]) ? (
             <section className="mt-5 rounded-xl border border-warning/35 bg-warning/10 p-4">
               <h3 className="text-sm font-semibold text-ink">
                 {label(fr, "Blocked by / reason", "Blocage / raison")}

@@ -5798,7 +5798,9 @@ export async function updateMyAssignedTask(
     const columns: Array<[string, unknown]> = [];
     if (input.status !== undefined) columns.push(["status", input.status]);
 
-    if (input.blockedReason !== undefined)
+    if (input.status !== undefined && input.status !== "blocked")
+      columns.push(["blocked_reason", null]);
+    else if (input.blockedReason !== undefined)
       columns.push(["blocked_reason", input.blockedReason]);
     if (input.notes !== undefined) columns.push(["notes", input.notes]);
     if (!columns.length) throw new BadRequestError("Provide a work update");
@@ -6561,11 +6563,22 @@ async function hydrateSupplierPaymentFromReceipt(
   input.title = input.title || "Supplier payment";
   input.description = input.description || input.title;
 }
+/** A blocker reason only means something while a task is blocked. */
+function normalizeTaskBlocker(
+  resource: OwnerManagementResource,
+  input: Input,
+): Input {
+  if (resource !== "tasks" || input.status === undefined) return input;
+  if (input.status === "blocked") return input;
+  return { ...input, blockedReason: null };
+}
+
 export async function createOwnerManagementRecord(
   context: OwnerManagementContext,
   resource: OwnerManagementResource,
   input: Input,
 ): Promise<Row> {
+  input = normalizeTaskBlocker(resource, input);
   const config = configFor(resource);
   if (config.readOnly)
     throw new BadRequestError(
@@ -6782,6 +6795,7 @@ export async function updateOwnerManagementRecord(
   recordId: string,
   input: Input,
 ): Promise<Row> {
+  input = normalizeTaskBlocker(resource, input);
   const config = configFor(resource);
   if (config.immutable)
     throw new BadRequestError(

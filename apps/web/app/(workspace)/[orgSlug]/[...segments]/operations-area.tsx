@@ -252,6 +252,8 @@ const inventoryMovementIsOutbound = (value: unknown) =>
   ["issue", "adjustment_out", "transfer_out", "maintenance_issue"].includes(
     text(value),
   );
+/** A blocker only applies while the task status is Blocked. */
+const taskIsBlocked = (task: Row) => text(task.status) === "blocked";
 const nice = (value: unknown) =>
   text(value)
     .replace(/_/g, " ")
@@ -2447,7 +2449,7 @@ function SidebarTaskDetailDialog({
               </div>
             ))}
           </div>
-          {text(task.blockedReason) ? (
+          {taskIsBlocked(task) && text(task.blockedReason) ? (
             <section className="mt-5 rounded-xl border border-warning/35 bg-warning/10 p-4">
               <h3 className="text-sm font-semibold text-ink">
                 {copy(fr, "Blocked by / reason", "Blocage / raison")}
@@ -2849,11 +2851,11 @@ function TasksWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
       )
     : 0;
   const focusTasks = [...activeTasks]
-    .filter((task) => Boolean(text(task.dueDate)) || text(task.blockedReason))
+    .filter((task) => Boolean(text(task.dueDate)) || taskIsBlocked(task))
     .sort((a, b) => {
       if (isOverdue(a) !== isOverdue(b)) return isOverdue(a) ? -1 : 1;
-      if (text(a.blockedReason) !== text(b.blockedReason))
-        return text(a.blockedReason) ? -1 : 1;
+      if (taskIsBlocked(a) !== taskIsBlocked(b))
+        return taskIsBlocked(a) ? -1 : 1;
       return text(a.dueDate).localeCompare(text(b.dueDate));
     })
     .slice(0, 4);
@@ -2988,8 +2990,13 @@ function TasksWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
     },
     {
       key: "blockedReason",
-      label: copy(fr, "Blocker", "Blocage"),
+      label: copy(fr, "Blocker (only if blocked)", "Blocage (seulement si bloquée)"),
       type: "textarea",
+      hint: copy(
+        fr,
+        "Fill this in only when the status is Blocked: what prevents the work? It is cleared automatically otherwise.",
+        "À remplir seulement si le statut est « Bloquée » : qu’est-ce qui empêche le travail ? Sinon il est effacé automatiquement.",
+      ),
     },
     { key: "notes", label: copy(fr, "Notes", "Notes"), type: "textarea" },
   ];
@@ -3412,7 +3419,7 @@ function TasksWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
                           </div>
                         </dl>
 
-                        {text(task.blockedReason) ? (
+                        {taskIsBlocked(task) && text(task.blockedReason) ? (
                           <p className="mt-4 rounded-lg border border-critical/20 bg-critical/10 px-3 py-2 text-xs leading-5 text-critical">
                             <span className="font-semibold">
                               {copy(fr, "Blocked", "Bloquée")}:
@@ -3546,7 +3553,7 @@ function TasksWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
                             copy(fr, "Company work", "Travail d’entreprise")}
                       </p>
                       <p className="mt-1 text-xs text-blue-100/80">
-                        {text(task.blockedReason)
+                        {taskIsBlocked(task)
                           ? copy(fr, "Blocked", "Bloquée")
                           : `${copy(fr, "Due", "Échéance")}: ${date(task.dueDate)}`}
                       </p>
