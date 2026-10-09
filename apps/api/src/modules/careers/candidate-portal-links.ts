@@ -28,7 +28,12 @@ function frontendHost() {
 
 export function candidatePortalBaseUrl(orgSlug: string) {
   const dedicated = DEDICATED_CAREERS_HOSTS[orgSlug];
-  if (dedicated && dedicated.frontend.test(frontendHost())) return dedicated.host;
+  // Production links always use the company careers host, even when the
+  // application itself is served from the LiteHubs domain.  Local and
+  // preview environments keep their own host so links stay testable.
+  const host = frontendHost();
+  const local = !host || host === "localhost" || host === "127.0.0.1" || host.endsWith(".localhost");
+  if (dedicated && (!local || dedicated.frontend.test(host))) return dedicated.host;
   return `${env.frontendUrl.replace(/\/$/, "")}/careers/${encodeURIComponent(orgSlug)}`;
 }
 

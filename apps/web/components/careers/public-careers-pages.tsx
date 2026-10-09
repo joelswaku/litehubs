@@ -46,6 +46,11 @@ const publicOrganizationName = (orgSlug: string, reportedName?: unknown) => {
 };
 const hasPublicCustomerAccount = (orgSlug: string) =>
   ["congo-omega", "kins"].includes(orgSlug.trim().toLowerCase());
+// The careers pages are also served on carrieres.congoomega.com, where "/"
+// is the careers list.  "Home" and "My account" must open the company
+// website itself, never the LiteHubs application.
+const publicWebsiteUrl = (orgSlug: string) =>
+  hasPublicCustomerAccount(orgSlug) ? "https://congoomega.com" : "/";
 const displayDate = (value: string | null | undefined, fr: boolean) =>
   value
     ? new Date(value).toLocaleDateString(fr ? "fr-FR" : "en-US", {
@@ -62,6 +67,7 @@ function Shell({
   organizationName,
   accountHref,
   trackHref,
+  websiteHref = "/",
 }: {
   children: ReactNode;
   fr: boolean;
@@ -69,13 +75,14 @@ function Shell({
   organizationName: string;
   accountHref?: string;
   trackHref?: string;
+  websiteHref?: string;
 }) {
   return (
     <main className="min-h-dvh bg-[radial-gradient(circle_at_18%_-5%,rgba(37,99,235,.16),transparent_36%),radial-gradient(circle_at_92%_14%,rgba(14,165,233,.11),transparent_28%),var(--color-page)] px-4 py-6 sm:py-10">
       <div className="mx-auto max-w-6xl">
         <header className="mb-6 flex items-center justify-between gap-3">
           <a
-            href="/"
+            href={websiteHref}
             className="group flex items-center gap-2.5 font-semibold text-ink"
           >
             <span className="grid size-10 place-items-center rounded-xl bg-brand text-brand-ink shadow-[0_10px_25px_-15px_rgb(37_99_235_/_.8)]">
@@ -85,7 +92,7 @@ function Shell({
           </a>
           <div className="flex items-center gap-2">
             <a
-              href="/"
+              href={websiteHref}
               className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border bg-surface-1 px-2.5 text-xs font-bold text-ink shadow-sm transition hover:bg-surface-2 sm:px-3"
             >
               <ArrowLeft className="size-3.5" />
@@ -187,7 +194,8 @@ export function PublicCareersPage({ orgSlug }: { orgSlug: string }) {
       fr={fr}
       setFr={setFr}
       organizationName={publicOrganizationName(orgSlug, careers.data?.organizationName)}
-      accountHref={hasPublicCustomerAccount(orgSlug) ? "/account" : undefined}
+      websiteHref={publicWebsiteUrl(orgSlug)}
+      accountHref={hasPublicCustomerAccount(orgSlug) ? `${publicWebsiteUrl(orgSlug)}/account` : undefined}
     >
       <section className="overflow-hidden rounded-3xl border border-brand/20 bg-surface-1 shadow-[0_24px_70px_-45px_rgb(15_23_42_/_0.75)]">
         <div className="relative overflow-hidden bg-[radial-gradient(circle_at_82%_-30%,rgba(125,211,252,.34),transparent_42%),linear-gradient(125deg,#172554,#2563a6)] px-6 py-9 text-white sm:px-9 sm:py-11">
@@ -349,7 +357,8 @@ export function PublicCareerJobPage({
       fr={fr}
       setFr={setFr}
       organizationName={publicOrganizationName(orgSlug, jobDetail.data?.organizationName)}
-      accountHref={hasPublicCustomerAccount(orgSlug) ? "/account" : undefined}
+      websiteHref={publicWebsiteUrl(orgSlug)}
+      accountHref={hasPublicCustomerAccount(orgSlug) ? `${publicWebsiteUrl(orgSlug)}/account` : undefined}
     >
       <section className="overflow-hidden rounded-3xl border border-brand/20 bg-surface-1 shadow-[0_24px_70px_-45px_rgb(15_23_42_/_0.75)]">
         <div className="relative overflow-hidden bg-[radial-gradient(circle_at_82%_-25%,rgba(125,211,252,.34),transparent_42%),linear-gradient(125deg,#172554,#2563a6)] px-6 py-8 text-white sm:px-9 sm:py-10">

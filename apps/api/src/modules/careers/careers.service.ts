@@ -1,6 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { PoolClient } from "pg";
-import { env } from "../../config/env";
 import { db } from "../../config/database";
 import {
   deletePrivateDocument,
@@ -15,7 +14,7 @@ import {
   NotFoundError,
 } from "../../utils/errors";
 import { withTenantContext } from "../../utils/tenant-query";
-import { issueCandidatePortalLink } from "./candidate-portal-links";
+import { candidatePortalBaseUrl, issueCandidatePortalLink } from "./candidate-portal-links";
 import type {
   ApplicationQuery,
   ApplicationUpdateInput,
@@ -475,7 +474,7 @@ function hashOnboardingToken(token: string) {
 }
 
 function candidateOnboardingUrl(orgSlug: string, token: string) {
-  return `${env.frontendUrl.replace(/\/$/, "")}/careers/${encodeURIComponent(orgSlug)}/onboarding/${encodeURIComponent(token)}`;
+  return `${candidatePortalBaseUrl(orgSlug)}/onboarding/${encodeURIComponent(token)}`;
 }
 
 /** Creates a single-use, expiring form when an offer is first sent.  The raw
