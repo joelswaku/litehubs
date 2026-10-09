@@ -6,6 +6,7 @@ import {
   Archive,
   ArrowLeft,
   BriefcaseBusiness,
+  CheckCheck,
   ChevronLeft,
   ChevronRight,
   FileDown,
@@ -165,6 +166,7 @@ export function MailArea({ orgSlug }: { orgSlug: string }) {
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [unreadOnly, setUnreadOnly] = useState(false);
+  const [unansweredOnly, setUnansweredOnly] = useState(false);
   const [toFilter, setToFilter] = useState<string | null>(null);
   const [batchMode, setBatchMode] = useState(false);
   const [selected, setSelected] = useState<number[]>([]);
@@ -201,10 +203,10 @@ export function MailArea({ orgSlug }: { orgSlug: string }) {
     refetchInterval: 120_000,
   });
   const messages = useQuery({
-    queryKey: ["mail-messages", orgSlug, mailboxId, folder, page, search, unreadOnly, toFilter],
+    queryKey: ["mail-messages", orgSlug, mailboxId, folder, page, search, unreadOnly, unansweredOnly, toFilter],
     queryFn: () =>
       get<{ total: number; pageSize: number; messages: MessageSummary[] }>(orgUrl(orgSlug, `${base}/messages`), {
-        params: { folder, page, search: search || undefined, unread: unreadOnly ? "true" : undefined, to: toFilter || undefined },
+        params: { folder, page, search: search || undefined, unread: unreadOnly ? "true" : undefined, unanswered: unansweredOnly ? "true" : undefined, to: toFilter || undefined },
       }),
     enabled: Boolean(mailboxId) && current?.status !== "disabled",
     refetchInterval: 60_000,
@@ -241,6 +243,15 @@ export function MailArea({ orgSlug }: { orgSlug: string }) {
     mutationFn: (input: { uid: number; seen?: boolean; flagged?: boolean }) =>
       patch(orgUrl(orgSlug, `${base}/messages/${input.uid}`), { folder, seen: input.seen, flagged: input.flagged }),
     onSuccess: refreshLists,
+    onError: (error) => toast.error(errorMessage(error, tr(fr, "Action impossible.", "Action failed."))),
+  });
+  const markAllRead = useMutation({
+    mutationFn: () =>
+      post<{ updated: number }>(orgUrl(orgSlug, `${base}/mark-all-read`), { folder, to: toFilter || undefined }),
+    onSuccess: (result) => {
+      toast.success(tr(fr, `${result.updated} message(s) marqué(s) comme lu(s).`, `${result.updated} message(s) marked as read.`));
+      refreshLists();
+    },
     onError: (error) => toast.error(errorMessage(error, tr(fr, "Action impossible.", "Action failed."))),
   });
   const move = useMutation({
@@ -502,18 +513,6 @@ export function MailArea({ orgSlug }: { orgSlug: string }) {
                   }}
                 />
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setUnreadOnly(!unreadOnly);
-                  setPage(1);
-                }}
-                className={`h-9 shrink-0 rounded-md border px-2.5 text-xs font-semibold transition ${
-                  unreadOnly ? "border-brand bg-brand/10 text-brand" : "border-border text-ink-secondary hover:bg-surface-2"
-                }`}
-              >
-                {tr(fr, "Non lus", "Unread")}
-              </button>
               {data.aiEnabled && current?.canSend ? (
                 <button
                   type="button"
@@ -531,6 +530,47 @@ export function MailArea({ orgSlug }: { orgSlug: string }) {
                 </button>
               ) : null}
             </form>
+            <div className="flex flex-wrap items-center gap-1.5 border-b border-border px-2 py-1.5">
+              {[
+                { key: "all", label: tr(fr, "Tous", "All"), active: !unreadOnly && !unansweredOnly },
+                { key: "unread", label: tr(fr, "Non lus", "Unread"), active: unreadOnly },
+                { key: "unanswered", label: tr(fr, "Sans réponse", "Not answered"), active: unansweredOnly },
+              ].map((chip) => (
+                <button
+                  key={chip.key}
+                  type="button"
+                  onClick={() => {
+                    setUnreadOnly(chip.key === "unread" ? !unreadOnly : chip.key === "all" ? false : unreadOnly);
+                    setUnansweredOnly(chip.key === "unanswered" ? !unansweredOnly : chip.key === "all" ? false : unansweredOnly);
+                    setPage(1);
+                  }}
+                  className={`h-7 rounded-full border px-2.5 text-xs font-semibold transition ${
+                    chip.active ? "border-brand bg-brand/10 text-brand" : "border-border text-ink-secondary hover:bg-surface-2"
+                  }`}
+                >
+                  {chip.label}
+                </button>
+              ))}
+              <span className="flex-1" />
+              <button
+                type="button"
+                disabled={markAllRead.isPending}
+                onClick={async () => {
+                  const ok = await Promise.resolve(
+                    window.confirm(
+                      toFilter
+                        ? tr(fr, `Marquer tous les messages reçus sur ${toFilter} comme lus ?`, `Mark all messages received on ${toFilter} as read?`)
+                        : tr(fr, "Marquer tous les messages de ce dossier comme lus ?", "Mark every message in this folder as read?"),
+                    ),
+                  );
+                  if (ok) markAllRead.mutate();
+                }}
+                className="inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-xs font-semibold text-ink-secondary transition hover:bg-surface-2 hover:text-ink disabled:opacity-50"
+              >
+                <CheckCheck className="size-3.5" />
+                {tr(fr, "Tout marquer lu", "Mark all read")}
+              </button>
+            </div>
             {batchMode ? (
               <div className="flex flex-wrap items-center gap-2 border-b border-border bg-brand/[.05] px-3 py-2 text-xs">
                 <span className="font-semibold text-ink">

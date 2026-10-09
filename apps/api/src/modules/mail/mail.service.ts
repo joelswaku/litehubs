@@ -13,6 +13,7 @@ import { withTenantContext } from "../../utils/tenant-query";
 import { decryptSecret, encryptSecret } from "./mail.crypto";
 import type {
   MailboxInput,
+  MarkAllReadInput,
   MessageFlagsInput,
   MessageListQuery,
   MessageMoveInput,
@@ -385,6 +386,8 @@ export async function listMessages(context: MailContext, mailboxId: string, quer
           }
         : { all: true };
       if (query.unread) criteria.seen = false;
+      // "Sans réponse": messages nobody has answered yet (no \Answered flag).
+      if (query.unanswered) criteria.answered = false;
       // Messages received on one alias (e.g. recrutement@) of the mailbox.
       if (query.to) criteria.to = query.to;
       const uids = ((await client.search(criteria, { uid: true })) || []).sort((a, b) => b - a);
@@ -593,6 +596,23 @@ export async function getAttachment(
         fileName: attachment.filename ?? `piece-jointe-${index + 1}`,
         mimeType: attachment.contentType || "application/octet-stream",
       };
+    } finally {
+      lock.release();
+    }
+  });
+}
+
+/** Marks every unread message of a folder (optionally one alias) as read. */
+export async function markAllRead(context: MailContext, mailboxId: string, input: MarkAllReadInput) {
+  const { connection } = await mailboxConnection(context, mailboxId);
+  return withImap(connection, async (client) => {
+    const lock = await client.getMailboxLock(input.folder);
+    try {
+      const criteria: SearchObject = { seen: false };
+      if (input.to) criteria.to = input.to;
+      const uids = (await client.search(criteria, { uid: true })) || [];
+      if (uids.length) await client.messageFlagsAdd(uids, ["\\Seen"], { uid: true });
+      return { updated: uids.length };
     } finally {
       lock.release();
     }

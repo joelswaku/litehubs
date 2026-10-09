@@ -55,7 +55,17 @@ export const messageListQuery = folderQuery.extend({
     .enum(["true", "false"])
     .optional()
     .transform((value) => value === "true"),
+  unanswered: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((value) => value === "true"),
 });
+
+export const markAllReadInput = z.object({
+  folder: z.string().trim().min(1).max(300).default("INBOX"),
+  to: z.string().trim().toLowerCase().email().max(255).optional(),
+});
+export type MarkAllReadInput = z.infer<typeof markAllReadInput>;
 
 export const messageFlagsInput = z.object({
   folder: z.string().trim().min(1).max(300).default("INBOX"),

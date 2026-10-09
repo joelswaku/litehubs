@@ -8,6 +8,7 @@ import { BadRequestError } from "../../utils/errors";
 import * as controller from "./mail.controller";
 import {
   aiDraftInput,
+  markAllReadInput,
   attachmentParams,
   folderQuery,
   mailboxInput,
@@ -46,3 +47,4 @@ mailRoutes.patch(`${base}/mailboxes/:mailboxId/messages/:uid`, authenticate, val
 mailRoutes.post(`${base}/mailboxes/:mailboxId/messages/:uid/move`, authenticate, validate({ params: messageParams, body: messageMoveInput }), requireOrganization, read, controller.move);
 mailRoutes.post(`${base}/mailboxes/:mailboxId/send`, authenticate, attachments, validate({ params: mailboxParams, body: sendInput }), requireOrganization, requirePermission("mail.send"), controller.send);
 mailRoutes.post(`${base}/mailboxes/:mailboxId/ai-draft`, authenticate, validate({ params: mailboxParams, body: aiDraftInput }), requireOrganization, requirePermission("mail.send"), controller.aiDraft);
+mailRoutes.post(`${base}/mailboxes/:mailboxId/mark-all-read`, authenticate, validate({ params: mailboxParams, body: markAllReadInput }), requireOrganization, read, controller.markAllRead);

@@ -1,7 +1,7 @@
 import type { Request, RequestHandler } from "express";
 import * as service from "./mail.service";
 import { createAiDraft } from "./mail-ai.service";
-import type { AiDraftInput, MailboxInput, MessageFlagsInput, MessageMoveInput, SendInput } from "./mail.validation";
+import type { AiDraftInput, MailboxInput, MarkAllReadInput, MessageFlagsInput, MessageMoveInput, SendInput } from "./mail.validation";
 import { folderQuery, messageListQuery } from "./mail.validation";
 
 function context(req: Request): service.MailContext {
@@ -73,6 +73,8 @@ export const attachment: RequestHandler = async (req, res) => {
   );
   res.send(file.buffer);
 };
+export const markAllRead: RequestHandler = async (req, res) =>
+  res.json(await service.markAllRead(context(req), param(req, "mailboxId"), req.body as MarkAllReadInput));
 export const flags: RequestHandler = async (req, res) =>
   res.json(await service.updateFlags(context(req), param(req, "mailboxId"), Number(param(req, "uid")), req.body as MessageFlagsInput));
 export const move: RequestHandler = async (req, res) =>
