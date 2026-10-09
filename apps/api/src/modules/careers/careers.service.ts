@@ -15,6 +15,7 @@ import {
   NotFoundError,
 } from "../../utils/errors";
 import { withTenantContext } from "../../utils/tenant-query";
+import { issueCandidatePortalLink } from "./candidate-portal-links";
 import type {
   ApplicationQuery,
   ApplicationUpdateInput,
@@ -35,9 +36,9 @@ export interface CareersContext {
 }
 
 type Scope = "organization" | "province" | "self";
-type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
-const CANDIDATE_CONTACT_EMAIL = "recrutement@congoomega.com";
-const RECRUITMENT_FROM_ADDRESS = '"Congo Omega recrutement" <recrutement@congoomega.com>';
+export type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+export const CANDIDATE_CONTACT_EMAIL = "recrutement@congoomega.com";
+export const RECRUITMENT_FROM_ADDRESS = '"Congo Omega recrutement" <recrutement@congoomega.com>';
 
 const jobColumns = `j.id,j.organization_id,j.province_id,j.site_id,j.code,j.title,j.department_name,j.employment_type,j.experience_level,j.positions_open,j.short_summary,j.description,j.responsibilities,j.requirements,j.benefits,j.salary_summary,j.application_deadline::text,j.status,j.published_at,j.closed_at,j.created_at,j.updated_at,s.code AS site_code,s.name AS site_name,p.code AS province_code,p.name AS province_name,COUNT(a.id)::int AS application_count`;
 
@@ -128,7 +129,7 @@ async function scopeOf(
       : "self";
 }
 
-async function assertSiteAccess(
+export async function assertSiteAccess(
   client: PoolClient,
   context: CareersContext,
   siteId: string,
@@ -151,7 +152,7 @@ async function assertSiteAccess(
   return row;
 }
 
-async function event(
+export async function event(
   client: PoolClient,
   organizationId: string,
   applicationId: string,
@@ -199,13 +200,13 @@ async function jobById(
   return result.rows[0]!;
 }
 
-async function applicationById(
+export async function applicationById(
   client: PoolClient,
   organizationId: string,
   applicationId: string,
 ) {
   const result = await client.query<Row>(
-    `SELECT a.*,o.display_name AS organization_name,j.code AS job_code,j.title AS job_title,s.code AS site_code,s.name AS site_name,p.code AS province_code,p.name AS province_name,reviewer.full_name AS reviewed_by_name,f.id AS resume_id,f.file_name AS resume_file_name,f.mime_type AS resume_mime_type,f.size_bytes AS resume_size_bytes,f.storage_path AS resume_storage_path
+    `SELECT a.*,o.display_name AS organization_name,o.slug AS organization_slug,j.code AS job_code,j.title AS job_title,s.code AS site_code,s.name AS site_name,p.code AS province_code,p.name AS province_name,reviewer.full_name AS reviewed_by_name,f.id AS resume_id,f.file_name AS resume_file_name,f.mime_type AS resume_mime_type,f.size_bytes AS resume_size_bytes,f.storage_path AS resume_storage_path
        FROM career_applications a JOIN organizations o ON o.id=a.organization_id JOIN career_job_posts j ON j.organization_id=a.organization_id AND j.id=a.job_post_id JOIN sites s ON s.organization_id=a.organization_id AND s.id=a.site_id JOIN provinces p ON p.organization_id=a.organization_id AND p.id=a.province_id LEFT JOIN users reviewer ON reviewer.id=a.reviewed_by LEFT JOIN career_application_files f ON f.organization_id=a.organization_id AND f.application_id=a.id AND f.kind='resume' WHERE a.organization_id=$1 AND a.id=$2`,
     [organizationId, applicationId],
   );
@@ -564,6 +565,20 @@ export async function updateApplication(
         french: current.preferred_language !== "en",
       })
     ).trim();
+    const trackingUrl =
+      shouldNotify && message
+        ? await issueCandidatePortalLink(
+            client,
+            context.organizationId,
+            context.organizationSlug,
+            applicationId,
+          )
+        : null;
+    if (trackingUrl)
+      await client.query(
+        `UPDATE career_applications SET tracking_link_sent_at=now() WHERE organization_id=$1 AND id=$2`,
+        [context.organizationId, applicationId],
+      );
     if (shouldNotify && message) {
       await event(
         client,
@@ -577,6 +592,8 @@ export async function updateApplication(
           sms: Boolean(current.phone),
           customMessage: Boolean(input.candidateMessage),
           messageLength: message.length,
+          // Shown to the candidate in the Espace candidat timeline.
+          candidateMessage: message,
           onboardingFormIssued: Boolean(onboardingUrl),
         },
       );
@@ -599,6 +616,7 @@ export async function updateApplication(
               message,
               french: current.preferred_language !== "en",
               onboardingUrl,
+              trackingUrl,
             }
           : null,
     };
@@ -726,7 +744,7 @@ export async function closeExpiredJobsForOrganization(
   });
 }
 
-async function recipients(client: PoolClient, organizationId: string) {
+export async function recipients(client: PoolClient, organizationId: string) {
   const result = await client.query<{ member_id: string; email: string }>(
     `SELECT DISTINCT m.id AS member_id,u.email::text FROM organization_members m JOIN users u ON u.id=m.user_id LEFT JOIN member_roles mr ON mr.organization_id=m.organization_id AND mr.member_id=m.id LEFT JOIN roles r ON r.organization_id=mr.organization_id AND r.id=mr.role_id WHERE m.organization_id=$1 AND m.status='active' AND (m.is_owner OR r.code IN ('hr_officer','general_manager'))`,
     [organizationId],
@@ -810,6 +828,18 @@ export async function publicApply(
             null,
             { jobCode },
           );
+          // Every applicant receives a personal Espace candidat link with the
+          // acknowledgement, so the status can be followed without an account.
+          const trackingUrl = await issueCandidatePortalLink(
+            client,
+            job.organization_id,
+            orgSlug.trim().toLowerCase(),
+            applicationId,
+          );
+          await client.query(
+            `UPDATE career_applications SET tracking_link_sent_at=now() WHERE organization_id=$1 AND id=$2`,
+            [job.organization_id, applicationId],
+          );
           const team = await recipients(client, job.organization_id);
           await Promise.all(
             team.map((recipient) =>
@@ -829,7 +859,7 @@ export async function publicApply(
               }),
             ),
           );
-          return { applicationId, team };
+          return { applicationId, team, trackingUrl };
         } catch (error: unknown) {
           if (error instanceof ConflictError) throw error;
           if (
@@ -854,15 +884,16 @@ export async function publicApply(
           html: `<p><strong>${escapeHtml(input.fullName)}</strong> applied for <strong>${escapeHtml(job.title)}</strong> at ${escapeHtml(job.site_name)}.</p><p>Open LiteHubs to review the private application and résumé.</p>`,
         }),
       ),
-      sendMail(buildApplicantConfirmationEmail(input, job)),
+      sendMail(buildApplicantConfirmationEmail(input, job, created.trackingUrl)),
       // Candidates provide a phone number in the public form.  The SMS is an
       // acknowledgement only: never include the CV, application details or
       // any hiring decision in a message that can be seen on a lock screen.
-      sendSms(buildApplicantConfirmationSms(input, job)),
+      sendSms(buildApplicantConfirmationSms(input, job, created.trackingUrl)),
     ]);
     return {
       applicationId: created.applicationId,
       confirmation: "Your application has been received.",
+      trackingUrl: created.trackingUrl,
     };
   } catch (error) {
     await deletePrivateDocument(stored.storagePath).catch(() => undefined);
@@ -1095,6 +1126,7 @@ export async function completePublicOnboarding(
 function buildApplicantConfirmationEmail(
   input: PublicApplicationInput,
   job: Row,
+  trackingUrl: string,
 ) {
   const french = input.preferredLanguage !== "en";
   const organizationName =
@@ -1115,6 +1147,8 @@ function buildApplicantConfirmationEmail(
         "",
         "L’équipe examinera votre dossier de manière confidentielle et vous contactera si votre profil correspond aux besoins du poste ou si des documents et informations complémentaires sont nécessaires.",
         "",
+        `Suivez l’avancement de votre candidature et envoyez les documents demandés dans votre Espace candidat personnel : ${trackingUrl}`,
+        "",
         `Pour toute question concernant votre candidature, écrivez à ${CANDIDATE_CONTACT_EMAIL}.`,
         "",
         `Merci,\n${organizationName}`,
@@ -1127,6 +1161,8 @@ function buildApplicantConfirmationEmail(
         `Your résumé and details are accessible only to ${organizationName}'s authorised recruitment team.`,
         "",
         "The team will review your application confidentially and contact you if your profile matches the needs of the role or if further documents and information are needed.",
+        "",
+        `Follow your application and send any requested documents from your personal candidate space: ${trackingUrl}`,
         "",
         `For questions about your application, email ${CANDIDATE_CONTACT_EMAIL}.`,
         "",
@@ -1190,6 +1226,7 @@ function buildApplicantConfirmationEmail(
           <p style="margin:0 0 20px;color:#344b3d;font-size:15px;line-height:1.65;">${receipt}</p>
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 21px;background:#edf8f1;border:1px solid #ccebd7;border-radius:10px;"><tr><td style="padding:15px 17px;color:#215e3c;font-size:13px;line-height:1.55;">${privacy}</td></tr></table>
           <p style="margin:0;color:#344b3d;font-size:15px;line-height:1.65;">${next}</p>
+          ${candidatePortalButtonHtml(trackingUrl, french)}
         </td></tr>
         <tr><td style="padding:20px 32px;background:#f7faf8;border-top:1px solid #e1ebe5;color:#66776d;font-size:12px;line-height:1.55;">${footer}<br />© ${new Date().getFullYear()} ${safe.organizationName} · LiteHubs</td></tr>
       </table>
@@ -1199,15 +1236,19 @@ function buildApplicantConfirmationEmail(
   };
 }
 
-function buildApplicantConfirmationSms(input: PublicApplicationInput, job: Row) {
+function buildApplicantConfirmationSms(
+  input: PublicApplicationInput,
+  job: Row,
+  trackingUrl: string,
+) {
   const french = input.preferredLanguage !== "en";
   const organizationName =
     String(job.display_name ?? "LiteHubs").trim() || "LiteHubs";
   const title = String(job.title ?? "").trim().slice(0, 180);
   const siteName = String(job.site_name ?? "").trim().slice(0, 120);
   const content = french
-    ? `${organizationName} : votre candidature pour « ${title} » au site ${siteName} a été reçue. Nous vous contacterons si votre profil correspond ou si des documents complémentaires sont nécessaires. Questions : ${CANDIDATE_CONTACT_EMAIL}`
-    : `${organizationName}: your application for ${title} at ${siteName} was received. We will contact you if your profile matches or if further documents are needed. Questions: ${CANDIDATE_CONTACT_EMAIL}`;
+    ? `${organizationName} : votre candidature pour « ${title} » au site ${siteName} a été reçue. Suivez-la ici : ${trackingUrl}`
+    : `${organizationName}: your application for ${title} at ${siteName} was received. Follow it here: ${trackingUrl}`;
 
   return { to: input.phone, content: content.slice(0, 600) };
 }
@@ -1224,7 +1265,17 @@ type CandidateStatusNotification = {
   message: string;
   french: boolean;
   onboardingUrl: string | null;
+  trackingUrl: string | null;
 };
+
+/** Shared call-to-action used in every candidate e-mail. */
+export function candidatePortalButtonHtml(url: string, french: boolean) {
+  const label = french ? "Ouvrir mon Espace candidat" : "Open my candidate space";
+  const note = french
+    ? "Lien personnel : ne le partagez avec personne. Vous pouvez demander un nouveau lien à tout moment depuis la page carrières."
+    : "Personal link: do not share it. You can request a new link at any time from the careers page.";
+  return `<div style="margin-top:24px;padding:18px;border:1px solid #d6e4f5;border-radius:12px;background:#f2f7fd;"><p style="margin:0 0 14px;color:#1e3a5f;font-size:14px;line-height:1.6;">${french ? "Suivez l’avancement de votre candidature, lisez les messages de l’équipe et envoyez les documents demandés." : "Follow your application, read messages from the team and send requested documents."}</p><a href="${escapeHtml(url)}" style="display:inline-block;border-radius:8px;background:#1d4ed8;padding:12px 17px;color:#ffffff;font-size:14px;font-weight:700;text-decoration:none;">${label}</a><p style="margin:14px 0 0;color:#66776d;font-size:11px;line-height:1.5;">${note}</p></div>`;
+}
 
 function defaultCandidateStatusMessage({
   status,
@@ -1289,6 +1340,14 @@ function buildCandidateStatusEmail(notification: CandidateStatusNotification) {
     ...(onboardingText && notification.onboardingUrl
       ? ["", onboardingText, notification.onboardingUrl]
       : []),
+    ...(notification.trackingUrl
+      ? [
+          "",
+          notification.french
+            ? `Votre Espace candidat : ${notification.trackingUrl}`
+            : `Your candidate space: ${notification.trackingUrl}`,
+        ]
+      : []),
     "",
     footer,
   ].join("\n");
@@ -1301,20 +1360,24 @@ function buildCandidateStatusEmail(notification: CandidateStatusNotification) {
     from: RECRUITMENT_FROM_ADDRESS,
     subject,
     text,
-    html: `<!doctype html><html lang="${notification.french ? "fr" : "en"}"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>${escapeHtml(subject)}</title></head><body style="margin:0;padding:0;background:#f3f7f5;font-family:Arial,'Helvetica Neue',Helvetica,sans-serif;color:#172b23;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;background:#f3f7f5;"><tr><td align="center" style="padding:32px 16px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;background:#fff;border:1px solid #d8e5dc;border-radius:16px;overflow:hidden;"><tr><td style="padding:25px 32px;background:#114b32;color:#fff;font-size:21px;font-weight:800;">${escapeHtml(notification.organizationName)}</td></tr><tr><td style="padding:34px 32px 30px;"><div style="width:42px;height:5px;margin:0 0 20px;background:#29a36a;border-radius:99px;"></div><h1 style="margin:0 0 19px;color:#14251d;font-size:27px;line-height:1.25;">${escapeHtml(subject)}</h1><p style="margin:0 0 17px;color:#344b3d;font-size:15px;line-height:1.65;">${escapeHtml(greeting)}</p><p style="margin:0;color:#344b3d;font-size:15px;line-height:1.65;">${htmlMessage}</p>${onboardingHtml}</td></tr><tr><td style="padding:20px 32px;background:#f7faf8;border-top:1px solid #e1ebe5;color:#66776d;font-size:12px;line-height:1.55;">${escapeHtml(footer)}</td></tr></table></td></tr></table></body></html>`,
+    html: `<!doctype html><html lang="${notification.french ? "fr" : "en"}"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>${escapeHtml(subject)}</title></head><body style="margin:0;padding:0;background:#f3f7f5;font-family:Arial,'Helvetica Neue',Helvetica,sans-serif;color:#172b23;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;background:#f3f7f5;"><tr><td align="center" style="padding:32px 16px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;background:#fff;border:1px solid #d8e5dc;border-radius:16px;overflow:hidden;"><tr><td style="padding:25px 32px;background:#114b32;color:#fff;font-size:21px;font-weight:800;">${escapeHtml(notification.organizationName)}</td></tr><tr><td style="padding:34px 32px 30px;"><div style="width:42px;height:5px;margin:0 0 20px;background:#29a36a;border-radius:99px;"></div><h1 style="margin:0 0 19px;color:#14251d;font-size:27px;line-height:1.25;">${escapeHtml(subject)}</h1><p style="margin:0 0 17px;color:#344b3d;font-size:15px;line-height:1.65;">${escapeHtml(greeting)}</p><p style="margin:0;color:#344b3d;font-size:15px;line-height:1.65;">${htmlMessage}</p>${onboardingHtml}${notification.trackingUrl ? candidatePortalButtonHtml(notification.trackingUrl, notification.french) : ""}</td></tr><tr><td style="padding:20px 32px;background:#f7faf8;border-top:1px solid #e1ebe5;color:#66776d;font-size:12px;line-height:1.55;">${escapeHtml(footer)}</td></tr></table></td></tr></table></body></html>`,
   };
 }
 
 function buildCandidateStatusSms(notification: CandidateStatusNotification) {
-  return {
-    to: notification.phone,
-    content: `${notification.organizationName} : ${notification.message}${notification.onboardingUrl ? ` Fiche d’intégration sécurisée : ${notification.onboardingUrl}` : ""} Contact : ${CANDIDATE_CONTACT_EMAIL}`
-      .replace(/\s+/g, " ")
-      .slice(0, 600),
-  };
+  // Keep the link intact: shorten the message, never the URL.
+  const suffix = notification.onboardingUrl
+    ? ` Fiche d’intégration sécurisée : ${notification.onboardingUrl}`
+    : notification.trackingUrl
+      ? ` Suivi : ${notification.trackingUrl}`
+      : ` Contact : ${CANDIDATE_CONTACT_EMAIL}`;
+  const body = `${notification.organizationName} : ${notification.message}`
+    .replace(/\s+/g, " ")
+    .slice(0, Math.max(80, 600 - suffix.length));
+  return { to: notification.phone, content: `${body}${suffix}`.slice(0, 610) };
 }
 
-function escapeHtml(value: string) {
+export function escapeHtml(value: string) {
   return value.replace(
     /[&<>"']/g,
     (character) =>

@@ -164,6 +164,34 @@ export const publicOnboardingInput = z.object({
   }),
 });
 
+export const publicTrackingParams = publicOnboardingParams;
+export const publicTrackingDocumentParams = publicOnboardingParams.extend({
+  requestId: id,
+});
+export const publicTrackingRecoverInput = z.object({
+  email: z.string().trim().toLowerCase().email("Use a valid email address").max(255),
+});
+export const documentRequestParams = applicationParams.extend({ requestId: id });
+export const documentRequestInput = z.object({
+  documents: z
+    .array(
+      z.object({
+        label: requiredText(160),
+        description: optionalText(600),
+      }),
+    )
+    .min(1, "Add at least one document")
+    .max(10),
+  message: optionalText(800),
+  dueDate: z.string().date("Use YYYY-MM-DD").optional(),
+  notifyCandidate: z.boolean().optional().default(true),
+});
+export const documentReviewInput = z.object({
+  decision: z.enum(["accepted", "rejected", "cancelled"]),
+  note: optionalText(600),
+  notifyCandidate: z.boolean().optional().default(true),
+});
+
 export type CareerSiteSettingsInput = z.infer<typeof careerSiteSettingsInput>;
 export type JobPostInput = z.infer<typeof jobPostInput>;
 export type JobQuery = z.infer<typeof jobQuery>;
@@ -171,3 +199,5 @@ export type ApplicationQuery = z.infer<typeof applicationQuery>;
 export type ApplicationUpdateInput = z.infer<typeof applicationUpdateInput>;
 export type PublicApplicationInput = z.infer<typeof publicApplicationInput>;
 export type PublicOnboardingInput = z.infer<typeof publicOnboardingInput>;
+export type DocumentRequestInput = z.infer<typeof documentRequestInput>;
+export type DocumentReviewInput = z.infer<typeof documentReviewInput>;

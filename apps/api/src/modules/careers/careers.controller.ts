@@ -1,6 +1,7 @@
 import type { Request, RequestHandler } from "express";
 import { BadRequestError } from "../../utils/errors";
 import * as service from "./careers.service";
+import * as portal from "./candidate-portal.service";
 import type {
   ApplicationQuery,
   ApplicationUpdateInput,
@@ -9,6 +10,8 @@ import type {
   JobQuery,
   PublicApplicationInput,
   PublicOnboardingInput,
+  DocumentRequestInput,
+  DocumentReviewInput,
 } from "./careers.validation";
 
 function context(req: Request): service.CareersContext {
@@ -138,3 +141,76 @@ export const completePublicOnboarding: RequestHandler = async (req, res) => {
     ),
   );
 };
+
+/* Espace candidat ---------------------------------------------------- */
+
+export const publicTracking: RequestHandler = async (req, res) => {
+  res.setHeader("Cache-Control", "no-store, max-age=0");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.json(await portal.publicTracking(param(req, "orgSlug"), param(req, "token")));
+};
+
+export const publicSubmitDocument: RequestHandler = async (req, res) => {
+  if (!req.file) throw new BadRequestError("Ajoutez le fichier à envoyer", { field: "file" });
+  res.status(201).json(
+    await portal.publicSubmitDocument(
+      param(req, "orgSlug"),
+      param(req, "token"),
+      param(req, "requestId"),
+      req.file,
+    ),
+  );
+};
+
+export const publicRecoverTracking: RequestHandler = async (req, res) => {
+  res.setHeader("Cache-Control", "no-store, max-age=0");
+  res.json(
+    await portal.publicRecoverTracking(param(req, "orgSlug"), String((req.body as { email: string }).email)),
+  );
+};
+
+export const documentRequests: RequestHandler = async (req, res) =>
+  res.json(await portal.listDocumentRequests(context(req), param(req, "applicationId")));
+
+export const createDocumentRequest: RequestHandler = async (req, res) =>
+  res.status(201).json(
+    await portal.createDocumentRequest(
+      context(req),
+      param(req, "applicationId"),
+      req.body as DocumentRequestInput,
+    ),
+  );
+
+export const reviewDocumentRequest: RequestHandler = async (req, res) =>
+  res.json(
+    await portal.reviewDocumentRequest(
+      context(req),
+      param(req, "applicationId"),
+      param(req, "requestId"),
+      req.body as DocumentReviewInput,
+    ),
+  );
+
+export const downloadDocumentRequestFile: RequestHandler = async (req, res) => {
+  const inline = req.query.view === "inline";
+  const file = await portal.documentRequestFile(
+    context(req),
+    param(req, "applicationId"),
+    param(req, "requestId"),
+  );
+  const safeName = file.fileName.replace(/[\\/:*?"<>|\r\n]/g, "_");
+  // Header values must be ASCII; keep the real name in filename*.
+  const asciiName = safeName.normalize("NFD").replace(/[^\x20-\x7e]/g, "") || "document";
+  const canPreviewInline =
+    inline && (file.mimeType === "application/pdf" || file.mimeType.startsWith("image/"));
+  res.setHeader("Content-Type", file.mimeType);
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader(
+    "Content-Disposition",
+    `${canPreviewInline ? "inline" : "attachment"}; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(safeName)}`,
+  );
+  res.send(file.buffer);
+};
+
+export const sendTrackingLink: RequestHandler = async (req, res) =>
+  res.json(await portal.sendTrackingLink(context(req), param(req, "applicationId")));

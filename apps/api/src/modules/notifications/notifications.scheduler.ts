@@ -10,6 +10,7 @@ import {
   sendNutritionExecutiveSummaryForOrganization,
 } from "../owner-management/feed-nutrition.service";
 import { closeExpiredJobsForOrganization } from "../careers/careers.service";
+import { sendPendingTrackingLinksForOrganization } from "../careers/candidate-portal.service";
 
 let scheduled = false;
 
@@ -60,6 +61,11 @@ export function startNotificationScheduler(): void {
     },
     { timezone: "Africa/Kinshasa" },
   );
+  // Applicants received before the Espace candidat existed get their personal
+  // link automatically, in small batches to respect e-mail and SMS limits.
+  cron.schedule("*/10 * * * *", () => {
+    void forEachOrganization("career_tracking_links", sendPendingTrackingLinksForOrganization);
+  });
   // Farm health, ration and feed-autonomy checks run before the day starts.
   cron.schedule("0 6 * * *", () => {
     void forEachOrganization("nutrition_monitoring", runNutritionMonitoringForOrganization);
