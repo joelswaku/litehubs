@@ -9806,13 +9806,8 @@ function EditorFields({
           </p>
         )}{" "}
         <Field
-          label={label(fr, "Blocker or difficulty", "Blocage ou difficulté")}
+          label={label(fr, "Blocked by / reason", "Blocage / raison")}
           htmlFor="blockedReason"
-          hint={label(
-            fr,
-            "Optional: what blocks or slows the work (e.g. waiting for funds). Choose the status Blocked if the work is stopped.",
-            "Facultatif : ce qui bloque ou ralentit le travail (ex. attente du financement). Choisissez le statut « Bloquée » si le travail est arrêté.",
-          )}
           className="md:col-span-2"
           error={fieldError("blockedReason")}
         >
@@ -17228,11 +17223,9 @@ function TaskDetailDialog({
             </section>
           ) : null}
           {detail(["blockedReason"]) ? (
-            <section className={`mt-5 rounded-xl border p-4 ${status === "blocked" ? "border-critical/30 bg-critical/10" : "border-warning/35 bg-warning/10"}`}>
+            <section className="mt-5 rounded-xl border border-warning/35 bg-warning/10 p-4">
               <h3 className="text-sm font-semibold text-ink">
-                {status === "blocked"
-                  ? label(fr, "Blocked by", "Bloquée à cause de")
-                  : label(fr, "Difficulty", "Difficulté signalée")}
+                {label(fr, "Blocked by / reason", "Blocage / raison")}
               </h3>
               <p className="mt-1 text-sm text-ink-secondary">
                 {String(detail(["blockedReason"]))}

@@ -252,8 +252,6 @@ const inventoryMovementIsOutbound = (value: unknown) =>
   ["issue", "adjustment_out", "transfer_out", "maintenance_issue"].includes(
     text(value),
   );
-/** A blocker only applies while the task status is Blocked. */
-const taskIsBlocked = (task: Row) => text(task.status) === "blocked";
 const nice = (value: unknown) =>
   text(value)
     .replace(/_/g, " ")
@@ -2450,11 +2448,9 @@ function SidebarTaskDetailDialog({
             ))}
           </div>
           {text(task.blockedReason) ? (
-            <section className={`mt-5 rounded-xl border p-4 ${taskIsBlocked(task) ? "border-critical/30 bg-critical/10" : "border-warning/35 bg-warning/10"}`}>
+            <section className="mt-5 rounded-xl border border-warning/35 bg-warning/10 p-4">
               <h3 className="text-sm font-semibold text-ink">
-                {taskIsBlocked(task)
-                  ? copy(fr, "Blocked by", "Bloquée à cause de")
-                  : copy(fr, "Difficulty", "Difficulté signalée")}
+                {copy(fr, "Blocked by / reason", "Blocage / raison")}
               </h3>
               <p className="mt-1 text-sm text-ink-secondary">
                 {text(task.blockedReason)}
@@ -2853,11 +2849,11 @@ function TasksWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
       )
     : 0;
   const focusTasks = [...activeTasks]
-    .filter((task) => Boolean(text(task.dueDate)) || taskIsBlocked(task))
+    .filter((task) => Boolean(text(task.dueDate)) || text(task.blockedReason))
     .sort((a, b) => {
       if (isOverdue(a) !== isOverdue(b)) return isOverdue(a) ? -1 : 1;
-      if (taskIsBlocked(a) !== taskIsBlocked(b))
-        return taskIsBlocked(a) ? -1 : 1;
+      if (text(a.blockedReason) !== text(b.blockedReason))
+        return text(a.blockedReason) ? -1 : 1;
       return text(a.dueDate).localeCompare(text(b.dueDate));
     })
     .slice(0, 4);
@@ -2992,13 +2988,8 @@ function TasksWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
     },
     {
       key: "blockedReason",
-      label: copy(fr, "Blocker or difficulty", "Blocage ou difficulté"),
+      label: copy(fr, "Blocker", "Blocage"),
       type: "textarea",
-      hint: copy(
-        fr,
-        "Optional: what blocks or slows the work (e.g. waiting for funds). Choose the status Blocked if the work is stopped.",
-        "Facultatif : ce qui bloque ou ralentit le travail (ex. attente du financement). Choisissez le statut « Bloquée » si le travail est arrêté.",
-      ),
     },
     { key: "notes", label: copy(fr, "Notes", "Notes"), type: "textarea" },
   ];
@@ -3422,12 +3413,9 @@ function TasksWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
                         </dl>
 
                         {text(task.blockedReason) ? (
-                          <p className={`mt-4 rounded-lg border px-3 py-2 text-xs leading-5 ${taskIsBlocked(task) ? "border-critical/20 bg-critical/10 text-critical" : "border-warning/30 bg-warning/10 text-warning-ink"}`}>
+                          <p className="mt-4 rounded-lg border border-critical/20 bg-critical/10 px-3 py-2 text-xs leading-5 text-critical">
                             <span className="font-semibold">
-                              {taskIsBlocked(task)
-                                ? copy(fr, "Blocked", "Bloquée")
-                                : copy(fr, "Difficulty", "Difficulté")}
-                              :
+                              {copy(fr, "Blocked", "Bloquée")}:
                             </span>{" "}
                             {text(task.blockedReason)}
                           </p>
@@ -3558,7 +3546,7 @@ function TasksWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
                             copy(fr, "Company work", "Travail d’entreprise")}
                       </p>
                       <p className="mt-1 text-xs text-blue-100/80">
-                        {taskIsBlocked(task)
+                        {text(task.blockedReason)
                           ? copy(fr, "Blocked", "Bloquée")
                           : `${copy(fr, "Due", "Échéance")}: ${date(task.dueDate)}`}
                       </p>
