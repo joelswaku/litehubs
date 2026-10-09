@@ -238,6 +238,27 @@ export function PublicCareersPage({ orgSlug }: { orgSlug: string }) {
           </div>
         </div>
         <CardContent className="p-5 sm:p-8">
+          <Link
+            href={`/careers/${orgSlug}/suivi`}
+            className="mb-6 flex items-center gap-3 rounded-2xl border border-brand/25 bg-brand/[.06] p-4 transition hover:bg-brand/[.1]"
+          >
+            <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-brand text-brand-ink">
+              <SearchCheck className="size-5" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold text-ink">
+                {label(fr, "Vous avez déjà postulé ?", "Already applied?")}
+              </span>
+              <span className="block text-xs leading-5 text-ink-secondary">
+                {label(
+                  fr,
+                  "Suivez votre candidature et envoyez les documents demandés. Utilisez le lien reçu par e-mail ou SMS, ou demandez-en un nouveau ici.",
+                  "Follow your application and send requested documents. Use the link received by e-mail or SMS, or request a new one here.",
+                )}
+              </span>
+            </span>
+            <ChevronRight className="size-5 shrink-0 text-brand" />
+          </Link>
           {careers.isLoading ? (
             <SkeletonCard rows={5} />
           ) : careers.isError ? (

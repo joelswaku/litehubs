@@ -701,19 +701,53 @@ export type PublicCareersBranding = {
 };
 
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+const PUBLIC_WEBSITE_DOMAINS: Record<string, string> = {
+  "congo-omega": "congoomega.com",
+  kins: "congoomega.com",
+};
 
 /** The careers portal wears the company's public website identity (logo and
  * colours from Website settings) rather than the LiteHubs product look. */
 export async function publicCareersBranding(orgSlug: string): Promise<PublicCareersBranding> {
   try {
-    const result = await db.query<{ website: Row | null }>(
-      `SELECT public_organization_website_page($1,NULL)->'website' AS website`,
-      [orgSlug],
-    );
-    const website = result.rows[0]?.website ?? null;
+    // The public website may be published from a different workspace than
+    // the one that runs recruitment; the company domain finds it either way.
+    let website: Row | null = null;
+    for (const key of [orgSlug, PUBLIC_WEBSITE_DOMAINS[orgSlug.trim().toLowerCase()]].filter(Boolean)) {
+      const result = await db.query<{ website: Row | null }>(
+        `SELECT public_organization_website_page($1,NULL)->'website' AS website`,
+        [key],
+      );
+      website = result.rows[0]?.website ?? null;
+      if (website) break;
+    }
     const color = (value: unknown) =>
       typeof value === "string" && HEX_COLOR.test(value.trim()) ? value.trim() : null;
-    const logo = typeof website?.logoUrl === "string" && /^https:\/\//i.test(website.logoUrl) ? website.logoUrl : null;
+    const usable = (value: unknown) =>
+      typeof value === "string" &&
+      (/^https:\/\//i.test(value.trim()) || (value.trim().startsWith("/") && !value.trim().startsWith("//")))
+        ? value.trim()
+        : null;
+    // A logo placed in the website header (builder "logo" item) wins over the
+    // settings field, exactly like on the public website.
+    const headerLogo = (node: unknown, depth = 0): string | null => {
+      if (!node || typeof node !== "object" || depth > 8) return null;
+      if (Array.isArray(node)) {
+        for (const item of node) {
+          const found = headerLogo(item, depth + 1);
+          if (found) return found;
+        }
+        return null;
+      }
+      const record = node as Record<string, unknown>;
+      if (record.type === "logo" && usable(record.imageUrl)) return usable(record.imageUrl);
+      for (const value of Object.values(record)) {
+        const found = headerLogo(value, depth + 1);
+        if (found) return found;
+      }
+      return null;
+    };
+    const logo = headerLogo(website?.design) ?? usable(website?.logoUrl);
     return {
       displayName: typeof website?.displayName === "string" ? website.displayName : null,
       logoUrl: logo,
