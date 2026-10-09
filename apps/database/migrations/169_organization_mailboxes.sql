@@ -70,19 +70,6 @@ CREATE TABLE mail_ai_requests (
 CREATE INDEX mail_ai_requests_user_day_idx ON mail_ai_requests(organization_id, user_id, created_at DESC);
 SELECT enable_tenant_rls('mail_ai_requests');
 
--- One row per AI reply draft, for the per-user daily limit (AI_DAILY_REQUEST_LIMIT).
-CREATE TABLE mail_ai_requests (
-  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  organization_id  uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-  user_id          uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  mailbox_id       uuid,
-  action           text NOT NULL DEFAULT 'reply_draft',
-  model            text,
-  created_at       timestamptz NOT NULL DEFAULT now()
-);
-CREATE INDEX mail_ai_requests_user_day_idx ON mail_ai_requests(organization_id, user_id, created_at DESC);
-SELECT enable_tenant_rls('mail_ai_requests');
-
 INSERT INTO permissions(code, resource, action, module_code, description)
 VALUES
   ('mail.read', 'mail', 'read', 'mail', 'Read company mailboxes assigned to the member'),
