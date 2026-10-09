@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
+  Ban,
   FileText,
   FolderKanban,
   ImageIcon,
@@ -30,8 +31,8 @@ import { useLanguage } from "@/providers/language-provider";
 import { useSessionUser } from "@/stores/session-store";
 
 type Overview = {
-  me: { memberId: string; isOwner: boolean; canModerate: boolean; canReadDirection: boolean };
-  team: { id: string; unread: number };
+  me: { memberId: string; isOwner: boolean; canModerate: boolean; canReadDirection: boolean; blocked?: boolean };
+  team: { id: string; unread: number } | null;
   myDirection: { id: string; unread: number } | null;
   threads: { id: string; employee: { id: string; name: string }; lastMessageAt: string; preview: string; unread: number }[];
   members: { id: string; name: string }[];
@@ -51,7 +52,13 @@ type ChatMessage = {
   canPin: boolean;
 };
 type Conversation = {
-  conversation: { id: string; kind: "team" | "direction"; employee: { id: string; name: string | null } | null; canAnnounce: boolean };
+  conversation: {
+    id: string;
+    kind: "team" | "direction";
+    employee: { id: string; name: string | null } | null;
+    canAnnounce: boolean;
+    composer?: { canWrite: boolean; canSendImages: boolean; canSendDocuments: boolean; reason: "muted" | "read_only" | null };
+  };
   messages: ChatMessage[];
   pinned: ChatMessage[];
   hasMore: boolean;
@@ -103,7 +110,8 @@ export function ChatArea({ orgSlug }: { orgSlug: string }) {
   // On a wide screen the team room opens by default.  On a phone the list is
   // shown first, and nothing is opened (or marked as read) until tapped.
   useEffect(() => {
-    if (!active && data && window.matchMedia("(min-width: 1024px)").matches) setActive(data.team.id);
+    const first = data?.team?.id ?? data?.myDirection?.id ?? null;
+    if (!active && first && window.matchMedia("(min-width: 1024px)").matches) setActive(first);
   }, [active, data]);
 
   const openDirection = useMutation({
@@ -154,15 +162,29 @@ export function ChatArea({ orgSlug }: { orgSlug: string }) {
           ) : null}
         </div>
         <div className="min-h-0 flex-1 overflow-auto p-2">
-          <ConversationButton
-            active={active === data.team.id}
-            onClick={() => select(data.team.id)}
-            icon={<UsersRound className="size-4" />}
-            title={tr(fr, "Équipe · tout le monde", "Team · everyone")}
-            subtitle={tr(fr, "Tous les employés, toutes provinces", "All employees, all provinces")}
-            unread={data.team.unread}
-            tone="brand"
-          />
+          {data.team ? (
+            <ConversationButton
+              active={active === data.team.id}
+              onClick={() => select(data.team!.id)}
+              icon={<UsersRound className="size-4" />}
+              title={tr(fr, "Équipe · tout le monde", "Team · everyone")}
+              subtitle={tr(fr, "Tous les employés, toutes provinces", "All employees, all provinces")}
+              unread={data.team.unread}
+              tone="brand"
+            />
+          ) : (
+            <div className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-left opacity-70">
+              <span className="grid size-9 shrink-0 place-items-center rounded-full bg-surface-3 text-ink-muted">
+                <Ban className="size-4" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium text-ink">{tr(fr, "Chat d’équipe", "Team chat")}</span>
+                <span className="block truncate text-xs text-ink-secondary">
+                  {tr(fr, "Accès retiré par la direction", "Access removed by management")}
+                </span>
+              </span>
+            </div>
+          )}
           {!isStaff ? (
             <ConversationButton
               active={Boolean(data.myDirection && active === data.myDirection.id)}
@@ -422,6 +444,7 @@ function ConversationView({
         orgSlug={orgSlug}
         conversationId={conversationId}
         canAnnounce={data.conversation.canAnnounce}
+        rules={data.conversation.composer}
         fr={fr}
         onSent={() => {
           stickToBottom.current = true;
@@ -631,12 +654,14 @@ function Composer({
   orgSlug,
   conversationId,
   canAnnounce,
+  rules,
   fr,
   onSent,
 }: {
   orgSlug: string;
   conversationId: string;
   canAnnounce: boolean;
+  rules?: { canWrite: boolean; canSendImages: boolean; canSendDocuments: boolean; reason: "muted" | "read_only" | null };
   fr: boolean;
   onSent: () => void;
 }) {
@@ -665,6 +690,19 @@ function Composer({
   const submit = () => {
     if ((body.trim() || file) && !send.isPending) send.mutate();
   };
+  const canWrite = rules?.canWrite ?? true;
+  const canImages = rules?.canSendImages ?? true;
+  const canDocuments = rules?.canSendDocuments ?? true;
+  const accept = [canImages ? "image/*" : "", canDocuments ? "application/pdf,.doc,.docx,.xls,.xlsx,.csv,.txt" : ""].filter(Boolean).join(",");
+  if (!canWrite)
+    return (
+      <div className="flex items-center gap-2 border-t border-border bg-surface-2/50 px-4 py-3 text-xs text-ink-secondary">
+        <LockKeyhole className="size-4 shrink-0" />
+        {rules?.reason === "muted"
+          ? tr(fr, "Vous êtes en lecture seule dans ce chat. Vous pouvez toujours écrire à la direction en privé.", "You are read-only in this chat. You can still write to management privately.")
+          : tr(fr, "Ce chat est en lecture seule : seuls les modérateurs peuvent écrire.", "This chat is read-only: only moderators can write.")}
+      </div>
+    );
   return (
     <div className="border-t border-border p-2 sm:p-3">
       {file ? (
@@ -688,15 +726,28 @@ function Composer({
           ref={fileInput}
           type="file"
           className="hidden"
-          accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
+          accept={accept}
           onChange={(event) => {
             setFile(event.target.files?.[0] ?? null);
             event.target.value = "";
           }}
         />
-        <Button size="icon" variant="ghost" title={tr(fr, "Joindre une photo ou un document", "Attach a photo or document")} onClick={() => fileInput.current?.click()}>
-          <Paperclip className="size-4" />
-        </Button>
+        {canImages || canDocuments ? (
+          <Button
+            size="icon"
+            variant="ghost"
+            title={
+              canImages && canDocuments
+                ? tr(fr, "Joindre une photo ou un document", "Attach a photo or document")
+                : canImages
+                  ? tr(fr, "Joindre une photo", "Attach a photo")
+                  : tr(fr, "Joindre un document", "Attach a document")
+            }
+            onClick={() => fileInput.current?.click()}
+          >
+            <Paperclip className="size-4" />
+          </Button>
+        ) : null}
         {can(user, "projects.read") ? (
           <Button size="icon" variant="ghost" title={tr(fr, "Partager un projet", "Share a project")} onClick={() => setProjectPicker(true)}>
             <FolderKanban className="size-4" />
@@ -798,21 +849,45 @@ function MemberPicker({ members, fr, onPick }: { members: { id: string; name: st
 }
 
 function AccessDialog({ orgSlug, fr, onClose }: { orgSlug: string; fr: boolean; onClose: () => void }) {
-  type Member = { id: string; name: string; locked: boolean; role: string | null; canModerate: boolean; canReadDirection: boolean };
+  type Member = {
+    id: string;
+    name: string;
+    locked: boolean;
+    role: string | null;
+    canModerate: boolean;
+    canReadDirection: boolean;
+    muted: boolean;
+    blocked: boolean;
+    noFiles: boolean;
+  };
+  type Settings = { allowImages: boolean; allowDocuments: boolean; teamReadOnly: boolean };
   const access = useQuery({
     queryKey: ["chat-access", orgSlug],
-    queryFn: () => get<{ members: Member[] }>(orgUrl(orgSlug, "chat/access")),
+    queryFn: () => get<{ members: Member[]; settings: Settings }>(orgUrl(orgSlug, "chat/access")),
   });
   const [rows, setRows] = useState<Member[] | null>(null);
+  const [rules, setRules] = useState<Settings>({ allowImages: true, allowDocuments: true, teamReadOnly: false });
+  const [search, setSearch] = useState("");
   useEffect(() => {
-    if (access.data) setRows(access.data.members);
+    if (access.data) {
+      setRows(access.data.members);
+      setRules(access.data.settings);
+    }
   }, [access.data]);
   const save = useMutation({
     mutationFn: () =>
       put(orgUrl(orgSlug, "chat/access"), {
+        settings: rules,
         members: (rows ?? [])
           .filter((row) => !row.locked)
-          .map((row) => ({ memberId: row.id, canModerate: row.canModerate, canReadDirection: row.canReadDirection })),
+          .map((row) => ({
+            memberId: row.id,
+            canModerate: row.canModerate,
+            canReadDirection: row.canReadDirection,
+            muted: row.muted,
+            blocked: row.blocked,
+            noFiles: row.noFiles,
+          })),
       }),
     onSuccess: () => {
       toast.success(tr(fr, "Accès enregistrés.", "Access saved."));
@@ -820,7 +895,7 @@ function AccessDialog({ orgSlug, fr, onClose }: { orgSlug: string; fr: boolean; 
     },
     onError: (error) => toast.error(errorMessage(error, "")),
   });
-  const toggle = (id: string, key: "canModerate" | "canReadDirection") =>
+  const toggle = (id: string, key: "canModerate" | "canReadDirection" | "muted" | "blocked" | "noFiles") =>
     setRows((current) => (current ?? []).map((row) => (row.id === id ? { ...row, [key]: !row[key] } : row)));
   return (
     <Dialog title={tr(fr, "Accès au chat", "Chat access")} onClose={onClose} wide>
@@ -832,37 +907,77 @@ function AccessDialog({ orgSlug, fr, onClose }: { orgSlug: string; fr: boolean; 
             "Every employee uses the team chat. Choose who can moderate (pin, delete, announce) and who reads private messages sent to management. The owner and general manager always have both rights.",
           )}
         </p>
+        <div className="grid gap-2 rounded-xl border border-border p-3 sm:grid-cols-3">
+          {[
+            { key: "allowImages" as const, label: tr(fr, "Photos autorisées", "Photos allowed"), hint: tr(fr, "Les employés peuvent envoyer des photos", "Employees can send photos") },
+            { key: "allowDocuments" as const, label: tr(fr, "Documents autorisés", "Documents allowed"), hint: tr(fr, "PDF, Word, Excel…", "PDF, Word, Excel…") },
+            { key: "teamReadOnly" as const, label: tr(fr, "Chat d’équipe en lecture seule", "Team chat read-only"), hint: tr(fr, "Seuls les modérateurs écrivent", "Only moderators write") },
+          ].map((item) => (
+            <label key={item.key} className="flex cursor-pointer items-start gap-2 rounded-lg p-1.5 text-sm hover:bg-surface-2">
+              <input type="checkbox" className="mt-1" checked={rules[item.key]} onChange={(event) => setRules({ ...rules, [item.key]: event.target.checked })} />
+              <span>
+                <span className="block font-medium text-ink">{item.label}</span>
+                <span className="block text-xs text-ink-secondary">{item.hint}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+        <input
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder={tr(fr, "Rechercher un employé…", "Search an employee…")}
+          className="h-9 w-full rounded-lg border border-border-strong bg-surface-1 px-3 text-sm text-ink"
+        />
         {!rows ? (
           <SkeletonCard rows={5} />
         ) : (
-          <div className="overflow-hidden rounded-xl border border-border">
-            <div className="grid grid-cols-[1fr_90px_110px] gap-2 bg-surface-2 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
-              <span>{tr(fr, "Membre", "Member")}</span>
-              <span className="text-center">{tr(fr, "Modérer", "Moderate")}</span>
-              <span className="text-center">{tr(fr, "Messages privés", "Private msgs")}</span>
-            </div>
-            <div className="max-h-[50dvh] divide-y divide-border overflow-auto">
-              {rows.map((row) => (
-                <div key={row.id} className="grid grid-cols-[1fr_90px_110px] items-center gap-2 px-3 py-2 text-sm">
-                  <span className="min-w-0 truncate text-ink">
-                    {row.name}
-                    {row.role ? (
-                      <span className="ml-1.5 text-[11px] text-ink-muted">
-                        · {row.role === "owner" ? tr(fr, "propriétaire", "owner") : tr(fr, "directeur général", "general manager")}
+          <div className="overflow-x-auto rounded-xl border border-border">
+            <div className="min-w-[620px]">
+              <div className="grid grid-cols-[1fr_repeat(5,84px)] gap-1 bg-surface-2 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-ink-muted">
+                <span>{tr(fr, "Membre", "Member")}</span>
+                <span className="text-center">{tr(fr, "Modérer", "Moderate")}</span>
+                <span className="text-center">{tr(fr, "Msg privés", "Private")}</span>
+                <span className="text-center">{tr(fr, "Lecture seule", "Read-only")}</span>
+                <span className="text-center">{tr(fr, "Sans fichiers", "No files")}</span>
+                <span className="text-center text-critical">{tr(fr, "Bloqué", "Blocked")}</span>
+              </div>
+              <div className="max-h-[42dvh] divide-y divide-border overflow-auto">
+                {rows
+                  .filter((row) => row.name.toLowerCase().includes(search.toLowerCase()))
+                  .map((row) => (
+                    <div key={row.id} className={`grid grid-cols-[1fr_repeat(5,84px)] items-center gap-1 px-3 py-2 text-sm ${row.blocked ? "bg-critical/[.04]" : ""}`}>
+                      <span className="min-w-0 truncate text-ink">
+                        {row.name}
+                        {row.role ? (
+                          <span className="ml-1.5 text-[11px] text-ink-muted">
+                            · {row.role === "owner" ? tr(fr, "propriétaire", "owner") : tr(fr, "directeur général", "general manager")}
+                          </span>
+                        ) : null}
                       </span>
-                    ) : null}
-                  </span>
-                  <span className="text-center">
-                    <input type="checkbox" disabled={row.locked} checked={row.canModerate} onChange={() => toggle(row.id, "canModerate")} />
-                  </span>
-                  <span className="text-center">
-                    <input type="checkbox" disabled={row.locked} checked={row.canReadDirection} onChange={() => toggle(row.id, "canReadDirection")} />
-                  </span>
-                </div>
-              ))}
+                      {(["canModerate", "canReadDirection", "muted", "noFiles", "blocked"] as const).map((key) => (
+                        <span key={key} className="text-center">
+                          <input
+                            type="checkbox"
+                            disabled={row.locked}
+                            checked={row[key]}
+                            onChange={() => toggle(row.id, key)}
+                            aria-label={key}
+                          />
+                        </span>
+                      ))}
+                    </div>
+                  ))}
+              </div>
             </div>
           </div>
         )}
+        <p className="text-[11px] leading-4 text-ink-muted">
+          {tr(
+            fr,
+            "Bloqué : n’a plus accès au chat d’équipe, mais peut toujours écrire à la direction en privé. Les restrictions ne s’appliquent pas aux modérateurs ni à la direction.",
+            "Blocked: no access to the team chat, but can still write privately to management. Restrictions do not apply to moderators or management.",
+          )}
+        </p>
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose}>
             {tr(fr, "Annuler", "Cancel")}

@@ -26,22 +26,71 @@ const PAGE = 50;
 /* Rights                                                              */
 /* ------------------------------------------------------------------ */
 
-type Rights = { moderator: boolean; direction: boolean };
+type Settings = { allowImages: boolean; allowDocuments: boolean; teamReadOnly: boolean };
+type Rights = {
+  moderator: boolean;
+  direction: boolean;
+  /** Team room only: cannot write. */
+  muted: boolean;
+  /** Team room only: no access at all (the private thread stays open). */
+  blocked: boolean;
+  noFiles: boolean;
+  settings: Settings;
+};
+
+async function settingsOf(client: PoolClient, organizationId: string): Promise<Settings> {
+  const result = await client.query<Row>(`SELECT * FROM chat_settings WHERE organization_id=$1`, [organizationId]);
+  const row = result.rows[0];
+  return {
+    allowImages: row ? Boolean(row.allow_images) : true,
+    allowDocuments: row ? Boolean(row.allow_documents) : true,
+    teamReadOnly: row ? Boolean(row.team_read_only) : false,
+  };
+}
 
 async function rightsOf(client: PoolClient, context: ChatContext): Promise<Rights> {
-  if (context.isOwner) return { moderator: true, direction: true };
-  const result = await client.query<{ manager: boolean; can_moderate: boolean | null; can_read_direction: boolean | null }>(
+  const settings = await settingsOf(client, context.organizationId);
+  if (context.isOwner)
+    return { moderator: true, direction: true, muted: false, blocked: false, noFiles: false, settings };
+  const result = await client.query<Row>(
     `SELECT
        EXISTS (SELECT 1 FROM member_roles mr JOIN roles r ON r.organization_id=mr.organization_id AND r.id=mr.role_id
                 WHERE mr.organization_id=$1 AND mr.member_id=$2 AND r.code='general_manager') AS manager,
-       (SELECT can_moderate FROM chat_access WHERE organization_id=$1 AND member_id=$2) AS can_moderate,
-       (SELECT can_read_direction FROM chat_access WHERE organization_id=$1 AND member_id=$2) AS can_read_direction`,
+       ca.can_moderate,ca.can_read_direction,ca.muted,ca.blocked,ca.no_files
+       FROM (SELECT 1) one
+       LEFT JOIN chat_access ca ON ca.organization_id=$1 AND ca.member_id=$2`,
     [context.organizationId, context.memberId],
   );
   const row = result.rows[0];
+  const moderator = Boolean(row?.manager || row?.can_moderate);
+  const direction = Boolean(row?.manager || row?.can_read_direction);
+  // Management is never restricted by the employee rules.
+  const staff = moderator || direction;
   return {
-    moderator: Boolean(row?.manager || row?.can_moderate),
-    direction: Boolean(row?.manager || row?.can_read_direction),
+    moderator,
+    direction,
+    muted: !staff && Boolean(row?.muted),
+    blocked: !staff && Boolean(row?.blocked),
+    noFiles: !staff && Boolean(row?.no_files),
+    settings,
+  };
+}
+
+/** What the composer may do in a conversation. */
+function composerRules(rights: Rights, kind: string) {
+  const staff = rights.moderator || rights.direction;
+  if (kind !== "team")
+    return { canWrite: true, canSendImages: !rights.noFiles, canSendDocuments: !rights.noFiles, reason: null as string | null };
+  const readOnly = rights.muted || (rights.settings.teamReadOnly && !rights.moderator);
+  return {
+    canWrite: !readOnly,
+    canSendImages: !readOnly && (staff || (rights.settings.allowImages && !rights.noFiles)),
+    canSendDocuments: !readOnly && (staff || (rights.settings.allowDocuments && !rights.noFiles)),
+    reason: rights.muted
+      ? "muted"
+      : rights.settings.teamReadOnly && !rights.moderator
+        ? "read_only"
+        : null,
   };
 }
 
@@ -83,6 +132,8 @@ async function conversationFor(client: PoolClient, context: ChatContext, convers
   const rights = await rightsOf(client, context);
   if (conversation.kind === "direction" && conversation.employee_member_id !== context.memberId && !rights.direction)
     throw new NotFoundError("Conversation not found");
+  if (conversation.kind === "team" && rights.blocked)
+    throw new ForbiddenError("Vous n’avez plus accès au chat d’équipe. Vous pouvez écrire à la direction.");
   return { conversation, rights };
 }
 
@@ -143,8 +194,9 @@ export async function overview(context: ChatContext) {
         isOwner: context.isOwner,
         canModerate: rights.moderator,
         canReadDirection: rights.direction,
+        blocked: rights.blocked,
       },
-      team: { id: teamId, unread: await unread(teamId) },
+      team: rights.blocked ? null : { id: teamId, unread: await unread(teamId) },
       myDirection: mine.rows[0] ? { id: mine.rows[0].id, unread: await unread(mine.rows[0].id) } : null,
       threads: threads.map((row) => ({
         id: row.id,
@@ -275,6 +327,7 @@ export async function listMessages(context: ChatContext, conversationId: string,
           ? { id: conversation.employee_member_id, name: employeeName }
           : null,
         canAnnounce: conversation.kind === "team" && rights.moderator,
+        composer: composerRules(rights, conversation.kind),
       },
       messages: rows.map((row) => mapMessage(row, context, rights, conversation.kind)),
       pinned: pinned.map((row) => mapMessage(row, context, rights, conversation.kind)),
@@ -303,6 +356,20 @@ export async function sendMessage(
   try {
     return await withTenantContext(context, async (client) => {
       const { conversation, rights } = await conversationFor(client, context, conversationId);
+      const rules = composerRules(rights, conversation.kind);
+      if (!rules.canWrite)
+        throw new ForbiddenError(
+          rules.reason === "muted"
+            ? "Vous êtes en lecture seule dans le chat d’équipe."
+            : "Le chat d’équipe est en lecture seule : seuls les modérateurs écrivent.",
+        );
+      if (file) {
+        const isImage = file.mimetype.startsWith("image/");
+        if (isImage ? !rules.canSendImages : !rules.canSendDocuments)
+          throw new ForbiddenError(
+            isImage ? "L’envoi de photos est désactivé par le propriétaire." : "L’envoi de documents est désactivé par le propriétaire.",
+          );
+      }
       const announcement = Boolean(input.announcement) && conversation.kind === "team";
       if (announcement && !rights.moderator) throw new ForbiddenError("Only moderators can post announcements");
       const fileName = file ? Buffer.from(file.originalname, "latin1").toString("utf8").slice(0, 255) : null;
@@ -439,7 +506,8 @@ export async function getAccess(context: ChatContext) {
       `SELECT m.id,${memberName} AS name,m.is_owner,
               EXISTS (SELECT 1 FROM member_roles mr JOIN roles r ON r.organization_id=mr.organization_id AND r.id=mr.role_id
                        WHERE mr.organization_id=m.organization_id AND mr.member_id=m.id AND r.code='general_manager') AS manager,
-              COALESCE(ca.can_moderate,false) AS can_moderate,COALESCE(ca.can_read_direction,false) AS can_read_direction
+              COALESCE(ca.can_moderate,false) AS can_moderate,COALESCE(ca.can_read_direction,false) AS can_read_direction,
+              COALESCE(ca.muted,false) AS muted,COALESCE(ca.blocked,false) AS blocked,COALESCE(ca.no_files,false) AS no_files
          FROM organization_members m JOIN users u ON u.id=m.user_id
          LEFT JOIN chat_access ca ON ca.organization_id=m.organization_id AND ca.member_id=m.id
         WHERE m.organization_id=$1 AND m.status='active'
@@ -447,6 +515,7 @@ export async function getAccess(context: ChatContext) {
       [context.organizationId],
     );
     return {
+      settings: await settingsOf(client, context.organizationId),
       members: result.rows.map((row) => ({
         id: row.id,
         name: row.name,
@@ -454,6 +523,9 @@ export async function getAccess(context: ChatContext) {
         role: row.is_owner ? "owner" : row.manager ? "general_manager" : null,
         canModerate: Boolean(row.is_owner || row.manager || row.can_moderate),
         canReadDirection: Boolean(row.is_owner || row.manager || row.can_read_direction),
+        muted: Boolean(row.muted),
+        blocked: Boolean(row.blocked),
+        noFiles: Boolean(row.no_files),
       })),
     };
   });
@@ -462,8 +534,14 @@ export async function getAccess(context: ChatContext) {
 export async function saveAccess(context: ChatContext, input: ChatAccessInput) {
   if (!context.isOwner) throw new ForbiddenError("Only the owner can manage chat access");
   await withTenantContext(context, async (client) => {
+    if (input.settings)
+      await client.query(
+        `INSERT INTO chat_settings(organization_id,allow_images,allow_documents,team_read_only,updated_at) VALUES($1,$2,$3,$4,now())
+         ON CONFLICT (organization_id) DO UPDATE SET allow_images=EXCLUDED.allow_images,allow_documents=EXCLUDED.allow_documents,team_read_only=EXCLUDED.team_read_only,updated_at=now()`,
+        [context.organizationId, input.settings.allowImages, input.settings.allowDocuments, input.settings.teamReadOnly],
+      );
     for (const item of input.members) {
-      if (!item.canModerate && !item.canReadDirection) {
+      if (!item.canModerate && !item.canReadDirection && !item.muted && !item.blocked && !item.noFiles) {
         await client.query(`DELETE FROM chat_access WHERE organization_id=$1 AND member_id=$2`, [
           context.organizationId,
           item.memberId,
@@ -471,10 +549,11 @@ export async function saveAccess(context: ChatContext, input: ChatAccessInput) {
         continue;
       }
       await client.query(
-        `INSERT INTO chat_access(organization_id,member_id,can_moderate,can_read_direction,updated_at)
-         SELECT $1,m.id,$3,$4,now() FROM organization_members m WHERE m.organization_id=$1 AND m.id=$2
-         ON CONFLICT (organization_id,member_id) DO UPDATE SET can_moderate=EXCLUDED.can_moderate,can_read_direction=EXCLUDED.can_read_direction,updated_at=now()`,
-        [context.organizationId, item.memberId, item.canModerate, item.canReadDirection],
+        `INSERT INTO chat_access(organization_id,member_id,can_moderate,can_read_direction,muted,blocked,no_files,updated_at)
+         SELECT $1,m.id,$3,$4,$5,$6,$7,now() FROM organization_members m WHERE m.organization_id=$1 AND m.id=$2 AND NOT m.is_owner
+         ON CONFLICT (organization_id,member_id) DO UPDATE SET can_moderate=EXCLUDED.can_moderate,can_read_direction=EXCLUDED.can_read_direction,
+           muted=EXCLUDED.muted,blocked=EXCLUDED.blocked,no_files=EXCLUDED.no_files,updated_at=now()`,
+        [context.organizationId, item.memberId, item.canModerate, item.canReadDirection, item.muted, item.blocked, item.noFiles],
       );
     }
   });
@@ -486,7 +565,7 @@ export async function unreadTotal(context: ChatContext) {
   const data = await overview(context);
   return {
     unread:
-      data.team.unread +
+      (data.team?.unread ?? 0) +
       (data.myDirection?.unread ?? 0) +
       data.threads.reduce((sum, thread) => sum + (thread.employee.id === context.memberId ? 0 : thread.unread), 0),
   };

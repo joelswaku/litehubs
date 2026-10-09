@@ -21,8 +21,20 @@ export const messageInput = z.object({
 export const directionInput = z.object({ memberId: id.optional() });
 export const pinInput = z.object({ pinned: z.boolean() });
 export const chatAccessInput = z.object({
+  settings: z
+    .object({ allowImages: z.boolean(), allowDocuments: z.boolean(), teamReadOnly: z.boolean() })
+    .optional(),
   members: z
-    .array(z.object({ memberId: id, canModerate: z.boolean(), canReadDirection: z.boolean() }))
+    .array(
+      z.object({
+        memberId: id,
+        canModerate: z.boolean(),
+        canReadDirection: z.boolean(),
+        muted: z.boolean().default(false),
+        blocked: z.boolean().default(false),
+        noFiles: z.boolean().default(false),
+      }),
+    )
     .max(1000),
 });
 
