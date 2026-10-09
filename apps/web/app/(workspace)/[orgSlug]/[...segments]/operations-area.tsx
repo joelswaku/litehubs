@@ -2449,10 +2449,12 @@ function SidebarTaskDetailDialog({
               </div>
             ))}
           </div>
-          {taskIsBlocked(task) && text(task.blockedReason) ? (
-            <section className="mt-5 rounded-xl border border-warning/35 bg-warning/10 p-4">
+          {text(task.blockedReason) ? (
+            <section className={`mt-5 rounded-xl border p-4 ${taskIsBlocked(task) ? "border-critical/30 bg-critical/10" : "border-warning/35 bg-warning/10"}`}>
               <h3 className="text-sm font-semibold text-ink">
-                {copy(fr, "Blocked by / reason", "Blocage / raison")}
+                {taskIsBlocked(task)
+                  ? copy(fr, "Blocked by", "Bloquée à cause de")
+                  : copy(fr, "Difficulty", "Difficulté signalée")}
               </h3>
               <p className="mt-1 text-sm text-ink-secondary">
                 {text(task.blockedReason)}
@@ -2990,12 +2992,12 @@ function TasksWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
     },
     {
       key: "blockedReason",
-      label: copy(fr, "Blocker (only if blocked)", "Blocage (seulement si bloquée)"),
+      label: copy(fr, "Blocker or difficulty", "Blocage ou difficulté"),
       type: "textarea",
       hint: copy(
         fr,
-        "Fill this in only when the status is Blocked: what prevents the work? It is cleared automatically otherwise.",
-        "À remplir seulement si le statut est « Bloquée » : qu’est-ce qui empêche le travail ? Sinon il est effacé automatiquement.",
+        "Optional: what blocks or slows the work (e.g. waiting for funds). Choose the status Blocked if the work is stopped.",
+        "Facultatif : ce qui bloque ou ralentit le travail (ex. attente du financement). Choisissez le statut « Bloquée » si le travail est arrêté.",
       ),
     },
     { key: "notes", label: copy(fr, "Notes", "Notes"), type: "textarea" },
@@ -3419,10 +3421,13 @@ function TasksWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
                           </div>
                         </dl>
 
-                        {taskIsBlocked(task) && text(task.blockedReason) ? (
-                          <p className="mt-4 rounded-lg border border-critical/20 bg-critical/10 px-3 py-2 text-xs leading-5 text-critical">
+                        {text(task.blockedReason) ? (
+                          <p className={`mt-4 rounded-lg border px-3 py-2 text-xs leading-5 ${taskIsBlocked(task) ? "border-critical/20 bg-critical/10 text-critical" : "border-warning/30 bg-warning/10 text-warning-ink"}`}>
                             <span className="font-semibold">
-                              {copy(fr, "Blocked", "Bloquée")}:
+                              {taskIsBlocked(task)
+                                ? copy(fr, "Blocked", "Bloquée")
+                                : copy(fr, "Difficulty", "Difficulté")}
+                              :
                             </span>{" "}
                             {text(task.blockedReason)}
                           </p>

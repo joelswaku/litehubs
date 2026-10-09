@@ -4762,7 +4762,7 @@ function ProjectContent({
                           {String(task.assignedMemberName)}
                         </p>
                       ) : null}
-                      {task.blockedReason && task.status === "blocked" ? (
+                      {task.blockedReason ? (
                         <p className="mt-1 text-xs text-serious">
                           {String(task.blockedReason)}
                         </p>
@@ -7189,11 +7189,7 @@ function EditorDialog({
         // A real zero must stay zero; only a blank number becomes null.
         progressPercent: nullableNumber(form, "progressPercent") ?? 0,
         estimatedCost: nullableNumber(form, "estimatedCost"),
-        // A blocker is kept only while the task is blocked.
-        blockedReason:
-          String(form.get("status") ?? "") === "blocked"
-            ? nullableValue(form, "blockedReason")
-            : null,
+        blockedReason: nullableValue(form, "blockedReason"),
         notes: nullableValue(form, "notes"),
       };
     } else if (editor.kind === "risk") {
@@ -9810,12 +9806,12 @@ function EditorFields({
           </p>
         )}{" "}
         <Field
-          label={label(fr, "Blocked by / reason (only if blocked)", "Blocage / raison (seulement si bloquée)")}
+          label={label(fr, "Blocker or difficulty", "Blocage ou difficulté")}
           htmlFor="blockedReason"
           hint={label(
             fr,
-            "Fill this in only when the status is Blocked. It is cleared for any other status.",
-            "À remplir seulement si le statut est « Bloquée ». Il est effacé pour tout autre statut.",
+            "Optional: what blocks or slows the work (e.g. waiting for funds). Choose the status Blocked if the work is stopped.",
+            "Facultatif : ce qui bloque ou ralentit le travail (ex. attente du financement). Choisissez le statut « Bloquée » si le travail est arrêté.",
           )}
           className="md:col-span-2"
           error={fieldError("blockedReason")}
@@ -17231,10 +17227,12 @@ function TaskDetailDialog({
               </ol>
             </section>
           ) : null}
-          {status === "blocked" && detail(["blockedReason"]) ? (
-            <section className="mt-5 rounded-xl border border-warning/35 bg-warning/10 p-4">
+          {detail(["blockedReason"]) ? (
+            <section className={`mt-5 rounded-xl border p-4 ${status === "blocked" ? "border-critical/30 bg-critical/10" : "border-warning/35 bg-warning/10"}`}>
               <h3 className="text-sm font-semibold text-ink">
-                {label(fr, "Blocked by / reason", "Blocage / raison")}
+                {status === "blocked"
+                  ? label(fr, "Blocked by", "Bloquée à cause de")
+                  : label(fr, "Difficulty", "Difficulté signalée")}
               </h3>
               <p className="mt-1 text-sm text-ink-secondary">
                 {String(detail(["blockedReason"]))}
