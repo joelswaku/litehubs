@@ -498,8 +498,39 @@ function summarize(parsed: ParsedMail) {
   };
 }
 
+/**
+ * Which of the mailbox's own addresses received a message, so a reply goes
+ * out from that same address.  Looks at To/Cc, then the delivery headers
+ * (Delivered-To, X-Original-To), and finally matches the local part: replies
+ * to mail sent through a relay (e.g. recrutement@123.brevosend.com) still
+ * belong to recrutement@.
+ */
+export function receivingAddress(parsed: ParsedMail, own: string[]) {
+  const lowerOwn = own.map((item) => item.toLowerCase());
+  const headerValues = ["delivered-to", "x-original-to", "envelope-to"].flatMap((name) => {
+    const value = parsed.headers.get(name);
+    const list = Array.isArray(value) ? value : value ? [value] : [];
+    return list.map((item) => String(typeof item === "object" && item && "text" in item ? (item as { text: string }).text : item));
+  });
+  const candidates = [
+    ...parsedAddresses(parsed.to).map((item) => item.address),
+    ...parsedAddresses(parsed.cc).map((item) => item.address),
+    ...headerValues.flatMap((value) => value.match(/[^\s<>,;"]+@[^\s<>,;"]+/g) ?? []),
+  ].map((item) => item.toLowerCase());
+  const exact = candidates.find((address) => lowerOwn.includes(address));
+  if (exact) return exact;
+  // Prefer an alias over the main address when only the local part matches.
+  const byLocal = (address: string) => lowerOwn.find((item) => item.split("@")[0] === address.split("@")[0]);
+  for (const address of candidates) {
+    const match = byLocal(address);
+    if (match) return match;
+  }
+  return null;
+}
+
 export async function getMessage(context: MailContext, mailboxId: string, uid: number, folder: string) {
-  const { connection } = await mailboxConnection(context, mailboxId);
+  const { row, connection } = await mailboxConnection(context, mailboxId);
+  const ownAddresses = [String(row.email_address), ...(((row.aliases as string[] | null) ?? []) as string[])];
   const detail = await withImap(connection, async (client) => {
     const lock = await client.getMailboxLock(folder);
     try {
@@ -513,6 +544,7 @@ export async function getMessage(context: MailContext, mailboxId: string, uid: n
         uid,
         folder,
         ...summarize(parsed),
+        receivedOn: receivingAddress(parsed, ownAddresses),
         flagged: message.flags?.has("\\Flagged") ?? false,
         html,
         text: parsed.text ?? "",

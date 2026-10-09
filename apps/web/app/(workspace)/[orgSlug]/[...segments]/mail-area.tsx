@@ -93,6 +93,7 @@ type MessageDetail = {
   text: string;
   attachments: { index: number; fileName: string; mimeType: string; size: number }[];
   candidates: { id: string; fullName: string; status: string; email: string; jobTitle: string }[];
+  receivedOn?: string | null;
 };
 type ComposeDraft = {
   fromAddress?: string;
@@ -319,7 +320,7 @@ export function MailArea({ orgSlug }: { orgSlug: string }) {
           : mode === "all"
             ? tr(fr, "Répondre à tous", "Reply all")
             : tr(fr, "Répondre", "Reply"),
-      fromAddress: receivedOn ?? toFilter ?? undefined,
+      fromAddress: message.receivedOn ?? receivedOn ?? toFilter ?? undefined,
       to: mode === "forward" ? "" : addresses(replyTargets),
       cc: mode === "all" ? addresses(others) : "",
       bcc: "",

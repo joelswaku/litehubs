@@ -7,7 +7,7 @@ import {
   TooManyRequestsError,
 } from "../../utils/errors";
 import { withTenantContext } from "../../utils/tenant-query";
-import { readMessageSource, type MailContext } from "./mail.service";
+import { readMessageSource, receivingAddress, type MailContext } from "./mail.service";
 import type { AiDraftInput } from "./mail.validation";
 
 const draftSchema = z.object({
@@ -102,7 +102,7 @@ export async function createAiDraft(context: MailContext, mailboxId: string, inp
     const targets = list(parsed.replyTo).length ? list(parsed.replyTo) : list(parsed.from);
     reply = {
       to: targets.filter((address) => !own.includes(address)),
-      fromAddress: [...list(parsed.to), ...list(parsed.cc)].find((address) => own.includes(address)) ?? null,
+      fromAddress: receivingAddress(parsed, [loaded.mailboxAddress, ...loaded.aliases]),
     };
   } else {
     const loaded = await readMessageSource(context, mailboxId, null, null);
