@@ -120,7 +120,42 @@ function congoOmegaLegacyDestination(pathname: string): string | null {
   return null;
 }
 
+/**
+ * Dedicated recruitment hostnames. Each one shows a single company's careers
+ * pages: "/" is the job list and "/<path>" is the matching careers route
+ * (job offer, application follow-up, onboarding link). Nothing else from the
+ * application is reachable on these hosts.
+ */
+const CAREERS_HOSTS: Record<string, string> = {
+  "carrieres.congoomega.com": "congo-omega",
+  "www.carrieres.congoomega.com": "congo-omega",
+};
+
+function careersRewrite(request: NextRequest): NextResponse | null {
+  const rawHost = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+  const host = rawHost?.split(",")[0]?.trim().toLowerCase().replace(/:\d+$/, "") ?? "";
+  const orgSlug = CAREERS_HOSTS[host];
+  if (!orgSlug) return null;
+  const { pathname } = request.nextUrl;
+  const base = `/careers/${orgSlug}`;
+  // Already a careers route (links inside the careers pages use full paths).
+  if (pathname === base || pathname.startsWith(`${base}/`)) return NextResponse.next();
+  // Any other part of the application is not offered on the careers host.
+  const firstSegment = pathname.split("/")[1] ?? "";
+  if (
+    pathname.startsWith("/careers/") ||
+    ["login", "staff", "platform", "account", "select-organization", "dashboard", "forgot-password", "reset-password", "accept-invitation"].includes(firstSegment)
+  ) {
+    return NextResponse.redirect(new URL("/", request.url), 307);
+  }
+  const target = request.nextUrl.clone();
+  target.pathname = pathname === "/" ? base : `${base}${pathname}`;
+  return NextResponse.rewrite(target);
+}
+
 export async function proxy(request: NextRequest) {
+  const careers = careersRewrite(request);
+  if (careers) return careers;
   const { pathname, search } = request.nextUrl;
   const token = request.cookies.get(ACCESS_COOKIE)?.value;
 
