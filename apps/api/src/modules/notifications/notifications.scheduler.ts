@@ -11,6 +11,7 @@ import {
 } from "../owner-management/feed-nutrition.service";
 import { closeExpiredJobsForOrganization } from "../careers/careers.service";
 import { sendPendingTrackingLinksForOrganization } from "../careers/candidate-portal.service";
+import { checkMailboxesForOrganization } from "../mail/mail.service";
 
 let scheduled = false;
 
@@ -65,6 +66,10 @@ export function startNotificationScheduler(): void {
   // link automatically, in small batches to respect e-mail and SMS limits.
   cron.schedule("*/10 * * * *", () => {
     void forEachOrganization("career_tracking_links", sendPendingTrackingLinksForOrganization);
+  });
+  // Company mailboxes: unread counters and a notification for new e-mail.
+  cron.schedule("*/3 * * * *", () => {
+    void forEachOrganization("mailbox_check", checkMailboxesForOrganization);
   });
   // Farm health, ration and feed-autonomy checks run before the day starts.
   cron.schedule("0 6 * * *", () => {
