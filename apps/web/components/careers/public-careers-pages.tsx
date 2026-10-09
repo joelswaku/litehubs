@@ -13,6 +13,7 @@ import {
   ChevronRight,
   FileText,
   FileUp,
+  Home,
   MapPin,
   SearchCheck,
   ShieldCheck,
@@ -27,6 +28,12 @@ import { Field, Input, Textarea } from "@/components/ui/input";
 import { PhoneInput } from "@/components/ui/phone-input";
 import { EmptyState, ErrorState, SkeletonCard } from "@/components/ui/states";
 import { get } from "@/lib/api";
+import {
+  CareersBrandMark,
+  careersBrandStyle,
+  careersHeroStyle,
+  type CareersBranding,
+} from "@/components/careers/careers-branding";
 
 const label = (fr: boolean, french: string, english: string) =>
   fr ? french : english;
@@ -68,6 +75,7 @@ function Shell({
   accountHref,
   trackHref,
   websiteHref = "/",
+  branding,
 }: {
   children: ReactNode;
   fr: boolean;
@@ -76,55 +84,57 @@ function Shell({
   accountHref?: string;
   trackHref?: string;
   websiteHref?: string;
+  branding?: CareersBranding | null;
 }) {
+  // On phones the buttons are icon-only so the bar stays on one line; the
+  // labels appear from the small breakpoint upward.
+  const chip =
+    "inline-flex size-9 shrink-0 items-center justify-center gap-1.5 rounded-lg text-xs font-bold shadow-sm transition sm:w-auto sm:px-3";
   return (
-    <main className="min-h-dvh bg-[radial-gradient(circle_at_18%_-5%,rgba(37,99,235,.16),transparent_36%),radial-gradient(circle_at_92%_14%,rgba(14,165,233,.11),transparent_28%),var(--color-page)] px-4 py-6 sm:py-10">
+    <main
+      style={careersBrandStyle(branding)}
+      className="min-h-dvh bg-[radial-gradient(circle_at_18%_-5%,rgba(15,23,42,.06),transparent_36%),var(--color-page)] px-4 py-5 sm:py-10"
+    >
       <div className="mx-auto max-w-6xl">
-        <header className="mb-6 flex items-center justify-between gap-3">
-          <a
-            href={websiteHref}
-            className="group flex items-center gap-2.5 font-semibold text-ink"
-          >
-            <span className="grid size-10 place-items-center rounded-xl bg-brand text-brand-ink shadow-[0_10px_25px_-15px_rgb(37_99_235_/_.8)]">
-              <BriefcaseBusiness className="size-5" />
-            </span>
-            <span>{organizationName}</span>
-          </a>
-          <div className="flex items-center gap-2">
+        <header className="mb-5 flex items-center justify-between gap-2 sm:mb-6 sm:gap-3">
+          <CareersBrandMark branding={branding} organizationName={organizationName} href={websiteHref} />
+          <nav className="flex shrink-0 items-center gap-1.5 sm:gap-2">
             <a
               href={websiteHref}
-              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border bg-surface-1 px-2.5 text-xs font-bold text-ink shadow-sm transition hover:bg-surface-2 sm:px-3"
+              title={label(fr, "Retour au site", "Back to website")}
+              className={`${chip} border border-border bg-surface-1 text-ink hover:bg-surface-2`}
             >
-              <ArrowLeft className="size-3.5" />
-              {label(fr, "Accueil", "Home")}
+              <Home className="size-4" />
+              <span className="hidden sm:inline">{label(fr, "Site web", "Website")}</span>
             </a>
             {trackHref ? (
               <Link
                 href={trackHref}
-                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-brand/30 bg-surface-1 px-2.5 text-xs font-bold text-brand shadow-sm transition hover:bg-brand/[.06] sm:px-3"
+                title={label(fr, "Suivre ma candidature", "Track my application")}
+                className={`${chip} border border-brand/30 bg-surface-1 text-brand hover:bg-brand/[.06]`}
               >
-                <SearchCheck className="size-3.5" />
+                <SearchCheck className="size-4" />
                 <span className="hidden sm:inline">{label(fr, "Suivre ma candidature", "Track my application")}</span>
-                <span className="sm:hidden">{label(fr, "Suivi", "Track")}</span>
               </Link>
             ) : null}
             {accountHref ? (
               <a
                 href={accountHref}
-                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-brand px-2.5 text-xs font-bold text-brand-ink shadow-sm transition hover:brightness-110 sm:px-3"
+                title={label(fr, "Mon compte", "My account")}
+                className={`${chip} bg-brand text-brand-ink hover:brightness-110`}
               >
-                <UserRound className="size-3.5" />
-                {label(fr, "Mon compte", "My account")}
+                <UserRound className="size-4" />
+                <span className="hidden sm:inline">{label(fr, "Mon compte", "My account")}</span>
               </a>
             ) : null}
             <button
               type="button"
-              className="rounded-lg border border-border bg-surface-1 px-3 py-2 text-xs font-bold text-ink shadow-sm transition hover:bg-surface-2"
+              className={`${chip} border border-border bg-surface-1 text-ink hover:bg-surface-2`}
               onClick={() => setFr(!fr)}
             >
               {fr ? "EN" : "FR"}
             </button>
-          </div>
+          </nav>
         </header>
         {children}
         {accountHref ? (
@@ -195,10 +205,11 @@ export function PublicCareersPage({ orgSlug }: { orgSlug: string }) {
       setFr={setFr}
       organizationName={publicOrganizationName(orgSlug, careers.data?.organizationName)}
       websiteHref={publicWebsiteUrl(orgSlug)}
+      branding={careers.data?.branding}
       accountHref={hasPublicCustomerAccount(orgSlug) ? `${publicWebsiteUrl(orgSlug)}/account` : undefined}
     >
       <section className="overflow-hidden rounded-3xl border border-brand/20 bg-surface-1 shadow-[0_24px_70px_-45px_rgb(15_23_42_/_0.75)]">
-        <div className="relative overflow-hidden bg-[radial-gradient(circle_at_82%_-30%,rgba(125,211,252,.34),transparent_42%),linear-gradient(125deg,#172554,#2563a6)] px-6 py-9 text-white sm:px-9 sm:py-11">
+        <div style={careersHeroStyle(careers.data?.branding)} className="relative overflow-hidden bg-[radial-gradient(circle_at_82%_-30%,rgba(125,211,252,.34),transparent_42%),linear-gradient(125deg,#172554,#2563a6)] px-6 py-9 text-white sm:px-9 sm:py-11">
           <p className="inline-flex rounded-full border border-white/20 bg-white/10 px-3 py-1 text-[11px] font-bold tracking-[.16em] text-sky-50">
             {label(fr, "CARRIÈRES", "CAREERS")}
           </p>
@@ -358,10 +369,11 @@ export function PublicCareerJobPage({
       setFr={setFr}
       organizationName={publicOrganizationName(orgSlug, jobDetail.data?.organizationName)}
       websiteHref={publicWebsiteUrl(orgSlug)}
+      branding={jobDetail.data?.branding}
       accountHref={hasPublicCustomerAccount(orgSlug) ? `${publicWebsiteUrl(orgSlug)}/account` : undefined}
     >
       <section className="overflow-hidden rounded-3xl border border-brand/20 bg-surface-1 shadow-[0_24px_70px_-45px_rgb(15_23_42_/_0.75)]">
-        <div className="relative overflow-hidden bg-[radial-gradient(circle_at_82%_-25%,rgba(125,211,252,.34),transparent_42%),linear-gradient(125deg,#172554,#2563a6)] px-6 py-8 text-white sm:px-9 sm:py-10">
+        <div style={careersHeroStyle(jobDetail.data?.branding)} className="relative overflow-hidden bg-[radial-gradient(circle_at_82%_-25%,rgba(125,211,252,.34),transparent_42%),linear-gradient(125deg,#172554,#2563a6)] px-6 py-8 text-white sm:px-9 sm:py-10">
           <Link
             href={`/careers/${orgSlug}`}
             className="inline-flex items-center gap-1 rounded-lg border border-white/15 bg-white/[.08] px-3 py-2 text-xs font-semibold text-sky-50 transition hover:bg-white/[.16]"

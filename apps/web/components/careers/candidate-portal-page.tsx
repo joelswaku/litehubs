@@ -27,6 +27,12 @@ import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/input";
 import { SkeletonCard } from "@/components/ui/states";
 import { get } from "@/lib/api";
+import {
+  CareersBrandMark,
+  careersBrandStyle,
+  careersHeroStyle,
+  type CareersBranding,
+} from "@/components/careers/careers-branding";
 
 type DocumentRequest = {
   id: string;
@@ -150,29 +156,39 @@ function PortalShell({
   fr,
   setFr,
   organizationName,
+  branding,
   children,
 }: {
   orgSlug: string;
   fr: boolean;
   setFr: (value: boolean) => void;
   organizationName?: string;
+  branding?: CareersBranding | null;
   children: ReactNode;
 }) {
   return (
-    <main className="min-h-dvh bg-[radial-gradient(circle_at_18%_-5%,rgba(37,99,235,.14),transparent_36%),radial-gradient(circle_at_92%_14%,rgba(22,163,74,.10),transparent_28%),var(--color-page)] px-4 py-6 sm:py-10">
+    <main style={careersBrandStyle(branding)} className="min-h-dvh bg-[radial-gradient(circle_at_18%_-5%,rgba(37,99,235,.14),transparent_36%),radial-gradient(circle_at_92%_14%,rgba(22,163,74,.10),transparent_28%),var(--color-page)] px-4 py-6 sm:py-10">
       <div className="mx-auto max-w-4xl">
         <header className="mb-6 flex items-center justify-between gap-3">
-          <Link
-            href={`/careers/${orgSlug}`}
-            className="inline-flex items-center gap-1.5 text-sm font-semibold text-ink transition hover:text-brand"
-          >
-            <ArrowLeft className="size-4" />
-            {organizationName ? organizationName : t(fr, "Carrières", "Careers")}
-          </Link>
+          <div className="flex min-w-0 items-center gap-2">
+            <Link
+              href={`/careers/${orgSlug}`}
+              title={t(fr, "Offres d’emploi", "Job openings")}
+              className="grid size-9 shrink-0 place-items-center rounded-lg border border-border bg-surface-1 text-ink shadow-sm transition hover:bg-surface-2"
+            >
+              <ArrowLeft className="size-4" />
+            </Link>
+            <CareersBrandMark
+              branding={branding}
+              organizationName={organizationName ?? branding?.displayName ?? t(fr, "Carrières", "Careers")}
+              href={`/careers/${orgSlug}`}
+            />
+          </div>
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-brand/20 bg-surface-1 px-3 py-1.5 text-xs font-semibold text-brand shadow-sm">
               <LockKeyhole className="size-3.5" />
-              {t(fr, "Espace candidat privé", "Private candidate space")}
+              <span className="hidden sm:inline">{t(fr, "Espace candidat privé", "Private candidate space")}</span>
+              <span className="sm:hidden">{t(fr, "Privé", "Private")}</span>
             </span>
             <button
               type="button"
@@ -193,7 +209,7 @@ export function CandidatePortalPage({ orgSlug, token }: { orgSlug: string; token
   const [language, setLanguage] = useState<"fr" | "en" | null>(null);
   const tracking = useQuery({
     queryKey: ["public-career-tracking", orgSlug, token],
-    queryFn: () => get<{ candidate: Candidate }>(trackEndpoint(orgSlug, token)),
+    queryFn: () => get<{ candidate: Candidate; branding?: CareersBranding }>(trackEndpoint(orgSlug, token)),
     staleTime: 0,
     retry: false,
     refetchOnWindowFocus: true,
@@ -243,9 +259,9 @@ export function CandidatePortalPage({ orgSlug, token }: { orgSlug: string; token
   const open = candidate.documentRequests.filter((item) => item.status === "requested" || item.status === "rejected");
 
   return (
-    <PortalShell orgSlug={orgSlug} fr={fr} setFr={setFr} organizationName={candidate.organizationName}>
+    <PortalShell orgSlug={orgSlug} fr={fr} setFr={setFr} organizationName={candidate.organizationName} branding={tracking.data?.branding}>
       <section className="overflow-hidden rounded-3xl border border-brand/20 bg-surface-1 shadow-[0_24px_70px_-45px_rgb(15_23_42_/_.75)]">
-        <div className="bg-[radial-gradient(circle_at_82%_-25%,rgba(125,211,252,.34),transparent_42%),linear-gradient(125deg,#172554,#2563a6)] px-6 py-8 text-white sm:px-9 sm:py-9">
+        <div style={careersHeroStyle(tracking.data?.branding)} className="bg-[radial-gradient(circle_at_82%_-25%,rgba(125,211,252,.34),transparent_42%),linear-gradient(125deg,#172554,#2563a6)] px-6 py-8 text-white sm:px-9 sm:py-9">
           <p className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-[11px] font-bold tracking-[.14em]">
             <SearchCheck className="size-3.5" />
             {t(fr, "SUIVI DE CANDIDATURE", "APPLICATION TRACKING")}
@@ -557,6 +573,12 @@ export function CandidatePortalRecoverPage({ orgSlug }: { orgSlug: string }) {
   const [fr, setFr] = useState(true);
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState<string | null>(null);
+  const brand = useQuery({
+    queryKey: ["public-careers", orgSlug],
+    queryFn: () => get<{ branding?: CareersBranding }>(`/public/organizations/${encodeURIComponent(orgSlug)}/careers/jobs`),
+    staleTime: 60_000,
+  });
+  const branding = brand.data?.branding;
   const recover = useMutation({
     mutationFn: async () => {
       const response = await fetch(
@@ -584,9 +606,9 @@ export function CandidatePortalRecoverPage({ orgSlug }: { orgSlug: string }) {
     onError: (error: Error) => toast.error(error.message),
   });
   return (
-    <PortalShell orgSlug={orgSlug} fr={fr} setFr={setFr}>
+    <PortalShell orgSlug={orgSlug} fr={fr} setFr={setFr} branding={branding}>
       <section className="mx-auto max-w-xl overflow-hidden rounded-3xl border border-brand/20 bg-surface-1 shadow-[0_24px_70px_-45px_rgb(15_23_42_/_.75)]">
-        <div className="bg-[radial-gradient(circle_at_82%_-25%,rgba(125,211,252,.34),transparent_42%),linear-gradient(125deg,#172554,#2563a6)] px-6 py-8 text-white sm:px-8">
+        <div style={careersHeroStyle(branding)} className="bg-[radial-gradient(circle_at_82%_-25%,rgba(125,211,252,.34),transparent_42%),linear-gradient(125deg,#172554,#2563a6)] px-6 py-8 text-white sm:px-8">
           <p className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-[11px] font-bold tracking-[.14em]">
             <SearchCheck className="size-3.5" />
             {t(fr, "SUIVI DE CANDIDATURE", "APPLICATION TRACKING")}

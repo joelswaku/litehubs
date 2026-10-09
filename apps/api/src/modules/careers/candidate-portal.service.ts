@@ -18,6 +18,7 @@ import {
   candidatePortalButtonHtml,
   escapeHtml,
   event,
+  publicCareersBranding,
   recipients,
   type CareersContext,
   type Row,
@@ -221,6 +222,7 @@ function candidateTimeline(events: Row[]) {
 
 export async function publicTracking(orgSlug: string, token: string) {
   const found = await lookup(orgSlug, token);
+  const branding = await publicCareersBranding(orgSlug);
   return withTenantContext(
     { organizationId: found.organizationId, userId: null },
     async (client) => {
@@ -238,6 +240,7 @@ export async function publicTracking(orgSlug: string, token: string) {
       const requests = await documentRequests(client, found.organizationId, found.applicationId);
       const status = String(application.status);
       return {
+        branding,
         candidate: {
           organizationName: String(application.organization_name ?? ""),
           fullName: String(application.full_name ?? ""),

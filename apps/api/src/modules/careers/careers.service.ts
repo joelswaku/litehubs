@@ -693,12 +693,48 @@ async function publicJob(orgSlug: string, jobCode: string) {
   return result.rows[0]!;
 }
 
+export type PublicCareersBranding = {
+  displayName: string | null;
+  logoUrl: string | null;
+  primaryColor: string | null;
+  accentColor: string | null;
+};
+
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+
+/** The careers portal wears the company's public website identity (logo and
+ * colours from Website settings) rather than the LiteHubs product look. */
+export async function publicCareersBranding(orgSlug: string): Promise<PublicCareersBranding> {
+  try {
+    const result = await db.query<{ website: Row | null }>(
+      `SELECT public_organization_website_page($1,NULL)->'website' AS website`,
+      [orgSlug],
+    );
+    const website = result.rows[0]?.website ?? null;
+    const color = (value: unknown) =>
+      typeof value === "string" && HEX_COLOR.test(value.trim()) ? value.trim() : null;
+    const logo = typeof website?.logoUrl === "string" && /^https:\/\//i.test(website.logoUrl) ? website.logoUrl : null;
+    return {
+      displayName: typeof website?.displayName === "string" ? website.displayName : null,
+      logoUrl: logo,
+      primaryColor: color(website?.primaryColor),
+      accentColor: color(website?.accentColor),
+    };
+  } catch {
+    return { displayName: null, logoUrl: null, primaryColor: null, accentColor: null };
+  }
+}
+
 export async function publicJobs(orgSlug: string) {
-  const result = await db.query<Row>(
-    `SELECT * FROM public_career_jobs($1,NULL) ORDER BY published_at DESC,title`,
-    [orgSlug],
-  );
+  const [result, branding] = await Promise.all([
+    db.query<Row>(
+      `SELECT * FROM public_career_jobs($1,NULL) ORDER BY published_at DESC,title`,
+      [orgSlug],
+    ),
+    publicCareersBranding(orgSlug),
+  ]);
   return {
+    branding,
     organizationName: result.rows[0]?.display_name ?? null,
     intro: result.rows.find((row) => row.careers_intro)?.careers_intro ?? null,
     jobs: result.rows.map((row) => ({
@@ -717,8 +753,12 @@ export async function publicJobs(orgSlug: string) {
 }
 
 export async function publicJobDetail(orgSlug: string, jobCode: string) {
-  const row = await publicJob(orgSlug, jobCode);
+  const [row, branding] = await Promise.all([
+    publicJob(orgSlug, jobCode),
+    publicCareersBranding(orgSlug),
+  ]);
   return {
+    branding,
     organizationName: row.display_name,
     intro: row.careers_intro ?? null,
     job: mapJob({ ...row, application_count: 0 }),
