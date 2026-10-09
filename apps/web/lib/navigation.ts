@@ -22,6 +22,7 @@ import {
   HeartPulse,
   Landmark,
   LayoutDashboard,
+  Mail,
   PanelsTopLeft,
   type LucideIcon,
   Package,
@@ -507,6 +508,12 @@ export const WORKSPACE_NAV: NavGroup[] = [
         path: "/notifications",
         icon: Bell,
         badge: "notifications",
+      },
+      {
+        label: "Mail",
+        path: "/mail",
+        icon: Mail,
+        permission: "mail.read",
       },
       {
         label: "Settings",

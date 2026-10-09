@@ -89,6 +89,9 @@ const schema = z
       .optional(),
     MAIL_FROM_NAME: z.string().min(1).default("LiteHubs"),
     MAIL_FROM_EMAIL: z.string().email().optional(),
+    // Encrypts the passwords of connected company mailboxes (IMAP/SMTP).
+    // Optional: falls back to a key derived from JWT_SECRET.
+    MAILBOX_ENCRYPTION_KEY: z.string().min(32).optional(),
   })
   // Placeholder secrets are fine while developing, never in production.
   .superRefine((value, ctx) => {
@@ -215,6 +218,8 @@ export const env = {
     fromName: config.MAIL_FROM_NAME,
     fromEmail: config.MAIL_FROM_EMAIL,
   },
+
+  mailboxEncryptionKey: config.MAILBOX_ENCRYPTION_KEY,
 
   sms: {
     enabled: Boolean(config.BREVO_SMS_API_KEY ?? config.SMS_CONGO_O),
