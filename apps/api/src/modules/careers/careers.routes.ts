@@ -8,6 +8,8 @@ import { validate } from "../../middleware/validation.middleware";
 import { BadRequestError } from "../../utils/errors";
 import { storage } from "../../config/storage";
 import * as controller from "./careers.controller";
+import { documentRequestInput, documentRequestParams, documentReviewInput, publicTrackingDocumentParams, publicTrackingParams, publicTrackingRecoverInput } from "./careers.validation";
+import { CANDIDATE_DOCUMENT_MIME_TYPES } from "./candidate-portal.service";
 import { applicationParams, applicationQuery, applicationUpdateInput, careerSiteSettingsInput, jobParams, jobPostInput, jobQuery, organizationParams, publicJobParams, publicApplicationInput, publicOnboardingInput, publicOnboardingParams } from "./careers.validation";
 
 export const careersRoutes = Router();
@@ -61,6 +63,46 @@ const onboardingUpload: RequestHandler = (req, res, next) => {
   });
 };
 
+// Espace candidat: personal links are high-entropy tokens.  Reads are allowed
+// more often than writes so a candidate can reload the page comfortably.
+const trackingReadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1_000,
+  limit: 60,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: { code: "CAREER_TRACKING_RATE_LIMITED", message: "Trop de tentatives. Réessayez plus tard." } },
+});
+const trackingWriteLimiter = rateLimit({
+  windowMs: 15 * 60 * 1_000,
+  limit: 20,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: { code: "CAREER_TRACKING_RATE_LIMITED", message: "Trop d’envois. Réessayez plus tard." } },
+});
+const recoverLimiter = rateLimit({
+  windowMs: 60 * 60 * 1_000,
+  limit: 5,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: { code: "CAREER_TRACKING_RATE_LIMITED", message: "Trop de demandes. Réessayez dans une heure." } },
+});
+const uploadCandidateDocument = multer({
+  storage: multer.memoryStorage(),
+  limits: { files: 1, fileSize: storage.maxUploadBytes },
+  fileFilter: (_req, file, done) => done(null, CANDIDATE_DOCUMENT_MIME_TYPES.has(file.mimetype)),
+});
+const candidateDocumentUpload: RequestHandler = (req, res, next) => {
+  uploadCandidateDocument.single("file")(req, res, (error: unknown) => {
+    if (error) return next(new BadRequestError("Envoyez un PDF, une image ou un document Word dans la taille autorisée"));
+    if (!req.file) return next(new BadRequestError("Envoyez un PDF, une image (JPEG, PNG, WebP) ou un document Word", { field: "file" }));
+    return next();
+  });
+};
+
+careersRoutes.post("/public/organizations/:orgSlug/careers/track/recover", recoverLimiter, validate({ params: organizationParams, body: publicTrackingRecoverInput }), controller.publicRecoverTracking);
+careersRoutes.get("/public/organizations/:orgSlug/careers/track/:token", trackingReadLimiter, validate({ params: publicTrackingParams }), controller.publicTracking);
+careersRoutes.post("/public/organizations/:orgSlug/careers/track/:token/documents/:requestId", trackingWriteLimiter, candidateDocumentUpload, validate({ params: publicTrackingDocumentParams }), controller.publicSubmitDocument);
+
 careersRoutes.get("/public/organizations/:orgSlug/careers/jobs", validate({ params: organizationParams }), controller.publicJobs);
 careersRoutes.get("/public/organizations/:orgSlug/careers/jobs/:jobCode", validate({ params: publicJobParams }), controller.publicJob);
 careersRoutes.post("/public/organizations/:orgSlug/careers/jobs/:jobCode/applications", publicLimiter, resumeUpload, validate({ params: publicJobParams, body: publicApplicationInput }), controller.publicApply);
@@ -76,3 +118,8 @@ careersRoutes.patch("/organizations/:orgSlug/careers/jobs/:jobId", authenticate,
 careersRoutes.get("/organizations/:orgSlug/careers/applications", ...inside, requirePermission("careers.read"), validate({ query: applicationQuery }), controller.applications);
 careersRoutes.patch("/organizations/:orgSlug/careers/applications/:applicationId", authenticate, validate({ params: applicationParams, body: applicationUpdateInput }), requireOrganization, requirePermission("careers.update"), controller.updateApplication);
 careersRoutes.get("/organizations/:orgSlug/careers/applications/:applicationId/resume", authenticate, validate({ params: applicationParams }), requireOrganization, requirePermission("careers.read"), controller.downloadResume);
+careersRoutes.get("/organizations/:orgSlug/careers/applications/:applicationId/documents", authenticate, validate({ params: applicationParams }), requireOrganization, requirePermission("careers.read"), controller.documentRequests);
+careersRoutes.post("/organizations/:orgSlug/careers/applications/:applicationId/documents", authenticate, validate({ params: applicationParams, body: documentRequestInput }), requireOrganization, requirePermission("careers.update"), controller.createDocumentRequest);
+careersRoutes.patch("/organizations/:orgSlug/careers/applications/:applicationId/documents/:requestId", authenticate, validate({ params: documentRequestParams, body: documentReviewInput }), requireOrganization, requirePermission("careers.update"), controller.reviewDocumentRequest);
+careersRoutes.get("/organizations/:orgSlug/careers/applications/:applicationId/documents/:requestId/file", authenticate, validate({ params: documentRequestParams }), requireOrganization, requirePermission("careers.read"), controller.downloadDocumentRequestFile);
+careersRoutes.post("/organizations/:orgSlug/careers/applications/:applicationId/tracking-link", authenticate, validate({ params: applicationParams }), requireOrganization, requirePermission("careers.update"), controller.sendTrackingLink);

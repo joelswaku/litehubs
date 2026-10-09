@@ -14,6 +14,7 @@ import {
   FileText,
   FileUp,
   MapPin,
+  SearchCheck,
   ShieldCheck,
   UserRound,
   UsersRound,
@@ -60,12 +61,14 @@ function Shell({
   setFr,
   organizationName,
   accountHref,
+  trackHref,
 }: {
   children: ReactNode;
   fr: boolean;
   setFr: (value: boolean) => void;
   organizationName: string;
   accountHref?: string;
+  trackHref?: string;
 }) {
   return (
     <main className="min-h-dvh bg-[radial-gradient(circle_at_18%_-5%,rgba(37,99,235,.16),transparent_36%),radial-gradient(circle_at_92%_14%,rgba(14,165,233,.11),transparent_28%),var(--color-page)] px-4 py-6 sm:py-10">
@@ -88,6 +91,16 @@ function Shell({
               <ArrowLeft className="size-3.5" />
               {label(fr, "Accueil", "Home")}
             </a>
+            {trackHref ? (
+              <Link
+                href={trackHref}
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-brand/30 bg-surface-1 px-2.5 text-xs font-bold text-brand shadow-sm transition hover:bg-brand/[.06] sm:px-3"
+              >
+                <SearchCheck className="size-3.5" />
+                <span className="hidden sm:inline">{label(fr, "Suivre ma candidature", "Track my application")}</span>
+                <span className="sm:hidden">{label(fr, "Suivi", "Track")}</span>
+              </Link>
+            ) : null}
             {accountHref ? (
               <a
                 href={accountHref}
@@ -170,6 +183,7 @@ export function PublicCareersPage({ orgSlug }: { orgSlug: string }) {
   );
   return (
     <Shell
+      trackHref={`/careers/${orgSlug}/suivi`}
       fr={fr}
       setFr={setFr}
       organizationName={publicOrganizationName(orgSlug, careers.data?.organizationName)}
@@ -322,6 +336,7 @@ export function PublicCareerJobPage({
 }) {
   const [fr, setFr] = useState(true);
   const [done, setDone] = useState(false);
+  const [trackingUrl, setTrackingUrl] = useState<string | null>(null);
   const jobDetail = useQuery({
     queryKey: ["public-career-job", orgSlug, jobCode],
     queryFn: () => get<any>(publicUrl(orgSlug, `jobs/${jobCode}`)),
@@ -330,6 +345,7 @@ export function PublicCareerJobPage({
   const title = cleanTitle(job?.title) || label(fr, "Chargement…", "Loading…");
   return (
     <Shell
+      trackHref={`/careers/${orgSlug}/suivi`}
       fr={fr}
       setFr={setFr}
       organizationName={publicOrganizationName(orgSlug, jobDetail.data?.organizationName)}
@@ -389,7 +405,7 @@ export function PublicCareerJobPage({
               onRetry={() => void jobDetail.refetch()}
             />
           ) : done ? (
-            <ApplicationReceived fr={fr} />
+            <ApplicationReceived fr={fr} trackingUrl={trackingUrl} />
           ) : job ? (
             <div className="grid gap-7 lg:grid-cols-[minmax(0,1.18fr)_minmax(350px,.82fr)]">
               <article className="space-y-4">
@@ -441,7 +457,10 @@ export function PublicCareerJobPage({
                 jobCode={jobCode}
                 fr={fr}
                 jobTitle={title}
-                onDone={() => setDone(true)}
+                onDone={(result) => {
+                  setTrackingUrl(result?.trackingUrl ?? null);
+                  setDone(true);
+                }}
               />
             </div>
           ) : null}
@@ -455,7 +474,7 @@ function SparkleIcon({ className }: { className?: string }) {
   return <span className={className}>✦</span>;
 }
 
-function ApplicationReceived({ fr }: { fr: boolean }) {
+function ApplicationReceived({ fr, trackingUrl }: { fr: boolean; trackingUrl: string | null }) {
   return (
     <div className="py-10 text-center">
       <span className="mx-auto grid size-16 place-items-center rounded-2xl bg-emerald-500/10 text-emerald-600">
@@ -471,6 +490,27 @@ function ApplicationReceived({ fr }: { fr: boolean }) {
           "A confirmation has been sent by email and SMS. The recruitment team will review your application confidentially and contact you if your profile fits the role or if further documents are needed.",
         )}
       </p>
+      {trackingUrl ? (
+        <div className="mx-auto mt-6 max-w-lg rounded-2xl border border-brand/25 bg-brand/[.05] p-5">
+          <p className="text-sm font-semibold text-ink">
+            {label(fr, "Votre Espace candidat est prêt", "Your candidate space is ready")}
+          </p>
+          <p className="mt-1 text-xs leading-5 text-ink-secondary">
+            {label(
+              fr,
+              "Suivez l’avancement, lisez les messages de l’équipe et envoyez les documents demandés. Le lien vous a aussi été envoyé par e-mail et SMS.",
+              "Follow progress, read messages from the team and send requested documents. The link was also sent by email and SMS.",
+            )}
+          </p>
+          <a
+            href={trackingUrl}
+            className="mt-4 inline-flex h-10 items-center gap-2 rounded-lg bg-brand px-4 text-sm font-semibold text-brand-ink shadow-sm transition hover:brightness-110"
+          >
+            <SearchCheck className="size-4" />
+            {label(fr, "Ouvrir mon Espace candidat", "Open my candidate space")}
+          </a>
+        </div>
+      ) : null}
       <p className="mx-auto mt-3 max-w-lg text-sm leading-6 text-ink-secondary">
         {label(fr, "Une question ? Écrivez à ", "Questions? Email ")}
         <a className="font-semibold text-brand underline underline-offset-2" href={`mailto:${candidateContactEmail}`}>
@@ -532,7 +572,7 @@ function ApplicationForm({
   jobCode: string;
   fr: boolean;
   jobTitle: string;
-  onDone: () => void;
+  onDone: (result?: { trackingUrl?: string }) => void;
 }) {
   const [form, setForm] = useState({
     fullName: "",
@@ -578,7 +618,7 @@ function ApplicationForm({
         );
       return body;
     },
-    onSuccess: onDone,
+    onSuccess: (body) => onDone(body ?? undefined),
     onError: (error: Error) => toast.error(error.message),
   });
   return (

@@ -32,6 +32,7 @@ import { api, get, orgApiUrl, orgUrl, patch, post, put } from "@/lib/api";
 import { can } from "@/lib/permissions";
 import { useLanguage } from "@/providers/language-provider";
 import { useSessionUser } from "@/stores/session-store";
+import { CandidateDocumentsPanel } from "@/components/careers/candidate-documents-panel";
 
 const tr = (fr: boolean, french: string, english: string) =>
   fr ? french : english;
@@ -1326,6 +1327,13 @@ function CandidateDetail({
             </div>
           ) : null}
         </section>
+
+        <CandidateDocumentsPanel
+          application={application}
+          orgSlug={orgSlug}
+          fr={fr}
+          editable={editable}
+        />
 
         {editable && (
           <section className="rounded-2xl border border-border bg-surface-2/35 p-4 sm:p-5">
