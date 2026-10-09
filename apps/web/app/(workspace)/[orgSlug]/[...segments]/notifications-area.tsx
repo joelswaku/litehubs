@@ -236,14 +236,16 @@ export function NotificationsArea({ orgSlug }: { orgSlug: string }) {
   const notifications = inbox.data?.notifications ?? [];
   const total = inbox.data?.pagination.total ?? 0;
   const groups = useMemo(() => {
-    const result: Array<{ label: string; items: NotificationItem[] }> = [];
+    // The list can be ordered by priority, so the same day label may come
+    // back later in it: collect every item under one group per label.
+    const result = new Map<string, NotificationItem[]>();
     for (const item of notifications) {
       const label = dayLabel(item.createdAt, fr, localeTag);
-      const last = result[result.length - 1];
-      if (last && last.label === label) last.items.push(item);
-      else result.push({ label, items: [item] });
+      const items = result.get(label);
+      if (items) items.push(item);
+      else result.set(label, [item]);
     }
-    return result;
+    return [...result].map(([label, items]) => ({ label, items }));
   }, [fr, localeTag, notifications]);
   const selectClass = "h-9 rounded-lg border border-border bg-surface-1 px-3 text-sm text-ink focus:border-brand focus:outline-none";
   return (
