@@ -166,6 +166,9 @@ export function MailArea({ orgSlug }: { orgSlug: string }) {
   const [searchInput, setSearchInput] = useState("");
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [toFilter, setToFilter] = useState<string | null>(null);
+  const [batchMode, setBatchMode] = useState(false);
+  const [selected, setSelected] = useState<number[]>([]);
+  const [batchOpen, setBatchOpen] = useState(false);
   const [openUid, setOpenUid] = useState<number | null>(null);
   const [compose, setCompose] = useState<ComposeDraft | null>(null);
   const [settings, setSettings] = useState<Mailbox | "new" | null>(null);
@@ -511,7 +514,49 @@ export function MailArea({ orgSlug }: { orgSlug: string }) {
               >
                 {tr(fr, "Non lus", "Unread")}
               </button>
+              {data.aiEnabled && current?.canSend ? (
+                <button
+                  type="button"
+                  title={tr(fr, "Réponse groupée avec l’IA", "Batch AI replies")}
+                  onClick={() => {
+                    setBatchMode(!batchMode);
+                    setSelected([]);
+                  }}
+                  className={`inline-flex h-9 shrink-0 items-center gap-1 rounded-md border px-2.5 text-xs font-semibold transition ${
+                    batchMode ? "border-brand bg-brand text-brand-ink" : "border-brand/40 text-brand hover:bg-brand/[.06]"
+                  }`}
+                >
+                  <Sparkles className="size-3.5" />
+                  <span className="hidden sm:inline">{tr(fr, "Groupé", "Batch")}</span>
+                </button>
+              ) : null}
             </form>
+            {batchMode ? (
+              <div className="flex flex-wrap items-center gap-2 border-b border-border bg-brand/[.05] px-3 py-2 text-xs">
+                <span className="font-semibold text-ink">
+                  {selected.length} {tr(fr, "sélectionné(s)", "selected")} · max 20
+                </span>
+                <button
+                  type="button"
+                  className="font-semibold text-brand hover:underline"
+                  onClick={() =>
+                    setSelected(
+                      (messages.data?.messages ?? [])
+                        .filter((item) => !item.seen && !item.answered)
+                        .map((item) => item.uid)
+                        .slice(0, 20),
+                    )
+                  }
+                >
+                  {tr(fr, "Sélectionner les non lus", "Select unread")}
+                </button>
+                <span className="flex-1" />
+                <Button size="sm" disabled={!selected.length} onClick={() => setBatchOpen(true)}>
+                  <Sparkles className="size-3.5" />
+                  {tr(fr, "Préparer les réponses", "Prepare replies")}
+                </Button>
+              </div>
+            ) : null}
             <div className="min-h-0 flex-1 overflow-auto">
               {messages.isLoading ? (
                 <div className="p-3">
@@ -534,12 +579,31 @@ export function MailArea({ orgSlug }: { orgSlug: string }) {
                     <li key={item.uid}>
                       <button
                         type="button"
-                        onClick={() => setOpenUid(item.uid)}
+                        onClick={() => {
+                          if (!batchMode) return setOpenUid(item.uid);
+                          setSelected((current) =>
+                            current.includes(item.uid)
+                              ? current.filter((uid) => uid !== item.uid)
+                              : current.length >= 20
+                                ? current
+                                : [...current, item.uid],
+                          );
+                        }}
                         className={`flex w-full gap-2.5 border-b border-border/70 px-3 py-2.5 text-left transition hover:bg-surface-2 ${
                           openUid === item.uid ? "bg-brand/[.07]" : ""
                         }`}
                       >
-                        <span className={`mt-1.5 size-2 shrink-0 rounded-full ${item.seen ? "bg-transparent" : "bg-brand"}`} />
+                        {batchMode ? (
+                          <input
+                            type="checkbox"
+                            readOnly
+                            tabIndex={-1}
+                            checked={selected.includes(item.uid)}
+                            className="mt-1 size-4 shrink-0 accent-[var(--color-brand)]"
+                          />
+                        ) : (
+                          <span className={`mt-1.5 size-2 shrink-0 rounded-full ${item.seen ? "bg-transparent" : "bg-brand"}`} />
+                        )}
                         <span className="min-w-0 flex-1">
                           <span className="flex items-baseline justify-between gap-2">
                             <span className={`truncate text-sm ${item.seen ? "text-ink-secondary" : "font-semibold text-ink"}`}>
@@ -686,6 +750,22 @@ export function MailArea({ orgSlug }: { orgSlug: string }) {
         </div>
       )}
 
+      {batchOpen && current ? (
+        <BatchReplyDialog
+          orgSlug={orgSlug}
+          mailbox={current}
+          folder={folder}
+          items={(messages.data?.messages ?? []).filter((item) => selected.includes(item.uid))}
+          fr={fr}
+          onClose={() => setBatchOpen(false)}
+          onFinished={() => {
+            setBatchOpen(false);
+            setBatchMode(false);
+            setSelected([]);
+            refreshLists();
+          }}
+        />
+      ) : null}
       {compose && current ? (
         <ComposeDialog
           orgSlug={orgSlug}
@@ -1352,6 +1432,272 @@ function MailboxSettingsDialog({
             </Button>
           </div>
         </form>
+      </div>
+    </Dialog>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Batch AI replies: drafts for many messages, reviewed, then sent    */
+/* ------------------------------------------------------------------ */
+
+type BatchItem = {
+  uid: number;
+  name: string;
+  originalSubject: string;
+  to: string;
+  fromAddress: string | null;
+  subject: string;
+  body: string;
+  include: boolean;
+  status: "pending" | "drafting" | "ready" | "error" | "sending" | "sent";
+  error?: string;
+};
+
+function BatchReplyDialog({
+  orgSlug,
+  mailbox,
+  folder,
+  items,
+  fr,
+  onClose,
+  onFinished,
+}: {
+  orgSlug: string;
+  mailbox: Mailbox;
+  folder: string;
+  items: MessageSummary[];
+  fr: boolean;
+  onClose: () => void;
+  onFinished: () => void;
+}) {
+  const [instructions, setInstructions] = useState("");
+  const [tone, setTone] = useState<"professional" | "friendly" | "formal" | "short">("professional");
+  const [phase, setPhase] = useState<"setup" | "drafting" | "review" | "sending" | "done">("setup");
+  const [rows, setRows] = useState<BatchItem[]>(() =>
+    items.map((item) => ({
+      uid: item.uid,
+      name: person(item.from) || "—",
+      originalSubject: item.subject,
+      to: addresses(item.from),
+      fromAddress: null,
+      subject: "",
+      body: "",
+      include: true,
+      status: "pending",
+    })),
+  );
+  const update = (uid: number, patchRow: Partial<BatchItem>) =>
+    setRows((current) => current.map((row) => (row.uid === uid ? { ...row, ...patchRow } : row)));
+
+  const generate = async () => {
+    setPhase("drafting");
+    let stop: string | null = null;
+    for (const row of rows) {
+      if (stop) {
+        update(row.uid, { status: "error", error: stop, include: false });
+        continue;
+      }
+      update(row.uid, { status: "drafting" });
+      try {
+        const result = await post<{
+          draft: { subject: string; body: string };
+          reply: { to: string[]; fromAddress: string | null } | null;
+        }>(orgUrl(orgSlug, `mail/mailboxes/${mailbox.id}/ai-draft`), {
+          mode: "reply",
+          uid: row.uid,
+          folder,
+          instructions: instructions.trim() || undefined,
+          tone,
+        });
+        update(row.uid, {
+          status: "ready",
+          subject: result.draft.subject,
+          body: result.draft.body,
+          to: result.reply?.to.join(", ") || row.to,
+          fromAddress: result.reply?.fromAddress ?? null,
+        });
+      } catch (error) {
+        const message = errorMessage(error, tr(fr, "Brouillon impossible.", "Draft failed."));
+        const status = (error as { response?: { status?: number } })?.response?.status;
+        // Daily limit or AI service down: no point trying the next ones.
+        if (status === 429 || status === 503) stop = message;
+        update(row.uid, { status: "error", error: message, include: false });
+      }
+    }
+    setPhase("review");
+  };
+
+  const sendAll = async () => {
+    setPhase("sending");
+    for (const row of rows) {
+      if (!row.include || row.status !== "ready") continue;
+      update(row.uid, { status: "sending" });
+      try {
+        const data = new FormData();
+        if (row.fromAddress) data.append("fromAddress", row.fromAddress);
+        data.append("to", row.to);
+        data.append("subject", row.subject);
+        data.append("body", row.body);
+        data.append("replyToUid", String(row.uid));
+        data.append("replyFolder", folder);
+        await api.post(orgUrl(orgSlug, `mail/mailboxes/${mailbox.id}/send`), data);
+        update(row.uid, { status: "sent" });
+      } catch (error) {
+        update(row.uid, { status: "error", error: errorMessage(error, tr(fr, "Envoi impossible.", "Send failed.")) });
+      }
+    }
+    setPhase("done");
+  };
+
+  const ready = rows.filter((row) => row.include && row.status === "ready").length;
+  const sent = rows.filter((row) => row.status === "sent").length;
+  const drafted = rows.filter((row) => !["pending", "drafting"].includes(row.status)).length;
+
+  return (
+    <Dialog
+      title={tr(fr, `Réponses groupées · ${rows.length} message(s)`, `Batch replies · ${rows.length} message(s)`)}
+      onClose={phase === "drafting" || phase === "sending" ? () => undefined : phase === "done" ? onFinished : onClose}
+      wide
+    >
+      <div className="space-y-4 p-5">
+        {phase === "setup" ? (
+          <>
+            <p className="text-sm leading-6 text-ink-secondary">
+              {tr(
+                fr,
+                "L’IA va lire chaque message et préparer une réponse personnalisée. Vous pourrez tout relire et corriger avant l’envoi.",
+                "The AI reads each message and prepares a personalised reply. You can review and edit everything before sending.",
+              )}
+            </p>
+            <Field label={tr(fr, "Consigne commune (facultatif)", "Shared instruction (optional)")}>
+              <Textarea
+                rows={3}
+                maxLength={1500}
+                value={instructions}
+                onChange={(event) => setInstructions(event.target.value)}
+                placeholder={tr(
+                  fr,
+                  "Ex. : remercier, dire que le dossier est en cours d’examen et que nous répondrons sous 2 semaines.",
+                  "E.g. thank them, say the application is under review and we will reply within 2 weeks.",
+                )}
+              />
+            </Field>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <select
+                className="h-9 rounded-md border border-border bg-surface-1 px-2 text-sm text-ink"
+                value={tone}
+                onChange={(event) => setTone(event.target.value as typeof tone)}
+              >
+                <option value="professional">{tr(fr, "Ton professionnel", "Professional")}</option>
+                <option value="friendly">{tr(fr, "Ton chaleureux", "Friendly")}</option>
+                <option value="formal">{tr(fr, "Ton formel", "Formal")}</option>
+                <option value="short">{tr(fr, "Très court", "Very short")}</option>
+              </select>
+              <Button onClick={() => void generate()}>
+                <Sparkles className="size-4" />
+                {tr(fr, "Préparer les réponses", "Prepare replies")}
+              </Button>
+            </div>
+          </>
+        ) : null}
+
+        {phase !== "setup" ? (
+          <div className="rounded-xl border border-border bg-surface-2/40 px-3 py-2 text-xs text-ink-secondary">
+            {phase === "drafting"
+              ? tr(fr, `Préparation… ${drafted}/${rows.length}`, `Preparing… ${drafted}/${rows.length}`)
+              : phase === "sending"
+                ? tr(fr, `Envoi… ${sent}/${ready + sent}`, `Sending… ${sent}/${ready + sent}`)
+                : phase === "done"
+                  ? tr(fr, `${sent} réponse(s) envoyée(s).`, `${sent} reply(ies) sent.`)
+                  : tr(
+                      fr,
+                      `${ready} réponse(s) prête(s). Relisez, décochez celles à ne pas envoyer, puis « Tout envoyer ».`,
+                      `${ready} reply(ies) ready. Review, untick any you do not want to send, then "Send all".`,
+                    )}
+          </div>
+        ) : null}
+
+        {phase !== "setup"
+          ? rows.map((row) => (
+              <article
+                key={row.uid}
+                className={`rounded-xl border p-3 ${row.status === "sent" ? "border-emerald-500/30 bg-emerald-500/[.04]" : row.status === "error" ? "border-critical/30 bg-critical/[.03]" : "border-border"}`}
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  {phase === "review" && row.status === "ready" ? (
+                    <input
+                      type="checkbox"
+                      checked={row.include}
+                      onChange={(event) => update(row.uid, { include: event.target.checked })}
+                      className="size-4 accent-[var(--color-brand)]"
+                    />
+                  ) : null}
+                  <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">
+                    {row.name} <span className="font-normal text-ink-secondary">· {row.originalSubject || "—"}</span>
+                  </span>
+                  <span className="text-[11px] font-semibold text-ink-muted">
+                    {row.status === "drafting"
+                      ? tr(fr, "IA en cours…", "Drafting…")
+                      : row.status === "pending"
+                        ? tr(fr, "En attente", "Waiting")
+                        : row.status === "sending"
+                          ? tr(fr, "Envoi…", "Sending…")
+                          : row.status === "sent"
+                            ? tr(fr, "Envoyé ✓", "Sent ✓")
+                            : row.status === "error"
+                              ? tr(fr, "Erreur", "Error")
+                              : ""}
+                  </span>
+                </div>
+                {row.status === "error" && row.error ? <p className="mt-1 text-xs text-critical">{row.error}</p> : null}
+                {row.status === "ready" && phase === "review" ? (
+                  <div className="mt-2 space-y-2">
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <Input value={row.to} onChange={(event) => update(row.uid, { to: event.target.value })} aria-label={tr(fr, "À", "To")} />
+                      <Input value={row.subject} onChange={(event) => update(row.uid, { subject: event.target.value })} aria-label={tr(fr, "Objet", "Subject")} />
+                    </div>
+                    <Textarea rows={5} value={row.body} onChange={(event) => update(row.uid, { body: event.target.value })} />
+                    {/\[[^\]]+\]/.test(row.body) ? (
+                      <p className="text-[11px] text-warning">
+                        {tr(fr, "Complétez les éléments entre [crochets] avant l’envoi.", "Fill in the [bracketed] details before sending.")}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+              </article>
+            ))
+          : null}
+
+        {phase === "review" ? (
+          <div className="flex justify-end gap-2 border-t border-border pt-4">
+            <Button variant="ghost" onClick={onClose}>
+              {tr(fr, "Annuler", "Cancel")}
+            </Button>
+            <Button
+              disabled={!ready}
+              onClick={() => {
+                const unfinished = rows.some((row) => row.include && row.status === "ready" && /\[[^\]]+\]/.test(row.body));
+                if (
+                  unfinished &&
+                  !window.confirm(
+                    tr(fr, "Certaines réponses contiennent encore des [crochets]. Envoyer quand même ?", "Some replies still contain [brackets]. Send anyway?"),
+                  )
+                )
+                  return;
+                void sendAll();
+              }}
+            >
+              <Send className="size-4" />
+              {tr(fr, `Tout envoyer (${ready})`, `Send all (${ready})`)}
+            </Button>
+          </div>
+        ) : null}
+        {phase === "done" ? (
+          <div className="flex justify-end border-t border-border pt-4">
+            <Button onClick={onFinished}>{tr(fr, "Terminer", "Done")}</Button>
+          </div>
+        ) : null}
       </div>
     </Dialog>
   );

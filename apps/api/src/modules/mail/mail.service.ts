@@ -550,7 +550,12 @@ export async function readMessageSource(
     return result.rows[0]?.display_name ?? "";
   });
   if (!uid || !folder)
-    return { source: Buffer.alloc(0), mailboxAddress: row.email_address as string, organizationName: organization };
+    return {
+      source: Buffer.alloc(0),
+      mailboxAddress: row.email_address as string,
+      aliases: ((row.aliases as string[] | null) ?? []) as string[],
+      organizationName: organization,
+    };
   const source = await withImap(connection, async (client) => {
     const lock = await client.getMailboxLock(folder);
     try {
@@ -561,7 +566,12 @@ export async function readMessageSource(
       lock.release();
     }
   });
-  return { source, mailboxAddress: row.email_address as string, organizationName: organization };
+  return {
+    source,
+    mailboxAddress: row.email_address as string,
+    aliases: ((row.aliases as string[] | null) ?? []) as string[],
+    organizationName: organization,
+  };
 }
 
 export async function getAttachment(

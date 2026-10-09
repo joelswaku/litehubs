@@ -84,6 +84,8 @@ export async function createAiDraft(context: MailContext, mailboxId: string, inp
   let originalSubject = "";
   let mailboxAddress = "";
   let organizationName = "";
+  // For a reply: who to answer and from which of the mailbox's addresses.
+  let reply: { to: string[]; fromAddress: string | null } | null = null;
   if (input.uid && input.folder) {
     const loaded = await readMessageSource(context, mailboxId, input.uid, input.folder);
     const parsed = await simpleParser(loaded.source);
@@ -92,6 +94,16 @@ export async function createAiDraft(context: MailContext, mailboxId: string, inp
     original = `From: ${from}\nSubject: ${originalSubject}\nDate: ${parsed.date?.toISOString() ?? ""}\n\n${(parsed.text ?? "").slice(0, 6000)}`;
     mailboxAddress = loaded.mailboxAddress;
     organizationName = loaded.organizationName;
+    const own = [loaded.mailboxAddress, ...loaded.aliases].map((item) => item.toLowerCase());
+    const list = (value: typeof parsed.to) =>
+      (Array.isArray(value) ? value : value ? [value] : []).flatMap((item) =>
+        item.value.map((entry) => (entry.address ?? "").toLowerCase()).filter(Boolean),
+      );
+    const targets = list(parsed.replyTo).length ? list(parsed.replyTo) : list(parsed.from);
+    reply = {
+      to: targets.filter((address) => !own.includes(address)),
+      fromAddress: [...list(parsed.to), ...list(parsed.cc)].find((address) => own.includes(address)) ?? null,
+    };
   } else {
     const loaded = await readMessageSource(context, mailboxId, null, null);
     mailboxAddress = loaded.mailboxAddress;
@@ -164,6 +176,7 @@ export async function createAiDraft(context: MailContext, mailboxId: string, inp
       subject: parsed.data.subject || (originalSubject ? `Re: ${originalSubject.replace(/^((re|tr|fwd?)\s*:\s*)+/i, "")}` : ""),
       body: parsed.data.body.trim(),
     },
+    reply,
     usage: { used, limit: env.ai.dailyRequestLimit },
   };
 }
