@@ -48,7 +48,6 @@ export function CareersBrandMark({
   return (
     <a href={href} className="flex min-w-0 shrink items-center gap-2.5 font-semibold text-ink" aria-label={organizationName}>
       {branding?.logoUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
         <img
           src={branding.logoUrl}
           alt={organizationName}
