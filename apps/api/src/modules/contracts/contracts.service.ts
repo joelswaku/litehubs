@@ -1060,19 +1060,6 @@ async function contractPdf(blocks: WorkspaceBlock[], title: string, referenceTex
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
   const fetchedLogo = await companyLogo(logoUrl);
-  // A second embed of the same bytes, because the watermark is drawn into this
-  // document while the header is stamped into the reloaded one further down.
-  // An image object cannot cross between two PDFDocument instances.
-  let watermarkLogo: PDFImage | null = null;
-  if (fetchedLogo) {
-    try {
-      watermarkLogo = fetchedLogo.kind === "png"
-        ? await pdf.embedPng(fetchedLogo.bytes)
-        : await pdf.embedJpg(fetchedLogo.bytes);
-    } catch {
-      watermarkLogo = null;
-    }
-  }
   const pageWidth = 595.28;
   const pageHeight = 841.89;
   const margin = 54;
@@ -1183,30 +1170,8 @@ async function contractPdf(blocks: WorkspaceBlock[], title: string, referenceTex
       });
     }
 
-    // The mark sits in the eye of the rosette so the two read as one seal
-    // rather than a stamp dropped onto a pattern. Initials stand in when the
-    // company has no logo: the centre must never be left empty.
-    if (watermarkLogo) {
-      const scale = Math.min(104 / watermarkLogo.width, 104 / watermarkLogo.height);
-      const width = watermarkLogo.width * scale;
-      const height = watermarkLogo.height * scale;
-      target.drawImage(watermarkLogo, { x: centreX - width / 2, y: centreY - height / 2, width, height, opacity: .11 });
-    } else {
-      const initials = companyInitials(companyName);
-      const initialsSize = 54;
-      const initialsWidth = bold.widthOfTextAtSize(initials, initialsSize);
-      target.drawText(initials, {
-        x: centreX - initialsWidth / 2,
-        // Optical centring, not geometric: drawText places the baseline, so
-        // subtracting a third of the cap height puts the glyphs on the middle
-        // of the rosette rather than sitting above it.
-        y: centreY - initialsSize * .34,
-        size: initialsSize,
-        font: bold,
-        color: guilloche,
-        opacity: .13,
-      });
-    }
+    // No logo or initials in the watermark: the company logo appears only in
+    // the page header, and the seal stays a neutral rosette with microtext.
 
     const unit = `${companyName.toLocaleUpperCase("fr-FR").slice(0, 48)} · ${referenceText.slice(0, 48)} · ${securityCaption} · DOCUMENT ORIGINAL · `;
     const microSize = 4.6;
