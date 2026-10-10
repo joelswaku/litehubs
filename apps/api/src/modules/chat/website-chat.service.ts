@@ -8,6 +8,7 @@ import { createNotificationInTransaction } from "../notifications/notifications.
 import { BadRequestError, ForbiddenError, NotFoundError } from "../../utils/errors";
 import { withTenantContext } from "../../utils/tenant-query";
 import { readAiInstructions } from "../ai-instructions/ai-instructions.service";
+import { friendlyMetaMessage, MetaError, openToken, sendDirectMessage } from "../social/meta-graph";
 import { customerServiceStaff, rightsOf, settingsOf, type ChatContext } from "./chat.service";
 
 type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -15,7 +16,7 @@ type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-exp
 const AI_REPLIES_PER_SESSION = 40;
 const AI_REPLIES_PER_DAY = 400;
 
-type Target = {
+export type Target = {
   organizationId: string;
   organizationSlug: string;
   organizationName: string;
@@ -75,6 +76,152 @@ async function notifyTeam(client: PoolClient, organizationId: string, slug: stri
 /* ------------------------------------------------------------------ */
 /* Visitor side (public, token-based)                                  */
 /* ------------------------------------------------------------------ */
+
+/* ------------------------------------------------------------------ */
+/* Facebook Messenger / Instagram delivery                              */
+/* ------------------------------------------------------------------ */
+
+/** Sends a stored message to Messenger or Instagram when the conversation
+ * comes from there.  Website conversations are read by polling instead.
+ * Returns an error text when Meta refused the message. */
+export async function deliverToChannel(organizationId: string, messageId: string): Promise<string | null> {
+  const loaded = await withTenantContext({ organizationId, userId: null }, async (client) => {
+    const result = await client.query<Row>(
+      `SELECT m.body,s.channel,s.external_user_id,a.page_id,a.page_token_enc
+         FROM website_chat_messages m
+         JOIN website_chat_sessions s ON s.organization_id=m.organization_id AND s.id=m.session_id
+         LEFT JOIN social_accounts a ON a.organization_id=s.organization_id AND a.id=s.social_account_id
+        WHERE m.organization_id=$1 AND m.id=$2`,
+      [organizationId, messageId],
+    );
+    return result.rows[0];
+  });
+  if (!loaded || loaded.channel === "website") return null;
+  let error: string | null = null;
+  let externalId: string | null = null;
+  try {
+    if (!loaded.page_id || !loaded.page_token_enc || !loaded.external_user_id) throw new Error("Compte Meta déconnecté.");
+    externalId = await sendDirectMessage(loaded.page_id, openToken(loaded.page_token_enc), loaded.external_user_id, loaded.body);
+  } catch (cause) {
+    error = cause instanceof MetaError ? cause.message : friendlyMetaMessage(cause instanceof Error ? cause.message : String(cause));
+    logger.warn({ err: cause, messageId }, "Social message delivery failed");
+  }
+  await withTenantContext({ organizationId, userId: null }, (client) =>
+    client.query(
+      `UPDATE website_chat_messages SET external_id=COALESCE($3,external_id),delivery_error=$4 WHERE organization_id=$1 AND id=$2`,
+      [organizationId, messageId, externalId || null, error],
+    ),
+  );
+  return error;
+}
+
+/** Inbound Messenger / Instagram message: same pipeline as the website chat
+ * (stored, AI reply or team alert).  Called from the Meta webhook. */
+export async function receiveSocialMessage(input: {
+  organizationId: string;
+  organizationSlug: string;
+  organizationName: string;
+  socialAccountId: string;
+  channel: "facebook" | "instagram";
+  externalUserId: string;
+  externalMessageId: string;
+  text: string;
+  visitorName?: string | null;
+}) {
+  const prepared = await withTenantContext({ organizationId: input.organizationId, userId: null }, async (client) => {
+    const settings = await settingsOf(client, input.organizationId);
+    let session = (
+      await client.query<Row>(
+        `SELECT * FROM website_chat_sessions
+          WHERE organization_id=$1 AND social_account_id=$2 AND channel=$3 AND external_user_id=$4`,
+        [input.organizationId, input.socialAccountId, input.channel, input.externalUserId],
+      )
+    ).rows[0];
+    if (!session) {
+      session = (
+        await client.query<Row>(
+          `INSERT INTO website_chat_sessions(organization_id,token_hash,visitor_name,channel,social_account_id,external_user_id,mode)
+           VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+          [
+            input.organizationId,
+            hashToken(randomBytes(32).toString("base64url")),
+            input.visitorName ?? null,
+            input.channel,
+            input.socialAccountId,
+            input.externalUserId,
+            settings.websiteAiEnabled ? "ai" : "human",
+          ],
+        )
+      ).rows[0]!;
+    }
+    const inserted = await client.query(
+      `INSERT INTO website_chat_messages(organization_id,session_id,sender,body,external_id) VALUES($1,$2,'visitor',$3,$4)
+       ON CONFLICT (organization_id,external_id) WHERE external_id IS NOT NULL DO NOTHING`,
+      [input.organizationId, session.id, input.text.slice(0, 4000), input.externalMessageId],
+    );
+    if (!inserted.rowCount) return null; // Meta retried a message we already have.
+    await client.query(
+      `UPDATE website_chat_sessions
+          SET status='open',last_message_at=now(),last_visitor_message_at=now(),
+              visitor_name=COALESCE(visitor_name,$3)
+        WHERE organization_id=$1 AND id=$2`,
+      [input.organizationId, session.id, input.visitorName ?? null],
+    );
+    if (session.mode === "human")
+      await notifyTeam(
+        client,
+        input.organizationId,
+        input.organizationSlug,
+        session.id,
+        `Message ${input.channel === "instagram" ? "Instagram" : "Facebook"}${session.visitor_name || input.visitorName ? ` · ${session.visitor_name || input.visitorName}` : ""}`,
+        input.text,
+      );
+    return { sessionId: session.id as string, mode: session.mode as string, aiEnabled: settings.websiteAiEnabled };
+  });
+  if (!prepared || prepared.mode !== "ai") return;
+  const found: Target = {
+    organizationId: input.organizationId,
+    organizationSlug: input.organizationSlug,
+    organizationName: input.organizationName,
+    enabled: true,
+    aiEnabled: prepared.aiEnabled,
+    welcome: null,
+  };
+  if (!(await aiReply(found, prepared.sessionId))) await fallbackToTeam(found, prepared.sessionId);
+}
+
+/** Message typed by the team directly in Meta Business Suite / the phone app:
+ * kept in the history so the AI and colleagues see it. */
+export async function recordPageEcho(input: {
+  organizationId: string;
+  socialAccountId: string;
+  channel: "facebook" | "instagram";
+  externalUserId: string;
+  externalMessageId: string;
+  text: string;
+}) {
+  await withTenantContext({ organizationId: input.organizationId, userId: null }, async (client) => {
+    const session = (
+      await client.query<Row>(
+        `SELECT id FROM website_chat_sessions WHERE organization_id=$1 AND social_account_id=$2 AND channel=$3 AND external_user_id=$4`,
+        [input.organizationId, input.socialAccountId, input.channel, input.externalUserId],
+      )
+    ).rows[0];
+    if (!session) return;
+    const inserted = await client.query(
+      `INSERT INTO website_chat_messages(organization_id,session_id,sender,body,external_id) VALUES($1,$2,'staff',$3,$4)
+       ON CONFLICT (organization_id,external_id) WHERE external_id IS NOT NULL DO NOTHING`,
+      [input.organizationId, session.id, input.text.slice(0, 4000), input.externalMessageId],
+    );
+    // The team answered from Meta: the AI steps back.
+    if (inserted.rowCount)
+      await client.query(
+        `UPDATE website_chat_sessions SET mode='human',needs_human=false,human_requested=false,last_message_at=now()
+          WHERE organization_id=$1 AND id=$2`,
+        [input.organizationId, session.id],
+      );
+  });
+}
 
 /** What the website widget needs before a conversation starts. */
 export async function publicInfo(site: string) {
@@ -296,20 +443,20 @@ const replySchema = z.object({ reply: z.string().min(1).max(2000), handoff: z.bo
 /** When the assistant cannot answer (off, limit reached, error), the visitor
  * is told the team will reply and the team is alerted once. */
 async function fallbackToTeam(found: Target, sessionId: string) {
-  await withTenantContext({ organizationId: found.organizationId, userId: null }, async (client) => {
+  const noteId = await withTenantContext({ organizationId: found.organizationId, userId: null }, async (client) => {
     const session = (
       await client.query<Row>(`SELECT mode,needs_human FROM website_chat_sessions WHERE organization_id=$1 AND id=$2`, [
         found.organizationId,
         sessionId,
       ])
     ).rows[0];
-    if (!session || session.mode !== "ai" || session.needs_human) return;
+    if (!session || session.mode !== "ai" || session.needs_human) return null;
     await client.query(`UPDATE website_chat_sessions SET needs_human=true WHERE organization_id=$1 AND id=$2`, [
       found.organizationId,
       sessionId,
     ]);
-    await client.query(
-      `INSERT INTO website_chat_messages(organization_id,session_id,sender,body) VALUES($1,$2,'system',$3)`,
+    const note = await client.query<{ id: string }>(
+      `INSERT INTO website_chat_messages(organization_id,session_id,sender,body) VALUES($1,$2,'system',$3) RETURNING id`,
       [found.organizationId, sessionId, "Merci ! Un membre de l’équipe va vous répondre ici dès que possible."],
     );
     await notifyTeam(
@@ -317,10 +464,12 @@ async function fallbackToTeam(found: Target, sessionId: string) {
       found.organizationId,
       found.organizationSlug,
       sessionId,
-      "Un visiteur du site attend une réponse",
+      "Un client attend une réponse",
       "L’assistant IA n’a pas pu répondre. Ouvrez le chat pour répondre.",
     );
+    return note.rows[0]!.id;
   });
+  if (noteId) await deliverToChannel(found.organizationId, noteId);
 }
 
 /** Returns true when the assistant handled the message. */
@@ -353,7 +502,7 @@ async function aiReply(found: Target, sessionId: string): Promise<boolean> {
       .map((row) => `${row.sender === "visitor" ? "Visiteur" : row.sender === "staff" ? "Équipe" : "Assistant"}: ${row.body}`)
       .join("\n");
     const prompt = [
-      `Tu es l’assistant du site web de ${found.organizationName}. Tu réponds aux visiteurs qui veulent se renseigner, acheter, commander ou apprendre.`,
+      `Tu es l’assistant de ${found.organizationName} (site web, Messenger et Instagram). Tu réponds aux clients qui veulent se renseigner, acheter, commander ou apprendre.`,
       "Réponds en français, sauf si le visiteur écrit clairement dans une autre langue (une phrase complète en anglais, par exemple). Un simple « hello », « helo » ou « hi » ne suffit pas : réponds en français.",
       "C’est un chat, pas un e-mail : 1 à 5 phrases courtes, chaleureuses et précises, sans signature, sans « Cordialement » ni formule de fin, même si les consignes de la direction en mentionnent une.",
       "Les « Consignes de la direction » sont prioritaires sur le contenu du site (ex. : si elles disent que l’entreprise ne recrute pas, ne propose pas de candidater).",
@@ -390,15 +539,15 @@ async function aiReply(found: Target, sessionId: string): Promise<boolean> {
     if (!response.ok) throw new Error(`AI service status ${response.status}`);
     const parsed = replySchema.safeParse(JSON.parse(extractOutput(await response.json())));
     if (!parsed.success) throw new Error("Invalid AI reply");
-    await withTenantContext({ organizationId: found.organizationId, userId: null }, async (client) => {
+    const aiMessageId = await withTenantContext({ organizationId: found.organizationId, userId: null }, async (client) => {
       const still = await client.query<Row>(
         `SELECT mode,needs_human FROM website_chat_sessions WHERE organization_id=$1 AND id=$2`,
         [found.organizationId, sessionId],
       );
       // A team member may have taken over while the AI was thinking.
-      if (still.rows[0]?.mode !== "ai") return;
-      await client.query(
-        `INSERT INTO website_chat_messages(organization_id,session_id,sender,body) VALUES($1,$2,'ai',$3)`,
+      if (still.rows[0]?.mode !== "ai") return null;
+      const inserted = await client.query<{ id: string }>(
+        `INSERT INTO website_chat_messages(organization_id,session_id,sender,body) VALUES($1,$2,'ai',$3) RETURNING id`,
         [found.organizationId, sessionId, parsed.data.reply.trim()],
       );
       // The AI's latest judgement decides, so a visitor who declines ("non
@@ -414,10 +563,12 @@ async function aiReply(found: Target, sessionId: string): Promise<boolean> {
           found.organizationId,
           found.organizationSlug,
           sessionId,
-          "Un visiteur du site a besoin de l’équipe",
+          "Un client a besoin de l’équipe",
           "L’assistant IA propose de reprendre la conversation.",
         );
+      return inserted.rows[0]!.id;
     });
+    if (aiMessageId) await deliverToChannel(found.organizationId, aiMessageId);
     return true;
   } catch (error) {
     logger.warn({ err: error, sessionId }, "Website chat AI reply failed");
@@ -459,6 +610,7 @@ export async function teamSessions(context: ChatContext) {
         lastMessageAt: row.last_message_at,
         preview: row.last_body ? String(row.last_body).slice(0, 120) : "",
         pageUrl: row.page_url,
+        channel: row.channel ?? "website",
       })),
     };
   });
@@ -488,6 +640,12 @@ export async function teamSession(context: ChatContext, sessionId: string) {
         needsHuman: Boolean(session.needs_human),
         pageUrl: session.page_url,
         assignedToMe: session.assigned_member_id === context.memberId,
+        channel: session.channel ?? "website",
+        // Meta only accepts replies within 24 h of the customer's last message.
+        replyWindowEndsAt:
+          session.channel !== "website" && session.last_visitor_message_at
+            ? new Date(new Date(session.last_visitor_message_at).getTime() + 24 * 3600_000).toISOString()
+            : null,
       },
       messages: messages.rows.map((row) => ({
         id: row.id,
@@ -495,6 +653,7 @@ export async function teamSession(context: ChatContext, sessionId: string) {
         name: row.sender === "staff" ? row.member_name : null,
         body: row.body,
         createdAt: row.created_at,
+        deliveryError: row.delivery_error ?? null,
       })),
     };
   });
@@ -503,7 +662,7 @@ export async function teamSession(context: ChatContext, sessionId: string) {
 export async function teamReply(context: ChatContext, sessionId: string, body: string) {
   const text = body.trim().slice(0, 2000);
   if (!text) throw new BadRequestError("Écrivez un message.");
-  await withTenantContext(context, async (client) => {
+  const messageId = await withTenantContext(context, async (client) => {
     await assertStaff(client, context);
     const updated = await client.query(
       `UPDATE website_chat_sessions SET mode='human',needs_human=false,human_requested=false,status='open',assigned_member_id=$3,last_message_at=now()
@@ -511,11 +670,14 @@ export async function teamReply(context: ChatContext, sessionId: string, body: s
       [context.organizationId, sessionId, context.memberId],
     );
     if (!updated.rowCount) throw new NotFoundError("Conversation not found");
-    await client.query(
-      `INSERT INTO website_chat_messages(organization_id,session_id,sender,member_id,body) VALUES($1,$2,'staff',$3,$4)`,
+    const inserted = await client.query<{ id: string }>(
+      `INSERT INTO website_chat_messages(organization_id,session_id,sender,member_id,body) VALUES($1,$2,'staff',$3,$4) RETURNING id`,
       [context.organizationId, sessionId, context.memberId, text],
     );
+    return inserted.rows[0]!.id;
   });
+  const error = await deliverToChannel(context.organizationId, messageId);
+  if (error) throw new BadRequestError(error);
   return teamSession(context, sessionId);
 }
 

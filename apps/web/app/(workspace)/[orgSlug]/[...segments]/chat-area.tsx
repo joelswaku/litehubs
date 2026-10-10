@@ -32,6 +32,7 @@ import { EmptyState, ErrorState, SkeletonCard } from "@/components/ui/states";
 import { api, del, get, orgUrl, patch, post, put } from "@/lib/api";
 import { useLanguage } from "@/providers/language-provider";
 import { AiInstructionsDialog } from "@/components/ai/ai-instructions-dialog";
+import { PlatformBadge } from "./social-area";
 
 type Overview = {
   visitors?: { enabled: boolean; pending: number } | null;
@@ -196,7 +197,7 @@ export function ChatArea({ orgSlug }: { orgSlug: string }) {
                 className={`inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-2 py-1.5 text-[13px] font-medium transition ${tab === key ? "bg-brand/10 text-brand" : "text-ink-secondary hover:bg-surface-2"}`}
               >
                 {key === "team" ? <UsersRound className="size-4" /> : <Globe2 className="size-4" />}
-                {key === "team" ? tr(fr, "Équipe", "Team") : tr(fr, "Clients du site", "Website")}
+                {key === "team" ? tr(fr, "Équipe", "Team") : tr(fr, "Clients", "Customers")}
                 {key === "visitors" && data.visitors!.pending ? (
                   <span className="rounded-full bg-critical px-1.5 text-[11px] font-bold text-white">{data.visitors!.pending}</span>
                 ) : null}
@@ -1172,6 +1173,7 @@ type VisitorSummary = {
   lastMessageAt: string;
   preview: string;
   pageUrl: string | null;
+  channel?: "website" | "facebook" | "instagram";
 };
 type VisitorThread = {
   session: {
@@ -1182,8 +1184,17 @@ type VisitorThread = {
     needsHuman: boolean;
     pageUrl: string | null;
     assignedToMe: boolean;
+    channel?: "website" | "facebook" | "instagram";
+    replyWindowEndsAt?: string | null;
   };
-  messages: { id: string; from: "visitor" | "ai" | "staff" | "system"; name: string | null; body: string; createdAt: string }[];
+  messages: {
+    id: string;
+    from: "visitor" | "ai" | "staff" | "system";
+    name: string | null;
+    body: string;
+    createdAt: string;
+    deliveryError?: string | null;
+  }[];
 };
 const visitorName = (visitor: VisitorSummary["visitor"], fr: boolean) =>
   visitor.name || visitor.phone || visitor.email || tr(fr, "Visiteur", "Visitor");
@@ -1219,7 +1230,7 @@ function VisitorList({
         <p className="px-3 py-3 text-xs leading-5 text-ink-secondary">
           {tr(
             fr,
-            "Aucune conversation pour l’instant. Les visiteurs du site écrivent via le bouton « Discuter avec nous » ; l’IA répond et vous pouvez reprendre la main ici.",
+            "Aucune conversation pour l’instant. Les clients écrivent depuis le site (« Discuter avec nous »), Messenger ou Instagram ; l’IA répond et vous pouvez reprendre la main ici.",
             "No conversations yet. Website visitors write through the “Chat with us” button; the AI replies and you can take over here.",
           )}
         </p>
@@ -1237,6 +1248,7 @@ function VisitorList({
             <span className="min-w-0 flex-1">
               <span className="flex items-center gap-1.5">
                 <span className="truncate text-sm font-medium text-ink">{visitorName(session.visitor, fr)}</span>
+                <PlatformBadge platform={session.channel ?? "website"} />
                 <span className="shrink-0 text-[10px] text-ink-muted">{time(session.lastMessageAt, fr)}</span>
               </span>
               <span className="block truncate text-xs text-ink-secondary">{session.preview || "—"}</span>
@@ -1329,7 +1341,10 @@ function VisitorView({
           <UserRound className="size-4" />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-ink">{visitorName(session.visitor, fr)}</p>
+          <p className="flex items-center gap-1.5 truncate text-sm font-semibold text-ink">
+            {visitorName(session.visitor, fr)}
+            <PlatformBadge platform={session.channel ?? "website"} />
+          </p>
           <p className="truncate text-xs text-ink-secondary">
             {contact || tr(fr, "Pas de contact laissé", "No contact left")}
             {session.pageUrl ? ` · ${session.pageUrl.replace(/^https?:\/\//, "")}` : ""}
@@ -1387,12 +1402,26 @@ function VisitorView({
                   {time(message.createdAt, fr)}
                 </p>
                 {message.body}
+                {message.deliveryError ? (
+                  <span className="mt-1.5 block rounded-md bg-surface-1 px-2 py-1 text-[11px] font-semibold text-critical">
+                    {tr(fr, "Non envoyé", "Not sent")} : {message.deliveryError}
+                  </span>
+                ) : null}
               </div>
             </div>
           ),
         )}
       </div>
       <div className="border-t border-border p-2 sm:p-3">
+        {session.replyWindowEndsAt && new Date(session.replyWindowEndsAt).getTime() < Date.now() ? (
+          <p className="mb-1.5 px-1 text-[11px] font-medium text-warning">
+            {tr(
+              fr,
+              "Plus de 24 h depuis le dernier message du client : Meta bloque les réponses jusqu’à ce qu’il réécrive.",
+              "More than 24 h since the customer's last message: Meta blocks replies until they write again.",
+            )}
+          </p>
+        ) : null}
         {session.mode === "ai" ? (
           <p className="mb-1.5 px-1 text-[11px] text-ink-muted">
             {tr(fr, "L’IA répond pour l’instant. Écrire ici prend la main automatiquement.", "The AI is replying for now. Writing here takes over automatically.")}

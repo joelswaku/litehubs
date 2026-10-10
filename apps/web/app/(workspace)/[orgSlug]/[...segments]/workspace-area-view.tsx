@@ -47,6 +47,7 @@ import { AppointmentsArea } from "./appointments-area";
 import { CareersArea } from "./careers-area";
 import { MailArea } from "./mail-area";
 import { ChatArea } from "./chat-area";
+import { SocialArea } from "./social-area";
 import { FleetArea } from "./fleet-area";
 import { CompanyRulesArea } from "./company-rules-area";
 import { WebsiteArea } from "./website-area";
@@ -151,6 +152,7 @@ export function WorkspaceAreaView({
   if (path === "/careers") return <CareersArea orgSlug={orgSlug} />;
   if (path === "/mail") return <MailArea orgSlug={orgSlug} />;
   if (path === "/chat") return <ChatArea orgSlug={orgSlug} />;
+  if (path === "/social") return <SocialArea orgSlug={orgSlug} />;
   if (path === "/incidents") return <IncidentsArea orgSlug={orgSlug} />;
   if (path === "/security") return <SecurityArea orgSlug={orgSlug} />;
   if (path === "/documents") return <DocumentsArea orgSlug={orgSlug} />;

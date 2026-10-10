@@ -71,6 +71,13 @@ const schema = z
     UPLOAD_MAX_FILE_SIZE_MB: z.coerce.number().int().min(1).max(25).default(10),
     // AI is server-only. OPEN_API_KEY and the misspelled limit are accepted
     // temporarily so existing local .env files keep working.
+    // Meta (Facebook Page + Instagram): an app created by the company in
+    // developers.facebook.com.  Without these the social module stays off.
+    META_APP_ID: z.string().trim().min(1).optional(),
+    META_APP_SECRET: z.string().trim().min(1).optional(),
+    META_WEBHOOK_VERIFY_TOKEN: z.string().trim().min(8).optional(),
+    META_GRAPH_VERSION: z.string().trim().regex(/^v\d+\.\d+$/).default("v26.0"),
+    META_GRAPH_BASE_URL: z.string().trim().url().optional(),
     OPENAI_API_KEY: z.string().trim().min(1).optional(),
     OPEN_API_KEY: z.string().trim().min(1).optional(),
     OPEN_MODEL: z.string().trim().min(1).max(160).default("gpt-5.6"),
@@ -248,6 +255,14 @@ export const env = {
     model: config.OPEN_MODEL,
     dailyRequestLimit:
       config.AI_DAILY_REQUEST_LIMIT ?? config.AI_DAILY_REQUEST_LIMITE ?? 20,
+  },
+  meta: {
+    enabled: Boolean(config.META_APP_ID && config.META_APP_SECRET && config.META_WEBHOOK_VERIFY_TOKEN),
+    appId: config.META_APP_ID,
+    appSecret: config.META_APP_SECRET,
+    verifyToken: config.META_WEBHOOK_VERIFY_TOKEN,
+    graphUrl: `${(config.META_GRAPH_BASE_URL ?? "https://graph.facebook.com").replace(/\/$/, "")}/${config.META_GRAPH_VERSION}`,
+    dialogUrl: `https://www.facebook.com/${config.META_GRAPH_VERSION}/dialog/oauth`,
   },
   maxUploadBytes: config.UPLOAD_MAX_FILE_SIZE_MB * 1024 * 1024,
   isProduction: config.NODE_ENV === "production",

@@ -12,6 +12,7 @@ import {
 import { closeExpiredJobsForOrganization } from "../careers/careers.service";
 import { sendPendingTrackingLinksForOrganization } from "../careers/candidate-portal.service";
 import { checkMailboxesForOrganization } from "../mail/mail.service";
+import { publishDuePostsForOrganization } from "../social/social.service";
 
 let scheduled = false;
 
@@ -70,6 +71,10 @@ export function startNotificationScheduler(): void {
   // Company mailboxes: unread counters and a notification for new e-mail.
   cron.schedule("*/3 * * * *", () => {
     void forEachOrganization("mailbox_check", checkMailboxesForOrganization);
+  });
+  // Scheduled Facebook / Instagram posts.
+  cron.schedule("* * * * *", () => {
+    void forEachOrganization("social_posts", publishDuePostsForOrganization);
   });
   // Farm health, ration and feed-autonomy checks run before the day starts.
   cron.schedule("0 6 * * *", () => {

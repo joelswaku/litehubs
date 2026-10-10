@@ -38,6 +38,7 @@ import { careersRoutes } from "./modules/careers";
 import { mailRoutes } from "./modules/mail";
 import { chatRoutes } from "./modules/chat";
 import { aiInstructionsRoutes } from "./modules/ai-instructions";
+import { socialRoutes } from "./modules/social";
 import { publicAccountRoutes } from "./modules/public-accounts";
 
 export const API_PREFIX = "/api/v1";
@@ -51,7 +52,16 @@ export function createApp(): Application {
 
   app.use(httpLogger);
   app.use(securityMiddleware());
-  app.use(express.json({ limit: "2mb" }));
+  app.use(
+    express.json({
+      limit: "2mb",
+      // Meta signs the exact bytes it sends: keep them for the webhook check.
+      verify: (req, _res, buffer) => {
+        if ((req as { url?: string }).url?.startsWith(`${API_PREFIX}/public/meta/webhook`))
+          (req as unknown as { rawBody?: Buffer }).rawBody = Buffer.from(buffer);
+      },
+    }),
+  );
   app.use(express.urlencoded({ extended: true, limit: "2mb" }));
 
   // Liveness: is the process up. Never touches the database.
@@ -109,6 +119,7 @@ export function createApp(): Application {
   app.use(API_PREFIX, mailRoutes);
   app.use(API_PREFIX, chatRoutes);
   app.use(API_PREFIX, aiInstructionsRoutes);
+  app.use(API_PREFIX, socialRoutes);
 
   // Tenant module routers mount here as they are built. Each one goes under
   // /organizations/:orgSlug and behind requireOrganization, so no handler can
