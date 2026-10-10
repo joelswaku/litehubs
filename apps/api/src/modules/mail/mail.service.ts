@@ -368,9 +368,40 @@ function addressText(list?: MessageAddressObject[]) {
   return (list ?? []).map((item) => ({ name: item.name ?? "", address: item.address ?? "" }));
 }
 
+/* « À répondre » : messages received from a real person that nobody has
+ * answered yet — neither from LiteHubs (\Answered flag) nor from another
+ * mail app (a reply found in the Sent folder). */
+const AUTOMATED_SENDER = /^(no-?reply|do-?not-?reply|mailer-daemon|postmaster|bounces?|notifications?|newsletters?|info-?noreply|automated|alerts?)([+._-]|$)/i;
+const TO_ANSWER_WINDOW = 500;
+const SENT_SCAN = 800;
+
+async function repliedMessageIds(client: ImapFlow) {
+  const folders = await client.list();
+  const sent = folders.find((folder) => folder.specialUse === "\\Sent") ?? folders.find((folder) => /^(inbox[./])?sent( items| messages)?$/i.test(folder.path));
+  const replied = new Set<string>();
+  if (!sent) return replied;
+  const lock = await client.getMailboxLock(sent.path).catch(() => null);
+  if (!lock) return replied;
+  try {
+    const all = ((await client.search({ all: true }, { uid: true })) || []).sort((a, b) => b - a).slice(0, SENT_SCAN);
+    if (all.length)
+      for await (const message of client.fetch(all, { uid: true, envelope: true }, { uid: true })) {
+        const id = message.envelope?.inReplyTo?.trim();
+        if (id) replied.add(id.toLowerCase());
+      }
+  } finally {
+    lock.release();
+  }
+  return replied;
+}
+
 export async function listMessages(context: MailContext, mailboxId: string, query: MessageListQuery) {
-  const { connection } = await mailboxConnection(context, mailboxId);
+  const { connection, row } = await mailboxConnection(context, mailboxId);
+  const ownAddresses = new Set(
+    [String(row.email_address), ...(((row.aliases as string[] | null) ?? []) as string[])].map((item) => item.toLowerCase()),
+  );
   return withImap(connection, async (client) => {
+    const replied = query.unanswered ? await repliedMessageIds(client) : null;
     const lock = await client.getMailboxLock(query.folder).catch(() => {
       throw new NotFoundError("Folder not found");
     });
@@ -386,11 +417,31 @@ export async function listMessages(context: MailContext, mailboxId: string, quer
           }
         : { all: true };
       if (query.unread) criteria.seen = false;
-      // "Sans réponse": messages nobody has answered yet (no \Answered flag).
+      // « À répondre »: not answered from LiteHubs; refined below.
       if (query.unanswered) criteria.answered = false;
       // Messages received on one alias (e.g. recrutement@) of the mailbox.
       if (query.to) criteria.to = query.to;
-      const uids = ((await client.search(criteria, { uid: true })) || []).sort((a, b) => b - a);
+      let uids = ((await client.search(criteria, { uid: true })) || []).sort((a, b) => b - a);
+      if (query.unanswered && uids.length) {
+        const window = uids.slice(0, TO_ANSWER_WINDOW);
+        const keep: number[] = [];
+        const answeredElsewhere: number[] = [];
+        for await (const message of client.fetch(window, { uid: true, envelope: true }, { uid: true })) {
+          const sender = (message.envelope?.from?.[0]?.address ?? "").toLowerCase();
+          const localPart = sender.split("@")[0] ?? "";
+          if (!sender || ownAddresses.has(sender) || AUTOMATED_SENDER.test(localPart)) continue;
+          const id = message.envelope?.messageId?.trim().toLowerCase();
+          if (id && replied?.has(id)) {
+            answeredElsewhere.push(message.uid);
+            continue;
+          }
+          keep.push(message.uid);
+        }
+        // Replies sent from webmail or a phone: remember them on the server.
+        if (answeredElsewhere.length)
+          await client.messageFlagsAdd(answeredElsewhere, ["\\Answered"], { uid: true }).catch(() => undefined);
+        uids = keep.sort((a, b) => b - a);
+      }
       const total = uids.length;
       const pageUids = uids.slice((query.page - 1) * PAGE_SIZE, query.page * PAGE_SIZE);
       const messages: Row[] = [];

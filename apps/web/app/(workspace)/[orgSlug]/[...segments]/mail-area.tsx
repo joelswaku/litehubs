@@ -205,11 +205,15 @@ export function MailArea({ orgSlug }: { orgSlug: string }) {
     enabled: Boolean(mailboxId) && current?.status !== "disabled",
     refetchInterval: 120_000,
   });
+  // « À répondre » only makes sense for received mail.
+  const folderKindNow = folders.data?.folders.find((item) => item.path === folder)?.kind ?? null;
+  const canFilterToAnswer = !["\\Sent", "\\Drafts", "\\Trash", "\\Junk"].includes(folderKindNow ?? "");
+  const toAnswer = unansweredOnly && canFilterToAnswer;
   const messages = useQuery({
-    queryKey: ["mail-messages", orgSlug, mailboxId, folder, page, search, unreadOnly, unansweredOnly, toFilter],
+    queryKey: ["mail-messages", orgSlug, mailboxId, folder, page, search, unreadOnly, toAnswer, toFilter],
     queryFn: () =>
       get<{ total: number; pageSize: number; messages: MessageSummary[] }>(orgUrl(orgSlug, `${base}/messages`), {
-        params: { folder, page, search: search || undefined, unread: unreadOnly ? "true" : undefined, unanswered: unansweredOnly ? "true" : undefined, to: toFilter || undefined },
+        params: { folder, page, search: search || undefined, unread: unreadOnly ? "true" : undefined, unanswered: toAnswer ? "true" : undefined, to: toFilter || undefined },
       }),
     enabled: Boolean(mailboxId) && current?.status !== "disabled",
     refetchInterval: 60_000,
@@ -539,18 +543,34 @@ export function MailArea({ orgSlug }: { orgSlug: string }) {
                 </button>
               ) : null}
             </form>
+            {toAnswer ? (
+              <p className="border-b border-border bg-brand/5 px-3 py-1.5 text-[11px] leading-4 text-ink-secondary">
+                {tr(
+                  fr,
+                  "À répondre : messages reçus de vrais contacts auxquels personne n’a encore répondu — ni ici, ni depuis le webmail Hostinger ou le téléphone. Les e-mails automatiques (no-reply, notifications) et nos propres envois sont exclus.",
+                  "To answer: messages from real contacts that nobody has answered yet — here, in Hostinger webmail or on a phone. Automatic e-mails (no-reply, notifications) and our own messages are excluded.",
+                )}
+              </p>
+            ) : null}
             <div className="flex flex-wrap items-center gap-1.5 border-b border-border px-2 py-1.5">
               {[
-                { key: "all", label: tr(fr, "Tous", "All"), active: !unreadOnly && !unansweredOnly },
+                { key: "all", label: tr(fr, "Tous", "All"), active: !unreadOnly && !toAnswer },
                 { key: "unread", label: tr(fr, "Non lus", "Unread"), active: unreadOnly },
-                { key: "unanswered", label: tr(fr, "Sans réponse", "Not answered"), active: unansweredOnly },
+                ...(canFilterToAnswer
+                  ? [{ key: "unanswered", label: tr(fr, "À répondre", "To answer"), active: toAnswer }]
+                  : []),
               ].map((chip) => (
                 <button
                   key={chip.key}
                   type="button"
+                  title={
+                    chip.key === "unanswered"
+                      ? tr(fr, "Messages reçus auxquels nous n’avons pas encore répondu", "Messages received that we have not answered yet")
+                      : undefined
+                  }
                   onClick={() => {
                     setUnreadOnly(chip.key === "unread" ? !unreadOnly : chip.key === "all" ? false : unreadOnly);
-                    setUnansweredOnly(chip.key === "unanswered" ? !unansweredOnly : chip.key === "all" ? false : unansweredOnly);
+                    setUnansweredOnly(chip.key === "unanswered" ? !toAnswer : chip.key === "all" ? false : toAnswer);
                     setPage(1);
                   }}
                   className={`h-7 rounded-full border px-2.5 text-xs font-semibold transition ${
