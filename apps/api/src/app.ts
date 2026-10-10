@@ -6,7 +6,7 @@ import express, {
 import { pingDatabase } from "./config/database";
 import { env } from "./config/env";
 import { httpLogger } from "./config/logger";
-import { securityMiddleware } from "./config/security";
+import { realClientIp, securityMiddleware } from "./config/security";
 import { errorHandler, notFoundHandler } from "./middleware/error.middleware";
 import { authRoutes } from "./modules/auth";
 import { attendanceRoutes } from "./modules/attendance";
@@ -52,6 +52,7 @@ export function createApp(): Application {
   app.set("trust proxy", 1);
 
   app.use(httpLogger);
+  app.use(realClientIp);
   app.use(securityMiddleware());
   app.use(
     express.json({

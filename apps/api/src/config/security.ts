@@ -2,6 +2,7 @@ import compression from "compression";
 import cookieParser from "cookie-parser";
 import cors, { type CorsOptions } from "cors";
 import type { RequestHandler } from "express";
+import { isIP } from "node:net";
 import helmet from "helmet";
 import { rateLimit } from "express-rate-limit";
 import { env } from "./env";
@@ -37,10 +38,25 @@ const corsOptions: CorsOptions = {
   maxAge: 86_400,
 };
 
-/** Broad limiter for the whole API surface. */
+/**
+ * Requests reach the API through Cloudflare, the Railway edge and the web
+ * service, so `req.ip` is a shared proxy address: every visitor would share
+ * one rate-limit counter.  Cloudflare and the Railway edge pass the visitor's
+ * address in `cf-connecting-ip` / `x-real-ip`; use it when it is a valid IP.
+ */
+export const realClientIp: RequestHandler = (req, _res, next) => {
+  const candidate = (req.get("cf-connecting-ip") ?? req.get("x-real-ip") ?? "").trim();
+  if (candidate && isIP(candidate)) Object.defineProperty(req, "ip", { value: candidate, configurable: true });
+  next();
+};
+
+/** Broad limiter for the whole API surface (per visitor). */
 export const apiRateLimiter = rateLimit({
-  windowMs: 150 * 60 * 1000,
-  limit: env.isProduction ? 300 : 10_000,
+  windowMs: 15 * 60 * 1000,
+  // The workspace polls chat, notifications and lists in the background.
+  limit: env.isProduction ? 3_000 : 10_000,
+  // Meta delivers webhooks from a few shared servers; they have their own limiter.
+  skip: (req) => req.originalUrl.startsWith("/api/v1/public/meta/webhook"),
   standardHeaders: "draft-7",
   legacyHeaders: false,
   message: {
