@@ -61,6 +61,7 @@ import { Button } from "@/components/ui/button";
 import { Field, Input, Textarea } from "@/components/ui/input";
 import { EmptyState, ErrorState, Skeleton } from "@/components/ui/states";
 import { ApiError, api, del, get, orgApiUrl, orgUrl } from "@/lib/api";
+import { toast } from "sonner";
 import {
   ownerManagementApi,
   type ManagementBody,
@@ -1445,6 +1446,14 @@ export function ProjectsArea({ orgSlug }: { orgSlug: string }) {
   // not be a soft hide in the client.
   const removeImage = useMutation({
     mutationFn: (imageId: string) => del(orgUrl(orgSlug, `images/${imageId}`)),
+    onError: (error: unknown) =>
+      toast.error(
+        error instanceof ApiError
+          ? error.message
+          : fr
+            ? "Le document n’a pas pu être supprimé."
+            : "The document could not be deleted.",
+      ),
     onSuccess: (_, imageId) => {
       client.setQueryData<{ records: Row[] }>(
         ["project-record", orgSlug, activeId, "documents"],
@@ -5643,6 +5652,22 @@ function ProjectContent({
               : undefined
           }
           onPreview={onPreviewDocument}
+          onDelete={
+            canControl("projects.update")
+              ? (document) =>
+                  onConfirmAction({
+                    title: label(fr, "Delete document", "Supprimer le document"),
+                    description: label(
+                      fr,
+                      `“${String(document.title ?? "Document")}” will be permanently deleted from the project and cannot be recovered. A document still used by a task must first be removed from that task.`,
+                      `« ${String(document.title ?? "Document")} » sera définitivement supprimé du projet et ne pourra pas être récupéré. Un document encore utilisé par une tâche doit d’abord être retiré de cette tâche.`,
+                    ),
+                    confirmLabel: label(fr, "Delete permanently", "Supprimer définitivement"),
+                    tone: "danger",
+                    onConfirm: () => removeImage(String(document.id)),
+                  })
+              : undefined
+          }
         />
         <Panel
           title={label(
@@ -15966,12 +15991,15 @@ function DocumentFolders({
   onManage,
   onToggleLock,
   onPreview,
+  onDelete,
 }: {
   orgSlug: string;
   documents: Row[];
   categories: DocumentCategory[];
   fr: boolean;
   locale: string;
+  /** Asks for confirmation, then permanently deletes the file. */
+  onDelete?: (document: Row) => void;
   onConfigure?: (document: Row) => void;
   onManage?: () => void;
   onToggleLock?: (
@@ -16153,6 +16181,17 @@ function DocumentFolders({
                   >
                     <Download className="size-4" />
                   </a>
+                  {onDelete ? (
+                    <button
+                      type="button"
+                      onClick={() => onDelete(document)}
+                      className="grid size-8 place-items-center rounded-md text-ink-secondary hover:bg-surface-3 hover:text-critical"
+                      aria-label={label(fr, "Delete", "Supprimer")}
+                      title={label(fr, "Delete", "Supprimer")}
+                    >
+                      <Trash2 className="size-4" aria-hidden />
+                    </button>
+                  ) : null}
                 </div>
               </li>
             ))}
@@ -16333,6 +16372,17 @@ function DocumentFolders({
                               >
                                 <Download className="size-4" />
                               </a>
+                              {onDelete ? (
+                                <button
+                                  type="button"
+                                  onClick={() => onDelete(document)}
+                                  className="grid size-8 place-items-center rounded-md text-ink-secondary hover:bg-surface-3 hover:text-critical"
+                                  aria-label={label(fr, "Delete", "Supprimer")}
+                                  title={label(fr, "Delete", "Supprimer")}
+                                >
+                                  <Trash2 className="size-4" aria-hidden />
+                                </button>
+                              ) : null}
                               {onConfigure ? (
                                 <button
                                   type="button"

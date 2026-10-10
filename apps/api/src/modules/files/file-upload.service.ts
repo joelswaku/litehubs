@@ -723,7 +723,7 @@ export async function deleteAttachment(
   );
   if (usage.rowCount)
     throw new BadRequestError(
-      "Remove the document from its tasks before deleting the original project file",
+      "Ce document est encore utilisé par une tâche : retirez-le d’abord de la tâche, puis supprimez-le.",
     );
   const [rawModule, rawResource] = String(attachment.entity_type).split(":", 2);
   const module = rawModule ?? "";
