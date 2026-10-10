@@ -1160,7 +1160,7 @@ export function ProjectsArea({ orgSlug }: { orgSlug: string }) {
       record?: Row;
       body: ManagementBody;
       taskDocuments?: { documentIds: string[] };
-      taskEvidence?: File;
+      taskEvidence?: File[];
       expenseEvidence?: File;
       assetPhoto?: File;
       qualityBeforePhoto?: File;
@@ -1187,21 +1187,30 @@ export function ProjectsArea({ orgSlug }: { orgSlug: string }) {
           taskDocuments.documentIds,
         );
       }
-      if (resource === "tasks" && taskEvidence) {
+      if (resource === "tasks" && taskEvidence?.length) {
         const taskId = String(record?.id ?? result.record?.id ?? "");
         if (!taskId) throw new Error("The saved task has no identifier");
-        const evidenceForm = new FormData();
-        evidenceForm.set("file", taskEvidence);
         const taskTitle =
           String(result.record?.title ?? body.title ?? "Task").trim() || "Task";
-        evidenceForm.set("title", `${taskTitle.slice(0, 170)} · evidence`);
-        await api.post(
-          orgApiUrl(orgSlug, `task-evidence/${taskId}`),
-          evidenceForm,
-          {
-            headers: { "Content-Type": "multipart/form-data" },
-          },
-        );
+        // One request per file: the API stores and links each document.
+        for (const [index, file] of taskEvidence.entries()) {
+          const evidenceForm = new FormData();
+          evidenceForm.set("file", file);
+          const fileName = file.name.replace(/\.[^.]+$/, "").trim().slice(0, 80) || `${index + 1}`;
+          evidenceForm.set(
+            "title",
+            taskEvidence.length > 1
+              ? `${taskTitle.slice(0, 110)} · ${fileName}`
+              : `${taskTitle.slice(0, 170)} · evidence`,
+          );
+          await api.post(
+            orgApiUrl(orgSlug, `task-evidence/${taskId}`),
+            evidenceForm,
+            {
+              headers: { "Content-Type": "multipart/form-data" },
+            },
+          );
+        }
         await client.invalidateQueries({
           queryKey: ["task-documents", orgSlug, taskId],
         });
@@ -4569,7 +4578,7 @@ function ProjectContent({
     title: string,
     imageType: string,
     categoryId?: string,
-  ) => void;
+  ) => void | Promise<void>;
   uploading: boolean;
   removeImage: (imageId: string) => void;
   onClassifyImage: (imageId: string, categoryId: string) => void;
@@ -7068,7 +7077,7 @@ function EditorDialog({
     taskDocuments?: { documentIds: string[] },
     expenseEvidence?: File,
     assetPhoto?: File,
-    taskEvidence?: File,
+    taskEvidence?: File[],
     qualityBeforePhoto?: File,
     qualityAfterPhoto?: File,
   ) => Promise<void>;
@@ -7805,12 +7814,13 @@ function EditorDialog({
             .filter(Boolean),
         }
       : undefined;
-    const taskEvidenceValue =
-      editor.kind === "task" ? form.get("taskEvidence") : null;
-    const taskEvidence =
-      taskEvidenceValue instanceof File && taskEvidenceValue.size > 0
-        ? taskEvidenceValue
-        : undefined;
+    const taskEvidenceFiles =
+      editor.kind === "task"
+        ? form
+            .getAll("taskEvidence")
+            .filter((value): value is File => value instanceof File && value.size > 0)
+        : [];
+    const taskEvidence = taskEvidenceFiles.length ? taskEvidenceFiles : undefined;
     const expenseEvidenceValue =
       editor.kind === "expense" ? form.get("expenseEvidence") : null;
     const expenseEvidence =
@@ -9811,8 +9821,13 @@ function EditorFields({
           </p>
         )}{" "}
         <Field
-          label={label(fr, "Blocked by / reason", "Blocage / raison")}
+          label={label(fr, "Blocker or difficulty", "Blocage ou difficulté")}
           htmlFor="blockedReason"
+          hint={label(
+            fr,
+            "Optional: what blocks or slows the work (e.g. waiting for funds). Choose the status Blocked if the work is stopped.",
+            "Facultatif : ce qui bloque ou ralentit le travail (ex. attente du financement). Choisissez le statut « Bloquée » si le travail est arrêté.",
+          )}
           className="md:col-span-2"
           error={fieldError("blockedReason")}
         >
@@ -9864,14 +9879,15 @@ function EditorFields({
               htmlFor="taskEvidence"
               hint={label(
                 fr,
-                "PDF or image. It is saved once in the project documents and linked automatically to this task when you save.",
-                "PDF ou image. Il est enregistré une seule fois dans les Documents du projet et lié automatiquement à cette tâche lorsque vous enregistrez.",
+                "PDF or images — you can select several files at once. They are saved in the project documents and linked automatically to this task when you save.",
+                "PDF ou images — vous pouvez sélectionner plusieurs fichiers à la fois. Ils sont enregistrés dans les Documents du projet et liés automatiquement à cette tâche lorsque vous enregistrez.",
               )}
             >
               <Input
                 id="taskEvidence"
                 name="taskEvidence"
                 type="file"
+                multiple
                 accept="application/pdf,image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif"
               />
             </Field>
@@ -16726,9 +16742,10 @@ function ImagePanel({
     title: string,
     imageType: string,
     categoryId?: string,
-  ) => void;
+  ) => void | Promise<void>;
 }) {
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [fileInputKey, setFileInputKey] = useState(0);
   const [title, setTitle] = useState("");
   const [categoryId, setCategoryId] = useState("");
@@ -16865,29 +16882,54 @@ function ImagePanel({
         className="mt-4 flex flex-wrap items-end gap-3 border-t border-border pt-4"
         onSubmit={async (event) => {
           event.preventDefault();
-          if (!file || uploading) return;
-          await onUpload(
-            file,
-            title,
-            selectedCategory?.code ?? "photo",
-            selectedCategory?.id,
-          );
-          setFile(null);
-          setTitle("");
-          setCategoryId("");
-          setFileInputKey((current) => current + 1);
+          if (!files.length || uploading || progress) return;
+          // One upload per image, in order, so each gets its own document.
+          setProgress({ done: 0, total: files.length });
+          try {
+            for (const [index, file] of files.entries()) {
+              const name = file.name.replace(/\.[^.]+$/, "").trim();
+              const imageTitle =
+                files.length === 1
+                  ? title
+                  : title.trim()
+                    ? `${title.trim()} (${index + 1})`
+                    : name;
+              await onUpload(
+                file,
+                imageTitle,
+                selectedCategory?.code ?? "photo",
+                selectedCategory?.id,
+              );
+              setProgress({ done: index + 1, total: files.length });
+            }
+            setFiles([]);
+            setTitle("");
+            setCategoryId("");
+            setFileInputKey((current) => current + 1);
+          } finally {
+            setProgress(null);
+          }
         }}
       >
-        <Field label={label(fr, "Image", "Image")} htmlFor="project-image">
+        <Field
+          label={label(fr, "Images (one or more)", "Images (une ou plusieurs)")}
+          htmlFor="project-image"
+        >
           <Input
+            key={fileInputKey}
             id="project-image"
             type="file"
             accept="image/*"
-            onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+            multiple
+            onChange={(event) => setFiles(Array.from(event.target.files ?? []))}
           />
         </Field>
         <Field
-          label={label(fr, "Title", "Titre")}
+          label={
+            files.length > 1
+              ? label(fr, "Title (optional, numbered)", "Titre (facultatif, numéroté)")
+              : label(fr, "Title", "Titre")
+          }
           htmlFor="project-image-title"
         >
           <Input
@@ -16920,8 +16962,16 @@ function ImagePanel({
             ))}
           </select>
         </Field>
-        <Button type="submit" disabled={!file || uploading} loading={uploading}>
-          {label(fr, "Attach image", "Joindre l’image")}
+        <Button
+          type="submit"
+          disabled={!files.length || uploading || Boolean(progress)}
+          loading={uploading || Boolean(progress)}
+        >
+          {progress
+            ? label(fr, `Uploading ${progress.done}/${progress.total}…`, `Envoi ${progress.done}/${progress.total}…`)
+            : files.length > 1
+              ? label(fr, `Attach ${files.length} images`, `Joindre ${files.length} images`)
+              : label(fr, "Attach image", "Joindre l’image")}
         </Button>
       </form>
     </>
@@ -17228,9 +17278,11 @@ function TaskDetailDialog({
             </section>
           ) : null}
           {detail(["blockedReason"]) ? (
-            <section className="mt-5 rounded-xl border border-warning/35 bg-warning/10 p-4">
+            <section className={`mt-5 rounded-xl border p-4 ${status === "blocked" ? "border-critical/30 bg-critical/10" : "border-warning/35 bg-warning/10"}`}>
               <h3 className="text-sm font-semibold text-ink">
-                {label(fr, "Blocked by / reason", "Blocage / raison")}
+                {status === "blocked"
+                  ? label(fr, "Blocked by", "Bloquée à cause de")
+                  : label(fr, "Difficulty", "Difficulté signalée")}
               </h3>
               <p className="mt-1 text-sm text-ink-secondary">
                 {String(detail(["blockedReason"]))}

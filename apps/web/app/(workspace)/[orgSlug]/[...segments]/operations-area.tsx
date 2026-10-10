@@ -252,6 +252,8 @@ const inventoryMovementIsOutbound = (value: unknown) =>
   ["issue", "adjustment_out", "transfer_out", "maintenance_issue"].includes(
     text(value),
   );
+/** A blocker only applies while the task status is Blocked. */
+const taskIsBlocked = (task: Row) => text(task.status) === "blocked";
 const nice = (value: unknown) =>
   text(value)
     .replace(/_/g, " ")
@@ -2322,14 +2324,23 @@ function SidebarTaskDetailDialog({
     enabled: Boolean(task.projectId),
   });
   const evidenceUpload = useMutation({
-    mutationFn: async (file: File) => {
-      const form = new FormData();
-      form.set("file", file);
+    mutationFn: async (files: File[]) => {
       const taskTitle = text(task.title) || copy(fr, "Task", "Tâche");
-      form.set("title", `${taskTitle.slice(0, 170)} · evidence`);
-      await api.post(orgApiUrl(orgSlug, `task-evidence/${task.id}`), form, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+      // One request per file: each document is stored and linked to the task.
+      for (const [index, file] of files.entries()) {
+        const form = new FormData();
+        form.set("file", file);
+        const fileName = file.name.replace(/\.[^.]+$/, "").trim().slice(0, 80) || `${index + 1}`;
+        form.set(
+          "title",
+          files.length > 1
+            ? `${taskTitle.slice(0, 110)} · ${fileName}`
+            : `${taskTitle.slice(0, 170)} · evidence`,
+        );
+        await api.post(orgApiUrl(orgSlug, `task-evidence/${task.id}`), form, {
+          headers: { "Content-Type": "multipart/form-data" },
+        });
+      }
     },
     onSuccess: async () => {
       setEvidenceError(null);
@@ -2448,9 +2459,11 @@ function SidebarTaskDetailDialog({
             ))}
           </div>
           {text(task.blockedReason) ? (
-            <section className="mt-5 rounded-xl border border-warning/35 bg-warning/10 p-4">
+            <section className={`mt-5 rounded-xl border p-4 ${taskIsBlocked(task) ? "border-critical/30 bg-critical/10" : "border-warning/35 bg-warning/10"}`}>
               <h3 className="text-sm font-semibold text-ink">
-                {copy(fr, "Blocked by / reason", "Blocage / raison")}
+                {taskIsBlocked(task)
+                  ? copy(fr, "Blocked by", "Bloquée à cause de")
+                  : copy(fr, "Difficulty", "Difficulté signalée")}
               </h3>
               <p className="mt-1 text-sm text-ink-secondary">
                 {text(task.blockedReason)}
@@ -2494,19 +2507,20 @@ function SidebarTaskDetailDialog({
                 <p className="mt-1 text-xs leading-5 text-ink-secondary">
                   {copy(
                     fr,
-                    "PDF or image. It is saved in the project documents and linked to this task only once.",
-                    "PDF ou image. Il est enregistré dans les Documents du projet et lié une seule fois à cette tâche.",
+                    "PDF or images — you can select several files at once. They are saved in the project documents and linked to this task.",
+                    "PDF ou images — vous pouvez sélectionner plusieurs fichiers à la fois. Ils sont enregistrés dans les Documents du projet et liés à cette tâche.",
                   )}
                 </p>
                 <Input
                   id={`task-evidence-${task.id}`}
                   className="mt-3"
                   type="file"
+                  multiple
                   accept="application/pdf,image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif"
                   disabled={evidenceUpload.isPending}
                   onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    if (file) evidenceUpload.mutate(file);
+                    const files = Array.from(event.target.files ?? []);
+                    if (files.length) evidenceUpload.mutate(files);
                     event.target.value = "";
                   }}
                 />
@@ -2514,8 +2528,8 @@ function SidebarTaskDetailDialog({
                   <p className="mt-2 text-xs text-ink-secondary">
                     {copy(
                       fr,
-                      "Uploading document…",
-                      "Téléversement du document…",
+                      "Uploading documents…",
+                      "Téléversement des documents…",
                     )}
                   </p>
                 ) : null}
@@ -2849,11 +2863,11 @@ function TasksWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
       )
     : 0;
   const focusTasks = [...activeTasks]
-    .filter((task) => Boolean(text(task.dueDate)) || text(task.blockedReason))
+    .filter((task) => Boolean(text(task.dueDate)) || taskIsBlocked(task))
     .sort((a, b) => {
       if (isOverdue(a) !== isOverdue(b)) return isOverdue(a) ? -1 : 1;
-      if (text(a.blockedReason) !== text(b.blockedReason))
-        return text(a.blockedReason) ? -1 : 1;
+      if (taskIsBlocked(a) !== taskIsBlocked(b))
+        return taskIsBlocked(a) ? -1 : 1;
       return text(a.dueDate).localeCompare(text(b.dueDate));
     })
     .slice(0, 4);
@@ -2988,8 +3002,13 @@ function TasksWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
     },
     {
       key: "blockedReason",
-      label: copy(fr, "Blocker", "Blocage"),
+      label: copy(fr, "Blocker or difficulty", "Blocage ou difficulté"),
       type: "textarea",
+      hint: copy(
+        fr,
+        "Optional: what blocks or slows the work (e.g. waiting for funds). Choose the status Blocked if the work is stopped.",
+        "Facultatif : ce qui bloque ou ralentit le travail (ex. attente du financement). Choisissez le statut « Bloquée » si le travail est arrêté.",
+      ),
     },
     { key: "notes", label: copy(fr, "Notes", "Notes"), type: "textarea" },
   ];
@@ -3413,9 +3432,12 @@ function TasksWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
                         </dl>
 
                         {text(task.blockedReason) ? (
-                          <p className="mt-4 rounded-lg border border-critical/20 bg-critical/10 px-3 py-2 text-xs leading-5 text-critical">
+                          <p className={`mt-4 rounded-lg border px-3 py-2 text-xs leading-5 ${taskIsBlocked(task) ? "border-critical/20 bg-critical/10 text-critical" : "border-warning/30 bg-warning/10 text-warning-ink"}`}>
                             <span className="font-semibold">
-                              {copy(fr, "Blocked", "Bloquée")}:
+                              {taskIsBlocked(task)
+                                ? copy(fr, "Blocked", "Bloquée")
+                                : copy(fr, "Difficulty", "Difficulté")}
+                              :
                             </span>{" "}
                             {text(task.blockedReason)}
                           </p>
@@ -3546,7 +3568,7 @@ function TasksWorkspace({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
                             copy(fr, "Company work", "Travail d’entreprise")}
                       </p>
                       <p className="mt-1 text-xs text-blue-100/80">
-                        {text(task.blockedReason)
+                        {taskIsBlocked(task)
                           ? copy(fr, "Blocked", "Bloquée")
                           : `${copy(fr, "Due", "Échéance")}: ${date(task.dueDate)}`}
                       </p>
