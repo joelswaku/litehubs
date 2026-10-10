@@ -34,6 +34,7 @@ import { Field, Input, Textarea } from "@/components/ui/input";
 import { EmptyState, ErrorState, SkeletonCard } from "@/components/ui/states";
 import { api, get, orgUrl, patch, post, put } from "@/lib/api";
 import { useLanguage } from "@/providers/language-provider";
+import { AiInstructionsDialog } from "@/components/ai/ai-instructions-dialog";
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
@@ -175,6 +176,7 @@ export function MailArea({ orgSlug }: { orgSlug: string }) {
   const [openUid, setOpenUid] = useState<number | null>(null);
   const [compose, setCompose] = useState<ComposeDraft | null>(null);
   const [settings, setSettings] = useState<Mailbox | "new" | null>(null);
+  const [aiRules, setAiRules] = useState(false);
 
   const mailboxes = useQuery({
     queryKey: ["mailboxes", orgSlug],
@@ -370,6 +372,12 @@ export function MailArea({ orgSlug }: { orgSlug: string }) {
             <Button variant="secondary" size="sm" onClick={refreshLists} title={tr(fr, "Actualiser", "Refresh")}>
               <RefreshCw className={`size-3.5 ${messages.isFetching ? "animate-spin" : ""}`} />
               <span className="hidden sm:inline">{tr(fr, "Actualiser", "Refresh")}</span>
+            </Button>
+          ) : null}
+          {data.canManage ? (
+            <Button variant="secondary" size="sm" onClick={() => setAiRules(true)} title={tr(fr, "Consignes pour l’IA", "AI instructions")}>
+              <Sparkles className="size-3.5" />
+              <span className="hidden sm:inline">{tr(fr, "Consignes IA", "AI instructions")}</span>
             </Button>
           ) : null}
           {data.canManage ? (
@@ -822,6 +830,7 @@ export function MailArea({ orgSlug }: { orgSlug: string }) {
           }}
         />
       ) : null}
+      {aiRules ? <AiInstructionsDialog orgSlug={orgSlug} fr={fr} onClose={() => setAiRules(false)} /> : null}
       {settings && data.canManage ? (
         <MailboxSettingsDialog
           orgSlug={orgSlug}

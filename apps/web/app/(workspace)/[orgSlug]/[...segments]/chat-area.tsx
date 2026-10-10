@@ -20,6 +20,7 @@ import {
   Send,
   Settings2,
   ShieldCheck,
+  Sparkles,
   Trash2,
   UserRound,
   UsersRound,
@@ -30,6 +31,7 @@ import { Button } from "@/components/ui/button";
 import { EmptyState, ErrorState, SkeletonCard } from "@/components/ui/states";
 import { api, del, get, orgUrl, patch, post, put } from "@/lib/api";
 import { useLanguage } from "@/providers/language-provider";
+import { AiInstructionsDialog } from "@/components/ai/ai-instructions-dialog";
 
 type Overview = {
   visitors?: { enabled: boolean; pending: number } | null;
@@ -101,6 +103,7 @@ export function ChatArea({ orgSlug }: { orgSlug: string }) {
   const [picker, setPicker] = useState(false);
   const [settings, setSettings] = useState(false);
   const [tab, setTab] = useState<"team" | "visitors">("team");
+  const [aiRules, setAiRules] = useState(false);
   const [visitor, setVisitor] = useState<string | null>(null);
 
   const overview = useQuery({
@@ -173,9 +176,14 @@ export function ChatArea({ orgSlug }: { orgSlug: string }) {
             <h1 className="text-lg font-semibold text-ink">{tr(fr, "Chat", "Chat")}</h1>
           </div>
           {data.me.isOwner || data.me.canModerate ? (
-            <Button size="icon-sm" variant="ghost" title={tr(fr, "Accès au chat", "Chat access")} onClick={() => setSettings(true)}>
-              <Settings2 className="size-4" />
-            </Button>
+            <div className="flex items-center gap-1">
+              <Button size="icon-sm" variant="ghost" title={tr(fr, "Consignes pour l’IA", "AI instructions")} onClick={() => setAiRules(true)}>
+                <Sparkles className="size-4" />
+              </Button>
+              <Button size="icon-sm" variant="ghost" title={tr(fr, "Accès au chat", "Chat access")} onClick={() => setSettings(true)}>
+                <Settings2 className="size-4" />
+              </Button>
+            </div>
           ) : null}
         </div>
         {data.visitors ? (
@@ -316,6 +324,7 @@ export function ChatArea({ orgSlug }: { orgSlug: string }) {
           <MemberPicker members={data.members} fr={fr} onPick={(id) => openDirection.mutate(id)} />
         </Dialog>
       ) : null}
+      {aiRules ? <AiInstructionsDialog orgSlug={orgSlug} fr={fr} onClose={() => setAiRules(false)} /> : null}
       {settings && data.me.isOwner ? <AccessDialog orgSlug={orgSlug} fr={fr} onClose={() => setSettings(false)} /> : null}
       {settings && !data.me.isOwner ? (
         <LabelDialog
@@ -904,6 +913,7 @@ function AccessDialog({ orgSlug, fr, onClose }: { orgSlug: string; fr: boolean; 
   const [rows, setRows] = useState<Member[] | null>(null);
   const [rules, setRules] = useState<Settings>({ allowImages: true, allowDocuments: true, teamReadOnly: false, directionLabel: "Direction" });
   const [search, setSearch] = useState("");
+  const [aiRules, setAiRules] = useState(false);
   useEffect(() => {
     if (access.data) {
       setRows(access.data.members);
@@ -913,7 +923,8 @@ function AccessDialog({ orgSlug, fr, onClose }: { orgSlug: string; fr: boolean; 
   const save = useMutation({
     mutationFn: () =>
       put(orgUrl(orgSlug, "chat/access"), {
-        settings: rules,
+        // The AI knowledge text is edited in its own dialog.
+        settings: { ...rules, websiteKnowledge: undefined },
         members: (rows ?? [])
           .filter((row) => !row.locked)
           .map((row) => ({
@@ -935,6 +946,7 @@ function AccessDialog({ orgSlug, fr, onClose }: { orgSlug: string; fr: boolean; 
     setRows((current) => (current ?? []).map((row) => (row.id === id ? { ...row, [key]: !row[key] } : row)));
   return (
     <Dialog title={tr(fr, "Accès au chat", "Chat access")} onClose={onClose} wide>
+      {aiRules ? <AiInstructionsDialog orgSlug={orgSlug} fr={fr} focus="website" onClose={() => setAiRules(false)} /> : null}
       <div className="space-y-3 p-5">
         <p className="text-xs leading-5 text-ink-secondary">
           {tr(
@@ -1004,28 +1016,14 @@ function AccessDialog({ orgSlug, fr, onClose }: { orgSlug: string; fr: boolean; 
               placeholder={tr(fr, "Bonjour 👋 Comment pouvons-nous vous aider ?", "Hello 👋 How can we help?")}
             />
           </label>
-          <label className="block text-xs font-medium text-ink-secondary">
-            {tr(fr, "Informations pour l’IA (facultatif)", "Information for the AI (optional)")}
-            <textarea
-              value={rules.websiteKnowledge ?? ""}
-              maxLength={6000}
-              rows={4}
-              onChange={(event) => setRules({ ...rules, websiteKnowledge: event.target.value })}
-              className="mt-1 w-full rounded-lg border border-border-strong bg-surface-1 px-3 py-2 text-sm text-ink"
-              placeholder={tr(
-                fr,
-                "Ex. : horaires, zones de livraison, modes de paiement, adresse des fermes, conditions de commande…",
-                "E.g. opening hours, delivery areas, payment methods, farm addresses, order conditions…",
-              )}
-            />
-            <span className="mt-1 block font-normal text-ink-muted">
-              {tr(
-                fr,
-                "L’IA utilise aussi le contenu publié du site et les produits disponibles avec leurs prix (Ventes). Elle n’invente pas de prix.",
-                "The AI also uses the published website content and available products with prices (Sales). It never invents prices.",
-              )}
-            </span>
-          </label>
+          <button
+            type="button"
+            onClick={() => setAiRules(true)}
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand hover:underline"
+          >
+            <Sparkles className="size-3.5" />
+            {tr(fr, "Consignes pour l’IA (site et e-mails)…", "AI instructions (website and e-mails)…")}
+          </button>
         </div>
         <input
           value={search}
