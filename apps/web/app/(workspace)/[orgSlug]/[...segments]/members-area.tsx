@@ -720,6 +720,18 @@ const systemRoleCopy: Record<
     en: { name: string; description: string };
   }
 > = {
+  social_media_manager: {
+    fr: {
+      name: "Service client et réseaux sociaux",
+      description:
+        "Répond aux clients dans Chat → Clients (site, Messenger, Instagram), publie sur Facebook et Instagram et répond aux commentaires. Ne peut pas connecter ni déconnecter la Page, ni voir le reste de l’entreprise.",
+    },
+    en: {
+      name: "Customer service & social media",
+      description:
+        "Answers customers in Chat → Customers (website, Messenger, Instagram), posts on Facebook and Instagram and answers comments. Cannot connect or disconnect the Page or see the rest of the company.",
+    },
+  },
   website_manager: {
     fr: {
       name: "Gestionnaire du site web",

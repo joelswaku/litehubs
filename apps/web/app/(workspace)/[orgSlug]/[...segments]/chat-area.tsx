@@ -897,6 +897,7 @@ function AccessDialog({ orgSlug, fr, onClose }: { orgSlug: string; fr: boolean; 
     blocked: boolean;
     noFiles: boolean;
     canWebsite: boolean;
+    websiteByRole?: boolean;
   };
   type Settings = {
     allowImages: boolean;
@@ -1065,7 +1066,7 @@ function AccessDialog({ orgSlug, fr, onClose }: { orgSlug: string; fr: boolean; 
                         <span key={key} className="text-center">
                           <input
                             type="checkbox"
-                            disabled={key === "canWebsite" ? row.role === "owner" : row.locked}
+                            disabled={key === "canWebsite" ? row.role === "owner" || Boolean(row.websiteByRole) : row.locked}
                             checked={row[key]}
                             onChange={() => toggle(row.id, key)}
                             aria-label={key}
@@ -1081,8 +1082,8 @@ function AccessDialog({ orgSlug, fr, onClose }: { orgSlug: string; fr: boolean; 
         <p className="text-[11px] leading-4 text-ink-muted">
           {tr(
             fr,
-            "Service client : voit l’onglet « Clients du site » et reçoit les alertes des visiteurs. Si personne n’est coché, seul le propriétaire les reçoit. Bloqué : n’a plus accès au chat d’équipe, mais peut toujours écrire à la direction en privé. Les restrictions ne s’appliquent pas aux modérateurs ni à la direction.",
-            "Customer service: sees the “Website” tab and receives visitor alerts. If nobody is ticked, only the owner receives them. Blocked: no access to the team chat, but can still write privately to management. Restrictions do not apply to moderators or management.",
+            "Service client : voit l’onglet « Clients du site » et reçoit les alertes des visiteurs. Le rôle « Service client et réseaux sociaux » l’a automatiquement. Si personne n’est coché, seul le propriétaire les reçoit. Bloqué : n’a plus accès au chat d’équipe, mais peut toujours écrire à la direction en privé. Les restrictions ne s’appliquent pas aux modérateurs ni à la direction.",
+            "Customer service: sees the “Website” tab and receives visitor alerts. The “Customer service & social media” role always has it. If nobody is ticked, only the owner receives them. Blocked: no access to the team chat, but can still write privately to management. Restrictions do not apply to moderators or management.",
           )}
         </p>
         <div className="flex justify-end gap-2">

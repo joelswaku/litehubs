@@ -72,6 +72,8 @@ export async function rightsOf(client: PoolClient, context: ChatContext): Promis
     `SELECT
        EXISTS (SELECT 1 FROM member_roles mr JOIN roles r ON r.organization_id=mr.organization_id AND r.id=mr.role_id
                 WHERE mr.organization_id=$1 AND mr.member_id=$2 AND r.code='general_manager') AS manager,
+       EXISTS (SELECT 1 FROM member_roles mr JOIN roles r ON r.organization_id=mr.organization_id AND r.id=mr.role_id
+                WHERE mr.organization_id=$1 AND mr.member_id=$2 AND r.code='social_media_manager') AS service_role,
        ca.can_moderate,ca.can_read_direction,ca.muted,ca.blocked,ca.no_files,ca.can_website
        FROM (SELECT 1) one
        LEFT JOIN chat_access ca ON ca.organization_id=$1 AND ca.member_id=$2`,
@@ -88,7 +90,8 @@ export async function rightsOf(client: PoolClient, context: ChatContext): Promis
     muted: !staff && Boolean(row?.muted),
     blocked: !staff && Boolean(row?.blocked),
     noFiles: !staff && Boolean(row?.no_files),
-    website: Boolean(row?.can_website),
+    // The "Service client & réseaux sociaux" role always answers customers.
+    website: Boolean(row?.service_role || row?.can_website),
     settings,
   };
 }
@@ -130,8 +133,11 @@ export async function directionStaff(client: PoolClient, organizationId: string)
 export async function customerServiceStaff(client: PoolClient, organizationId: string) {
   const result = await client.query<{ member_id: string }>(
     `SELECT m.id AS member_id FROM organization_members m
-       JOIN chat_access ca ON ca.organization_id=m.organization_id AND ca.member_id=m.id
-      WHERE m.organization_id=$1 AND m.status='active' AND ca.can_website`,
+       LEFT JOIN chat_access ca ON ca.organization_id=m.organization_id AND ca.member_id=m.id
+      WHERE m.organization_id=$1 AND m.status='active'
+        AND (ca.can_website OR EXISTS (
+              SELECT 1 FROM member_roles mr JOIN roles r ON r.organization_id=mr.organization_id AND r.id=mr.role_id
+               WHERE mr.organization_id=m.organization_id AND mr.member_id=m.id AND r.code='social_media_manager'))`,
     [organizationId],
   );
   if (result.rows.length) return result.rows.map((row) => row.member_id);
@@ -557,6 +563,8 @@ export async function getAccess(context: ChatContext) {
       `SELECT m.id,${memberName} AS name,m.is_owner,
               EXISTS (SELECT 1 FROM member_roles mr JOIN roles r ON r.organization_id=mr.organization_id AND r.id=mr.role_id
                        WHERE mr.organization_id=m.organization_id AND mr.member_id=m.id AND r.code='general_manager') AS manager,
+              EXISTS (SELECT 1 FROM member_roles mr JOIN roles r ON r.organization_id=mr.organization_id AND r.id=mr.role_id
+                       WHERE mr.organization_id=m.organization_id AND mr.member_id=m.id AND r.code='social_media_manager') AS service_role,
               COALESCE(ca.can_moderate,false) AS can_moderate,COALESCE(ca.can_read_direction,false) AS can_read_direction,
               COALESCE(ca.muted,false) AS muted,COALESCE(ca.blocked,false) AS blocked,COALESCE(ca.no_files,false) AS no_files,
               COALESCE(ca.can_website,false) AS can_website
@@ -578,7 +586,9 @@ export async function getAccess(context: ChatContext) {
         muted: Boolean(row.muted),
         blocked: Boolean(row.blocked),
         noFiles: Boolean(row.no_files),
-        canWebsite: Boolean(row.is_owner || row.can_website),
+        canWebsite: Boolean(row.is_owner || row.service_role || row.can_website),
+        // Given by the role: shown ticked and not editable here.
+        websiteByRole: Boolean(row.service_role),
       })),
     };
   });
