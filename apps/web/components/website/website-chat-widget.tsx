@@ -272,14 +272,14 @@ export function WebsiteChatWidget({
               <p className="text-sm font-semibold">{t.humanTitle}</p>
               <p className="text-xs text-slate-500">{t.humanHint}</p>
               <input
-                className="w-full rounded-lg border border-black/15 px-3 py-2 text-sm outline-none focus:border-black/40"
+                className="w-full rounded-lg border border-black/15 px-3 py-2 text-base outline-none focus:border-black/40"
                 placeholder={t.name}
                 maxLength={120}
                 value={contact.name}
                 onChange={(event) => setContact({ ...contact, name: event.target.value })}
               />
               <input
-                className="w-full rounded-lg border border-black/15 px-3 py-2 text-sm outline-none focus:border-black/40"
+                className="w-full rounded-lg border border-black/15 px-3 py-2 text-base outline-none focus:border-black/40"
                 placeholder={t.phone}
                 inputMode="tel"
                 maxLength={40}
@@ -287,7 +287,7 @@ export function WebsiteChatWidget({
                 onChange={(event) => setContact({ ...contact, phone: event.target.value })}
               />
               <input
-                className="w-full rounded-lg border border-black/15 px-3 py-2 text-sm outline-none focus:border-black/40"
+                className="w-full rounded-lg border border-black/15 px-3 py-2 text-base outline-none focus:border-black/40"
                 placeholder={t.email}
                 type="email"
                 maxLength={200}
@@ -342,7 +342,7 @@ export function WebsiteChatWidget({
                   }}
                   placeholder={t.placeholder}
                   aria-label={t.placeholder}
-                  className="max-h-28 min-h-[40px] flex-1 resize-none rounded-xl border border-black/15 px-3 py-2 text-sm outline-none focus:border-black/40"
+                  className="max-h-28 min-h-[40px] flex-1 resize-none rounded-xl border border-black/15 px-3 py-2 text-base outline-none focus:border-black/40"
                 />
                 <button
                   type="submit"
