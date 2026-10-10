@@ -290,7 +290,10 @@ export async function processWebhook(body: WebhookBody) {
   if (!channel) return;
   for (const entry of body.entry ?? []) {
     const found = entry.id ? await lookup(entry.id) : null;
-    if (!found) continue;
+    if (!found) {
+      logger.warn({ object: body.object, entry: entry.id }, "Meta webhook for a Page or Instagram account not connected in LiteHubs");
+      continue;
+    }
     for (const event of entry.messaging ?? []) {
       try {
         await handleMessage(found, channel, event);

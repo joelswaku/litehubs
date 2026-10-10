@@ -275,7 +275,9 @@ function ProductDialog({ orgSlug, fr, product, categories, onClose }: { orgSlug:
     try {
       const body = new FormData();
       body.append("file", file);
-      const { data } = await api.post<{ url: string }>(orgUrl(orgSlug, "shop/images"), body);
+      const { data } = await api.post<{ url: string }>(orgUrl(orgSlug, "shop/images"), body, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
       setForm((current) => ({ ...current, imageUrl: data.url }));
     } catch (error) {
       toast.error(errorMessage(error));

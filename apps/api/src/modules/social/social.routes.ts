@@ -118,6 +118,11 @@ socialRoutes.get("/public/meta/webhook", metaLimiter, (req, res) => {
 
 socialRoutes.post("/public/meta/webhook", metaLimiter, (req, res) => {
   const raw = (req as Request & { rawBody?: Buffer }).rawBody;
+  const payload = (req.body ?? {}) as { object?: string; entry?: Array<{ id?: string }> };
+  logger.info(
+    { object: payload.object, entries: (payload.entry ?? []).map((entry) => entry.id), bytes: raw?.length ?? 0 },
+    "Meta webhook received",
+  );
   if (!validSignature(raw, req.get("x-hub-signature-256") ?? undefined)) {
     logger.warn("Meta webhook with an invalid signature");
     res.sendStatus(401);

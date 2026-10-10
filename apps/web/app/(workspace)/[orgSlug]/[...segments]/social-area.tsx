@@ -382,7 +382,9 @@ function Posts({ orgSlug, fr, account }: { orgSlug: string; fr: boolean; account
     try {
       const form = new FormData();
       form.append("file", file);
-      const { data } = await api.post<{ url: string }>(orgUrl(orgSlug, "social/images"), form);
+      const { data } = await api.post<{ url: string }>(orgUrl(orgSlug, "social/images"), form, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
       setImageUrl(data.url);
     } catch (error) {
       toast.error(errorMessage(error));
