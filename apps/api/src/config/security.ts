@@ -50,19 +50,11 @@ export const realClientIp: RequestHandler = (req, _res, next) => {
   next();
 };
 
-/** Broad limiter for the whole API surface (per visitor). */
-export const apiRateLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  // The workspace polls chat, notifications and lists in the background.
-  limit: env.isProduction ? 3_000 : 10_000,
-  // Meta delivers webhooks from a few shared servers; they have their own limiter.
-  skip: (req) => req.originalUrl.startsWith("/api/v1/public/meta/webhook"),
-  standardHeaders: "draft-7",
-  legacyHeaders: false,
-  message: {
-    error: { code: "TOO_MANY_REQUESTS", message: "Too many requests" },
-  },
-});
+/*
+ * No global limiter: the workspace polls chat, notifications and lists, and a
+ * blanket cap only blocked real users.  Limits stay where they matter: sign-in,
+ * password recovery, onboarding and the public forms (each in its own route).
+ */
 
 /**
  * Credential limits are intentionally separate by journey. A few incorrect
@@ -103,6 +95,5 @@ export function securityMiddleware(): RequestHandler[] {
     cors(corsOptions),
     compression(),
     cookieParser(),
-    apiRateLimiter,
   ];
 }
