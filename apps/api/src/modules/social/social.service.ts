@@ -79,9 +79,13 @@ export function connectUrl(context: ChatContext) {
     client_id: env.meta.appId!,
     redirect_uri: oauthCallbackUrl(),
     state: signState({ o: context.organizationId, m: context.memberId, u: context.userId, s: context.organizationSlug }),
-    scope: SCOPES.join(","),
     response_type: "code",
   });
+  // Facebook Login for Business uses a saved configuration instead of scopes.
+  if (env.meta.loginConfigId) {
+    params.set("config_id", env.meta.loginConfigId);
+    params.set("override_default_response_type", "true");
+  } else params.set("scope", SCOPES.join(","));
   return { url: `${env.meta.dialogUrl}?${params.toString()}` };
 }
 

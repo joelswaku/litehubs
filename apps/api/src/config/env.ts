@@ -76,6 +76,8 @@ const schema = z
     META_APP_ID: z.string().trim().min(1).optional(),
     META_APP_SECRET: z.string().trim().min(1).optional(),
     META_WEBHOOK_VERIFY_TOKEN: z.string().trim().min(8).optional(),
+    // Optional: "Facebook Login for Business" configuration (replaces scope).
+    META_LOGIN_CONFIG_ID: z.string().trim().min(1).optional(),
     META_GRAPH_VERSION: z.string().trim().regex(/^v\d+\.\d+$/).default("v26.0"),
     META_GRAPH_BASE_URL: z.string().trim().url().optional(),
     OPENAI_API_KEY: z.string().trim().min(1).optional(),
@@ -261,6 +263,7 @@ export const env = {
     appId: config.META_APP_ID,
     appSecret: config.META_APP_SECRET,
     verifyToken: config.META_WEBHOOK_VERIFY_TOKEN,
+    loginConfigId: config.META_LOGIN_CONFIG_ID,
     graphUrl: `${(config.META_GRAPH_BASE_URL ?? "https://graph.facebook.com").replace(/\/$/, "")}/${config.META_GRAPH_VERSION}`,
     dialogUrl: `https://www.facebook.com/${config.META_GRAPH_VERSION}/dialog/oauth`,
   },
