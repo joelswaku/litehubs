@@ -56,7 +56,7 @@ const copy = {
     typing: "Rédaction de la réponse…",
     error: "Message non envoyé. Réessayez.",
     waiting: "L’équipe a été prévenue.",
-    closed: "Conversation terminée. Vous pouvez encore écrire ici ou",
+    closed: "Conversation terminée. Elle sera effacée quand vous fermerez le chat. Vous pouvez encore écrire ici ou",
     restart: "en commencer une nouvelle",
   },
   en: {
@@ -78,7 +78,7 @@ const copy = {
     typing: "Writing a reply…",
     error: "Message not sent. Please try again.",
     waiting: "The team has been notified.",
-    closed: "Conversation closed. You can still write here or",
+    closed: "Conversation closed. It will be cleared when you close the chat. You can still write here or",
     restart: "start a new one",
   },
 };
@@ -107,6 +107,8 @@ export function WebsiteChatWidget({
   const [contact, setContact] = React.useState({ name: "", phone: "", email: "" });
   const [seen, setSeen] = React.useState(0);
   const listRef = React.useRef<HTMLDivElement>(null);
+  const openRef = React.useRef(false);
+  openRef.current = open;
   const base = `/public/website-chat/${encodeURIComponent(site)}`;
 
   React.useEffect(() => {
@@ -124,6 +126,14 @@ export function WebsiteChatWidget({
     async (current: string) => {
       try {
         const data = await get<Thread>(`${base}/sessions/${current}/messages`);
+        // A finished conversation is cleared from the visitor's browser once
+        // they are not looking at it (the team keeps the full history).
+        if (data.session.status === "closed" && !openRef.current) {
+          writeToken(site, null);
+          setToken(null);
+          setThread(null);
+          return;
+        }
         setThread(data);
       } catch (cause) {
         // Unknown or expired conversation: start a new one next time.
@@ -225,6 +235,10 @@ export function WebsiteChatWidget({
     setThread(null);
     setError(null);
   };
+  const closeWidget = () => {
+    setOpen(false);
+    if (closed) restart();
+  };
   const thinking = sending && info.assistant && (thread?.session.mode ?? "ai") === "ai" && !askHuman;
 
   return (
@@ -241,7 +255,7 @@ export function WebsiteChatWidget({
             </div>
             <button
               type="button"
-              onClick={() => setOpen(false)}
+              onClick={closeWidget}
               aria-label="Fermer"
               className="rounded-full p-1 text-white/90 transition hover:bg-white/15"
             >
@@ -380,7 +394,7 @@ export function WebsiteChatWidget({
 
       <button
         type="button"
-        onClick={() => setOpen((value) => !value)}
+        onClick={() => (open ? closeWidget() : setOpen(true))}
         aria-label={open ? "Fermer" : t.open}
         className="relative inline-flex items-center gap-2 rounded-full px-4 py-3 font-semibold text-white shadow-xl transition hover:brightness-110"
         style={{ background: color }}
