@@ -56,6 +56,8 @@ const copy = {
     typing: "Rédaction de la réponse…",
     error: "Message non envoyé. Réessayez.",
     waiting: "L’équipe a été prévenue.",
+    closed: "Conversation terminée. Vous pouvez encore écrire ici ou",
+    restart: "en commencer une nouvelle",
   },
   en: {
     open: "Chat with us",
@@ -76,6 +78,8 @@ const copy = {
     typing: "Writing a reply…",
     error: "Message not sent. Please try again.",
     waiting: "The team has been notified.",
+    closed: "Conversation closed. You can still write here or",
+    restart: "start a new one",
   },
 };
 
@@ -213,7 +217,14 @@ export function WebsiteChatWidget({
   const messages: ChatMessage[] =
     thread?.messages ?? [{ id: "welcome", from: "system", name: null, body: info.welcome, createdAt: "" }];
   const unread = !open && incoming > seen;
-  const showHumanButton = !thread?.session.needsHuman && thread?.session.mode !== "human";
+  const closed = thread?.session.status === "closed";
+  const showHumanButton = !closed && !thread?.session.needsHuman && thread?.session.mode !== "human";
+  const restart = () => {
+    writeToken(site, null);
+    setToken(null);
+    setThread(null);
+    setError(null);
+  };
   const thinking = sending && info.assistant && (thread?.session.mode ?? "ai") === "ai" && !askHuman;
 
   return (
@@ -315,7 +326,15 @@ export function WebsiteChatWidget({
             </form>
           ) : (
             <div className="border-t border-black/10 bg-white p-2">
-              {showHumanButton ? (
+              {closed ? (
+                <p className="mb-2 px-1 text-xs text-slate-500">
+                  {t.closed}{" "}
+                  <button type="button" onClick={restart} className="font-semibold underline" style={{ color }}>
+                    {t.restart}
+                  </button>
+                  .
+                </p>
+              ) : showHumanButton ? (
                 <button
                   type="button"
                   onClick={() => setAskHuman(true)}
