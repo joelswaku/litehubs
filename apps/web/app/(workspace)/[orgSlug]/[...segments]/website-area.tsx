@@ -232,6 +232,7 @@ const sectionLabels: Record<SectionType, [string, string]> = {
   contact: ["Contact", "Contact"],
   container: ["Div", "Div"],
   shop: ["Boutique (produits)", "Shop (products)"],
+  legal: ["Politique de confidentialité", "Privacy policy"],
 };
 const sectionHints: Record<SectionType, [string, string]> = {
   hero: ["Grande image, titre et boutons en haut de page.", "Large image, title and buttons at the top."],
@@ -245,6 +246,7 @@ const sectionHints: Record<SectionType, [string, string]> = {
   careers: ["Lien vers les offres d’emploi.", "Link to job openings."],
   contact: ["Coordonnées et formulaire de contact.", "Contact details and form."],
   shop: ["Les produits mis en vente dans LiteHubs → Boutique en ligne, avec panier et commande.", "Products published in LiteHubs → Online shop, with cart and ordering."],
+  legal: ["Texte légal intégré (page /confidentialite).", "Built-in legal text (/confidentialite page)."],
   container: ["Un div vide : réglez son fond, sa taille, sa bordure… puis ajoutez dedans textes, images, boutons, carrousels ou d’autres divs.", "An empty div: set its background, size, border… then add texts, images, buttons, carousels or other divs inside."],
 };
 
@@ -4030,7 +4032,7 @@ function VisualBuilderTab({
                   {tr(fr, "Blocs prêts à remplir", "Ready-made blocks")}
                 </p>
                 {(Object.keys(sectionLabels) as SectionType[])
-                  .filter((type) => type !== "container")
+                  .filter((type) => type !== "container" && type !== "legal")
                   .map((type) => (
                     <button
                       key={type}

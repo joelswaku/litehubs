@@ -2,6 +2,7 @@
 
 import { WebsiteChatWidget } from "./website-chat-widget";
 import { WebsiteShop } from "./website-shop";
+import { PRIVACY_PATH, legalOwnerForHost, type LegalContent } from "./privacy-policy";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -71,7 +72,8 @@ export type WebsiteSection = {
     | "careers"
     | "contact"
     | "container"
-    | "shop";
+    | "shop"
+    | "legal";
   content: Record<string, unknown>;
   sort_order: number;
 };
@@ -1707,6 +1709,41 @@ function PublicSection({
           </div>
         </section>
       );
+    case "legal": {
+      const legal = section.content as unknown as LegalContent;
+      const fr = language === "fr";
+      return (
+        <section className="mx-auto max-w-3xl px-5 py-16 sm:px-8 sm:py-24">
+          <h1 className="text-3xl font-semibold tracking-[-.03em] text-slate-950 sm:text-4xl">
+            {fr ? legal.title_fr : legal.title_en}
+          </h1>
+          <p className="mt-3 text-sm text-slate-500">{fr ? legal.updated_fr : legal.updated_en}</p>
+          <p className="mt-8 text-base leading-7 text-slate-700">{fr ? legal.intro_fr : legal.intro_en}</p>
+          {(legal.blocks ?? []).map((block) => {
+            const items = (fr ? block.items_fr : block.items_en) ?? [];
+            return (
+              <div key={block.id} id={block.id} className="mt-10 scroll-mt-24">
+                <h2 className="text-xl font-semibold tracking-[-.02em] text-slate-950">
+                  {fr ? block.title_fr : block.title_en}
+                </h2>
+                {(fr ? block.paragraphs_fr : block.paragraphs_en).map((paragraph, index) => (
+                  <p key={index} className="mt-3 text-[15px] leading-7 text-slate-700">
+                    {paragraph}
+                  </p>
+                ))}
+                {items.length ? (
+                  <ul className="mt-3 list-disc space-y-2 pl-5 text-[15px] leading-7 text-slate-700">
+                    {items.map((item, index) => (
+                      <li key={index}>{item}</li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            );
+          })}
+        </section>
+      );
+    }
     case "shop":
       return (
         <section id="boutique" className="mx-auto max-w-[1400px] px-5 py-12 sm:px-8 sm:py-16">
@@ -2405,6 +2442,9 @@ export function PublicWebsiteRenderer({
     website.navigation.find((item) => item.slug === "accueil")?.slug ??
     website.navigation[0]?.slug ??
     "accueil";
+  // Built-in privacy policy (and legal owner) on the company's own domain.
+  const legalOwner = legalOwnerForHost(contactDomain);
+  const privacyHref = contactDomain && !editor ? PRIVACY_PATH : null;
   const pageLink = (slug: string) =>
     slug === homeSlug || slug === "accueil"
       ? siteBase || "/"
@@ -2818,7 +2858,9 @@ export function PublicWebsiteRenderer({
                   : undefined
               }
               initial={
-                reduceMotion || editor
+                // A long legal text is taller than the screen: the reveal
+                // threshold would never be reached, so show it directly.
+                reduceMotion || editor || section.section_type === "legal"
                   ? false
                   : { opacity: 0, y: index === 0 ? 0 : 22 }
               }
@@ -2895,9 +2937,21 @@ export function PublicWebsiteRenderer({
           ))}
       </div>
       {useZones ? (
-        zones.footer && !zones.footer.hidden && footerVariant !== "hidden" ? (
-          zoneView("footer")
-        ) : null
+        <>
+          {zones.footer && !zones.footer.hidden && footerVariant !== "hidden" ? zoneView("footer") : null}
+          {privacyHref ? (
+            // Custom footers are designed in the editor; keep the legal
+            // owner and the privacy policy reachable on every page.
+            <div className="wb-legal-bar border-t border-slate-200 bg-white px-5 py-4 text-center text-xs text-slate-500 sm:px-8">
+              © {new Date().getFullYear()} {website.display_name}
+              {legalOwner ? (language === "fr" ? ` — une marque de ${legalOwner}` : ` — a brand of ${legalOwner}`) : ""}
+              <span className="mx-2 text-slate-300">·</span>
+              <a className="underline-offset-2 hover:text-slate-800 hover:underline" href={privacyHref}>
+                {language === "fr" ? "Politique de confidentialité" : "Privacy policy"}
+              </a>
+            </div>
+          ) : null}
+        </>
       ) : footerVariant === "hidden" ? null : (
       <footer className="wb-footer mt-16 overflow-hidden bg-slate-950 px-5 pb-7 pt-14 text-white/65 sm:px-8 sm:pt-20">
         <div className="wb-footer-main mx-auto grid max-w-[1400px] gap-12 lg:grid-cols-[1.25fr_.8fr_.9fr_1.1fr]">
@@ -3026,10 +3080,16 @@ export function PublicWebsiteRenderer({
         </div>
         <div className="mx-auto mt-14 flex max-w-[1400px] flex-col gap-3 border-t border-white/10 pt-6 text-xs sm:flex-row sm:items-center sm:justify-between">
           <p>
-            © {new Date().getFullYear()} {website.display_name}.{" "}
+            © {new Date().getFullYear()} {website.display_name}
+            {legalOwner ? (language === "fr" ? ` — une marque de ${legalOwner}` : ` — a brand of ${legalOwner}`) : ""}.{" "}
             {copy[language].allRights}
           </p>
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center gap-4">
+            {privacyHref ? (
+              <a className="transition hover:text-white" href={privacyHref}>
+                {language === "fr" ? "Confidentialité" : "Privacy"}
+              </a>
+            ) : null}
             <a className="transition hover:text-white" href="#contact">
               {language === "fr" ? "Contact" : "Contact"}
             </a>

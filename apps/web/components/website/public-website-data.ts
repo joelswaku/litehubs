@@ -92,6 +92,7 @@ const sectionTypes = new Set<PublicWebsitePage["sections"][number]["section_type
   "careers",
   "contact",
   "shop",
+  "legal",
 ]);
 
 export function publicWebsiteRendererData(data: PublicWebsiteRendererSource): {

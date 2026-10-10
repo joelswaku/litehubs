@@ -5,6 +5,11 @@ import { PublicWebsiteRenderer } from "@/components/website/public-website-rende
 import { publicWebsiteRendererData } from "@/components/website/public-website-data";
 import { PublicCustomerAccount } from "@/components/website/public-customer-account";
 import {
+  companyForPrivacy,
+  isPrivacySlug,
+  privacyPolicyContent,
+} from "@/components/website/privacy-policy";
+import {
   CONGO_OMEGA_PUBLIC_ICONS,
   INDEXABLE,
   isCongoOmegaHost,
@@ -14,7 +19,47 @@ import {
   publicWebsiteMetadataResult,
   publicWebsiteStructuredData,
   serializeJsonLd,
+  type PublicWebsiteSeo,
 } from "@/lib/seo";
+
+/**
+ * The page for this address, or — for /confidentialite and its aliases when
+ * the company has not published its own — the built-in privacy policy shown
+ * inside the site's normal header and footer.
+ */
+async function pageResult(domain: string, slug: string | undefined) {
+  const result = await publicWebsiteMetadataResult(domain, slug);
+  if (!isPrivacySlug(slug) || result.detail?.page) return result;
+  const home = await publicWebsiteMetadataResult(domain, undefined);
+  if (!home.detail?.website) return result;
+  const website = home.detail.website;
+  const content = privacyPolicyContent(
+    companyForPrivacy({
+      host: domain,
+      displayName: website.displayName,
+      contactEmail: website.contactEmail,
+      contactPhone: website.contactPhone,
+      addressText: website.addressText,
+    }),
+  );
+  const homePage = home.detail.page as (PublicWebsiteSeo["page"] & { settings?: Record<string, unknown> }) | undefined;
+  const detail = {
+    ...home.detail,
+    page: {
+      settings: homePage?.settings,
+      slug: slug!,
+      titleFr: content.title_fr,
+      titleEn: content.title_en,
+      descriptionFr: content.intro_fr,
+      descriptionEn: content.intro_en,
+      seoTitleFr: content.title_fr,
+      seoDescriptionFr: content.intro_fr,
+      isHome: false,
+      sections: [{ id: "privacy-policy", type: "legal", content: content as unknown as Record<string, unknown> }],
+    },
+  } as unknown as PublicWebsiteSeo;
+  return { detail, status: 200 };
+}
 
 function pageSeo(detail: NonNullable<Awaited<ReturnType<typeof publicWebsiteMetadata>>>) {
   const title =
@@ -42,7 +87,9 @@ export async function generateMetadata({
       ...(isCongoOmega ? CONGO_OMEGA_PUBLIC_ICONS : {}),
     };
   }
-  const detail = await publicWebsiteMetadata(domain, slug);
+  const detail = isPrivacySlug(slug)
+    ? (await pageResult(domain, slug)).detail
+    : await publicWebsiteMetadata(domain, slug);
   if (!detail?.page || !detail.website)
     return { title: "Site indisponible", robots: { index: false, follow: false } };
   const { title, description } = pageSeo(detail);
@@ -91,7 +138,7 @@ export default async function Page({
     return <PublicCustomerAccount domain={domain} />;
   }
   const slug = pageSlug?.[0];
-  const result = await publicWebsiteMetadataResult(domain, slug);
+  const result = await pageResult(domain, slug);
   if (slug && result.status === 404) notFound();
   const detail = result.detail;
   if (!detail?.website || !detail.page) {
