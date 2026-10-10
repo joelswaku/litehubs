@@ -42,6 +42,7 @@ export const chatAccessInput = z.object({
         muted: z.boolean().default(false),
         blocked: z.boolean().default(false),
         noFiles: z.boolean().default(false),
+        canWebsite: z.boolean().default(false),
       }),
     )
     .max(1000),

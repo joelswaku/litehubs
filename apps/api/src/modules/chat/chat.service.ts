@@ -44,6 +44,8 @@ type Rights = {
   /** Team room only: no access at all (the private thread stays open). */
   blocked: boolean;
   noFiles: boolean;
+  /** Customer service: answers website visitors. */
+  website: boolean;
   settings: Settings;
 };
 
@@ -65,12 +67,12 @@ export async function settingsOf(client: PoolClient, organizationId: string): Pr
 export async function rightsOf(client: PoolClient, context: ChatContext): Promise<Rights> {
   const settings = await settingsOf(client, context.organizationId);
   if (context.isOwner)
-    return { moderator: true, direction: true, muted: false, blocked: false, noFiles: false, settings };
+    return { moderator: true, direction: true, muted: false, blocked: false, noFiles: false, website: true, settings };
   const result = await client.query<Row>(
     `SELECT
        EXISTS (SELECT 1 FROM member_roles mr JOIN roles r ON r.organization_id=mr.organization_id AND r.id=mr.role_id
                 WHERE mr.organization_id=$1 AND mr.member_id=$2 AND r.code='general_manager') AS manager,
-       ca.can_moderate,ca.can_read_direction,ca.muted,ca.blocked,ca.no_files
+       ca.can_moderate,ca.can_read_direction,ca.muted,ca.blocked,ca.no_files,ca.can_website
        FROM (SELECT 1) one
        LEFT JOIN chat_access ca ON ca.organization_id=$1 AND ca.member_id=$2`,
     [context.organizationId, context.memberId],
@@ -86,6 +88,7 @@ export async function rightsOf(client: PoolClient, context: ChatContext): Promis
     muted: !staff && Boolean(row?.muted),
     blocked: !staff && Boolean(row?.blocked),
     noFiles: !staff && Boolean(row?.no_files),
+    website: Boolean(row?.can_website),
     settings,
   };
 }
@@ -121,6 +124,22 @@ export async function directionStaff(client: PoolClient, organizationId: string)
     [organizationId],
   );
   return result.rows.map((row) => row.member_id);
+}
+
+/** Customer service members; the owner when nobody has been chosen. */
+export async function customerServiceStaff(client: PoolClient, organizationId: string) {
+  const result = await client.query<{ member_id: string }>(
+    `SELECT m.id AS member_id FROM organization_members m
+       JOIN chat_access ca ON ca.organization_id=m.organization_id AND ca.member_id=m.id
+      WHERE m.organization_id=$1 AND m.status='active' AND ca.can_website`,
+    [organizationId],
+  );
+  if (result.rows.length) return result.rows.map((row) => row.member_id);
+  const owners = await client.query<{ member_id: string }>(
+    `SELECT id AS member_id FROM organization_members WHERE organization_id=$1 AND status='active' AND is_owner`,
+    [organizationId],
+  );
+  return owners.rows.map((row) => row.member_id);
 }
 
 async function teamConversation(client: PoolClient, organizationId: string) {
@@ -203,7 +222,7 @@ export async function overview(context: ChatContext) {
       members = people.rows;
     }
     let visitors: { enabled: boolean; pending: number } | null = null;
-    if (rights.moderator || rights.direction) {
+    if (rights.website) {
       const pending = await client.query<{ total: string }>(
         `SELECT COUNT(*)::text AS total FROM website_chat_sessions WHERE organization_id=$1 AND needs_human AND status='open'`,
         [context.organizationId],
@@ -539,7 +558,8 @@ export async function getAccess(context: ChatContext) {
               EXISTS (SELECT 1 FROM member_roles mr JOIN roles r ON r.organization_id=mr.organization_id AND r.id=mr.role_id
                        WHERE mr.organization_id=m.organization_id AND mr.member_id=m.id AND r.code='general_manager') AS manager,
               COALESCE(ca.can_moderate,false) AS can_moderate,COALESCE(ca.can_read_direction,false) AS can_read_direction,
-              COALESCE(ca.muted,false) AS muted,COALESCE(ca.blocked,false) AS blocked,COALESCE(ca.no_files,false) AS no_files
+              COALESCE(ca.muted,false) AS muted,COALESCE(ca.blocked,false) AS blocked,COALESCE(ca.no_files,false) AS no_files,
+              COALESCE(ca.can_website,false) AS can_website
          FROM organization_members m JOIN users u ON u.id=m.user_id
          LEFT JOIN chat_access ca ON ca.organization_id=m.organization_id AND ca.member_id=m.id
         WHERE m.organization_id=$1 AND m.status='active'
@@ -558,6 +578,7 @@ export async function getAccess(context: ChatContext) {
         muted: Boolean(row.muted),
         blocked: Boolean(row.blocked),
         noFiles: Boolean(row.no_files),
+        canWebsite: Boolean(row.is_owner || row.can_website),
       })),
     };
   });
@@ -591,7 +612,7 @@ export async function saveAccess(context: ChatContext, input: ChatAccessInput) {
       );
     }
     for (const item of input.members) {
-      if (!item.canModerate && !item.canReadDirection && !item.muted && !item.blocked && !item.noFiles) {
+      if (!item.canModerate && !item.canReadDirection && !item.muted && !item.blocked && !item.noFiles && !item.canWebsite) {
         await client.query(`DELETE FROM chat_access WHERE organization_id=$1 AND member_id=$2`, [
           context.organizationId,
           item.memberId,
@@ -599,11 +620,11 @@ export async function saveAccess(context: ChatContext, input: ChatAccessInput) {
         continue;
       }
       await client.query(
-        `INSERT INTO chat_access(organization_id,member_id,can_moderate,can_read_direction,muted,blocked,no_files,updated_at)
-         SELECT $1,m.id,$3,$4,$5,$6,$7,now() FROM organization_members m WHERE m.organization_id=$1 AND m.id=$2 AND NOT m.is_owner
+        `INSERT INTO chat_access(organization_id,member_id,can_moderate,can_read_direction,muted,blocked,no_files,can_website,updated_at)
+         SELECT $1,m.id,$3,$4,$5,$6,$7,$8,now() FROM organization_members m WHERE m.organization_id=$1 AND m.id=$2 AND NOT m.is_owner
          ON CONFLICT (organization_id,member_id) DO UPDATE SET can_moderate=EXCLUDED.can_moderate,can_read_direction=EXCLUDED.can_read_direction,
-           muted=EXCLUDED.muted,blocked=EXCLUDED.blocked,no_files=EXCLUDED.no_files,updated_at=now()`,
-        [context.organizationId, item.memberId, item.canModerate, item.canReadDirection, item.muted, item.blocked, item.noFiles],
+           muted=EXCLUDED.muted,blocked=EXCLUDED.blocked,no_files=EXCLUDED.no_files,can_website=EXCLUDED.can_website,updated_at=now()`,
+        [context.organizationId, item.memberId, item.canModerate, item.canReadDirection, item.muted, item.blocked, item.noFiles, item.canWebsite],
       );
     }
   });

@@ -895,6 +895,7 @@ function AccessDialog({ orgSlug, fr, onClose }: { orgSlug: string; fr: boolean; 
     muted: boolean;
     blocked: boolean;
     noFiles: boolean;
+    canWebsite: boolean;
   };
   type Settings = {
     allowImages: boolean;
@@ -926,7 +927,7 @@ function AccessDialog({ orgSlug, fr, onClose }: { orgSlug: string; fr: boolean; 
         // The AI knowledge text is edited in its own dialog.
         settings: { ...rules, websiteKnowledge: undefined },
         members: (rows ?? [])
-          .filter((row) => !row.locked)
+          .filter((row) => row.role !== "owner")
           .map((row) => ({
             memberId: row.id,
             canModerate: row.canModerate,
@@ -934,6 +935,7 @@ function AccessDialog({ orgSlug, fr, onClose }: { orgSlug: string; fr: boolean; 
             muted: row.muted,
             blocked: row.blocked,
             noFiles: row.noFiles,
+            canWebsite: row.canWebsite,
           })),
       }),
     onSuccess: () => {
@@ -942,7 +944,7 @@ function AccessDialog({ orgSlug, fr, onClose }: { orgSlug: string; fr: boolean; 
     },
     onError: (error) => toast.error(errorMessage(error, "")),
   });
-  const toggle = (id: string, key: "canModerate" | "canReadDirection" | "muted" | "blocked" | "noFiles") =>
+  const toggle = (id: string, key: "canModerate" | "canReadDirection" | "muted" | "blocked" | "noFiles" | "canWebsite") =>
     setRows((current) => (current ?? []).map((row) => (row.id === id ? { ...row, [key]: !row[key] } : row)));
   return (
     <Dialog title={tr(fr, "Accès au chat", "Chat access")} onClose={onClose} wide>
@@ -1035,11 +1037,12 @@ function AccessDialog({ orgSlug, fr, onClose }: { orgSlug: string; fr: boolean; 
           <SkeletonCard rows={5} />
         ) : (
           <div className="overflow-x-auto rounded-xl border border-border">
-            <div className="min-w-[620px]">
-              <div className="grid grid-cols-[1fr_repeat(5,84px)] gap-1 bg-surface-2 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-ink-muted">
+            <div className="min-w-[720px]">
+              <div className="grid grid-cols-[1fr_repeat(6,84px)] gap-1 bg-surface-2 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-ink-muted">
                 <span>{tr(fr, "Membre", "Member")}</span>
                 <span className="text-center">{tr(fr, "Modérer", "Moderate")}</span>
                 <span className="text-center">{tr(fr, "Msg privés", "Private")}</span>
+                <span className="text-center text-brand">{tr(fr, "Service client", "Customer service")}</span>
                 <span className="text-center">{tr(fr, "Lecture seule", "Read-only")}</span>
                 <span className="text-center">{tr(fr, "Sans fichiers", "No files")}</span>
                 <span className="text-center text-critical">{tr(fr, "Bloqué", "Blocked")}</span>
@@ -1048,7 +1051,7 @@ function AccessDialog({ orgSlug, fr, onClose }: { orgSlug: string; fr: boolean; 
                 {rows
                   .filter((row) => row.name.toLowerCase().includes(search.toLowerCase()))
                   .map((row) => (
-                    <div key={row.id} className={`grid grid-cols-[1fr_repeat(5,84px)] items-center gap-1 px-3 py-2 text-sm ${row.blocked ? "bg-critical/[.04]" : ""}`}>
+                    <div key={row.id} className={`grid grid-cols-[1fr_repeat(6,84px)] items-center gap-1 px-3 py-2 text-sm ${row.blocked ? "bg-critical/[.04]" : ""}`}>
                       <span className="min-w-0 truncate text-ink">
                         {row.name}
                         {row.role ? (
@@ -1057,11 +1060,11 @@ function AccessDialog({ orgSlug, fr, onClose }: { orgSlug: string; fr: boolean; 
                           </span>
                         ) : null}
                       </span>
-                      {(["canModerate", "canReadDirection", "muted", "noFiles", "blocked"] as const).map((key) => (
+                      {(["canModerate", "canReadDirection", "canWebsite", "muted", "noFiles", "blocked"] as const).map((key) => (
                         <span key={key} className="text-center">
                           <input
                             type="checkbox"
-                            disabled={row.locked}
+                            disabled={key === "canWebsite" ? row.role === "owner" : row.locked}
                             checked={row[key]}
                             onChange={() => toggle(row.id, key)}
                             aria-label={key}
@@ -1077,8 +1080,8 @@ function AccessDialog({ orgSlug, fr, onClose }: { orgSlug: string; fr: boolean; 
         <p className="text-[11px] leading-4 text-ink-muted">
           {tr(
             fr,
-            "Bloqué : n’a plus accès au chat d’équipe, mais peut toujours écrire à la direction en privé. Les restrictions ne s’appliquent pas aux modérateurs ni à la direction.",
-            "Blocked: no access to the team chat, but can still write privately to management. Restrictions do not apply to moderators or management.",
+            "Service client : voit l’onglet « Clients du site » et reçoit les alertes des visiteurs. Si personne n’est coché, seul le propriétaire les reçoit. Bloqué : n’a plus accès au chat d’équipe, mais peut toujours écrire à la direction en privé. Les restrictions ne s’appliquent pas aux modérateurs ni à la direction.",
+            "Customer service: sees the “Website” tab and receives visitor alerts. If nobody is ticked, only the owner receives them. Blocked: no access to the team chat, but can still write privately to management. Restrictions do not apply to moderators or management.",
           )}
         </p>
         <div className="flex justify-end gap-2">

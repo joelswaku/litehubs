@@ -8,7 +8,7 @@ import { createNotificationInTransaction } from "../notifications/notifications.
 import { BadRequestError, ForbiddenError, NotFoundError } from "../../utils/errors";
 import { withTenantContext } from "../../utils/tenant-query";
 import { readAiInstructions } from "../ai-instructions/ai-instructions.service";
-import { directionStaff, rightsOf, settingsOf, type ChatContext } from "./chat.service";
+import { customerServiceStaff, rightsOf, settingsOf, type ChatContext } from "./chat.service";
 
 type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -54,7 +54,7 @@ function publicMessage(row: Row, teamName: string) {
 }
 
 async function notifyTeam(client: PoolClient, organizationId: string, slug: string, sessionId: string, title: string, message: string) {
-  const staff = await directionStaff(client, organizationId);
+  const staff = await customerServiceStaff(client, organizationId);
   for (const memberId of staff) {
     await createNotificationInTransaction(client, {
       organizationId,
@@ -427,7 +427,7 @@ async function aiReply(found: Target, sessionId: string): Promise<boolean> {
 
 async function assertStaff(client: PoolClient, context: ChatContext) {
   const rights = await rightsOf(client, context);
-  if (!rights.moderator && !rights.direction) throw new ForbiddenError("Seule la direction gère les conversations du site.");
+  if (!rights.website) throw new ForbiddenError("Réservé au service client.");
   return rights;
 }
 
@@ -551,7 +551,7 @@ export async function teamUpdate(
 export async function teamPendingCount(context: ChatContext) {
   return withTenantContext(context, async (client) => {
     const rights = await rightsOf(client, context);
-    if (!rights.moderator && !rights.direction) return 0;
+    if (!rights.website) return 0;
     const result = await client.query<{ total: string }>(
       `SELECT COUNT(*)::text AS total FROM website_chat_sessions WHERE organization_id=$1 AND needs_human AND status='open'`,
       [context.organizationId],
