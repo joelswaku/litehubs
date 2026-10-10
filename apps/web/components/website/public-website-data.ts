@@ -91,6 +91,7 @@ const sectionTypes = new Set<PublicWebsitePage["sections"][number]["section_type
   "cta",
   "careers",
   "contact",
+  "shop",
 ]);
 
 export function publicWebsiteRendererData(data: PublicWebsiteRendererSource): {

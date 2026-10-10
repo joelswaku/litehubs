@@ -34,6 +34,7 @@ import {
   ShieldCheck,
   ShoppingCart,
   Share2,
+  ShoppingBag,
   Sprout,
   Truck,
   Users,
@@ -522,6 +523,12 @@ export const WORKSPACE_NAV: NavGroup[] = [
         path: "/mail",
         icon: Mail,
         permission: "mail.read",
+      },
+      {
+        label: "Online shop",
+        path: "/shop",
+        icon: ShoppingBag,
+        permission: ["website.edit", "sales.update", "sales.read"],
       },
       {
         label: "Social media",

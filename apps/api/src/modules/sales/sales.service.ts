@@ -144,7 +144,7 @@ async function sourceQuantity(client: PoolClient, context: SalesContext, offer: 
   return number(result.rows[0]?.quantity);
 }
 
-async function offerWithAvailability(client: PoolClient, context: SalesContext, row: Row): Promise<Row> {
+export async function offerWithAvailability(client: PoolClient, context: SalesContext, row: Row): Promise<Row> {
   const physical = await sourceQuantity(client, context, row);
   const delivered = await deliveredForOffer(client, context, String(row.id));
   const available = Math.max(0, decimal(physical - delivered));
@@ -172,6 +172,16 @@ async function assertOfferAvailable(client: PoolClient, context: SalesContext, o
   if (requested > number(availability.availableQuantity) + 0.00001)
     throw new BadRequestError(`Only ${availability.availableQuantity} ${offer.unit} is available to sell`);
   return offer;
+}
+
+/** Food-safety block (treatment withdrawal) for egg and poultry offers. */
+export async function withdrawalBlock(client: PoolClient, organizationId: string, offer: Row): Promise<string | null> {
+  if (offer.source_type !== "egg_flock" && offer.source_type !== "poultry_flock") return null;
+  const result = await client.query<{ until: string }>(
+    "SELECT withdrawal_end_date::text AS until FROM poultry_treatment_records WHERE organization_id=$1 AND flock_id=$2 AND withdrawal_end_date >= CURRENT_DATE ORDER BY withdrawal_end_date DESC LIMIT 1",
+    [organizationId, offer.source_id],
+  );
+  return result.rows[0]?.until ?? null;
 }
 
 function lineTotal(quantity: number, unitPrice: number, discountPercent: number, taxPercent: number) {
@@ -241,7 +251,7 @@ export async function listCustomers(context: SalesContext, query: SalesListQuery
     return visible;
   });
 }
-async function nextCustomerCode(client: PoolClient, organizationId: string) {
+export async function nextCustomerCode(client: PoolClient, organizationId: string) {
   await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
     `customer-reference:${organizationId}`,
   ]);

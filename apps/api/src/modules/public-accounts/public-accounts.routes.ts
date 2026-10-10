@@ -46,5 +46,6 @@ publicAccountRoutes.post(`${base}/forgot-password`, attempts(5), validate({ para
 publicAccountRoutes.post(`${base}/reset-password`, attempts(8), validate({ params: publicWebsiteDomainParams, body: publicCustomerResetPasswordSchema }), controller.resetPassword);
 publicAccountRoutes.get(`${base}/me`, authenticatePublicCustomer, controller.me);
 publicAccountRoutes.get(`${base}/activities`, authenticatePublicCustomer, controller.activities);
+publicAccountRoutes.get(`${base}/orders`, authenticatePublicCustomer, controller.orders);
 publicAccountRoutes.patch(`${base}/me`, authenticatePublicCustomer, validate({ body: publicCustomerProfileSchema }), controller.updateProfile);
 publicAccountRoutes.post(`${base}/change-password`, authenticatePublicCustomer, validate({ body: publicCustomerChangePasswordSchema }), controller.changePassword);

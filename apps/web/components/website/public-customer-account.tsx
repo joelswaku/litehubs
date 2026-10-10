@@ -43,6 +43,15 @@ type CustomerActivity = {
   publishedAt: string | null;
 };
 type ActivitiesResponse = { activities: CustomerActivity[] };
+type CustomerOrder = {
+  number: string;
+  status: string;
+  statusLabel: string;
+  createdAt: string;
+  total: number;
+  currency: string;
+  lines: { description: string; quantity: number; unit: string; total: number }[];
+};
 type VerificationResponse = {
   verification: { channel: "email" | "sms"; destination: string; sent: boolean } | null;
   message: string;
@@ -120,6 +129,7 @@ export function PublicCustomerAccount({
   const [newPassword, setNewPassword] = React.useState("");
   const [activities, setActivities] = React.useState<CustomerActivity[]>([]);
   const [activitiesLoading, setActivitiesLoading] = React.useState(false);
+  const [orders, setOrders] = React.useState<CustomerOrder[]>([]);
 
   function storeFieldErrors(error: unknown) {
     setFieldErrors(error instanceof ApiError ? error.fieldErrors : {});
@@ -130,6 +140,9 @@ export function PublicCustomerAccount({
     try {
       const result = await get<ActivitiesResponse>(`${endpoint}/activities`);
       setActivities(result.activities);
+      // "Mes commandes": orders placed on the website (or by the team) for this customer.
+      const placed = await get<{ orders: CustomerOrder[] }>(`${endpoint}/orders`).catch(() => ({ orders: [] }));
+      setOrders(placed.orders);
     } finally {
       setActivitiesLoading(false);
     }
@@ -397,6 +410,28 @@ export function PublicCustomerAccount({
                     </div>
                     <button type="button" disabled={busy} onClick={() => void logout()} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 px-3.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"><LogOut className="size-4" /> Se déconnecter</button>
                   </div>
+                  {orders.length ? (
+                    <div className="border-t border-slate-100 pt-6">
+                      <h3 className="text-xl font-semibold tracking-[-.025em] text-slate-950">Mes commandes</h3>
+                      <div className="mt-4 grid gap-3">
+                        {orders.map((order) => (
+                          <article key={order.number} className="rounded-2xl border border-slate-200 bg-white p-4">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="font-semibold text-slate-950">{order.number}</p>
+                              <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-900">{order.statusLabel}</span>
+                            </div>
+                            <p className="mt-1 text-xs text-slate-500">{new Intl.DateTimeFormat("fr-CD", { day: "numeric", month: "long", year: "numeric" }).format(new Date(order.createdAt))}</p>
+                            <ul className="mt-2 text-sm text-slate-700">
+                              {order.lines.map((line, index) => (
+                                <li key={index}>{line.description} × {line.quantity.toLocaleString("fr-FR")}</li>
+                              ))}
+                            </ul>
+                            <p className="mt-2 text-right font-semibold text-slate-950">{order.total.toLocaleString("fr-FR")} {order.currency === "CDF" ? "FC" : order.currency}</p>
+                          </article>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                   <div className="border-t border-slate-100 pt-6">
                     <div className="flex flex-wrap items-end justify-between gap-3">
                       <div>

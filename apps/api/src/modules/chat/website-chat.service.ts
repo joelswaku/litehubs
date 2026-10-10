@@ -405,8 +405,13 @@ async function knowledge(client: PoolClient, organizationId: string) {
     collectText(row.content, text);
   }
   const offers = await client.query<Row>(
-    `SELECT title,unit,default_unit_price,currency,minimum_quantity,notes
-       FROM sales_operational_offers WHERE organization_id=$1 AND is_available ORDER BY title LIMIT 60`,
+    // Products shown in the online shop first (their customer-facing name).
+    `SELECT COALESCE(NULLIF(btrim(web_title),''),title) AS title,COALESCE(web_unit_label,unit) AS unit,default_unit_price,currency,
+            minimum_quantity,COALESCE(web_description,notes) AS notes
+       FROM sales_operational_offers
+      WHERE organization_id=$1 AND is_available
+        AND (web_visible OR NOT EXISTS (SELECT 1 FROM sales_operational_offers x WHERE x.organization_id=$1 AND x.web_visible))
+      ORDER BY web_sort_order,title LIMIT 60`,
     [organizationId],
   );
   const offerLines = offers.rows.map(

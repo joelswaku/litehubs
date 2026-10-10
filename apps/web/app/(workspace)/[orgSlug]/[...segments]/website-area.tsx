@@ -188,7 +188,8 @@ type TemplateCode =
   | "project"
   | "impact"
   | "contact"
-  | "careers";
+  | "careers"
+  | "shop";
 type Tab = "pages" | "media" | "activities" | "appearance" | "preview";
 type WebsiteMedia = {
   id: string;
@@ -230,6 +231,7 @@ const sectionLabels: Record<SectionType, [string, string]> = {
   careers: ["Carrières", "Careers"],
   contact: ["Contact", "Contact"],
   container: ["Div", "Div"],
+  shop: ["Boutique (produits)", "Shop (products)"],
 };
 const sectionHints: Record<SectionType, [string, string]> = {
   hero: ["Grande image, titre et boutons en haut de page.", "Large image, title and buttons at the top."],
@@ -242,6 +244,7 @@ const sectionHints: Record<SectionType, [string, string]> = {
   cta: ["Un message fort avec un bouton.", "A strong message with a button."],
   careers: ["Lien vers les offres d’emploi.", "Link to job openings."],
   contact: ["Coordonnées et formulaire de contact.", "Contact details and form."],
+  shop: ["Les produits mis en vente dans LiteHubs → Boutique en ligne, avec panier et commande.", "Products published in LiteHubs → Online shop, with cart and ordering."],
   container: ["Un div vide : réglez son fond, sa taille, sa bordure… puis ajoutez dedans textes, images, boutons, carrousels ou d’autres divs.", "An empty div: set its background, size, border… then add texts, images, buttons, carousels or other divs inside."],
 };
 
@@ -312,6 +315,13 @@ const templates: Array<{
     en: "Careers",
     hintFr: "Recrutement et postes publiés",
     hintEn: "Recruitment and published roles",
+  },
+  {
+    value: "shop",
+    fr: "Boutique",
+    en: "Shop",
+    hintFr: "Produits, panier et commande en ligne",
+    hintEn: "Products, cart and online orders",
   },
   {
     value: "contact",
@@ -424,6 +434,17 @@ function sectionSeed(type: SectionType): WebsiteSection {
           buttonLabelFr: "Nous contacter",
           buttonLabelEn: "Contact us",
           buttonHref: "#contact",
+        },
+      };
+    case "shop":
+      return {
+        ...common,
+        section_type: type,
+        content: {
+          titleFr: "Nos produits",
+          titleEn: "Our products",
+          bodyFr: "Commandez en ligne, notre équipe vous rappelle pour confirmer.",
+          bodyEn: "Order online, our team calls you to confirm.",
         },
       };
     case "careers":
@@ -10375,6 +10396,17 @@ const PAGE_TEMPLATES: Record<
       templateBlock("feature_grid", { titleFr: "Pourquoi nous rejoindre", titleEn: "Why join us", items: [card("Formation", "Training", "Vous apprenez sur le terrain.", "You learn on the ground."), card("Responsabilités", "Responsibility", "Des missions concrètes dès le départ.", "Real missions from day one."), card("Équipe", "Team", "Une équipe soudée et exigeante.", "A close, demanding team.")] }),
       templateBlock("careers", {}),
       templateBlock("faq", { items: [question("Comment postuler ?", "How do I apply?", "Choisissez un poste ouvert et envoyez votre candidature en ligne.", "Pick an open role and apply online."), question("Acceptez-vous les candidatures spontanées ?", "Do you accept open applications?", "Oui, écrivez-nous via la page contact.", "Yes, write to us through the contact page.")] }),
+    ],
+  },
+  shop: {
+    label: ["Boutique", "Shop"],
+    hint: ["Produits, panier, commande", "Products, cart, ordering"],
+    nameFr: "Boutique",
+    nameEn: "Shop",
+    build: () => [
+      templateBlock("hero", { kickerFr: "BOUTIQUE", kickerEn: "SHOP", titleFr: "Des produits frais, directement de nos fermes.", titleEn: "Fresh produce, straight from our farms.", bodyFr: "Œufs, volailles, porc… Commandez en ligne, nous confirmons par téléphone.", bodyEn: "Eggs, poultry, pork… Order online, we confirm by phone.", blockVariant: "hero-minimal" }),
+      templateBlock("shop", {}),
+      templateBlock("faq", { items: [question("Comment payer ?", "How do I pay?", "À la livraison ou par mobile money, après confirmation par notre équipe.", "On delivery or by mobile money, after our team confirms."), question("Livrez-vous partout ?", "Do you deliver everywhere?", "Indiquez votre adresse : nous vous confirmons la livraison et le délai.", "Give your address: we confirm delivery and timing.")] }),
     ],
   },
   contact: {

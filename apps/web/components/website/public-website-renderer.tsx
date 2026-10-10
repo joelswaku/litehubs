@@ -1,6 +1,7 @@
 "use client";
 
 import { WebsiteChatWidget } from "./website-chat-widget";
+import { WebsiteShop } from "./website-shop";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -69,7 +70,8 @@ export type WebsiteSection = {
     | "cta"
     | "careers"
     | "contact"
-    | "container";
+    | "container"
+    | "shop";
   content: Record<string, unknown>;
   sort_order: number;
 };
@@ -1702,6 +1704,20 @@ function PublicSection({
                 />
               </div>
             </div>
+          </div>
+        </section>
+      );
+    case "shop":
+      return (
+        <section id="boutique" className="mx-auto max-w-[1400px] px-5 py-12 sm:px-8 sm:py-16">
+          <SectionHeading eyebrow={eyebrow} title={heading} body={body} />
+          <div className="mt-8">
+            <WebsiteShop
+              site={website.portal_organization_slug ?? website.organization_slug}
+              language={language}
+              color={website.primary_color || "#075c4d"}
+              editing={Boolean(editingPreview)}
+            />
           </div>
         </section>
       );

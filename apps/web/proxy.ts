@@ -97,11 +97,11 @@ function congoOmegaLegacyDestination(pathname: string): string | null {
     "/about": "/notre-entreprise",
     "/services": "/activites",
     "/service": "/activites",
-    "/produits": "/activites",
-    "/products": "/activites",
-    "/product": "/activites",
-    "/shop": "/activites",
-    "/product-category": "/activites",
+    "/produits": "/boutique",
+    "/products": "/boutique",
+    "/product": "/boutique",
+    "/shop": "/boutique",
+    "/product-category": "/boutique",
     "/carriere": "/carrieres",
   };
   if (exactRedirects[path]) return exactRedirects[path];
@@ -110,10 +110,12 @@ function congoOmegaLegacyDestination(pathname: string): string | null {
     path.startsWith("/product-category/") ||
     path.startsWith("/product/") ||
     path.startsWith("/products/") ||
-    path.startsWith("/shop/") ||
-    path.startsWith("/category/") ||
-    path.startsWith("/tag/")
+    path.startsWith("/shop/")
   ) {
+    // Old WordPress shop links now lead to the LiteHubs online shop page.
+    return "/boutique";
+  }
+  if (path.startsWith("/category/") || path.startsWith("/tag/")) {
     return "/activites";
   }
 

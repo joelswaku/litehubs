@@ -1,4 +1,5 @@
 import type { CookieOptions, Request, RequestHandler, Response } from "express";
+import { ordersForCustomer } from "../shop/shop.service";
 import { env } from "../../config/env";
 import { UnauthorizedError } from "../../utils/errors";
 import type {
@@ -123,6 +124,13 @@ export const activities: RequestHandler = async (req, res) => {
       req.publicCustomerWebsite!,
       req.publicCustomer!,
     ),
+  });
+};
+
+export const orders: RequestHandler = async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.json({
+    orders: await ordersForCustomer(req.publicCustomerWebsite!.organizationId, req.publicCustomer!.customerId ?? null),
   });
 };
 

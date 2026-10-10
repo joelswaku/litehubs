@@ -72,7 +72,8 @@ interface WebsitePageRow {
     | "project"
     | "impact"
     | "contact"
-    | "careers";
+    | "careers"
+    | "shop";
   status: PageStatus;
   is_home: boolean;
   sort_order: number;
@@ -751,6 +752,18 @@ const defaultSections = (
           },
         },
         contact,
+      ];
+    case "shop":
+      return [
+        {
+          type: "shop",
+          content: {
+            titleFr: "Nos produits",
+            titleEn: "Our products",
+            bodyFr: "Œufs, volailles, porc et produits de nos fermes. Commandez en ligne, l’équipe vous rappelle pour confirmer.",
+            bodyEn: "Eggs, poultry, pork and farm produce. Order online and our team calls you to confirm.",
+          },
+        },
       ];
     case "blank":
     default:
