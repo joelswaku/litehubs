@@ -10,6 +10,7 @@ import {
   chatAccessInput,
   conversationParams,
   directionInput,
+  directionLabelInput,
   messageInput,
   messageParams,
   organizationParams,
@@ -36,3 +37,4 @@ chatRoutes.post(`${base}/conversations/:conversationId/messages`, authenticate, 
 chatRoutes.delete(`${base}/messages/:messageId`, authenticate, validate({ params: messageParams }), requireOrganization, controller.remove);
 chatRoutes.patch(`${base}/messages/:messageId/pin`, authenticate, validate({ params: messageParams, body: pinInput }), requireOrganization, controller.pin);
 chatRoutes.get(`${base}/messages/:messageId/file`, authenticate, validate({ params: messageParams }), requireOrganization, controller.file);
+chatRoutes.put(`${base}/direction-label`, authenticate, validate({ params: organizationParams, body: directionLabelInput }), requireOrganization, controller.saveLabel);

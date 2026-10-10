@@ -59,3 +59,5 @@ export const file: RequestHandler = async (req, res) => {
 export const access: RequestHandler = async (req, res) => res.json(await service.getAccess(context(req)));
 export const saveAccess: RequestHandler = async (req, res) =>
   res.json(await service.saveAccess(context(req), req.body as ChatAccessInput));
+export const saveLabel: RequestHandler = async (req, res) =>
+  res.json(await service.saveDirectionLabel(context(req), String((req.body as { label: string }).label)));

@@ -22,7 +22,12 @@ export const directionInput = z.object({ memberId: id.optional() });
 export const pinInput = z.object({ pinned: z.boolean() });
 export const chatAccessInput = z.object({
   settings: z
-    .object({ allowImages: z.boolean(), allowDocuments: z.boolean(), teamReadOnly: z.boolean() })
+    .object({
+      allowImages: z.boolean(),
+      allowDocuments: z.boolean(),
+      teamReadOnly: z.boolean(),
+      directionLabel: z.string().trim().max(60).optional(),
+    })
     .optional(),
   members: z
     .array(
@@ -41,3 +46,4 @@ export const chatAccessInput = z.object({
 export type MessagesQuery = z.infer<typeof messagesQuery>;
 export type MessageInput = z.infer<typeof messageInput>;
 export type ChatAccessInput = z.infer<typeof chatAccessInput>;
+export const directionLabelInput = z.object({ label: z.string().trim().min(1).max(60) });

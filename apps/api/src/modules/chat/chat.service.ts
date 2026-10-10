@@ -26,7 +26,7 @@ const PAGE = 50;
 /* Rights                                                              */
 /* ------------------------------------------------------------------ */
 
-type Settings = { allowImages: boolean; allowDocuments: boolean; teamReadOnly: boolean };
+type Settings = { allowImages: boolean; allowDocuments: boolean; teamReadOnly: boolean; directionLabel: string };
 type Rights = {
   moderator: boolean;
   direction: boolean;
@@ -45,6 +45,7 @@ async function settingsOf(client: PoolClient, organizationId: string): Promise<S
     allowImages: row ? Boolean(row.allow_images) : true,
     allowDocuments: row ? Boolean(row.allow_documents) : true,
     teamReadOnly: row ? Boolean(row.team_read_only) : false,
+    directionLabel: String(row?.direction_label ?? "").trim() || "Direction",
   };
 }
 
@@ -195,6 +196,7 @@ export async function overview(context: ChatContext) {
         canModerate: rights.moderator,
         canReadDirection: rights.direction,
         blocked: rights.blocked,
+        directionLabel: rights.settings.directionLabel,
       },
       team: rights.blocked ? null : { id: teamId, unread: await unread(teamId) },
       myDirection: mine.rows[0] ? { id: mine.rows[0].id, unread: await unread(mine.rows[0].id) } : null,
@@ -245,9 +247,17 @@ export async function openDirection(context: ChatContext, memberId?: string) {
 function mapMessage(row: Row, context: ChatContext, rights: Rights, kind: string) {
   const own = row.author_member_id === context.memberId;
   const deleted = Boolean(row.deleted_at);
+  // Employees never see who in management wrote: only the direction label.
+  // Management sees the real name so they know which colleague answered.
+  const viewerIsStaff = rights.direction || context.isOwner;
+  const hidden = Boolean(row.author_is_direction) && !viewerIsStaff;
   return {
     id: row.id as string,
-    author: row.author_member_id ? { id: row.author_member_id as string, name: row.author_name as string } : null,
+    author: row.author_member_id
+      ? hidden
+        ? { id: "direction", name: rights.settings.directionLabel }
+        : { id: row.author_member_id as string, name: row.author_name as string }
+      : null,
     authorIsDirection: Boolean(row.author_is_direction),
     body: deleted ? null : ((row.body as string | null) ?? null),
     deleted,
@@ -415,7 +425,7 @@ export async function sendMessage(
           [context.organizationId, context.memberId],
         );
         recipients = everyone.rows.map((row) => row.id);
-        title = `Annonce · ${authorName}`;
+        title = `Annonce · ${rights.direction ? rights.settings.directionLabel : authorName}`;
       }
       for (const recipient of recipients) {
         await createNotificationInTransaction(client, {
@@ -536,9 +546,16 @@ export async function saveAccess(context: ChatContext, input: ChatAccessInput) {
   await withTenantContext(context, async (client) => {
     if (input.settings)
       await client.query(
-        `INSERT INTO chat_settings(organization_id,allow_images,allow_documents,team_read_only,updated_at) VALUES($1,$2,$3,$4,now())
-         ON CONFLICT (organization_id) DO UPDATE SET allow_images=EXCLUDED.allow_images,allow_documents=EXCLUDED.allow_documents,team_read_only=EXCLUDED.team_read_only,updated_at=now()`,
-        [context.organizationId, input.settings.allowImages, input.settings.allowDocuments, input.settings.teamReadOnly],
+        `INSERT INTO chat_settings(organization_id,allow_images,allow_documents,team_read_only,direction_label,updated_at) VALUES($1,$2,$3,$4,$5,now())
+         ON CONFLICT (organization_id) DO UPDATE SET allow_images=EXCLUDED.allow_images,allow_documents=EXCLUDED.allow_documents,
+           team_read_only=EXCLUDED.team_read_only,direction_label=EXCLUDED.direction_label,updated_at=now()`,
+        [
+          context.organizationId,
+          input.settings.allowImages,
+          input.settings.allowDocuments,
+          input.settings.teamReadOnly,
+          input.settings.directionLabel?.trim() || "Direction",
+        ],
       );
     for (const item of input.members) {
       if (!item.canModerate && !item.canReadDirection && !item.muted && !item.blocked && !item.noFiles) {
@@ -569,4 +586,19 @@ export async function unreadTotal(context: ChatContext) {
       (data.myDirection?.unread ?? 0) +
       data.threads.reduce((sum, thread) => sum + (thread.employee.id === context.memberId ? 0 : thread.unread), 0),
   };
+}
+
+/** Owner or chat moderators: the name shown for management in the chat. */
+export async function saveDirectionLabel(context: ChatContext, label: string) {
+  return withTenantContext(context, async (client) => {
+    const rights = await rightsOf(client, context);
+    if (!context.isOwner && !rights.moderator) throw new ForbiddenError("You cannot change this setting");
+    const clean = label.trim().slice(0, 60) || "Direction";
+    await client.query(
+      `INSERT INTO chat_settings(organization_id,direction_label,updated_at) VALUES($1,$2,now())
+       ON CONFLICT (organization_id) DO UPDATE SET direction_label=EXCLUDED.direction_label,updated_at=now()`,
+      [context.organizationId, clean],
+    );
+    return { directionLabel: clean };
+  });
 }

@@ -6,7 +6,6 @@ import {
   ArrowLeft,
   Ban,
   FileText,
-  FolderKanban,
   ImageIcon,
   LockKeyhole,
   Megaphone,
@@ -26,12 +25,17 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EmptyState, ErrorState, SkeletonCard } from "@/components/ui/states";
 import { api, del, get, orgUrl, patch, post, put } from "@/lib/api";
-import { can } from "@/lib/permissions";
 import { useLanguage } from "@/providers/language-provider";
-import { useSessionUser } from "@/stores/session-store";
 
 type Overview = {
-  me: { memberId: string; isOwner: boolean; canModerate: boolean; canReadDirection: boolean; blocked?: boolean };
+  me: {
+    memberId: string;
+    isOwner: boolean;
+    canModerate: boolean;
+    canReadDirection: boolean;
+    blocked?: boolean;
+    directionLabel?: string;
+  };
   team: { id: string; unread: number } | null;
   myDirection: { id: string; unread: number } | null;
   threads: { id: string; employee: { id: string; name: string }; lastMessageAt: string; preview: string; unread: number }[];
@@ -155,7 +159,7 @@ export function ChatArea({ orgSlug }: { orgSlug: string }) {
             </span>
             <h1 className="text-lg font-semibold text-ink">{tr(fr, "Chat", "Chat")}</h1>
           </div>
-          {data.me.isOwner ? (
+          {data.me.isOwner || data.me.canModerate ? (
             <Button size="icon-sm" variant="ghost" title={tr(fr, "Accès au chat", "Chat access")} onClick={() => setSettings(true)}>
               <Settings2 className="size-4" />
             </Button>
@@ -250,7 +254,18 @@ export function ChatArea({ orgSlug }: { orgSlug: string }) {
           <MemberPicker members={data.members} fr={fr} onPick={(id) => openDirection.mutate(id)} />
         </Dialog>
       ) : null}
-      {settings ? <AccessDialog orgSlug={orgSlug} fr={fr} onClose={() => setSettings(false)} /> : null}
+      {settings && data.me.isOwner ? <AccessDialog orgSlug={orgSlug} fr={fr} onClose={() => setSettings(false)} /> : null}
+      {settings && !data.me.isOwner ? (
+        <LabelDialog
+          orgSlug={orgSlug}
+          fr={fr}
+          initial={data.me.directionLabel ?? "Direction"}
+          onClose={() => {
+            setSettings(false);
+            void queryClient.invalidateQueries({ queryKey: ["chat-overview", orgSlug] });
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -511,8 +526,13 @@ function MessageBubble({
       ) : null}
       <div className={`max-w-[82%] sm:max-w-[70%] ${mine ? "items-end" : "items-start"} flex flex-col`}>
         <p className={`mb-0.5 flex items-center gap-1.5 px-1 text-[11px] text-ink-muted ${mine ? "flex-row-reverse" : ""}`}>
-          {!mine ? <span className="font-semibold text-ink-secondary">{item.author?.name ?? "—"}</span> : null}
-          {item.authorIsDirection ? (
+          {!mine ? (
+            <span className={`font-semibold ${item.author?.id === "direction" ? "inline-flex items-center gap-1 text-brand" : "text-ink-secondary"}`}>
+              {item.author?.id === "direction" ? <ShieldCheck className="size-3" /> : null}
+              {item.author?.name ?? "—"}
+            </span>
+          ) : null}
+          {item.authorIsDirection && item.author?.id !== "direction" ? (
             <span className="inline-flex items-center gap-0.5 rounded-full bg-brand/10 px-1.5 text-[10px] font-semibold text-brand">
               <ShieldCheck className="size-3" />
               {tr(fr, "Direction", "Management")}
@@ -665,11 +685,9 @@ function Composer({
   fr: boolean;
   onSent: () => void;
 }) {
-  const user = useSessionUser();
   const [body, setBody] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [announcement, setAnnouncement] = useState(false);
-  const [projectPicker, setProjectPicker] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const send = useMutation({
     mutationFn: () => {
@@ -748,11 +766,6 @@ function Composer({
             <Paperclip className="size-4" />
           </Button>
         ) : null}
-        {can(user, "projects.read") ? (
-          <Button size="icon" variant="ghost" title={tr(fr, "Partager un projet", "Share a project")} onClick={() => setProjectPicker(true)}>
-            <FolderKanban className="size-4" />
-          </Button>
-        ) : null}
         <textarea
           rows={1}
           value={body}
@@ -771,55 +784,7 @@ function Composer({
           <Send className="size-4" />
         </Button>
       </div>
-      {projectPicker ? (
-        <Dialog title={tr(fr, "Partager un projet", "Share a project")} onClose={() => setProjectPicker(false)}>
-          <ProjectPicker
-            orgSlug={orgSlug}
-            fr={fr}
-            onPick={(project) => {
-              const link = `${window.location.origin}/${orgSlug}/projects?project=${project.id}`;
-              setBody((current) => `${current ? `${current}\n` : ""}${tr(fr, "Projet", "Project")} « ${project.name} » : ${link}`);
-              setProjectPicker(false);
-            }}
-          />
-        </Dialog>
-      ) : null}
-    </div>
-  );
-}
 
-function ProjectPicker({ orgSlug, fr, onPick }: { orgSlug: string; fr: boolean; onPick: (project: { id: string; name: string }) => void }) {
-  const [search, setSearch] = useState("");
-  const projects = useQuery({
-    queryKey: ["chat-projects", orgSlug],
-    queryFn: () => get<{ records: Record<string, unknown>[] }>(orgUrl(orgSlug, "owner-management/projects"), { params: { limit: 200 } }),
-  });
-  const rows = (projects.data?.records ?? [])
-    .map((row) => ({ id: String(row.id), name: String(row.name ?? row.title ?? row.code ?? row.id) }))
-    .filter((row) => row.name.toLowerCase().includes(search.toLowerCase()));
-  return (
-    <div className="space-y-3 p-4">
-      <input
-        autoFocus
-        value={search}
-        onChange={(event) => setSearch(event.target.value)}
-        placeholder={tr(fr, "Rechercher un projet…", "Search a project…")}
-        className="h-10 w-full rounded-lg border border-border-strong bg-surface-1 px-3 text-sm text-ink"
-      />
-      <div className="max-h-80 overflow-auto">
-        {projects.isLoading ? (
-          <SkeletonCard rows={4} />
-        ) : rows.length ? (
-          rows.map((row) => (
-            <button key={row.id} type="button" onClick={() => onPick(row)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-ink hover:bg-surface-2">
-              <FolderKanban className="size-4 text-brand" />
-              {row.name}
-            </button>
-          ))
-        ) : (
-          <p className="py-6 text-center text-sm text-ink-secondary">{tr(fr, "Aucun projet.", "No project.")}</p>
-        )}
-      </div>
     </div>
   );
 }
@@ -860,13 +825,13 @@ function AccessDialog({ orgSlug, fr, onClose }: { orgSlug: string; fr: boolean; 
     blocked: boolean;
     noFiles: boolean;
   };
-  type Settings = { allowImages: boolean; allowDocuments: boolean; teamReadOnly: boolean };
+  type Settings = { allowImages: boolean; allowDocuments: boolean; teamReadOnly: boolean; directionLabel?: string };
   const access = useQuery({
     queryKey: ["chat-access", orgSlug],
     queryFn: () => get<{ members: Member[]; settings: Settings }>(orgUrl(orgSlug, "chat/access")),
   });
   const [rows, setRows] = useState<Member[] | null>(null);
-  const [rules, setRules] = useState<Settings>({ allowImages: true, allowDocuments: true, teamReadOnly: false });
+  const [rules, setRules] = useState<Settings>({ allowImages: true, allowDocuments: true, teamReadOnly: false, directionLabel: "Direction" });
   const [search, setSearch] = useState("");
   useEffect(() => {
     if (access.data) {
@@ -907,6 +872,23 @@ function AccessDialog({ orgSlug, fr, onClose }: { orgSlug: string; fr: boolean; 
             "Every employee uses the team chat. Choose who can moderate (pin, delete, announce) and who reads private messages sent to management. The owner and general manager always have both rights.",
           )}
         </p>
+        <label className="block rounded-xl border border-border p-3">
+          <span className="block text-sm font-medium text-ink">{tr(fr, "Nom affiché pour la direction", "Name shown for management")}</span>
+          <span className="block text-xs text-ink-secondary">
+            {tr(
+              fr,
+              "Les employés voient ce nom à la place du vrai nom du propriétaire, du directeur général et des personnes autorisées. La direction voit toujours les vrais noms.",
+              "Employees see this name instead of the real name of the owner, general manager and authorised members. Management still sees real names.",
+            )}
+          </span>
+          <input
+            value={rules.directionLabel ?? "Direction"}
+            maxLength={60}
+            onChange={(event) => setRules({ ...rules, directionLabel: event.target.value })}
+            className="mt-2 h-9 w-full rounded-lg border border-border-strong bg-surface-1 px-3 text-sm text-ink"
+            placeholder="Direction"
+          />
+        </label>
         <div className="grid gap-2 rounded-xl border border-border p-3 sm:grid-cols-3">
           {[
             { key: "allowImages" as const, label: tr(fr, "Photos autorisées", "Photos allowed"), hint: tr(fr, "Les employés peuvent envoyer des photos", "Employees can send photos") },
@@ -983,6 +965,47 @@ function AccessDialog({ orgSlug, fr, onClose }: { orgSlug: string; fr: boolean; 
             {tr(fr, "Annuler", "Cancel")}
           </Button>
           <Button loading={save.isPending} disabled={!rows} onClick={() => save.mutate()}>
+            {tr(fr, "Enregistrer", "Save")}
+          </Button>
+        </div>
+      </div>
+    </Dialog>
+  );
+}
+
+function LabelDialog({ orgSlug, fr, initial, onClose }: { orgSlug: string; fr: boolean; initial: string; onClose: () => void }) {
+  const [label, setLabel] = useState(initial);
+  const save = useMutation({
+    mutationFn: () => put(orgUrl(orgSlug, "chat/direction-label"), { label: label.trim() || "Direction" }),
+    onSuccess: () => {
+      toast.success(tr(fr, "Nom enregistré.", "Name saved."));
+      onClose();
+    },
+    onError: (error) => toast.error(errorMessage(error, "")),
+  });
+  return (
+    <Dialog title={tr(fr, "Nom affiché pour la direction", "Name shown for management")} onClose={onClose}>
+      <div className="space-y-3 p-5">
+        <p className="text-xs leading-5 text-ink-secondary">
+          {tr(
+            fr,
+            "Les employés voient ce nom à la place du vrai nom de la direction dans le chat.",
+            "Employees see this name instead of management's real names in the chat.",
+          )}
+        </p>
+        <input
+          autoFocus
+          value={label}
+          maxLength={60}
+          onChange={(event) => setLabel(event.target.value)}
+          className="h-10 w-full rounded-lg border border-border-strong bg-surface-1 px-3 text-sm text-ink"
+          placeholder="Direction"
+        />
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>
+            {tr(fr, "Annuler", "Cancel")}
+          </Button>
+          <Button loading={save.isPending} onClick={() => save.mutate()}>
             {tr(fr, "Enregistrer", "Save")}
           </Button>
         </div>
