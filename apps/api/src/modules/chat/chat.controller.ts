@@ -1,6 +1,7 @@
 import type { Request, RequestHandler } from "express";
 import * as service from "./chat.service";
-import { messagesQuery, type ChatAccessInput, type MessageInput } from "./chat.validation";
+import * as website from "./website-chat.service";
+import { messagesQuery, publicMessagesQuery, type ChatAccessInput, type MessageInput } from "./chat.validation";
 
 function context(req: Request): service.ChatContext {
   return {
@@ -61,3 +62,37 @@ export const saveAccess: RequestHandler = async (req, res) =>
   res.json(await service.saveAccess(context(req), req.body as ChatAccessInput));
 export const saveLabel: RequestHandler = async (req, res) =>
   res.json(await service.saveDirectionLabel(context(req), String((req.body as { label: string }).label)));
+
+/* Website chat — team side */
+export const visitorSessions: RequestHandler = async (req, res) => {
+  noStore(res);
+  res.json(await website.teamSessions(context(req)));
+};
+export const visitorSession: RequestHandler = async (req, res) => {
+  noStore(res);
+  res.json(await website.teamSession(context(req), param(req, "sessionId")));
+};
+export const visitorReply: RequestHandler = async (req, res) =>
+  res.status(201).json(await website.teamReply(context(req), param(req, "sessionId"), String((req.body as { body: string }).body)));
+export const visitorUpdate: RequestHandler = async (req, res) =>
+  res.json(await website.teamUpdate(context(req), param(req, "sessionId"), req.body as { mode?: "ai" | "human"; status?: "open" | "closed" }));
+
+/* Website chat — public visitor side */
+export const publicInfo: RequestHandler = async (req, res) => {
+  res.setHeader("Cache-Control", "public, max-age=60");
+  res.json(await website.publicInfo(param(req, "site")));
+};
+export const publicStart: RequestHandler = async (req, res) =>
+  res.status(201).json(await website.publicStart(param(req, "site"), req.body as Parameters<typeof website.publicStart>[1]));
+export const publicMessages: RequestHandler = async (req, res) => {
+  noStore(res);
+  res.json(await website.publicMessages(param(req, "site"), param(req, "token"), publicMessagesQuery.parse(req.query).after));
+};
+export const publicSend: RequestHandler = async (req, res) => {
+  noStore(res);
+  res.json(await website.publicSend(param(req, "site"), param(req, "token"), String((req.body as { body: string }).body)));
+};
+export const publicHuman: RequestHandler = async (req, res) => {
+  noStore(res);
+  res.json(await website.publicRequestHuman(param(req, "site"), param(req, "token"), req.body as Parameters<typeof website.publicRequestHuman>[2]));
+};

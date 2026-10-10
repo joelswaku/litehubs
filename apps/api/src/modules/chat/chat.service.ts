@@ -26,7 +26,16 @@ const PAGE = 50;
 /* Rights                                                              */
 /* ------------------------------------------------------------------ */
 
-type Settings = { allowImages: boolean; allowDocuments: boolean; teamReadOnly: boolean; directionLabel: string };
+type Settings = {
+  allowImages: boolean;
+  allowDocuments: boolean;
+  teamReadOnly: boolean;
+  directionLabel: string;
+  websiteChatEnabled: boolean;
+  websiteAiEnabled: boolean;
+  websiteWelcome: string | null;
+  websiteKnowledge: string | null;
+};
 type Rights = {
   moderator: boolean;
   direction: boolean;
@@ -38,7 +47,7 @@ type Rights = {
   settings: Settings;
 };
 
-async function settingsOf(client: PoolClient, organizationId: string): Promise<Settings> {
+export async function settingsOf(client: PoolClient, organizationId: string): Promise<Settings> {
   const result = await client.query<Row>(`SELECT * FROM chat_settings WHERE organization_id=$1`, [organizationId]);
   const row = result.rows[0];
   return {
@@ -46,10 +55,14 @@ async function settingsOf(client: PoolClient, organizationId: string): Promise<S
     allowDocuments: row ? Boolean(row.allow_documents) : true,
     teamReadOnly: row ? Boolean(row.team_read_only) : false,
     directionLabel: String(row?.direction_label ?? "").trim() || "Direction",
+    websiteChatEnabled: row && row.website_chat_enabled !== undefined ? Boolean(row.website_chat_enabled) : true,
+    websiteAiEnabled: row && row.website_ai_enabled !== undefined ? Boolean(row.website_ai_enabled) : true,
+    websiteWelcome: (row?.website_welcome as string | null) ?? null,
+    websiteKnowledge: (row?.website_knowledge as string | null) ?? null,
   };
 }
 
-async function rightsOf(client: PoolClient, context: ChatContext): Promise<Rights> {
+export async function rightsOf(client: PoolClient, context: ChatContext): Promise<Rights> {
   const settings = await settingsOf(client, context.organizationId);
   if (context.isOwner)
     return { moderator: true, direction: true, muted: false, blocked: false, noFiles: false, settings };
@@ -96,7 +109,7 @@ function composerRules(rights: Rights, kind: string) {
 }
 
 /** Owners, general managers and authorised members: who reads direction threads. */
-async function directionStaff(client: PoolClient, organizationId: string) {
+export async function directionStaff(client: PoolClient, organizationId: string) {
   const result = await client.query<{ member_id: string }>(
     `SELECT DISTINCT m.id AS member_id
        FROM organization_members m
@@ -189,7 +202,16 @@ export async function overview(context: ChatContext) {
       );
       members = people.rows;
     }
+    let visitors: { enabled: boolean; pending: number } | null = null;
+    if (rights.moderator || rights.direction) {
+      const pending = await client.query<{ total: string }>(
+        `SELECT COUNT(*)::text AS total FROM website_chat_sessions WHERE organization_id=$1 AND needs_human AND status='open'`,
+        [context.organizationId],
+      );
+      visitors = { enabled: rights.settings.websiteChatEnabled, pending: Number(pending.rows[0]?.total ?? 0) };
+    }
     return {
+      visitors,
       me: {
         memberId: context.memberId,
         isOwner: context.isOwner,
@@ -544,19 +566,30 @@ export async function getAccess(context: ChatContext) {
 export async function saveAccess(context: ChatContext, input: ChatAccessInput) {
   if (!context.isOwner) throw new ForbiddenError("Only the owner can manage chat access");
   await withTenantContext(context, async (client) => {
-    if (input.settings)
+    if (input.settings) {
+      const current = await settingsOf(client, context.organizationId);
+      const next = input.settings;
       await client.query(
-        `INSERT INTO chat_settings(organization_id,allow_images,allow_documents,team_read_only,direction_label,updated_at) VALUES($1,$2,$3,$4,$5,now())
+        `INSERT INTO chat_settings(organization_id,allow_images,allow_documents,team_read_only,direction_label,
+                                   website_chat_enabled,website_ai_enabled,website_welcome,website_knowledge,updated_at)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,now())
          ON CONFLICT (organization_id) DO UPDATE SET allow_images=EXCLUDED.allow_images,allow_documents=EXCLUDED.allow_documents,
-           team_read_only=EXCLUDED.team_read_only,direction_label=EXCLUDED.direction_label,updated_at=now()`,
+           team_read_only=EXCLUDED.team_read_only,direction_label=EXCLUDED.direction_label,
+           website_chat_enabled=EXCLUDED.website_chat_enabled,website_ai_enabled=EXCLUDED.website_ai_enabled,
+           website_welcome=EXCLUDED.website_welcome,website_knowledge=EXCLUDED.website_knowledge,updated_at=now()`,
         [
           context.organizationId,
-          input.settings.allowImages,
-          input.settings.allowDocuments,
-          input.settings.teamReadOnly,
-          input.settings.directionLabel?.trim() || "Direction",
+          next.allowImages,
+          next.allowDocuments,
+          next.teamReadOnly,
+          next.directionLabel?.trim() || "Direction",
+          next.websiteChatEnabled ?? current.websiteChatEnabled,
+          next.websiteAiEnabled ?? current.websiteAiEnabled,
+          next.websiteWelcome === undefined ? current.websiteWelcome : next.websiteWelcome?.trim() || null,
+          next.websiteKnowledge === undefined ? current.websiteKnowledge : next.websiteKnowledge?.trim() || null,
         ],
       );
+    }
     for (const item of input.members) {
       if (!item.canModerate && !item.canReadDirection && !item.muted && !item.blocked && !item.noFiles) {
         await client.query(`DELETE FROM chat_access WHERE organization_id=$1 AND member_id=$2`, [
@@ -584,7 +617,8 @@ export async function unreadTotal(context: ChatContext) {
     unread:
       (data.team?.unread ?? 0) +
       (data.myDirection?.unread ?? 0) +
-      data.threads.reduce((sum, thread) => sum + (thread.employee.id === context.memberId ? 0 : thread.unread), 0),
+      data.threads.reduce((sum, thread) => sum + (thread.employee.id === context.memberId ? 0 : thread.unread), 0) +
+      (data.visitors?.pending ?? 0),
   };
 }
 

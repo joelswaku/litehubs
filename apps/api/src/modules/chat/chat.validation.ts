@@ -27,6 +27,10 @@ export const chatAccessInput = z.object({
       allowDocuments: z.boolean(),
       teamReadOnly: z.boolean(),
       directionLabel: z.string().trim().max(60).optional(),
+      websiteChatEnabled: z.boolean().optional(),
+      websiteAiEnabled: z.boolean().optional(),
+      websiteWelcome: z.string().trim().max(500).nullable().optional(),
+      websiteKnowledge: z.string().trim().max(6000).nullable().optional(),
     })
     .optional(),
   members: z
@@ -47,3 +51,34 @@ export type MessagesQuery = z.infer<typeof messagesQuery>;
 export type MessageInput = z.infer<typeof messageInput>;
 export type ChatAccessInput = z.infer<typeof chatAccessInput>;
 export const directionLabelInput = z.object({ label: z.string().trim().min(1).max(60) });
+
+/* Website chat */
+export const visitorSessionParams = organizationParams.extend({ sessionId: id });
+export const visitorReplyInput = z.object({ body: z.string().trim().min(1).max(2000) });
+export const visitorUpdateInput = z
+  .object({ mode: z.enum(["ai", "human"]).optional(), status: z.enum(["open", "closed"]).optional() })
+  .refine((value) => value.mode || value.status, "Nothing to change");
+const siteSlug = z.string().trim().toLowerCase().regex(/^[a-z0-9-]{2,80}$/, "Invalid site");
+const token = z.string().regex(/^[A-Za-z0-9_-]{30,60}$/, "Invalid conversation");
+const optionalText = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .optional()
+    .transform((value) => value || undefined);
+export const publicSiteParams = z.object({ site: siteSlug });
+export const publicSessionParams = publicSiteParams.extend({ token });
+export const publicStartInput = z.object({
+  name: optionalText(120),
+  email: z.string().trim().email().max(200).optional().or(z.literal("").transform(() => undefined)),
+  phone: optionalText(40),
+  pageUrl: optionalText(500),
+});
+export const publicSendInput = z.object({ body: z.string().trim().min(1).max(2000) });
+export const publicMessagesQuery = z.object({ after: z.string().datetime({ offset: true }).optional() });
+export const publicHumanInput = z.object({
+  name: optionalText(120),
+  email: z.string().trim().email().max(200).optional().or(z.literal("").transform(() => undefined)),
+  phone: optionalText(40),
+});

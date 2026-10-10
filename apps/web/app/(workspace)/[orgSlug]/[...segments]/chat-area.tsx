@@ -5,7 +5,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   Ban,
+  Bot,
+  CheckCircle2,
   FileText,
+  Globe2,
   ImageIcon,
   LockKeyhole,
   Megaphone,
@@ -18,6 +21,7 @@ import {
   Settings2,
   ShieldCheck,
   Trash2,
+  UserRound,
   UsersRound,
   X,
 } from "lucide-react";
@@ -28,6 +32,7 @@ import { api, del, get, orgUrl, patch, post, put } from "@/lib/api";
 import { useLanguage } from "@/providers/language-provider";
 
 type Overview = {
+  visitors?: { enabled: boolean; pending: number } | null;
   me: {
     memberId: string;
     isOwner: boolean;
@@ -95,6 +100,8 @@ export function ChatArea({ orgSlug }: { orgSlug: string }) {
   const [mobileView, setMobileView] = useState<"list" | "chat">("list");
   const [picker, setPicker] = useState(false);
   const [settings, setSettings] = useState(false);
+  const [tab, setTab] = useState<"team" | "visitors">("team");
+  const [visitor, setVisitor] = useState<string | null>(null);
 
   const overview = useQuery({
     queryKey: ["chat-overview", orgSlug],
@@ -105,8 +112,14 @@ export function ChatArea({ orgSlug }: { orgSlug: string }) {
 
   // Deep link from a notification: ?c=<conversation id>
   useEffect(() => {
-    const wanted = new URLSearchParams(window.location.search).get("c");
-    if (wanted) {
+    const params = new URLSearchParams(window.location.search);
+    const wanted = params.get("c");
+    const wantedVisitor = params.get("visitor");
+    if (wantedVisitor) {
+      setTab("visitors");
+      setVisitor(wantedVisitor);
+      setMobileView("chat");
+    } else if (wanted) {
       setActive(wanted);
       setMobileView("chat");
     }
@@ -165,6 +178,36 @@ export function ChatArea({ orgSlug }: { orgSlug: string }) {
             </Button>
           ) : null}
         </div>
+        {data.visitors ? (
+          <div className="grid grid-cols-2 gap-1 border-b border-border p-2">
+            {(["team", "visitors"] as const).map((key) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setTab(key)}
+                className={`inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-2 py-1.5 text-[13px] font-medium transition ${tab === key ? "bg-brand/10 text-brand" : "text-ink-secondary hover:bg-surface-2"}`}
+              >
+                {key === "team" ? <UsersRound className="size-4" /> : <Globe2 className="size-4" />}
+                {key === "team" ? tr(fr, "Équipe", "Team") : tr(fr, "Clients du site", "Website")}
+                {key === "visitors" && data.visitors!.pending ? (
+                  <span className="rounded-full bg-critical px-1.5 text-[11px] font-bold text-white">{data.visitors!.pending}</span>
+                ) : null}
+              </button>
+            ))}
+          </div>
+        ) : null}
+        {tab === "visitors" && data.visitors ? (
+          <VisitorList
+            orgSlug={orgSlug}
+            fr={fr}
+            enabled={data.visitors.enabled}
+            active={visitor}
+            onSelect={(id) => {
+              setVisitor(id);
+              setMobileView("chat");
+            }}
+          />
+        ) : (
         <div className="min-h-0 flex-1 overflow-auto p-2">
           {data.team ? (
             <ConversationButton
@@ -229,11 +272,30 @@ export function ChatArea({ orgSlug }: { orgSlug: string }) {
             </>
           )}
         </div>
+        )}
       </aside>
 
       {/* Conversation */}
       <section className={`${mobileView === "list" ? "hidden lg:flex" : "flex"} min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-surface-1`}>
-        {active ? (
+        {tab === "visitors" && data.visitors ? (
+          visitor ? (
+            <VisitorView
+              key={visitor}
+              orgSlug={orgSlug}
+              sessionId={visitor}
+              fr={fr}
+              onBack={() => setMobileView("list")}
+              onActivity={() => {
+                void queryClient.invalidateQueries({ queryKey: ["chat-overview", orgSlug] });
+                void queryClient.invalidateQueries({ queryKey: ["chat-visitors", orgSlug] });
+              }}
+            />
+          ) : (
+            <div className="grid flex-1 place-items-center">
+              <EmptyState icon={Globe2} title={tr(fr, "Choisissez un visiteur", "Choose a visitor")} />
+            </div>
+          )
+        ) : active ? (
           <ConversationView
             key={active}
             orgSlug={orgSlug}
@@ -825,7 +887,16 @@ function AccessDialog({ orgSlug, fr, onClose }: { orgSlug: string; fr: boolean; 
     blocked: boolean;
     noFiles: boolean;
   };
-  type Settings = { allowImages: boolean; allowDocuments: boolean; teamReadOnly: boolean; directionLabel?: string };
+  type Settings = {
+    allowImages: boolean;
+    allowDocuments: boolean;
+    teamReadOnly: boolean;
+    directionLabel?: string;
+    websiteChatEnabled?: boolean;
+    websiteAiEnabled?: boolean;
+    websiteWelcome?: string | null;
+    websiteKnowledge?: string | null;
+  };
   const access = useQuery({
     queryKey: ["chat-access", orgSlug],
     queryFn: () => get<{ members: Member[]; settings: Settings }>(orgUrl(orgSlug, "chat/access")),
@@ -903,6 +974,58 @@ function AccessDialog({ orgSlug, fr, onClose }: { orgSlug: string; fr: boolean; 
               </span>
             </label>
           ))}
+        </div>
+        <div className="space-y-2 rounded-xl border border-border p-3">
+          <p className="flex items-center gap-1.5 text-sm font-semibold text-ink">
+            <Globe2 className="size-4 text-brand" />
+            {tr(fr, "Chat du site web (clients)", "Website chat (customers)")}
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {[
+              { key: "websiteChatEnabled" as const, label: tr(fr, "Afficher le chat sur le site", "Show chat on the website"), hint: tr(fr, "Bouton « Discuter avec nous »", "“Chat with us” button") },
+              { key: "websiteAiEnabled" as const, label: tr(fr, "Réponses automatiques IA", "AI auto-replies"), hint: tr(fr, "L’IA répond, l’équipe peut reprendre la main", "AI replies, the team can take over") },
+            ].map((item) => (
+              <label key={item.key} className="flex cursor-pointer items-start gap-2 rounded-lg p-1.5 text-sm hover:bg-surface-2">
+                <input type="checkbox" className="mt-1" checked={rules[item.key] ?? true} onChange={(event) => setRules({ ...rules, [item.key]: event.target.checked })} />
+                <span>
+                  <span className="block font-medium text-ink">{item.label}</span>
+                  <span className="block text-xs text-ink-secondary">{item.hint}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+          <label className="block text-xs font-medium text-ink-secondary">
+            {tr(fr, "Message d’accueil (facultatif)", "Welcome message (optional)")}
+            <input
+              value={rules.websiteWelcome ?? ""}
+              maxLength={500}
+              onChange={(event) => setRules({ ...rules, websiteWelcome: event.target.value })}
+              className="mt-1 h-9 w-full rounded-lg border border-border-strong bg-surface-1 px-3 text-sm text-ink"
+              placeholder={tr(fr, "Bonjour 👋 Comment pouvons-nous vous aider ?", "Hello 👋 How can we help?")}
+            />
+          </label>
+          <label className="block text-xs font-medium text-ink-secondary">
+            {tr(fr, "Informations pour l’IA (facultatif)", "Information for the AI (optional)")}
+            <textarea
+              value={rules.websiteKnowledge ?? ""}
+              maxLength={6000}
+              rows={4}
+              onChange={(event) => setRules({ ...rules, websiteKnowledge: event.target.value })}
+              className="mt-1 w-full rounded-lg border border-border-strong bg-surface-1 px-3 py-2 text-sm text-ink"
+              placeholder={tr(
+                fr,
+                "Ex. : horaires, zones de livraison, modes de paiement, adresse des fermes, conditions de commande…",
+                "E.g. opening hours, delivery areas, payment methods, farm addresses, order conditions…",
+              )}
+            />
+            <span className="mt-1 block font-normal text-ink-muted">
+              {tr(
+                fr,
+                "L’IA utilise aussi le contenu publié du site et les produits disponibles avec leurs prix (Ventes). Elle n’invente pas de prix.",
+                "The AI also uses the published website content and available products with prices (Sales). It never invents prices.",
+              )}
+            </span>
+          </label>
         </div>
         <input
           value={search}
@@ -1032,5 +1155,274 @@ function Dialog({ title, onClose, children, wide }: { title: string; onClose: ()
         <div className="min-h-0 flex-1 overflow-auto">{children}</div>
       </div>
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Website visitors (public chat on the company website)               */
+/* ------------------------------------------------------------------ */
+
+type VisitorSummary = {
+  id: string;
+  visitor: { name: string | null; email: string | null; phone: string | null };
+  status: "open" | "closed";
+  mode: "ai" | "human";
+  needsHuman: boolean;
+  lastMessageAt: string;
+  preview: string;
+  pageUrl: string | null;
+};
+type VisitorThread = {
+  session: {
+    id: string;
+    visitor: VisitorSummary["visitor"];
+    status: "open" | "closed";
+    mode: "ai" | "human";
+    needsHuman: boolean;
+    pageUrl: string | null;
+    assignedToMe: boolean;
+  };
+  messages: { id: string; from: "visitor" | "ai" | "staff" | "system"; name: string | null; body: string; createdAt: string }[];
+};
+const visitorName = (visitor: VisitorSummary["visitor"], fr: boolean) =>
+  visitor.name || visitor.phone || visitor.email || tr(fr, "Visiteur", "Visitor");
+
+function VisitorList({
+  orgSlug,
+  fr,
+  enabled,
+  active,
+  onSelect,
+}: {
+  orgSlug: string;
+  fr: boolean;
+  enabled: boolean;
+  active: string | null;
+  onSelect: (id: string) => void;
+}) {
+  const list = useQuery({
+    queryKey: ["chat-visitors", orgSlug],
+    queryFn: () => get<{ sessions: VisitorSummary[] }>(orgUrl(orgSlug, "chat/visitors")),
+    refetchInterval: 8_000,
+  });
+  return (
+    <div className="min-h-0 flex-1 overflow-auto p-2">
+      {!enabled ? (
+        <p className="mb-2 rounded-lg bg-warning/10 px-3 py-2 text-xs text-ink-secondary">
+          {tr(fr, "Le chat est masqué sur le site (réglage ⚙️).", "The chat is hidden on the website (⚙️ settings).")}
+        </p>
+      ) : null}
+      {list.isLoading ? (
+        <SkeletonCard rows={4} />
+      ) : !list.data?.sessions.length ? (
+        <p className="px-3 py-3 text-xs leading-5 text-ink-secondary">
+          {tr(
+            fr,
+            "Aucune conversation pour l’instant. Les visiteurs du site écrivent via le bouton « Discuter avec nous » ; l’IA répond et vous pouvez reprendre la main ici.",
+            "No conversations yet. Website visitors write through the “Chat with us” button; the AI replies and you can take over here.",
+          )}
+        </p>
+      ) : (
+        list.data.sessions.map((session) => (
+          <button
+            key={session.id}
+            type="button"
+            onClick={() => onSelect(session.id)}
+            className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition ${active === session.id ? "bg-brand/10" : "hover:bg-surface-2"}`}
+          >
+            <span className={`grid size-9 shrink-0 place-items-center rounded-full ${session.needsHuman && session.status === "open" ? "bg-critical text-white" : "bg-surface-3 text-ink-secondary"}`}>
+              <UserRound className="size-4" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center gap-1.5">
+                <span className="truncate text-sm font-medium text-ink">{visitorName(session.visitor, fr)}</span>
+                <span className="shrink-0 text-[10px] text-ink-muted">{time(session.lastMessageAt, fr)}</span>
+              </span>
+              <span className="block truncate text-xs text-ink-secondary">{session.preview || "—"}</span>
+              <span className="mt-0.5 flex gap-1 text-[10px] font-semibold uppercase tracking-wide">
+                {session.needsHuman && session.status === "open" ? (
+                  <span className="text-critical">{tr(fr, "Attend l’équipe", "Waiting for team")}</span>
+                ) : session.status === "closed" ? (
+                  <span className="text-ink-muted">{tr(fr, "Terminée", "Closed")}</span>
+                ) : session.mode === "human" ? (
+                  <span className="text-brand">{tr(fr, "Équipe", "Team")}</span>
+                ) : (
+                  <span className="text-ink-muted">{tr(fr, "IA", "AI")}</span>
+                )}
+              </span>
+            </span>
+          </button>
+        ))
+      )}
+    </div>
+  );
+}
+
+function VisitorView({
+  orgSlug,
+  sessionId,
+  fr,
+  onBack,
+  onActivity,
+}: {
+  orgSlug: string;
+  sessionId: string;
+  fr: boolean;
+  onBack: () => void;
+  onActivity: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const key = ["chat-visitor", orgSlug, sessionId];
+  const thread = useQuery({
+    queryKey: key,
+    queryFn: () => get<VisitorThread>(orgUrl(orgSlug, `chat/visitors/${sessionId}`)),
+    refetchInterval: 4_000,
+  });
+  const [body, setBody] = useState("");
+  const listRef = useRef<HTMLDivElement>(null);
+  const count = thread.data?.messages.length ?? 0;
+  useEffect(() => {
+    const list = listRef.current;
+    if (list) list.scrollTop = list.scrollHeight;
+  }, [count]);
+  const done = (data: VisitorThread) => {
+    queryClient.setQueryData(key, data);
+    onActivity();
+  };
+  const reply = useMutation({
+    mutationFn: (text: string) => post<VisitorThread>(orgUrl(orgSlug, `chat/visitors/${sessionId}/messages`), { body: text }),
+    onSuccess: (data) => {
+      setBody("");
+      done(data);
+    },
+    onError: (error) => toast.error(errorMessage(error, "")),
+  });
+  const update = useMutation({
+    mutationFn: (input: { mode?: "ai" | "human"; status?: "open" | "closed" }) =>
+      patch<VisitorThread>(orgUrl(orgSlug, `chat/visitors/${sessionId}`), input),
+    onSuccess: done,
+    onError: (error) => toast.error(errorMessage(error, "")),
+  });
+
+  if (thread.isLoading) return <div className="p-4"><SkeletonCard rows={6} /></div>;
+  if (thread.isError || !thread.data)
+    return (
+      <div className="p-4">
+        <ErrorState title={tr(fr, "Conversation indisponible", "Conversation unavailable")} description={errorMessage(thread.error, "")} onRetry={() => void thread.refetch()} />
+      </div>
+    );
+  const { session, messages } = thread.data;
+  const contact = [session.visitor.phone, session.visitor.email].filter(Boolean).join(" · ");
+  const send = () => {
+    const text = body.trim();
+    if (text && !reply.isPending) reply.mutate(text);
+  };
+
+  return (
+    <>
+      <header className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2.5 sm:px-4">
+        <button type="button" onClick={onBack} className="rounded-md p-1 text-ink-secondary hover:bg-surface-2 lg:hidden" aria-label="Retour">
+          <ArrowLeft className="size-5" />
+        </button>
+        <span className="grid size-9 shrink-0 place-items-center rounded-full bg-surface-3 text-ink-secondary">
+          <UserRound className="size-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-ink">{visitorName(session.visitor, fr)}</p>
+          <p className="truncate text-xs text-ink-secondary">
+            {contact || tr(fr, "Pas de contact laissé", "No contact left")}
+            {session.pageUrl ? ` · ${session.pageUrl.replace(/^https?:\/\//, "")}` : ""}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {session.mode === "ai" ? (
+            <Button size="sm" loading={update.isPending} onClick={() => update.mutate({ mode: "human" })}>
+              <UserRound className="size-4" />
+              {tr(fr, "Prendre la main", "Take over")}
+            </Button>
+          ) : (
+            <Button size="sm" variant="outline" loading={update.isPending} onClick={() => update.mutate({ mode: "ai" })}>
+              <Bot className="size-4" />
+              {tr(fr, "Rendre à l’IA", "Hand back to AI")}
+            </Button>
+          )}
+          {session.status === "open" ? (
+            <Button size="sm" variant="ghost" loading={update.isPending} onClick={() => update.mutate({ status: "closed" })}>
+              <CheckCircle2 className="size-4" />
+              {tr(fr, "Clore", "Close")}
+            </Button>
+          ) : null}
+        </div>
+      </header>
+      {session.needsHuman && session.status === "open" ? (
+        <p className="border-b border-border bg-critical/[.06] px-4 py-2 text-xs font-medium text-critical">
+          {tr(fr, "Ce visiteur attend une réponse de l’équipe.", "This visitor is waiting for the team.")}
+        </p>
+      ) : null}
+      <div ref={listRef} className="min-h-0 flex-1 space-y-2 overflow-auto bg-surface-2/40 px-3 py-3 sm:px-4">
+        {messages.map((message) =>
+          message.from === "system" ? (
+            <p key={message.id} className="mx-auto max-w-[90%] text-center text-xs text-ink-muted">
+              {message.body}
+            </p>
+          ) : (
+            <div key={message.id} className={message.from === "visitor" ? "flex justify-start" : "flex justify-end"}>
+              <div
+                className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-sm ${
+                  message.from === "visitor"
+                    ? "rounded-bl-md border border-border bg-surface-1 text-ink"
+                    : message.from === "ai"
+                      ? "rounded-br-md bg-surface-3 text-ink"
+                      : "rounded-br-md bg-brand text-brand-ink"
+                }`}
+              >
+                <p className={`mb-0.5 text-[10px] font-semibold uppercase tracking-wide ${message.from === "staff" ? "text-brand-ink/80" : "text-ink-muted"}`}>
+                  {message.from === "visitor"
+                    ? visitorName(session.visitor, fr)
+                    : message.from === "ai"
+                      ? tr(fr, "Assistant IA", "AI assistant")
+                      : message.name || tr(fr, "Équipe", "Team")}
+                  {" · "}
+                  {time(message.createdAt, fr)}
+                </p>
+                {message.body}
+              </div>
+            </div>
+          ),
+        )}
+      </div>
+      <div className="border-t border-border p-2 sm:p-3">
+        {session.mode === "ai" ? (
+          <p className="mb-1.5 px-1 text-[11px] text-ink-muted">
+            {tr(fr, "L’IA répond pour l’instant. Écrire ici prend la main automatiquement.", "The AI is replying for now. Writing here takes over automatically.")}
+          </p>
+        ) : null}
+        <form
+          className="flex items-end gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            send();
+          }}
+        >
+          <textarea
+            rows={2}
+            value={body}
+            maxLength={2000}
+            onChange={(event) => setBody(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                send();
+              }
+            }}
+            placeholder={tr(fr, "Répondre au visiteur…", "Reply to the visitor…")}
+            className="min-h-[44px] flex-1 resize-none rounded-xl border border-border-strong bg-surface-1 px-3 py-2 text-sm text-ink"
+          />
+          <Button size="icon" loading={reply.isPending} disabled={!body.trim()} type="submit" aria-label={tr(fr, "Envoyer", "Send")}>
+            <Send className="size-4" />
+          </Button>
+        </form>
+      </div>
+    </>
   );
 }

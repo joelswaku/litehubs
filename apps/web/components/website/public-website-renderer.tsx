@@ -1,5 +1,6 @@
 "use client";
 
+import { WebsiteChatWidget } from "./website-chat-widget";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -3037,6 +3038,13 @@ export function PublicWebsiteRenderer({
       </footer>
       )}
       </SiteRenderContext.Provider>
+      {!editor ? (
+        <WebsiteChatWidget
+          site={website.portal_organization_slug ?? website.organization_slug}
+          language={language}
+          color={website.primary_color || "#075c4d"}
+        />
+      ) : null}
     </main>
   );
 }
