@@ -1233,6 +1233,14 @@ export async function generateContractDocumentVersion(context: ContractsContext,
       if (unknown.length) throw new BadRequestError(`Champs inconnus dans le modèle : ${unknown.join(", ")}. Corrigez le modèle (champs possibles : ${Object.keys(MERGE_LABELS).map((key)=>`{{${key}}}`).join(", ")}).`,{field:"body"});
       rendered={blocks:renderBlocks(body.blocks,contractMergeValues(contract,employee,{name:companyName,address:companyAddress}))};
     }
+    // A new version replaces the previous one only while nobody has signed it.
+    const previous=await client.query<{id:string;status:string;signed:number}>(`SELECT v.id,v.status,(SELECT count(*)::int FROM contract_signature_fields f WHERE f.organization_id=v.organization_id AND f.version_id=v.id AND f.status='signed') AS signed FROM contract_document_versions v WHERE v.organization_id=$1 AND v.contract_id=$2 ORDER BY v.version_number DESC LIMIT 1`,[context.organizationId,contractId]);
+    const last=previous.rows[0];
+    if (last && (last.signed>0 || ["signed","active"].includes(last.status))) throw new BadRequestError("Cette version est déjà signée (au moins une signature). Pour changer le contrat, créez un avenant ou un nouveau contrat.",{field:"body"});
+    if (last && last.status!=="draft" && last.status!=="cancelled") {
+      await client.query(`UPDATE contract_document_versions SET status='cancelled' WHERE organization_id=$1 AND id=$2`,[context.organizationId,last.id]);
+      if (["awaiting_employee_signature","awaiting_employer_signature","ready_for_signature","pending_signature"].includes(contract.status)) await client.query(`UPDATE contracts SET status='draft' WHERE organization_id=$1 AND id=$2`,[context.organizationId,contractId]);
+    }
     const numberResult=await client.query<{number:number}>(`SELECT COALESCE(MAX(version_number),0)+1 AS number FROM contract_document_versions WHERE organization_id=$1 AND contract_id=$2`,[context.organizationId,contractId]);
     const versionNumber=numberResult.rows[0]!.number;
     // Draft rows first: the layout below needs the version (blocks, number).
