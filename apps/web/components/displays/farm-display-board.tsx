@@ -185,9 +185,9 @@ export function FarmDisplayBoard({ token }: { token: string }) {
     );
     board = (
       <Board
-        columns={[{ label: "Lot", w: 0.9 }, { label: "Bâtiment", w: 2 }, { label: "Type", w: 1.1 }, { label: "Âge", className: "text-right", w: 0.7 }, { label: "Effectif", className: "text-right", w: 1 }, { label: "Œufs jour", className: "text-right", w: 1 }, { label: "Morts 7 j", className: "text-right", w: 1 }, { label: "Statut", w: 1.6 }]}
+        columns={[{ label: "Lot", w: 1.4 }, { label: "Bâtiment", w: 1.9 }, { label: "Type", w: 1.1 }, { label: "Âge", className: "text-right", w: 0.7 }, { label: "Effectif", className: "text-right", w: 1 }, { label: "Œufs jour", className: "text-right", w: 1 }, { label: "Morts 7 j", className: "text-right", w: 1 }, { label: "Statut", w: 1.6 }]}
         rows={rows.slice(slide.page * ROWS_PER_PAGE, (slide.page + 1) * ROWS_PER_PAGE).map((row) => [
-          <span key="c" className="font-mono text-amber-200">{row.code.replace(/_/g, "-").toUpperCase()}</span>,
+          <span key="c" className="text-amber-200">{row.name || row.code}</span>,
           `${row.house} · ${row.site}`,
           (row.kind && KIND[row.kind]) || row.kind || "—",
           row.ageDays === null ? "—" : `${row.ageDays} j`,
@@ -213,10 +213,10 @@ export function FarmDisplayBoard({ token }: { token: string }) {
     );
     board = (
       <Board
-        columns={[{ label: "Loge", w: 0.9 }, { label: "Nom", w: 1.8 }, { label: "Site", w: 1.2 }, { label: "Têtes", className: "text-right", w: 0.8 }, { label: "Capacité", className: "text-right", w: 0.9 }, { label: "Gestations", className: "text-right", w: 1 }, { label: "Morts 7 j", className: "text-right", w: 0.9 }, { label: "Statut", w: 1.4 }]}
+        columns={[{ label: "Loge", w: 1.6 }, { label: "Type", w: 1 }, { label: "Site", w: 1.2 }, { label: "Têtes", className: "text-right", w: 0.8 }, { label: "Capacité", className: "text-right", w: 0.9 }, { label: "Gestations", className: "text-right", w: 1 }, { label: "Morts 7 j", className: "text-right", w: 0.9 }, { label: "Statut", w: 1.4 }]}
         rows={rows.slice(slide.page * ROWS_PER_PAGE, (slide.page + 1) * ROWS_PER_PAGE).map((row) => [
-          <span key="c" className="font-mono text-amber-200">{row.code.replace(/_/g, "-").toUpperCase()}</span>,
-          row.name,
+          <span key="c" className="text-amber-200">{row.name || row.code}</span>,
+          row.type ?? "—",
           row.site,
           fmt(row.heads),
           row.capacity === null ? "—" : fmt(row.capacity),
