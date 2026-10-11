@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BookOpenCheck,
   CheckCircle2,
+  ChevronDown,
   Download,
   Edit3,
   FileText,
@@ -473,12 +474,7 @@ export function CompanyRulesArea({ orgSlug }: { orgSlug: string }) {
       {canEdit || can(user, "employees.update") ? <RulesAcknowledgementPanel orgSlug={orgSlug} fr={fr} /> : null}
 
       {current ? (
-        <section className="rounded-2xl border border-border bg-surface-1 p-5 shadow-sm sm:p-7">
-          <p className="text-sm font-semibold text-ink">{fr ? "Règlement publié" : "Published rules"}</p>
-          <pre className="mt-4 whitespace-pre-wrap font-sans text-sm leading-7 text-ink-secondary">
-            {current.content}
-          </pre>
-        </section>
+        <PublishedRules fr={fr} content={current.content} />
       ) : (
         <>
           <nav className="rounded-2xl border border-border bg-surface-1 p-4 shadow-sm" aria-label={fr ? "Chapitres du règlement" : "Rule chapters"}>
@@ -620,4 +616,57 @@ function Dialog({ title, onClose, wide = false, children }: { title: string; onC
 
 function StatusCard({ icon: Icon, label, value }: { icon: typeof ShieldCheck; label: string; value: string }) {
   return <div className="rounded-2xl border border-border bg-surface-1/80 p-4 shadow-sm"><Icon className="size-4 text-brand" /><p className="mt-3 text-xs text-ink-secondary">{label}</p><p className="mt-1 text-base font-semibold text-ink">{value}</p></div>;
+}
+
+/** The published text, one collapsible panel per chapter (« 1. Title »). */
+function PublishedRules({ fr, content }: { fr: boolean; content: string }) {
+  const chapters: { title: string; lines: string[] }[] = [];
+  for (const raw of content.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (/^\d+\.\s/.test(line) || !chapters.length) chapters.push({ title: /^\d+\.\s/.test(line) ? line : fr ? "Préambule" : "Preamble", lines: /^\d+\.\s/.test(line) ? [] : [line] });
+    else chapters[chapters.length - 1]!.lines.push(line);
+  }
+  const [open, setOpen] = useState<number[]>([]);
+  const all = open.length === chapters.length;
+  return (
+    <section className="overflow-hidden rounded-2xl border border-border bg-surface-1 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-5 py-4">
+        <div>
+          <p className="text-sm font-semibold text-ink">{fr ? "Règlement publié" : "Published rules"}</p>
+          <p className="text-xs text-ink-secondary">{chapters.length} {fr ? "chapitres · cliquez sur un chapitre pour le lire" : "chapters · click a chapter to read it"}</p>
+        </div>
+        <button type="button" onClick={() => setOpen(all ? [] : chapters.map((_, index) => index))} className="rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-ink-secondary transition hover:bg-surface-2 hover:text-ink">
+          {all ? (fr ? "Tout replier" : "Collapse all") : fr ? "Tout déplier" : "Expand all"}
+        </button>
+      </div>
+      <div className="divide-y divide-border">
+        {chapters.map((chapter, index) => {
+          const isOpen = open.includes(index);
+          return (
+            <div key={`${index}-${chapter.title}`}>
+              <button
+                type="button"
+                aria-expanded={isOpen}
+                onClick={() => setOpen(isOpen ? open.filter((item) => item !== index) : [...open, index])}
+                className="flex w-full items-center gap-3 px-5 py-3.5 text-left transition hover:bg-surface-2/60"
+              >
+                <span className={`grid size-8 shrink-0 place-items-center rounded-xl text-xs font-bold transition ${isOpen ? "bg-brand text-brand-ink" : "bg-brand/10 text-brand"}`}>{index + 1}</span>
+                <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">{chapter.title.replace(/^\d+\.\s*/, "")}</span>
+                <span className="shrink-0 text-xs text-ink-muted">{chapter.lines.length} {fr ? "règle(s)" : "rule(s)"}</span>
+                <ChevronDown className={`size-4 shrink-0 text-ink-secondary transition-transform duration-300 ${isOpen ? "rotate-180" : ""}`} />
+              </button>
+              {isOpen ? (
+                <div className="animate-in fade-in slide-in-from-top-1 space-y-2 px-5 pb-4 pl-16 duration-300">
+                  {chapter.lines.map((line, lineIndex) => (
+                    <p key={lineIndex} className="text-sm leading-7 text-ink-secondary">{line}</p>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
 }

@@ -128,6 +128,24 @@ const folderLabel = (folder: Folder, fr: boolean) => {
 const folderIcon = (kind: string | null) =>
   kind === "\\Sent" ? Send : kind === "\\Trash" ? Trash2 : kind === "\\Archive" ? Archive : kind === "\\Junk" ? ShieldAlert : kind === "\\Flagged" ? Star : Inbox;
 
+const AVATAR_TONES = [
+  "from-sky-500 to-indigo-500",
+  "from-emerald-500 to-teal-500",
+  "from-amber-500 to-orange-500",
+  "from-fuchsia-500 to-pink-500",
+  "from-violet-500 to-purple-500",
+  "from-rose-500 to-red-500",
+  "from-cyan-500 to-blue-500",
+];
+const avatarTone = (name: string) => AVATAR_TONES[[...name].reduce((sum, char) => sum + char.charCodeAt(0), 0) % AVATAR_TONES.length]!;
+const initialsOf = (name: string) =>
+  name
+    .replace(/[<>"]/g, "")
+    .split(/[\s@.]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("") || "?";
 const person = (list: Address[]) => list.map((item) => item.name || item.address).join(", ");
 const addresses = (list: Address[]) => list.map((item) => item.address).filter(Boolean).join(", ");
 
@@ -340,15 +358,26 @@ export function MailArea({ orgSlug }: { orgSlug: string }) {
   };
 
   return (
-    <div className="flex h-[calc(100dvh-4rem)] min-h-[560px] flex-col gap-3 p-3 sm:p-5">
+    <div className="relative isolate flex h-[calc(100dvh-4rem)] min-h-[560px] flex-col gap-4 p-3 sm:p-5">
+      <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
+        <div className="absolute -left-32 -top-20 size-[28rem] rounded-full bg-brand/14 blur-3xl animate-[lh-float_22s_ease-in-out_infinite]" />
+        <div className="absolute -right-24 bottom-[-8rem] size-[30rem] rounded-full bg-violet-400/12 blur-3xl animate-[lh-float_28s_ease-in-out_infinite_reverse]" />
+        <div className="absolute left-1/3 top-1/2 size-72 rounded-full bg-teal-300/10 blur-3xl animate-[lh-float_34s_ease-in-out_infinite]" />
+      </div>
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-brand/10 text-brand">
+      <div className="relative flex flex-wrap items-center justify-between gap-3 overflow-hidden rounded-3xl border border-border bg-surface-1/90 shadow-[0_24px_60px_-42px_rgba(15,23,42,.6)] backdrop-blur-xl px-4 py-3 sm:px-5">
+        <div aria-hidden className="absolute inset-0 bg-[linear-gradient(115deg,color-mix(in_srgb,var(--brand)_12%,transparent),transparent_55%)]" />
+        <div className="relative flex min-w-0 items-center gap-3">
+          <span className="relative grid size-11 shrink-0 place-items-center rounded-2xl bg-[linear-gradient(135deg,var(--brand),#5b4bd8)] text-white shadow-[0_12px_24px_-12px_var(--brand)]">
             <Mail className="size-5" />
+            {list.some((item) => item.unseenCount) ? (
+              <span className="absolute -right-1 -top-1 grid min-w-5 place-items-center rounded-full border-2 border-surface-1 bg-critical px-1 text-[10px] font-bold text-white">
+                {list.reduce((sum, item) => sum + (item.unseenCount ?? 0), 0)}
+              </span>
+            ) : null}
           </span>
           <div className="min-w-0">
-            <h1 className="text-lg font-semibold text-ink">{tr(fr, "Messagerie", "Mail")}</h1>
+            <h1 className="text-lg font-semibold tracking-tight text-ink">{tr(fr, "Messagerie", "Mail")}</h1>
             {list.length > 1 ? (
               <select
                 className="max-w-[260px] truncate rounded-md border border-border bg-surface-1 px-2 py-1 text-xs text-ink"
@@ -371,7 +400,7 @@ export function MailArea({ orgSlug }: { orgSlug: string }) {
             ) : null}
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="relative flex flex-wrap items-center gap-2">
           {current ? (
             <Button variant="secondary" size="sm" onClick={refreshLists} title={tr(fr, "Actualiser", "Refresh")}>
               <RefreshCw className={`size-3.5 ${messages.isFetching ? "animate-spin" : ""}`} />
@@ -393,6 +422,7 @@ export function MailArea({ orgSlug }: { orgSlug: string }) {
           {current?.canSend ? (
             <Button
               size="sm"
+              className="bg-[linear-gradient(135deg,var(--brand),#5b4bd8)] text-white shadow-[0_10px_22px_-12px_var(--brand)] hover:brightness-110"
               onClick={() =>
                 setCompose({
                   title: tr(fr, "Nouveau message", "New message"),
@@ -413,7 +443,7 @@ export function MailArea({ orgSlug }: { orgSlug: string }) {
       </div>
 
       {!list.length ? (
-        <div className="grid flex-1 place-items-center rounded-2xl border border-border bg-surface-1">
+        <div className="grid flex-1 place-items-center rounded-3xl border border-border bg-surface-1/90 shadow-[0_24px_60px_-42px_rgba(15,23,42,.6)] backdrop-blur-xl">
           <EmptyState
             icon={Mail}
             title={tr(fr, "Aucune boîte e-mail connectée", "No mailbox connected")}
@@ -434,7 +464,7 @@ export function MailArea({ orgSlug }: { orgSlug: string }) {
           />
         </div>
       ) : current?.status === "error" && !folders.data && folders.isError ? (
-        <div className="grid flex-1 place-items-center rounded-2xl border border-border bg-surface-1 p-6">
+        <div className="grid flex-1 place-items-center rounded-3xl border border-border bg-surface-1/90 shadow-[0_24px_60px_-42px_rgba(15,23,42,.6)] backdrop-blur-xl p-6">
           <ErrorState
             title={tr(fr, "Connexion à la boîte impossible", "Could not connect to the mailbox")}
             description={current.lastError ?? errorMessage(folders.error, "")}
@@ -442,9 +472,9 @@ export function MailArea({ orgSlug }: { orgSlug: string }) {
           />
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col gap-3 lg:grid lg:grid-cols-[220px_minmax(300px,380px)_1fr]">
+        <div className="flex min-h-0 flex-1 flex-col gap-4 lg:grid lg:grid-cols-[230px_minmax(320px,400px)_1fr]">
           {/* Folders */}
-          <nav className={`${openUid ? "hidden lg:block" : ""} shrink-0 overflow-auto rounded-2xl border border-border bg-surface-1 p-2 lg:min-h-0`}>
+          <nav className={`${openUid ? "hidden lg:block" : ""} shrink-0 overflow-auto rounded-3xl border border-border bg-surface-1/90 shadow-[0_24px_60px_-42px_rgba(15,23,42,.6)] backdrop-blur-xl p-2.5 lg:min-h-0`}>
             <div className="flex gap-1 overflow-x-auto lg:flex-col">
               {folders.isLoading ? (
                 <SkeletonCard rows={4} />
@@ -457,14 +487,16 @@ export function MailArea({ orgSlug }: { orgSlug: string }) {
                       key={item.path}
                       type="button"
                       onClick={() => openFolder(item.path)}
-                      className={`flex shrink-0 items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition ${
-                        active ? "bg-brand/10 font-semibold text-brand" : "text-ink-secondary hover:bg-surface-2 hover:text-ink"
+                      className={`flex shrink-0 items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm transition-all duration-300 ${
+                        active
+                          ? "bg-[linear-gradient(135deg,var(--brand),#5b4bd8)] font-semibold text-white shadow-[0_10px_22px_-14px_var(--brand)]"
+                          : "text-ink-secondary hover:bg-surface-2 hover:text-ink"
                       }`}
                     >
                       <Icon className="size-4 shrink-0" />
                       <span className="truncate lg:flex-1">{folderLabel(item, fr)}</span>
                       {item.unseen ? (
-                        <span className="rounded-full bg-brand px-1.5 text-[11px] font-bold text-brand-ink">{item.unseen}</span>
+                        <span className={`rounded-full px-1.5 text-[11px] font-bold ${active ? "bg-white/25 text-white" : "bg-brand text-brand-ink"}`}>{item.unseen}</span>
                       ) : null}
                     </button>
                   );
@@ -502,9 +534,9 @@ export function MailArea({ orgSlug }: { orgSlug: string }) {
           </nav>
 
           {/* Message list */}
-          <section className={`${openUid ? "hidden lg:flex" : "flex"} min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-surface-1`}>
+          <section className={`${openUid ? "hidden lg:flex" : "flex"} min-h-0 flex-1 flex-col overflow-hidden rounded-3xl border border-border bg-surface-1/90 shadow-[0_24px_60px_-42px_rgba(15,23,42,.6)] backdrop-blur-xl`}>
             <form
-              className="flex items-center gap-2 border-b border-border p-2"
+              className="flex items-center gap-2 border-b border-border p-2.5"
               onSubmit={(event) => {
                 event.preventDefault();
                 setSearch(searchInput.trim());
@@ -573,8 +605,8 @@ export function MailArea({ orgSlug }: { orgSlug: string }) {
                     setUnansweredOnly(chip.key === "unanswered" ? !toAnswer : chip.key === "all" ? false : toAnswer);
                     setPage(1);
                   }}
-                  className={`h-7 rounded-full border px-2.5 text-xs font-semibold transition ${
-                    chip.active ? "border-brand bg-brand/10 text-brand" : "border-border text-ink-secondary hover:bg-surface-2"
+                  className={`h-7 rounded-full border px-3 text-xs font-semibold transition ${
+                    chip.active ? "border-transparent bg-ink text-ink-inverse shadow" : "border-border text-ink-secondary hover:bg-surface-2"
                   }`}
                 >
                   {chip.label}
@@ -643,9 +675,9 @@ export function MailArea({ orgSlug }: { orgSlug: string }) {
                   title={search ? tr(fr, "Aucun résultat", "No results") : tr(fr, "Aucun message", "No messages")}
                 />
               ) : (
-                <ul>
-                  {messages.data.messages.map((item) => (
-                    <li key={item.uid}>
+                <ul className="space-y-0.5 p-1.5">
+                  {messages.data.messages.map((item, index) => (
+                    <li key={item.uid} style={{ animationDelay: `${Math.min(index, 10) * 25}ms` }} className="animate-in fade-in slide-in-from-bottom-1 duration-300 fill-mode-both">
                       <button
                         type="button"
                         onClick={() => {
@@ -658,8 +690,10 @@ export function MailArea({ orgSlug }: { orgSlug: string }) {
                                 : [...current, item.uid],
                           );
                         }}
-                        className={`flex w-full gap-2.5 border-b border-border/70 px-3 py-2.5 text-left transition hover:bg-surface-2 ${
-                          openUid === item.uid ? "bg-brand/[.07]" : ""
+                        className={`relative flex w-full gap-3 rounded-2xl px-3 py-2.5 text-left transition-all duration-200 ${
+                          openUid === item.uid
+                            ? "bg-[linear-gradient(110deg,color-mix(in_srgb,var(--brand)_13%,transparent),color-mix(in_srgb,#5b4bd8_7%,transparent))] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--brand)_22%,transparent)]"
+                            : "hover:bg-surface-2"
                         }`}
                       >
                         {batchMode ? (
@@ -671,7 +705,10 @@ export function MailArea({ orgSlug }: { orgSlug: string }) {
                             className="mt-1 size-4 shrink-0 accent-[var(--color-brand)]"
                           />
                         ) : (
-                          <span className={`mt-1.5 size-2 shrink-0 rounded-full ${item.seen ? "bg-transparent" : "bg-brand"}`} />
+                          <span className={`relative grid size-9 shrink-0 place-items-center rounded-full bg-gradient-to-br text-[11px] font-bold text-white shadow-sm ${avatarTone(person(folderIsSent(folderList, folder) ? item.to : item.from) || "?")}`}>
+                            {initialsOf(person(folderIsSent(folderList, folder) ? item.to : item.from) || "?")}
+                            {!item.seen ? <span className="absolute -right-0.5 -top-0.5 size-3 rounded-full border-2 border-surface-1 bg-brand" /> : null}
+                          </span>
                         )}
                         <span className="min-w-0 flex-1">
                           <span className="flex items-baseline justify-between gap-2">
@@ -713,10 +750,19 @@ export function MailArea({ orgSlug }: { orgSlug: string }) {
           </section>
 
           {/* Reader */}
-          <section className={`${openUid ? "flex" : "hidden lg:flex"} min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-surface-1`}>
+          <section className={`${openUid ? "flex" : "hidden lg:flex"} min-h-0 flex-1 flex-col overflow-hidden rounded-3xl border border-border bg-surface-1/90 shadow-[0_24px_60px_-42px_rgba(15,23,42,.6)] backdrop-blur-xl`}>
             {!openUid ? (
-              <div className="grid flex-1 place-items-center">
-                <EmptyState icon={MailOpen} title={tr(fr, "Sélectionnez un message", "Select a message")} />
+              <div className="relative grid flex-1 place-items-center overflow-hidden p-6">
+                <div className="relative max-w-sm text-center">
+                  <div aria-hidden className="absolute left-1/2 top-4 size-40 -translate-x-1/2 rounded-full bg-brand/20 blur-3xl" />
+                  <span className="relative mx-auto grid size-20 place-items-center rounded-[1.75rem] bg-[linear-gradient(135deg,var(--brand),#5b4bd8)] text-white shadow-[0_24px_44px_-20px_var(--brand)] animate-[lh-float_9s_ease-in-out_infinite]">
+                    <MailOpen className="size-8" />
+                  </span>
+                  <p className="relative mt-6 text-lg font-semibold tracking-tight text-ink">{tr(fr, "Sélectionnez un message", "Select a message")}</p>
+                  <p className="relative mt-1.5 text-sm leading-6 text-ink-secondary">
+                    {tr(fr, "Toutes vos adresses Congo Omega réunies : recrutement, contact, notifications.", "All your company addresses in one place.")}
+                  </p>
+                </div>
               </div>
             ) : detail.isLoading ? (
               <div className="p-5">
@@ -730,7 +776,7 @@ export function MailArea({ orgSlug }: { orgSlug: string }) {
               />
             ) : (
               <>
-                <div className="flex flex-wrap items-center gap-1 border-b border-border p-2">
+                <div className="flex flex-wrap items-center gap-1 border-b border-border bg-surface-1/80 p-2 backdrop-blur">
                   <Button size="sm" variant="ghost" className="lg:hidden" onClick={() => setOpenUid(null)}>
                     <ArrowLeft className="size-4" />
                   </Button>
@@ -769,9 +815,13 @@ export function MailArea({ orgSlug }: { orgSlug: string }) {
                   <ToolButton icon={Archive} label={tr(fr, "Archiver", "Archive")} onClick={() => move.mutate({ uid: message.uid, target: "archive" })} compact />
                   <ToolButton icon={Trash2} label={tr(fr, "Supprimer", "Delete")} onClick={() => move.mutate({ uid: message.uid, target: "trash" })} compact />
                 </div>
-                <div className="border-b border-border px-4 py-3 sm:px-5">
-                  <h2 className="text-base font-semibold text-ink sm:text-lg">{message.subject || tr(fr, "(sans objet)", "(no subject)")}</h2>
-                  <div className="mt-2 space-y-0.5 text-xs text-ink-secondary">
+                <div className="border-b border-border px-4 py-4 sm:px-6">
+                  <h2 className="text-lg font-semibold tracking-tight text-ink sm:text-xl">{message.subject || tr(fr, "(sans objet)", "(no subject)")}</h2>
+                  <div className="mt-3 flex items-start gap-3">
+                  <span className={`grid size-11 shrink-0 place-items-center rounded-full bg-gradient-to-br text-sm font-bold text-white shadow-sm ${avatarTone(person(message.from) || "?")}`}>
+                    {initialsOf(person(message.from) || "?")}
+                  </span>
+                  <div className="min-w-0 space-y-0.5 text-xs text-ink-secondary">
                     <p>
                       <span className="font-semibold text-ink">{person(message.from)}</span>{" "}
                       {message.from[0] ? <span>&lt;{message.from[0].address}&gt;</span> : null}
@@ -781,6 +831,7 @@ export function MailArea({ orgSlug }: { orgSlug: string }) {
                       {message.cc.length ? ` · Cc : ${person(message.cc)}` : ""}
                     </p>
                     <p>{fullDate(message.date, fr)}</p>
+                  </div>
                   </div>
                   {message.candidates.length ? (
                     <div className="mt-3 flex flex-wrap gap-2">
@@ -893,7 +944,7 @@ function ToolButton({
       type="button"
       title={label}
       onClick={onClick}
-      className={`inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium transition hover:bg-surface-2 ${
+      className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold transition hover:bg-surface-2 ${
         active ? "text-warning" : "text-ink-secondary hover:text-ink"
       }`}
     >

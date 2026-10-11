@@ -84,7 +84,11 @@ socialRoutes.patch(`${base}/comments/:commentId`, ...inside(commentParams, z.obj
 
 socialRoutes.get(`${base}/posts`, ...inside(organizationParams), async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
-  res.json(await service.listPosts(context(req)));
+  const query = req.query as { archived?: string; limit?: string; search?: string };
+  res.json(await service.listPosts(context(req), { archived: query.archived === "1", limit: Number(query.limit) || 20, search: query.search?.slice(0, 100) }));
+});
+socialRoutes.post(`${base}/posts/:postId/archive`, ...inside(postParams, z.object({ archived: z.boolean() })), async (req, res) => {
+  res.json(await service.archivePost(context(req), param(req, "postId"), (req.body as { archived: boolean }).archived));
 });
 socialRoutes.post(`${base}/posts`, ...inside(organizationParams, postInput), async (req, res) => {
   res.status(201).json(await service.createPost(context(req), req.body as z.infer<typeof postInput>));
@@ -114,7 +118,7 @@ socialRoutes.post(`${base}/posts/:postId/retry`, ...inside(postParams), async (r
   res.json(await service.retryPost(context(req), param(req, "postId")));
 });
 socialRoutes.delete(`${base}/posts/:postId`, ...inside(postParams), async (req, res) => {
-  res.json(await service.deletePost(context(req), param(req, "postId")));
+  res.json(await service.deletePost(context(req), param(req, "postId"), { fromFacebook: (req.query as { facebook?: string }).facebook === "1" }));
 });
 socialRoutes.post(`${base}/images`, authenticate, oneImage, validate({ params: organizationParams }), requireOrganization, async (req, res) => {
   if (!req.file) throw new BadRequestError("Choisissez une image");

@@ -9,6 +9,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Archive,
+  ArchiveRestore,
   ArrowRight,
   CalendarClock,
   Check,
@@ -27,6 +29,7 @@ import {
   PlayCircle,
   Plug,
   RefreshCw,
+  Search,
   Send,
   Share2,
   Sparkles,
@@ -83,7 +86,11 @@ type Post = {
   error: string | null;
   author: string | null;
   aiGenerated?: boolean;
+  facebookPostId?: string | null;
+  instagramMediaId?: string | null;
+  archivedAt?: string | null;
 };
+type PostList = { posts: Post[]; historyTotal?: number; archivedTotal?: number };
 
 const tr = (fr: boolean, french: string, english: string) => (fr ? french : english);
 const errorMessage = (error: unknown) =>
@@ -225,7 +232,7 @@ export function SocialArea({ orgSlug }: { orgSlug: string }) {
 
       <div key={current} className="animate-in fade-in slide-in-from-bottom-2 duration-500">
         {current === "accounts" ? <Accounts orgSlug={orgSlug} fr={fr} data={data} /> : null}
-        {current === "posts" && account ? <Posts orgSlug={orgSlug} fr={fr} account={account} posts={list} loading={posts.isLoading} /> : null}
+        {current === "posts" && account ? <Posts orgSlug={orgSlug} fr={fr} account={account} /> : null}
         {current === "comments" ? <Comments orgSlug={orgSlug} fr={fr} /> : null}
       </div>
     </div>
@@ -521,8 +528,28 @@ const STATUS: Record<Post["status"], { tone: string; icon: typeof Clock3 }> = {
   failed: { tone: "bg-critical/12 text-critical", icon: TriangleAlert },
 };
 
-function Posts({ orgSlug, fr, account, posts, loading }: { orgSlug: string; fr: boolean; account: Account; posts: Post[]; loading: boolean }) {
+function Posts({ orgSlug, fr, account }: { orgSlug: string; fr: boolean; account: Account }) {
   const queryClient = useQueryClient();
+  const [view, setView] = useState<"active" | "archived">("active");
+  const [limit, setLimit] = useState(20);
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
+  const [deleting, setDeleting] = useState<string | null>(null);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSearch(searchInput.trim()), 350);
+    return () => window.clearTimeout(timer);
+  }, [searchInput]);
+  const listQuery = useQuery({
+    queryKey: ["social-posts", orgSlug, view, limit, search],
+    queryFn: () =>
+      get<PostList>(orgUrl(orgSlug, "social/posts"), { params: { archived: view === "archived" ? "1" : undefined, limit, search: search || undefined } }),
+    refetchInterval: 20_000,
+    placeholderData: (previous) => previous,
+  });
+  const posts = listQuery.data?.posts ?? [];
+  const loading = listQuery.isLoading;
+  const historyTotal = listQuery.data?.historyTotal ?? 0;
+  const archivedTotal = listQuery.data?.archivedTotal ?? 0;
   const [message, setMessage] = useState("");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [linkUrl, setLinkUrl] = useState("");
@@ -534,8 +561,8 @@ function Posts({ orgSlug, fr, account, posts, loading }: { orgSlug: string; fr: 
   const [panel, setPanel] = useState<null | "plan" | "ad">(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const done = (data: { posts: Post[] }) => {
-    queryClient.setQueryData(["social-posts", orgSlug], data);
+  const done = () => {
+    void queryClient.invalidateQueries({ queryKey: ["social-posts", orgSlug] });
     void queryClient.invalidateQueries({ queryKey: ["social", orgSlug] });
   };
   const create = useMutation({
@@ -549,7 +576,7 @@ function Posts({ orgSlug, fr, account, posts, loading }: { orgSlug: string; fr: 
         scheduledAt: later && scheduledAt ? new Date(scheduledAt).toISOString() : null,
       }),
     onSuccess: (data) => {
-      done(data);
+      done();
       const first = data.posts.find((item) => item.message === message.trim());
       if (first?.status === "failed" || first?.status === "partial") toast.error(first.error ?? tr(fr, "Publication refusée.", "Post refused."));
       else toast.success(later ? tr(fr, "Publication programmée.", "Post scheduled.") : tr(fr, "Publié !", "Published!"));
@@ -567,14 +594,27 @@ function Posts({ orgSlug, fr, account, posts, loading }: { orgSlug: string; fr: 
     onError: (error) => toast.error(errorMessage(error)),
   });
   const remove = useMutation({
-    mutationFn: (id: string) => del<{ posts: Post[] }>(orgUrl(orgSlug, `social/posts/${id}`)),
-    onSuccess: done,
+    mutationFn: (input: string | { id: string; facebook: boolean }) =>
+      del<{ posts: Post[] }>(orgUrl(orgSlug, `social/posts/${typeof input === "string" ? input : input.id}${typeof input !== "string" && input.facebook ? "?facebook=1" : ""}`)),
+    onSuccess: (_data, input) => {
+      done();
+      setDeleting(null);
+      if (typeof input !== "string") toast.success(input.facebook ? tr(fr, "Supprimée de LiteHubs et de Facebook.", "Deleted from LiteHubs and Facebook.") : tr(fr, "Retirée de LiteHubs.", "Removed from LiteHubs."));
+    },
+    onError: (error) => toast.error(errorMessage(error)),
+  });
+  const archive = useMutation({
+    mutationFn: (input: { id: string; archived: boolean }) => post(orgUrl(orgSlug, `social/posts/${input.id}/archive`), { archived: input.archived }),
+    onSuccess: (_data, input) => {
+      done();
+      toast.success(input.archived ? tr(fr, "Publication archivée.", "Post archived.") : tr(fr, "Publication restaurée.", "Post restored."));
+    },
     onError: (error) => toast.error(errorMessage(error)),
   });
   const approve = useMutation({
     mutationFn: (ids: string[] | "all") => post<{ posts: Post[]; approved: number }>(orgUrl(orgSlug, "social/posts/approve"), { postIds: ids }),
     onSuccess: (data) => {
-      done(data);
+      done();
       toast.success(tr(fr, `${data.approved} publication(s) approuvée(s) : elles partiront aux dates prévues.`, `${data.approved} post(s) approved.`));
     },
     onError: (error) => toast.error(errorMessage(error)),
@@ -600,9 +640,14 @@ function Posts({ orgSlug, fr, account, posts, loading }: { orgSlug: string; fr: 
       [
         { key: "draft", title: tr(fr, "À valider", "To approve"), hint: tr(fr, "Rien n’est publié avant votre approbation.", "Nothing goes out before you approve."), items: posts.filter((item) => item.status === "draft") },
         { key: "scheduled", title: tr(fr, "Programmées", "Scheduled"), hint: tr(fr, "Publiées automatiquement à l’heure prévue.", "Published automatically on time."), items: posts.filter((item) => item.status === "scheduled" || item.status === "publishing") },
-        { key: "history", title: tr(fr, "Historique", "History"), hint: "", items: posts.filter((item) => ["published", "partial", "failed"].includes(item.status)) },
+        {
+          key: "history",
+          title: view === "archived" ? tr(fr, "Archives", "Archive") : tr(fr, "Historique", "History"),
+          hint: view === "archived" ? tr(fr, "Toujours en ligne sur Facebook / Instagram, masquées de la liste principale.", "Still online, hidden from the main list.") : "",
+          items: posts.filter((item) => ["published", "partial", "failed"].includes(item.status)),
+        },
       ].filter((group) => group.items.length),
-    [posts, fr],
+    [posts, fr, view],
   );
 
   const statusLabel = (item: Post) =>
@@ -661,7 +706,7 @@ function Posts({ orgSlug, fr, account, posts, loading }: { orgSlug: string; fr: 
       </div>
       {panel === "plan" ? (
         <div className="animate-in fade-in slide-in-from-top-2 duration-300">
-          <ContentPlanForm orgSlug={orgSlug} fr={fr} hasInstagram={Boolean(account.instagram)} onDone={done} onClose={() => setPanel(null)} />
+          <ContentPlanForm orgSlug={orgSlug} fr={fr} hasInstagram={Boolean(account.instagram)} onDone={() => done()} onClose={() => setPanel(null)} />
         </div>
       ) : null}
       {panel === "ad" ? (
@@ -756,6 +801,35 @@ function Posts({ orgSlug, fr, account, posts, loading }: { orgSlug: string; fr: 
         </section>
 
         <section className="space-y-5">
+          <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-border bg-surface-1 p-2">
+            <div className="inline-flex rounded-xl bg-surface-2 p-1">
+              {(["active", "archived"] as const).map((key) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => {
+                    setView(key);
+                    setLimit(20);
+                  }}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${view === key ? "bg-surface-1 text-ink shadow-sm" : "text-ink-secondary hover:text-ink"}`}
+                >
+                  {key === "active" ? tr(fr, "Publications", "Posts") : `${tr(fr, "Archives", "Archive")}${archivedTotal ? ` · ${archivedTotal}` : ""}`}
+                </button>
+              ))}
+            </div>
+            <div className="relative min-w-[10rem] flex-1">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-ink-muted" />
+              <input
+                value={searchInput}
+                onChange={(event) => {
+                  setSearchInput(event.target.value);
+                  setLimit(20);
+                }}
+                placeholder={tr(fr, "Rechercher dans l’historique…", "Search history…")}
+                className="h-9 w-full rounded-lg bg-transparent pl-8 pr-3 text-sm text-ink outline-none"
+              />
+            </div>
+          </div>
           {loading ? (
             <SkeletonCard rows={4} />
           ) : !groups.length ? (
@@ -764,8 +838,14 @@ function Posts({ orgSlug, fr, account, posts, loading }: { orgSlug: string; fr: 
               <span className="relative mx-auto grid size-14 place-items-center rounded-2xl bg-[linear-gradient(135deg,var(--brand),#c13584)] text-white shadow-lg animate-[lh-float_8s_ease-in-out_infinite]">
                 <Heart className="size-6" />
               </span>
-              <p className="relative mt-4 font-semibold text-ink">{tr(fr, "Votre première publication vous attend", "Your first post is waiting")}</p>
-              <p className="relative mt-1 text-sm text-ink-secondary">{tr(fr, "Écrivez-la à gauche, ou laissez l’IA préparer tout un plan.", "Write it on the left, or let the AI prepare a whole plan.")}</p>
+              <p className="relative mt-4 font-semibold text-ink">
+                {view === "archived" ? tr(fr, "Aucune publication archivée", "No archived posts") : search ? tr(fr, "Aucun résultat", "No results") : tr(fr, "Votre première publication vous attend", "Your first post is waiting")}
+              </p>
+              <p className="relative mt-1 text-sm text-ink-secondary">
+                {view === "archived"
+                  ? tr(fr, "Archivez une publication ancienne pour alléger la liste : elle reste ici et en ligne.", "Archive old posts to keep the list light: they stay here and online.")
+                  : tr(fr, "Écrivez-la à gauche, ou laissez l’IA préparer tout un plan.", "Write it on the left, or let the AI prepare a whole plan.")}
+              </p>
             </div>
           ) : (
             groups.map((group) => (
@@ -816,7 +896,7 @@ function Posts({ orgSlug, fr, account, posts, loading }: { orgSlug: string; fr: 
                           </div>
                           {item.error ? <p className="mt-2 rounded-lg bg-critical/8 px-2.5 py-1.5 text-xs text-critical">{item.error}</p> : null}
                           {editingId === item.id ? (
-                            <PostEditor orgSlug={orgSlug} fr={fr} item={item} hasInstagram={Boolean(account.instagram)} onSaved={done} onClose={() => setEditingId(null)} />
+                            <PostEditor orgSlug={orgSlug} fr={fr} item={item} hasInstagram={Boolean(account.instagram)} onSaved={() => done()} onClose={() => setEditingId(null)} />
                           ) : null}
                           {editingId !== item.id && (item.status === "draft" || item.status === "scheduled") ? (
                             <div className="mt-3 flex flex-wrap gap-1.5">
@@ -836,18 +916,48 @@ function Posts({ orgSlug, fr, account, posts, loading }: { orgSlug: string; fr: 
                               </Button>
                             </div>
                           ) : null}
+                          {["published", "partial", "failed"].includes(item.status) ? (
+                            deleting === item.id ? (
+                              <div className="mt-3 space-y-2 rounded-xl border border-critical/30 bg-critical/5 p-3 text-xs">
+                                <p className="font-semibold text-ink">{tr(fr, "Supprimer cette publication ?", "Delete this post?")}</p>
+                                {item.toInstagram && item.instagramMediaId ? (
+                                  <p className="text-ink-secondary">{tr(fr, "Instagram ne permet pas la suppression depuis LiteHubs : supprimez-la dans l’application Instagram si besoin.", "Instagram does not allow deleting from LiteHubs: remove it in the Instagram app if needed.")}</p>
+                                ) : null}
+                                <div className="flex flex-wrap gap-1.5">
+                                  {item.facebookPostId ? (
+                                    <Button size="sm" variant="destructive" loading={remove.isPending} onClick={() => remove.mutate({ id: item.id, facebook: true })}>
+                                      <Trash2 className="size-4" />
+                                      {tr(fr, "Supprimer aussi de Facebook", "Also delete from Facebook")}
+                                    </Button>
+                                  ) : null}
+                                  <Button size="sm" variant="outline" loading={remove.isPending} onClick={() => remove.mutate({ id: item.id, facebook: false })}>
+                                    {tr(fr, "Retirer de LiteHubs seulement", "Remove from LiteHubs only")}
+                                  </Button>
+                                  <Button size="sm" variant="ghost" onClick={() => setDeleting(null)}>
+                                    {tr(fr, "Annuler", "Cancel")}
+                                  </Button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="mt-3 flex flex-wrap gap-1.5 opacity-80 transition group-hover:opacity-100">
+                                <Button size="sm" variant="ghost" loading={archive.isPending && archive.variables?.id === item.id} onClick={() => archive.mutate({ id: item.id, archived: !item.archivedAt })}>
+                                  {item.archivedAt ? <ArchiveRestore className="size-4" /> : <Archive className="size-4" />}
+                                  {item.archivedAt ? tr(fr, "Restaurer", "Restore") : tr(fr, "Archiver", "Archive")}
+                                </Button>
+                                <Button size="sm" variant="ghost" onClick={() => setDeleting(item.id)}>
+                                  <Trash2 className="size-4" />
+                                  {tr(fr, "Supprimer", "Delete")}
+                                </Button>
+                              </div>
+                            )
+                          ) : null}
                           {item.status === "failed" || item.status === "partial" ? (
                             <div className="mt-3 flex gap-1.5">
                               <Button size="sm" variant="outline" loading={retry.isPending} onClick={() => retry.mutate(item.id)}>
                                 <RefreshCw className="size-4" />
                                 {tr(fr, "Réessayer", "Retry")}
                               </Button>
-                              {item.status === "failed" ? (
-                                <Button size="sm" variant="ghost" loading={remove.isPending} onClick={() => remove.mutate(item.id)}>
-                                  <Trash2 className="size-4" />
-                                  {tr(fr, "Supprimer", "Delete")}
-                                </Button>
-                              ) : null}
+
                             </div>
                           ) : null}
                         </article>
@@ -858,6 +968,16 @@ function Posts({ orgSlug, fr, account, posts, loading }: { orgSlug: string; fr: 
               </div>
             ))
           )}
+          {(() => {
+            const shown = posts.filter((item) => ["published", "partial", "failed"].includes(item.status)).length;
+            return shown < historyTotal ? (
+              <div className="text-center">
+                <Button variant="secondary" size="sm" loading={listQuery.isFetching} onClick={() => setLimit(limit + 20)}>
+                  {tr(fr, `Voir plus (${historyTotal - shown} restantes)`, `Show more (${historyTotal - shown} left)`)}
+                </Button>
+              </div>
+            ) : null;
+          })()}
         </section>
       </div>
     </div>

@@ -563,24 +563,61 @@ function mapPost(row: Row) {
     error: (row.error as string | null) ?? null,
     author: (row.author as string | null) ?? null,
     aiGenerated: Boolean(row.ai_generated),
+    archivedAt: (row.archived_at as string | null) ?? null,
   };
 }
 
-export async function listPosts(context: ChatContext) {
+/**
+ * Drafts and scheduled posts are always listed; published history is paged
+ * (newest first) so a busy Page does not load hundreds of posts at once.
+ * Archived posts have their own view.
+ */
+export async function listPosts(context: ChatContext, options: { archived?: boolean; limit?: number; search?: string } = {}) {
   assertManager(context);
+  const limit = Math.min(Math.max(options.limit ?? 20, 5), 200);
+  const search = options.search?.trim() ? `%${options.search.trim().replace(/[%_]/g, "")}%` : null;
   return withTenantContext(context, async (client) => {
-    const result = await client.query<Row>(
-      `SELECT p.*,COALESCE(NULLIF(btrim(u.full_name),''),u.email::text) AS author
+    const select = `SELECT p.*,COALESCE(NULLIF(btrim(u.full_name),''),u.email::text) AS author
          FROM social_posts p
          LEFT JOIN organization_members m ON m.organization_id=p.organization_id AND m.id=p.created_by_member_id
-         LEFT JOIN users u ON u.id=m.user_id
-        WHERE p.organization_id=$1
-        ORDER BY CASE p.status WHEN 'draft' THEN 0 WHEN 'scheduled' THEN 1 ELSE 2 END, CASE WHEN p.status IN ('draft','scheduled') THEN p.scheduled_at END ASC, COALESCE(p.published_at,p.scheduled_at) DESC
-        LIMIT 100`,
-      [context.organizationId],
+         LEFT JOIN users u ON u.id=m.user_id`;
+    const upcoming = options.archived
+      ? { rows: [] as Row[] }
+      : await client.query<Row>(
+          `${select} WHERE p.organization_id=$1 AND p.status IN ('draft','scheduled','publishing') ORDER BY p.status='draft' DESC, p.scheduled_at ASC LIMIT 200`,
+          [context.organizationId],
+        );
+    const historyWhere = `p.organization_id=$1 AND p.status IN ('published','partial','failed') AND ${options.archived ? "p.archived_at IS NOT NULL" : "p.archived_at IS NULL"}${search ? " AND p.message ILIKE $3" : ""}`;
+    const history = await client.query<Row>(
+      `${select} WHERE ${historyWhere} ORDER BY COALESCE(p.published_at,p.scheduled_at) DESC LIMIT $2`,
+      search ? [context.organizationId, limit, search] : [context.organizationId, limit],
     );
-    return { posts: result.rows.map(mapPost) };
+    const total = await client.query<{ total: number; archived: number }>(
+      `SELECT count(*) FILTER (WHERE ${historyWhere.replace(/\$3/g, "$2")})::int AS total,
+              count(*) FILTER (WHERE organization_id=$1 AND archived_at IS NOT NULL)::int AS archived
+         FROM social_posts p WHERE p.organization_id=$1`,
+      search ? [context.organizationId, search] : [context.organizationId],
+    );
+    return {
+      posts: [...upcoming.rows, ...history.rows].map(mapPost),
+      historyTotal: total.rows[0]?.total ?? 0,
+      archivedTotal: total.rows[0]?.archived ?? 0,
+    };
   });
+}
+
+/** Moves a published or failed post to (or out of) the archives. */
+export async function archivePost(context: ChatContext, postId: string, archived: boolean) {
+  assertManager(context);
+  await withTenantContext(context, async (client) => {
+    const result = await client.query(
+      `UPDATE social_posts SET archived_at=${archived ? "now()" : "NULL"}
+        WHERE organization_id=$1 AND id=$2 AND status IN ('published','partial','failed')`,
+      [context.organizationId, postId],
+    );
+    if (!result.rowCount) throw new BadRequestError("Seule une publication déjà publiée (ou en échec) peut être archivée.");
+  });
+  return { ok: true };
 }
 
 export async function uploadPostImage(context: ChatContext, file: Express.Multer.File) {
@@ -690,16 +727,32 @@ export async function approvePosts(context: ChatContext, postIds: string[] | "al
   return { approved, ...(await listPosts(context)) };
 }
 
-export async function deletePost(context: ChatContext, postId: string) {
+/**
+ * Removes a post from LiteHubs.  A post already online can also be removed
+ * from the Facebook Page (Meta does not allow deleting Instagram posts
+ * through the API: those are removed in the Instagram app).
+ */
+export async function deletePost(context: ChatContext, postId: string, options: { fromFacebook?: boolean } = {}) {
   assertManager(context);
-  await withTenantContext(context, async (client) => {
-    const removed = await client.query(
-      `DELETE FROM social_posts WHERE organization_id=$1 AND id=$2 AND status IN ('draft','scheduled','failed')`,
-      [context.organizationId, postId],
-    );
-    if (!removed.rowCount) throw new BadRequestError("Une publication déjà en ligne se supprime directement sur Facebook ou Instagram.");
+  const target = await withTenantContext(context, async (client) => {
+    const row = (await client.query<Row>(`SELECT * FROM social_posts WHERE organization_id=$1 AND id=$2`, [context.organizationId, postId])).rows[0];
+    if (!row) throw new NotFoundError("Publication introuvable");
+    if (row.status === "publishing") throw new BadRequestError("Publication en cours : réessayez dans un instant.");
+    const found = row.facebook_post_id && options.fromFacebook ? await account(client, context.organizationId, String(row.social_account_id)) : null;
+    return { row, token: found ? openToken(found.page_token_enc) : null };
   });
-  return listPosts(context);
+  if (target.token && target.row.facebook_post_id) {
+    try {
+      await graph("DELETE", String(target.row.facebook_post_id), { access_token: target.token });
+    } catch (error) {
+      const message = error instanceof MetaError ? error.message : "Facebook n’a pas accepté la suppression.";
+      throw new BadRequestError(`Suppression sur Facebook impossible : ${message}`);
+    }
+  }
+  await withTenantContext(context, (client) =>
+    client.query(`DELETE FROM social_posts WHERE organization_id=$1 AND id=$2`, [context.organizationId, postId]),
+  );
+  return listPosts(context, { archived: Boolean(target.row.archived_at) });
 }
 
 export async function retryPost(context: ChatContext, postId: string) {

@@ -7,7 +7,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BellRing, CheckCircle2, Clock3, Eye, FileSignature, PenLine, Printer, ScrollText, Upload, X } from "lucide-react";
+import { BellRing, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Search, Eye, FileSignature, PenLine, Printer, ScrollText, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ApiError, get, orgApiUrl, orgUrl, post } from "@/lib/api";
@@ -87,6 +87,9 @@ export function RulesAcknowledgementPanel({ orgSlug, fr }: { orgSlug: string; fr
   const overview = useQuery({ queryKey: key, queryFn: () => get<Overview>(orgUrl(orgSlug, "company-rules/acknowledgements")) });
   const [paperFor, setPaperFor] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all" | "pending" | "signed">("all");
+  const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const PAGE = 10;
   const remind = useMutation({
     mutationFn: (employeeIds: string[] | "pending") => post<{ notified: number }>(orgUrl(orgSlug, "company-rules/acknowledgements/remind"), { employeeIds }),
     onSuccess: (data) =>
@@ -109,7 +112,13 @@ export function RulesAcknowledgementPanel({ orgSlug, fr }: { orgSlug: string; fr
     );
   const { summary } = data;
   const percent = summary.total ? Math.round((summary.signed / summary.total) * 100) : 0;
-  const rows = data.employees.filter((item) => (filter === "all" ? true : filter === "pending" ? !item.acknowledgement : Boolean(item.acknowledgement)));
+  const needle = query.trim().toLowerCase();
+  const matching = data.employees
+    .filter((item) => (filter === "all" ? true : filter === "pending" ? !item.acknowledgement : Boolean(item.acknowledgement)))
+    .filter((item) => !needle || [item.name, item.employeeNumber, item.jobTitle].some((value) => value?.toLowerCase().includes(needle)));
+  const pages = Math.max(1, Math.ceil(matching.length / PAGE));
+  const currentPage = Math.min(page, pages);
+  const rows = matching.slice((currentPage - 1) * PAGE, currentPage * PAGE);
   return (
     <section className="overflow-hidden rounded-2xl border border-border bg-surface-1 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border bg-[linear-gradient(115deg,color-mix(in_srgb,var(--brand)_9%,transparent),transparent_55%)] p-5">
@@ -157,12 +166,23 @@ export function RulesAcknowledgementPanel({ orgSlug, fr }: { orgSlug: string; fr
           </div>
         ))}
       </div>
-      <div className="flex gap-1 px-5">
+      <div className="flex flex-wrap items-center gap-2 px-5">
+        <div className="flex gap-1">
         {(["all", "pending", "signed"] as const).map((item) => (
-          <button key={item} type="button" onClick={() => setFilter(item)} className={`rounded-full px-3 py-1 text-xs font-semibold transition ${filter === item ? "bg-brand text-brand-ink" : "text-ink-secondary hover:bg-surface-2"}`}>
+          <button key={item} type="button" onClick={() => { setFilter(item); setPage(1); }} className={`rounded-full px-3 py-1 text-xs font-semibold transition ${filter === item ? "bg-brand text-brand-ink" : "text-ink-secondary hover:bg-surface-2"}`}>
             {item === "all" ? tr(fr, "Tous", "All") : item === "pending" ? tr(fr, "À signer", "To sign") : tr(fr, "Signés", "Signed")}
           </button>
         ))}
+        </div>
+        <div className="relative ml-auto w-full sm:w-64">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-ink-muted" />
+          <input
+            value={query}
+            onChange={(event) => { setQuery(event.target.value); setPage(1); }}
+            placeholder={tr(fr, "Nom, matricule, poste…", "Name, number, job…")}
+            className="h-9 w-full rounded-lg border border-border-strong bg-surface-1 pl-8 pr-3 text-sm text-ink"
+          />
+        </div>
       </div>
       <ul className="mt-3 divide-y divide-border border-t border-border">
         {rows.map((item) => (
@@ -220,6 +240,20 @@ export function RulesAcknowledgementPanel({ orgSlug, fr }: { orgSlug: string; fr
         ))}
         {!rows.length ? <li className="px-5 py-6 text-center text-sm text-ink-muted">{tr(fr, "Personne dans cette liste.", "Nobody here.")}</li> : null}
       </ul>
+      {matching.length > PAGE ? (
+        <div className="flex items-center justify-between border-t border-border px-5 py-3 text-xs text-ink-secondary">
+          <span>{(currentPage - 1) * PAGE + 1}–{Math.min(currentPage * PAGE, matching.length)} / {matching.length}</span>
+          <span className="flex items-center gap-1">
+            <Button size="icon-sm" variant="ghost" disabled={currentPage <= 1} onClick={() => setPage(currentPage - 1)} aria-label={tr(fr, "Précédent", "Previous")}>
+              <ChevronLeft className="size-4" />
+            </Button>
+            <span className="px-1 font-semibold text-ink">{currentPage} / {pages}</span>
+            <Button size="icon-sm" variant="ghost" disabled={currentPage >= pages} onClick={() => setPage(currentPage + 1)} aria-label={tr(fr, "Suivant", "Next")}>
+              <ChevronRight className="size-4" />
+            </Button>
+          </span>
+        </div>
+      ) : null}
     </section>
   );
 }
