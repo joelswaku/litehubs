@@ -87,7 +87,7 @@ const fieldMessage = (error: Error | null, key: string) => error instanceof ApiE
 const templateBlocks = (name: string, content: string) => {
   const blocks: { type: "heading" | "paragraph"; text: string }[] = [{ type: "heading", text: name }];
   const paragraph: string[] = [];
-  const flush = () => { const text = paragraph.join("\n").replace(/\*\*(.*?)\*\*/g, "$1").trim(); if (text) blocks.push({ type: "paragraph", text }); paragraph.length = 0; };
+  const flush = () => { const text = paragraph.join("\n").trim(); if (text) blocks.push({ type: "paragraph", text }); paragraph.length = 0; };
   for (const rawLine of content.replace(/\r/g, "").split("\n")) {
     const heading = rawLine.match(/^\s*#{1,6}\s+(.+?)\s*$/);
     if (heading) { flush(); blocks.push({ type: "heading", text: heading[1]!.replace(/\*\*(.*?)\*\*/g, "$1") }); continue; }
@@ -225,16 +225,61 @@ function ContractForm({ fr, contract, employees, documents, provinces, signerRol
 function FormSection({ title, children }: { title: string; children: React.ReactNode }) { return <section><h3 className="mb-3 text-sm font-semibold text-ink">{title}</h3>{children}</section>; }
 type ContractWorkspace = { document?: { companyName: string; title: string; reference: string; employerName?: string | null; employerRole?: string | null; employeeName?: string | null; employeeTitle?: string | null; city?: string | null }; currentVersion: null | { id: string; number: number; status: string; signedOn?: string | null; blocks: { type: "heading" | "paragraph" | "table" | "page_break"; text?: string; rows?: string[][] }[]; fields: { id: string; signerRole: "employee" | "employer"; label: string; status: string; signedName?: string | null; signedAt?: string | null; method?: string | null }[] }; events: { id: string; type: string; createdAt: string; actorName?: string | null }[] };
 type ContractTemplate = { id: string; code: string; name: string; contractType: string; language: string; body: { blocks?: { type?: string; text?: string; rows?: string[][] }[] }; isActive: boolean; createdAt: string; updatedAt: string };
-const defaultContractBlocks = { blocks: [
-  { type: "heading", text: "{{contract.title}}" },
-  { type: "paragraph", text: "Référence : {{contract.reference}}" },
-  { type: "heading", text: "Parties" },
-  { type: "paragraph", text: "LiteHubs et {{employee.fullName}} (matricule {{employee.employeeNumber}}), {{employee.jobTitle}}." },
-  { type: "heading", text: "Durée et conditions" },
-  { type: "paragraph", text: "Le présent contrat commence le {{contract.startDate}} et se termine le {{contract.endDate}}. La rémunération convenue est {{contract.salary}} {{contract.currency}}." },
-  { type: "heading", text: "Engagement" },
-  { type: "paragraph", text: "Les parties confirment avoir lu, compris et accepté les conditions du présent contrat. Toute modification fait l’objet d’un avenant versionné." },
-] };
+/** Full professional employment contract, used when no template is chosen and
+ * offered as the starting text of a new template. Have it reviewed before use. */
+const DEFAULT_EMPLOYMENT_CONTRACT_TEXT = `Entre les soussignés :
+**{{company.name}}**, dont le siège est situé à {{company.address}}, représentée par son représentant dûment habilité en qualité de {{contract.employerSignerRole}}, ci-après dénommée « l’Employeur », d’une part,
+Et **{{employee.fullName}}**, matricule {{employee.employeeNumber}}, ci-après dénommé(e) « le Travailleur », d’autre part.
+Il a été convenu et arrêté ce qui suit.
+
+## Article 1 — Objet du contrat
+L’Employeur engage le Travailleur, qui accepte, en qualité de **{{employee.jobTitle}}**. Le Travailleur exerce ses fonctions sous l’autorité de l’Employeur ou de tout responsable désigné par lui.
+
+## Article 2 — Date d’effet et durée
+Le présent contrat prend effet le **{{contract.startDate}}**. Lorsqu’une date de fin est indiquée, il prend fin le **{{contract.endDate}}** ; à défaut, il est conclu pour une durée indéterminée.
+Toute prolongation ou modification fait l’objet d’un avenant écrit signé par les deux parties.
+
+## Article 3 — Période d’essai
+Le contrat comporte une période d’essai dont la durée et les conditions sont celles prévues par la législation du travail applicable. Pendant cette période, chaque partie peut mettre fin au contrat dans les conditions prévues par la loi.
+
+## Article 4 — Lieu de travail
+Le Travailleur exerce principalement ses fonctions à **{{employee.workLocation}}**. Selon les besoins de l’activité, il peut être affecté à un autre site de l’Employeur, après information préalable.
+
+## Article 5 — Fonctions et obligations du Travailleur
+Le Travailleur s’engage à :
+1. exécuter avec soin, honnêteté et professionnalisme les tâches liées à son poste ;
+2. respecter les consignes de ses responsables et le règlement intérieur ;
+3. préserver les biens, outils, stocks, animaux, cultures, équipements et informations de l’Employeur ;
+4. respecter les horaires et les procédures de présence (pointage LiteHubs) ;
+5. signaler sans délai tout incident, accident, perte, maladie animale ou risque pour la sécurité.
+
+## Article 6 — Durée du travail et horaires
+La durée du travail et les horaires sont ceux affectés au Travailleur dans LiteHubs, dans le respect de la durée légale du travail. Toute absence ou tout retard doit être signalé et justifié selon les procédures internes.
+
+## Article 7 — Rémunération
+En contrepartie de son travail, le Travailleur perçoit une rémunération de base de **{{contract.salary}} {{contract.currency}}**, payable selon la périodicité en vigueur dans l’entreprise. Les primes, indemnités et retenues éventuelles suivent les règles internes et la réglementation applicable. Chaque paiement est accompagné d’un bulletin de paie.
+
+## Article 8 — Congés
+Le Travailleur bénéficie des congés payés et des jours fériés prévus par la législation du travail applicable. Les dates de congé sont fixées en accord avec l’Employeur selon les besoins du service.
+
+## Article 9 — Santé, sécurité et biosécurité
+Le Travailleur respecte toutes les règles de santé, de sécurité, d’hygiène et de biosécurité applicables à son site, et porte les équipements de protection fournis. Il est interdit de contourner une procédure de sécurité ou de mettre en danger des personnes, des animaux ou des installations.
+
+## Article 10 — Confidentialité
+Le Travailleur s’engage à ne pas divulguer, pendant et après le contrat, les informations confidentielles de l’Employeur : données financières, clients, fournisseurs, procédures internes, documents et accès LiteHubs. Tout matériel confié doit être restitué à la fin du contrat ou sur demande.
+
+## Article 11 — Discipline
+Tout manquement aux obligations du présent contrat ou au règlement intérieur peut donner lieu à une procédure disciplinaire conforme à la législation applicable et aux procédures internes de l’Employeur.
+
+## Article 12 — Suspension et fin du contrat
+Le contrat peut être suspendu ou prendre fin dans les cas et selon les formes prévus par la législation du travail applicable, notamment à l’échéance du terme, d’un commun accord, par démission ou par licenciement, dans le respect du préavis légal.
+
+## Article 13 — Règlement des différends
+Les parties s’efforcent de régler à l’amiable tout différend lié au présent contrat. À défaut, le différend est soumis à l’inspection du travail puis, le cas échéant, aux juridictions compétentes.
+
+## Article 14 — Dispositions finales
+Le présent contrat est régi par la législation du travail en vigueur. Les parties déclarent avoir lu, compris et accepté l’ensemble de ses clauses. Il est établi en deux exemplaires originaux, un pour chaque partie.`;
+const defaultContractBlocks = { blocks: templateBlocks("CONTRAT DE TRAVAIL", DEFAULT_EMPLOYMENT_CONTRACT_TEXT) };
 const EVENT_LABELS: Record<string, [string, string]> = {
   version_generated: ["Version generated", "Version générée"],
   sent_for_employee_signature: ["Sent to the employee for signature", "Envoyé à l’employé pour signature"],
@@ -318,7 +363,10 @@ function PaperSignaturePanel({ fr, orgSlug, contractId, onDone }: { fr: boolean;
 function TemplateForm({ fr, orgSlug, template, onClose }: { fr: boolean; orgSlug: string; template: ContractTemplate | null; onClose: () => void }) {
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
-  const existingContent = (template?.body?.blocks ?? []).filter((block) => block.type !== "heading").map((block) => block.text ?? "").filter(Boolean).join("\n\n");
+  // Headings come back as « ## … » lines so editing a template never loses them.
+  const existingContent = template
+    ? (template.body?.blocks ?? []).slice(1).map((block) => block.type === "heading" ? `## ${block.text ?? ""}` : block.text ?? "").filter(Boolean).join("\n\n")
+    : DEFAULT_EMPLOYMENT_CONTRACT_TEXT;
   const save = useMutation({
     mutationFn: (body: unknown) => template ? patch(orgUrl(orgSlug, `contracts/templates/${template.id}`), body) : post(orgUrl(orgSlug, "contracts/templates"), body),
     onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ["contract-templates", orgSlug] }); onClose(); },
@@ -343,7 +391,7 @@ function TemplateForm({ fr, orgSlug, template, onClose }: { fr: boolean; orgSlug
     <div className="space-y-5 p-5">
       {error ? <div className="rounded-xl border border-critical/30 bg-critical/10 p-3 text-sm text-critical">{error}</div> : null}
       <div className="grid gap-4 sm:grid-cols-2"><Field label={fr ? "Nom du modèle" : "Template name"} required><Input name="name" required defaultValue={template?.name ?? ""} /></Field><Field label={fr ? "Code unique" : "Unique code"} hint={fr ? "Lettres minuscules, chiffres, tirets ou underscores." : "Lowercase letters, numbers, hyphens or underscores."} required><Input name="code" required defaultValue={template?.code ?? ""} placeholder="contrat_travail_v1" /></Field><Field label={fr ? "Type" : "Type"} required><select name="contractType" className={selectClass} defaultValue={template?.contractType ?? "employment"}>{["employment", "service", "supply", "sales", "lease", "loan", "insurance", "nda", "other"].map((item) => <option key={item} value={item}>{contractTypeText(item, fr)}</option>)}</select></Field><Field label={fr ? "Langue" : "Language"}><select name="language" className={selectClass} defaultValue={template?.language ?? "fr"}><option value="fr">Français</option><option value="en">English</option></select></Field></div>
-      <Field label={fr ? "Clauses et contenu" : "Clauses and content"} hint={fr ? "Conservez les clauses officielles ; ajoutez les champs de fusion lorsque nécessaire." : "Keep official clauses; add merge fields where needed."} required><Textarea name="body" required rows={13} defaultValue={existingContent} placeholder={fr ? "Utilisez {{employee.fullName}}, {{contract.startDate}}, {{contract.endDate}}, {{contract.salary}} et {{contract.currency}}." : "Use {{employee.fullName}}, {{contract.startDate}}, {{contract.endDate}}, {{contract.salary}} and {{contract.currency}}."} /></Field>
+      <Field label={fr ? "Clauses et contenu" : "Clauses and content"} hint={fr ? "« ## Article … » crée un titre, **texte** met en gras, « 1. » crée une liste. Champs remplis automatiquement : {{company.name}}, {{company.address}}, {{employee.fullName}}, {{employee.employeeNumber}}, {{employee.jobTitle}}, {{employee.workLocation}}, {{contract.startDate}}, {{contract.endDate}}, {{contract.salary}}, {{contract.currency}}, {{contract.employerSignerRole}}. Ne mettez pas de bloc de signature : il est ajouté automatiquement à la fin." : "“## Article …” makes a heading, **text** is bold, “1.” makes a list. Merge fields are filled automatically. Do not add a signature block: it is added automatically at the end."} required><Textarea name="body" required rows={18} defaultValue={existingContent} placeholder={fr ? "Utilisez {{employee.fullName}}, {{contract.startDate}}, {{contract.endDate}}, {{contract.salary}} et {{contract.currency}}." : "Use {{employee.fullName}}, {{contract.startDate}}, {{contract.endDate}}, {{contract.salary}} and {{contract.currency}}."} /></Field>
       <label className="flex items-start gap-3 rounded-xl border border-border bg-surface-2/45 p-3 text-sm text-ink"><input name="isActive" type="checkbox" defaultChecked={template?.isActive ?? true} className="mt-0.5 size-4 accent-brand" /><span><b>{fr ? "Modèle actif" : "Active template"}</b><span className="mt-0.5 block text-xs leading-5 text-ink-secondary">{fr ? "Décochez pour archiver : le modèle reste dans l’historique, mais ne peut plus servir pour une nouvelle version de contrat." : "Clear this to archive it: it stays in history but cannot be used for a new contract version."}</span></span></label>
     </div>
     <div className="flex justify-end gap-2 border-t border-border bg-surface-2 px-5 py-4"><Button type="button" variant="secondary" onClick={onClose}>{fr ? "Annuler" : "Cancel"}</Button><Button type="submit" loading={save.isPending}>{template ? (fr ? "Enregistrer les modifications" : "Save changes") : (fr ? "Enregistrer le modèle" : "Save template")}</Button></div>
