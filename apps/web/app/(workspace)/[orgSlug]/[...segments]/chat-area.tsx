@@ -87,6 +87,19 @@ const time = (value: string, fr: boolean) => {
   const today = new Date().toDateString() === date.toDateString();
   return date.toLocaleString(fr ? "fr-FR" : "en-GB", today ? { hour: "2-digit", minute: "2-digit" } : { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 };
+/** A stable, friendly colour per person for avatars. */
+const AVATAR_TONES = [
+  "from-sky-500 to-indigo-500",
+  "from-emerald-500 to-teal-500",
+  "from-amber-500 to-orange-500",
+  "from-fuchsia-500 to-pink-500",
+  "from-violet-500 to-purple-500",
+  "from-rose-500 to-red-500",
+  "from-cyan-500 to-blue-500",
+];
+const avatarTone = (name: string) => AVATAR_TONES[[...name].reduce((sum, char) => sum + char.charCodeAt(0), 0) % AVATAR_TONES.length]!;
+const CHAT_CANVAS =
+  "bg-[radial-gradient(color-mix(in_srgb,var(--ink-muted)_16%,transparent)_1px,transparent_1px)] bg-[size:18px_18px]";
 const initials = (name: string) =>
   name
     .split(/\s+/)
@@ -160,24 +173,38 @@ export function ChatArea({ orgSlug }: { orgSlug: string }) {
     );
 
   const isStaff = data.me.canReadDirection;
+  const unreadTotal =
+    (data.team?.unread ?? 0) + (data.myDirection?.unread ?? 0) + data.threads.reduce((sum, thread) => sum + thread.unread, 0) + (data.visitors?.pending ?? 0);
   const select = (id: string) => {
     setActive(id);
     setMobileView("chat");
   };
 
   return (
-    <div className="flex h-[calc(100dvh-4rem)] min-h-[520px] gap-3 p-3 sm:p-5">
+    <div className="relative isolate flex h-[calc(100dvh-4rem)] min-h-[520px] gap-4 p-3 sm:p-5">
+      <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
+        <div className="absolute -left-32 top-0 size-[28rem] rounded-full bg-brand/14 blur-3xl animate-[lh-float_22s_ease-in-out_infinite]" />
+        <div className="absolute -right-32 bottom-[-6rem] size-[28rem] rounded-full bg-fuchsia-400/12 blur-3xl animate-[lh-float_28s_ease-in-out_infinite_reverse]" />
+        <div className="absolute left-1/2 top-1/3 size-72 rounded-full bg-teal-300/10 blur-3xl animate-[lh-float_32s_ease-in-out_infinite]" />
+      </div>
       {/* Conversations */}
-      <aside className={`${mobileView === "chat" ? "hidden lg:flex" : "flex"} w-full min-h-0 flex-col overflow-hidden rounded-2xl border border-border bg-surface-1 lg:w-80 lg:shrink-0`}>
-        <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
-          <div className="flex items-center gap-2">
-            <span className="grid size-9 place-items-center rounded-xl bg-brand/10 text-brand">
+      <aside className={`${mobileView === "chat" ? "hidden lg:flex" : "flex"} w-full min-h-0 flex-col overflow-hidden rounded-3xl border border-border bg-surface-1/90 shadow-[0_24px_60px_-42px_rgba(15,23,42,.6)] backdrop-blur-xl lg:w-[22rem] lg:shrink-0`}>
+        <div className="relative flex items-center justify-between gap-2 overflow-hidden border-b border-border px-4 py-4">
+          <div aria-hidden className="absolute inset-0 bg-[linear-gradient(120deg,color-mix(in_srgb,var(--brand)_14%,transparent),transparent_65%)]" />
+          <div className="relative flex items-center gap-3">
+            <span className="grid size-10 place-items-center rounded-2xl bg-[linear-gradient(135deg,var(--brand),#5b4bd8)] text-white shadow-[0_10px_22px_-10px_var(--brand)]">
               <MessagesSquare className="size-5" />
             </span>
-            <h1 className="text-lg font-semibold text-ink">{tr(fr, "Chat", "Chat")}</h1>
+            <div>
+              <h1 className="text-lg font-semibold tracking-tight text-ink">{tr(fr, "Messagerie", "Messaging")}</h1>
+              <p className="flex items-center gap-1.5 text-xs text-ink-secondary">
+                <span className={`size-1.5 rounded-full ${unreadTotal ? "bg-brand animate-[lh-pulse-ring_1.8s_ease-out_infinite]" : "bg-good"}`} />
+                {unreadTotal ? tr(fr, `${unreadTotal} message(s) non lu(s)`, `${unreadTotal} unread`) : tr(fr, "Tout est lu", "All caught up")}
+              </p>
+            </div>
           </div>
           {data.me.isOwner || data.me.canModerate ? (
-            <div className="flex items-center gap-1">
+            <div className="relative flex items-center gap-1">
               <Button size="icon-sm" variant="ghost" title={tr(fr, "Consignes pour l’IA", "AI instructions")} onClick={() => setAiRules(true)}>
                 <Sparkles className="size-4" />
               </Button>
@@ -188,18 +215,18 @@ export function ChatArea({ orgSlug }: { orgSlug: string }) {
           ) : null}
         </div>
         {data.visitors ? (
-          <div className="grid grid-cols-2 gap-1 border-b border-border p-2">
+          <div className="m-2 grid grid-cols-2 gap-1 rounded-2xl bg-surface-2 p-1">
             {(["team", "visitors"] as const).map((key) => (
               <button
                 key={key}
                 type="button"
                 onClick={() => setTab(key)}
-                className={`inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-2 py-1.5 text-[13px] font-medium transition ${tab === key ? "bg-brand/10 text-brand" : "text-ink-secondary hover:bg-surface-2"}`}
+                className={`inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-2 py-2 text-[13px] font-semibold transition-all duration-300 ${tab === key ? "bg-surface-1 text-ink shadow-[0_6px_16px_-10px_rgba(15,23,42,.6)]" : "text-ink-secondary hover:text-ink"}`}
               >
                 {key === "team" ? <UsersRound className="size-4" /> : <Globe2 className="size-4" />}
                 {key === "team" ? tr(fr, "Équipe", "Team") : tr(fr, "Clients", "Customers")}
                 {key === "visitors" && data.visitors!.pending ? (
-                  <span className="rounded-full bg-critical px-1.5 text-[11px] font-bold text-white">{data.visitors!.pending}</span>
+                  <span className="rounded-full bg-critical px-1.5 text-[11px] font-bold text-white animate-[lh-pulse-ring_1.8s_ease-out_infinite]">{data.visitors!.pending}</span>
                 ) : null}
               </button>
             ))}
@@ -285,7 +312,7 @@ export function ChatArea({ orgSlug }: { orgSlug: string }) {
       </aside>
 
       {/* Conversation */}
-      <section className={`${mobileView === "list" ? "hidden lg:flex" : "flex"} min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-surface-1`}>
+      <section className={`${mobileView === "list" ? "hidden lg:flex" : "flex"} min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-3xl border border-border bg-surface-1/90 shadow-[0_24px_60px_-42px_rgba(15,23,42,.6)] backdrop-blur-xl`}>
         {tab === "visitors" && data.visitors ? (
           visitor ? (
             <VisitorView
@@ -300,9 +327,7 @@ export function ChatArea({ orgSlug }: { orgSlug: string }) {
               }}
             />
           ) : (
-            <div className="grid flex-1 place-items-center">
-              <EmptyState icon={Globe2} title={tr(fr, "Choisissez un visiteur", "Choose a visitor")} />
-            </div>
+            <ChatEmpty icon={<Globe2 className="size-7" />} title={tr(fr, "Choisissez un client", "Choose a customer")} text={tr(fr, "Site web, Messenger et Instagram : toutes les conversations clients au même endroit.", "Website, Messenger and Instagram: every customer conversation in one place.")} />
           )
         ) : active ? (
           <ConversationView
@@ -314,9 +339,7 @@ export function ChatArea({ orgSlug }: { orgSlug: string }) {
             onActivity={() => void queryClient.invalidateQueries({ queryKey: ["chat-overview", orgSlug] })}
           />
         ) : (
-          <div className="grid flex-1 place-items-center">
-            <EmptyState icon={MessagesSquare} title={tr(fr, "Choisissez une conversation", "Choose a conversation")} />
-          </div>
+          <ChatEmpty icon={<MessagesSquare className="size-7" />} title={tr(fr, "Choisissez une conversation", "Choose a conversation")} text={tr(fr, "Équipe, direction et messages privés : tout le monde reste connecté.", "Team, management and private messages: everyone stays connected.")} />
         )}
       </section>
 
@@ -363,14 +386,25 @@ function ConversationButton({
     <button
       type="button"
       onClick={onClick}
-      className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition ${active ? "bg-brand/10" : "hover:bg-surface-2"}`}
+      className={`group relative flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition-all duration-300 ${
+        active
+          ? "bg-[linear-gradient(110deg,color-mix(in_srgb,var(--brand)_14%,transparent),color-mix(in_srgb,#5b4bd8_8%,transparent))] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--brand)_25%,transparent)]"
+          : "hover:bg-surface-2"
+      }`}
     >
-      <span className={`grid size-9 shrink-0 place-items-center rounded-full ${tone === "brand" ? "bg-brand text-brand-ink" : "bg-ink/80 text-white"}`}>{icon}</span>
+      {active ? <span aria-hidden className="absolute left-0 top-1/2 h-7 w-1 -translate-y-1/2 rounded-full bg-[linear-gradient(135deg,var(--brand),#5b4bd8)]" /> : null}
+      <span
+        className={`grid size-10 shrink-0 place-items-center rounded-2xl text-white shadow-sm transition-transform duration-300 group-hover:scale-105 ${
+          tone === "brand" ? "bg-[linear-gradient(135deg,var(--brand),#5b4bd8)]" : `bg-gradient-to-br ${avatarTone(title)}`
+        }`}
+      >
+        {icon}
+      </span>
       <span className="min-w-0 flex-1">
         <span className={`block truncate text-sm ${unread ? "font-semibold text-ink" : "font-medium text-ink"}`}>{title}</span>
-        <span className="block truncate text-xs text-ink-secondary">{subtitle}</span>
+        <span className={`block truncate text-xs ${unread ? "text-ink" : "text-ink-secondary"}`}>{subtitle}</span>
       </span>
-      {unread ? <span className="rounded-full bg-brand px-1.5 py-0.5 text-[11px] font-bold text-brand-ink">{unread > 99 ? "99+" : unread}</span> : null}
+      {unread ? <span className="rounded-full bg-[linear-gradient(135deg,var(--brand),#5b4bd8)] px-2 py-0.5 text-[11px] font-bold text-white shadow-sm">{unread > 99 ? "99+" : unread}</span> : null}
     </button>
   );
 }
@@ -457,12 +491,13 @@ function ConversationView({
 
   return (
     <>
-      <header className="flex items-center gap-2 border-b border-border px-3 py-3 sm:px-4">
+      <header className="flex items-center gap-3 border-b border-border bg-surface-1/80 px-3 py-3 backdrop-blur sm:px-5">
         <Button size="icon-sm" variant="ghost" className="lg:hidden" onClick={onBack} aria-label="Retour">
           <ArrowLeft className="size-4" />
         </Button>
-        <span className={`grid size-9 shrink-0 place-items-center rounded-full ${isTeam ? "bg-brand text-brand-ink" : "bg-ink/80 text-white"}`}>
+        <span className={`relative grid size-10 shrink-0 place-items-center rounded-2xl text-white shadow-sm ${isTeam ? "bg-[linear-gradient(135deg,var(--brand),#5b4bd8)]" : `bg-gradient-to-br ${avatarTone(data.conversation.employee?.name ?? "P")}`}`}>
           {isTeam ? <UsersRound className="size-4" /> : <LockKeyhole className="size-4" />}
+          <span className="absolute -bottom-0.5 -right-0.5 size-3 rounded-full border-2 border-surface-1 bg-good" />
         </span>
         <div className="min-w-0">
           <h2 className="truncate font-semibold text-ink">
@@ -497,7 +532,7 @@ function ConversationView({
           const target = event.currentTarget;
           stickToBottom.current = target.scrollHeight - target.scrollTop - target.clientHeight < 80;
         }}
-        className="min-h-0 flex-1 space-y-3 overflow-auto bg-surface-2/30 px-3 py-4 sm:px-5"
+        className={`min-h-0 flex-1 space-y-3 overflow-auto px-3 py-5 sm:px-6 ${CHAT_CANVAS}`}
       >
         {showOlder ? (
           <div className="text-center">
@@ -507,7 +542,10 @@ function ConversationView({
           </div>
         ) : null}
         {!all.length ? (
-          <p className="py-10 text-center text-sm text-ink-secondary">
+          <p className="mx-auto mt-10 max-w-sm rounded-3xl border border-border bg-surface-1/90 px-5 py-6 text-center text-sm text-ink-secondary shadow-sm backdrop-blur">
+            <span className="mx-auto mb-3 grid size-12 place-items-center rounded-2xl bg-[linear-gradient(135deg,var(--brand),#5b4bd8)] text-white shadow-lg animate-[lh-float_8s_ease-in-out_infinite]">
+              <MessagesSquare className="size-5" />
+            </span>
             {isTeam
               ? tr(fr, "Aucun message. Dites bonjour à l’équipe !", "No messages yet. Say hello to the team!")
               : tr(fr, "Écrivez votre message : seule la direction pourra le lire.", "Write your message: only management can read it.")}
@@ -590,9 +628,9 @@ function MessageBubble({
 }) {
   const mine = item.mine;
   return (
-    <div className={`group flex gap-2 ${mine ? "flex-row-reverse" : ""}`}>
+    <div className={`group flex gap-2 animate-in fade-in slide-in-from-bottom-1 duration-300 ${mine ? "flex-row-reverse" : ""}`}>
       {!mine ? (
-        <span className="mt-5 grid size-8 shrink-0 place-items-center rounded-full bg-surface-3 text-[11px] font-bold text-ink-secondary">
+        <span className={`mt-5 grid size-8 shrink-0 place-items-center rounded-full bg-gradient-to-br text-[11px] font-bold text-white shadow-sm ${avatarTone(item.author?.name ?? "?")}`}>
           {initials(item.author?.name ?? "?")}
         </span>
       ) : null}
@@ -613,14 +651,14 @@ function MessageBubble({
           <span>{time(item.createdAt, fr)}</span>
         </p>
         <div
-          className={`rounded-2xl px-3.5 py-2 text-sm leading-6 shadow-sm ${
+          className={`rounded-[1.25rem] px-3.5 py-2 text-sm leading-6 ${
             item.deleted
               ? "border border-dashed border-border bg-transparent italic text-ink-muted"
               : item.isAnnouncement
-                ? "border border-warning/40 bg-warning/[.12] text-ink"
+                ? "border border-warning/40 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--warning)_18%,transparent),color-mix(in_srgb,var(--warning)_6%,transparent))] text-ink shadow-sm"
                 : mine
-                  ? "bg-brand text-brand-ink"
-                  : "border border-border bg-surface-1 text-ink"
+                  ? "rounded-br-md bg-[linear-gradient(135deg,var(--brand),#5b4bd8)] text-white shadow-[0_10px_22px_-14px_var(--brand)]"
+                  : "rounded-bl-md border border-border bg-surface-1 text-ink shadow-[0_6px_16px_-12px_rgba(15,23,42,.5)]"
           }`}
         >
           {item.deleted ? (
@@ -794,7 +832,7 @@ function Composer({
       </div>
     );
   return (
-    <div className="border-t border-border p-2 sm:p-3">
+    <div className="border-t border-border bg-surface-1/85 p-2 backdrop-blur sm:p-3">
       {file ? (
         <div className="mb-2 flex items-center gap-2 rounded-lg bg-surface-2 px-3 py-1.5 text-xs text-ink">
           <Paperclip className="size-3.5" />
@@ -811,7 +849,7 @@ function Composer({
           {tr(fr, "Annonce générale (épinglée + notification à tous)", "General announcement (pinned + notifies everyone)")}
         </label>
       ) : null}
-      <div className="flex items-end gap-2">
+      <div className="flex items-end gap-1.5 rounded-2xl border border-border-strong bg-surface-1 p-1.5 shadow-sm transition focus-within:border-brand focus-within:ring-4 focus-within:ring-brand/10">
         <input
           ref={fileInput}
           type="file"
@@ -850,9 +888,9 @@ function Composer({
             }
           }}
           placeholder={tr(fr, "Écrire un message…", "Write a message…")}
-          className="max-h-40 min-h-10 flex-1 resize-none rounded-xl border border-border-strong bg-surface-1 px-3 py-2 text-sm text-ink focus-visible:outline-2 focus-visible:outline-ring"
+          className="max-h-40 min-h-10 flex-1 resize-none bg-transparent px-2 py-2 text-sm text-ink outline-none"
         />
-        <Button size="icon" loading={send.isPending} disabled={!body.trim() && !file} onClick={submit} aria-label={tr(fr, "Envoyer", "Send")}>
+        <Button size="icon" className="rounded-xl bg-[linear-gradient(135deg,var(--brand),#5b4bd8)] text-white shadow-[0_8px_18px_-10px_var(--brand)] transition hover:brightness-110" loading={send.isPending} disabled={!body.trim() && !file} onClick={submit} aria-label={tr(fr, "Envoyer", "Send")}>
           <Send className="size-4" />
         </Button>
       </div>
@@ -1241,10 +1279,25 @@ function VisitorList({
             key={session.id}
             type="button"
             onClick={() => onSelect(session.id)}
-            className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition ${active === session.id ? "bg-brand/10" : "hover:bg-surface-2"}`}
+            className={`relative flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition-all duration-300 ${
+              active === session.id
+                ? "bg-[linear-gradient(110deg,color-mix(in_srgb,var(--brand)_14%,transparent),color-mix(in_srgb,#5b4bd8_8%,transparent))] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--brand)_25%,transparent)]"
+                : "hover:bg-surface-2"
+            }`}
           >
-            <span className={`grid size-9 shrink-0 place-items-center rounded-full ${session.needsHuman && session.status === "open" ? "bg-critical text-white" : "bg-surface-3 text-ink-secondary"}`}>
-              <UserRound className="size-4" />
+            <span
+              className={`relative grid size-10 shrink-0 place-items-center rounded-2xl text-[11px] font-bold text-white shadow-sm ${
+                session.channel === "instagram"
+                  ? "bg-[linear-gradient(135deg,#f58529,#dd2a7b,#8134af)]"
+                  : session.channel === "facebook"
+                    ? "bg-[#1877f2]"
+                    : `bg-gradient-to-br ${avatarTone(visitorName(session.visitor, fr))}`
+              }`}
+            >
+              {initials(visitorName(session.visitor, fr))}
+              {session.needsHuman && session.status === "open" ? (
+                <span className="absolute -right-0.5 -top-0.5 size-3 rounded-full border-2 border-surface-1 bg-critical animate-[lh-pulse-ring_1.6s_ease-out_infinite]" />
+              ) : null}
             </span>
             <span className="min-w-0 flex-1">
               <span className="flex items-center gap-1.5">
@@ -1334,12 +1387,20 @@ function VisitorView({
 
   return (
     <>
-      <header className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2.5 sm:px-4">
+      <header className="flex flex-wrap items-center gap-3 border-b border-border bg-surface-1/80 px-3 py-3 backdrop-blur sm:px-5">
         <button type="button" onClick={onBack} className="rounded-md p-1 text-ink-secondary hover:bg-surface-2 lg:hidden" aria-label="Retour">
           <ArrowLeft className="size-5" />
         </button>
-        <span className="grid size-9 shrink-0 place-items-center rounded-full bg-surface-3 text-ink-secondary">
-          <UserRound className="size-4" />
+        <span
+          className={`grid size-10 shrink-0 place-items-center rounded-2xl text-xs font-bold text-white shadow-sm ${
+            session.channel === "instagram"
+              ? "bg-[linear-gradient(135deg,#f58529,#dd2a7b,#8134af)]"
+              : session.channel === "facebook"
+                ? "bg-[#1877f2]"
+                : `bg-gradient-to-br ${avatarTone(visitorName(session.visitor, fr))}`
+          }`}
+        >
+          {initials(visitorName(session.visitor, fr))}
         </span>
         <div className="min-w-0 flex-1">
           <p className="flex items-center gap-1.5 truncate text-sm font-semibold text-ink">
@@ -1376,24 +1437,25 @@ function VisitorView({
           {tr(fr, "Ce visiteur attend une réponse de l’équipe.", "This visitor is waiting for the team.")}
         </p>
       ) : null}
-      <div ref={listRef} className="min-h-0 flex-1 space-y-2 overflow-auto bg-surface-2/40 px-3 py-3 sm:px-4">
+      <div ref={listRef} className={`min-h-0 flex-1 space-y-2.5 overflow-auto px-3 py-5 sm:px-6 ${CHAT_CANVAS}`}>
         {messages.map((message) =>
           message.from === "system" ? (
-            <p key={message.id} className="mx-auto max-w-[90%] text-center text-xs text-ink-muted">
+            <p key={message.id} className="mx-auto w-fit max-w-[90%] rounded-full bg-surface-1/90 px-3 py-1 text-center text-xs text-ink-muted shadow-sm">
               {message.body}
             </p>
           ) : (
-            <div key={message.id} className={message.from === "visitor" ? "flex justify-start" : "flex justify-end"}>
+            <div key={message.id} className={`animate-in fade-in slide-in-from-bottom-1 duration-300 ${message.from === "visitor" ? "flex justify-start" : "flex justify-end"}`}>
               <div
-                className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-sm ${
+                className={`max-w-[85%] whitespace-pre-wrap rounded-[1.25rem] px-3.5 py-2 text-sm leading-6 ${
                   message.from === "visitor"
-                    ? "rounded-bl-md border border-border bg-surface-1 text-ink"
+                    ? "rounded-bl-md border border-border bg-surface-1 text-ink shadow-[0_6px_16px_-12px_rgba(15,23,42,.5)]"
                     : message.from === "ai"
-                      ? "rounded-br-md bg-surface-3 text-ink"
-                      : "rounded-br-md bg-brand text-brand-ink"
+                      ? "rounded-br-md border border-violet-300/40 bg-[linear-gradient(135deg,rgba(139,92,246,.12),rgba(236,72,153,.08))] text-ink"
+                      : "rounded-br-md bg-[linear-gradient(135deg,var(--brand),#5b4bd8)] text-white shadow-[0_10px_22px_-14px_var(--brand)]"
                 }`}
               >
-                <p className={`mb-0.5 text-[10px] font-semibold uppercase tracking-wide ${message.from === "staff" ? "text-brand-ink/80" : "text-ink-muted"}`}>
+                <p className={`mb-0.5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide ${message.from === "staff" ? "text-white/80" : message.from === "ai" ? "text-violet-600 dark:text-violet-300" : "text-ink-muted"}`}>
+                  {message.from === "ai" ? <Sparkles className="size-3" /> : null}
                   {message.from === "visitor"
                     ? visitorName(session.visitor, fr)
                     : message.from === "ai"
@@ -1413,7 +1475,7 @@ function VisitorView({
           ),
         )}
       </div>
-      <div className="border-t border-border p-2 sm:p-3">
+      <div className="border-t border-border bg-surface-1/85 p-2 backdrop-blur sm:p-3">
         {session.replyWindowEndsAt && new Date(session.replyWindowEndsAt).getTime() < Date.now() ? (
           <p className="mb-1.5 px-1 text-[11px] font-medium text-warning">
             {tr(
@@ -1429,7 +1491,7 @@ function VisitorView({
           </p>
         ) : null}
         <form
-          className="flex items-end gap-2"
+          className="flex items-end gap-1.5 rounded-2xl border border-border-strong bg-surface-1 p-1.5 shadow-sm transition focus-within:border-brand focus-within:ring-4 focus-within:ring-brand/10"
           onSubmit={(event) => {
             event.preventDefault();
             send();
@@ -1446,14 +1508,30 @@ function VisitorView({
                 send();
               }
             }}
-            placeholder={tr(fr, "Répondre au visiteur…", "Reply to the visitor…")}
-            className="min-h-[44px] flex-1 resize-none rounded-xl border border-border-strong bg-surface-1 px-3 py-2 text-sm text-ink"
+            placeholder={tr(fr, "Répondre au client…", "Reply to the customer…")}
+            className="min-h-[44px] flex-1 resize-none bg-transparent px-2 py-2 text-sm text-ink outline-none"
           />
-          <Button size="icon" loading={reply.isPending} disabled={!body.trim()} type="submit" aria-label={tr(fr, "Envoyer", "Send")}>
+          <Button size="icon" className="rounded-xl bg-[linear-gradient(135deg,var(--brand),#5b4bd8)] text-white shadow-[0_8px_18px_-10px_var(--brand)] transition hover:brightness-110" loading={reply.isPending} disabled={!body.trim()} type="submit" aria-label={tr(fr, "Envoyer", "Send")}>
             <Send className="size-4" />
           </Button>
         </form>
       </div>
     </>
+  );
+}
+
+/** Empty conversation pane: a calm illustration rather than a blank panel. */
+function ChatEmpty({ icon, title, text }: { icon: ReactNode; title: string; text: string }) {
+  return (
+    <div className={`relative grid flex-1 place-items-center overflow-hidden p-6 ${CHAT_CANVAS}`}>
+      <div className="relative max-w-sm text-center">
+        <div aria-hidden className="absolute left-1/2 top-6 size-40 -translate-x-1/2 rounded-full bg-brand/20 blur-3xl" />
+        <span className="relative mx-auto grid size-20 place-items-center rounded-[1.75rem] bg-[linear-gradient(135deg,var(--brand),#5b4bd8)] text-white shadow-[0_24px_44px_-20px_var(--brand)] animate-[lh-float_9s_ease-in-out_infinite]">
+          {icon}
+        </span>
+        <p className="relative mt-6 text-lg font-semibold tracking-tight text-ink">{title}</p>
+        <p className="relative mt-1.5 text-sm leading-6 text-ink-secondary">{text}</p>
+      </div>
+    </div>
   );
 }

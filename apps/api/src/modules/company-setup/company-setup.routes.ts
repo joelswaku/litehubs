@@ -1,5 +1,6 @@
 import multer from "multer";
-import { Router, type RequestHandler } from "express";
+import { Router, type Request, type RequestHandler, type Response } from "express";
+import { z } from "zod";
 import { rateLimit } from "express-rate-limit";
 import { storage, isAllowedUploadMimeType } from "../../config/storage";
 import { BadRequestError } from "../../utils/errors";
@@ -12,6 +13,7 @@ import {
 } from "../../middleware/permissions.middleware";
 import { validate } from "../../middleware/validation.middleware";
 import * as controller from "./company-setup.controller";
+import * as rulesAck from "./company-rules-ack.service";
 import {
   createDepartmentSchema,
   createInvitationSchema,
@@ -152,6 +154,83 @@ companySetupRoutes.get(
   ...inOrganization,
   controller.listCompanyRulesVersions,
 );
+// Acknowledgements: each employee confirms receiving and understanding the
+// current rules, in LiteHubs or on paper (scan recorded by HR).
+const rulesContext = (req: Request) => ({
+  organizationId: req.organization!.id,
+  userId: req.user!.id,
+  memberId: req.membership!.memberId,
+  isOwner: req.membership!.isOwner,
+  permissions: req.membership!.permissions,
+});
+const rulesParam = (req: Request, name: string) => {
+  const value = req.params[name];
+  return Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
+};
+const sendFile = (res: Response, file: { buffer: Buffer; mimeType?: string; fileName: string }, download: boolean) =>
+  res
+    .status(200)
+    .type(file.mimeType ?? "application/pdf")
+    .setHeader("Cache-Control", "no-store")
+    .setHeader("Content-Disposition", `${download ? "attachment" : "inline"}; filename="${file.fileName.replace(/[^\w.-]/g, "_")}"`)
+    .send(file.buffer);
+const scanUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { files: 1, fileSize: Math.min(storage.maxUploadBytes, 15_000_000) },
+  fileFilter: (_req, file, callback) =>
+    ["application/pdf", "image/jpeg", "image/png"].includes(file.mimetype)
+      ? callback(null, true)
+      : callback(new BadRequestError("Importez le scan en PDF, JPEG ou PNG")),
+});
+const oneScan: RequestHandler = (req, res, next) =>
+  scanUpload.single("file")(req, res, (error: unknown) => next(error instanceof BadRequestError ? error : error ? new BadRequestError("Fichier trop lourd ou invalide") : undefined));
+const uuid = z.string().uuid();
+
+companySetupRoutes.get("/organizations/:orgSlug/company-rules/my-acknowledgement", ...inOrganization, async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.json(await rulesAck.myRulesAcknowledgement(rulesContext(req)));
+});
+companySetupRoutes.post(
+  "/organizations/:orgSlug/company-rules/my-acknowledgement",
+  ...inOrganization,
+  validate({ body: z.object({ versionId: uuid, signedName: z.string().trim().min(3).max(160), accepted: z.literal(true) }) }),
+  async (req, res) => {
+    const body = req.body as { versionId: string; signedName: string; accepted: boolean };
+    res.json(await rulesAck.signMyRules(rulesContext(req), body, { ipAddress: req.ip ?? null, userAgent: req.get("user-agent") ?? null }));
+  },
+);
+companySetupRoutes.get("/organizations/:orgSlug/company-rules/acknowledgements", ...inOrganization, async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.json(await rulesAck.listAcknowledgements(rulesContext(req)));
+});
+companySetupRoutes.post(
+  "/organizations/:orgSlug/company-rules/acknowledgements/remind",
+  ...inOrganization,
+  validate({ body: z.object({ employeeIds: z.union([z.literal("pending"), z.array(uuid).min(1).max(500)]) }) }),
+  async (req, res) => {
+    res.json(await rulesAck.remindEmployees(rulesContext(req), (req.body as { employeeIds: string[] | "pending" }).employeeIds));
+  },
+);
+companySetupRoutes.get("/organizations/:orgSlug/company-rules/acknowledgements/print/:employeeId", ...inOrganization, async (req, res) => {
+  const file = await rulesAck.printForEmployee(rulesContext(req), uuid.parse(rulesParam(req, "employeeId")));
+  sendFile(res, { ...file, mimeType: "application/pdf" }, req.query.download === "1");
+});
+companySetupRoutes.post(
+  "/organizations/:orgSlug/company-rules/acknowledgements/paper/:employeeId",
+  authenticate,
+  oneScan,
+  validate({ params: organizationParams.extend({ employeeId: uuid }), body: z.object({ signedOn: z.string().date(), note: z.string().trim().max(500).optional() }) }),
+  requireOrganization,
+  async (req, res) => {
+    if (!req.file) throw new BadRequestError("Ajoutez le scan ou la photo de la page signée.");
+    res.json(await rulesAck.recordPaperAcknowledgement(rulesContext(req), rulesParam(req, "employeeId"), req.body as { signedOn: string; note?: string }, req.file));
+  },
+);
+companySetupRoutes.get("/organizations/:orgSlug/company-rules/acknowledgements/:acknowledgementId/document", ...inOrganization, async (req, res) => {
+  const file = await rulesAck.acknowledgementDocument(rulesContext(req), uuid.parse(rulesParam(req, "acknowledgementId")));
+  sendFile(res, file, req.query.download === "1");
+});
+
 companySetupRoutes.put(
   "/organizations/:orgSlug/company-rules",
   ...inOrganization,

@@ -13,6 +13,7 @@ import {
   NotFoundError,
 } from "../../utils/errors";
 import { withTenantContext } from "../../utils/tenant-query";
+import { companyLogo } from "../contracts/contract-pdf";
 import type {
   CreateDepartmentInput,
   CreateInvitationInput,
@@ -124,6 +125,7 @@ interface CompanyRulesVersionRow {
 
 interface CompanyRulesCompanyRow {
   name: string;
+  logo_url?: string | null;
   address_line1: string | null;
   address_line2: string | null;
   city: string | null;
@@ -354,18 +356,45 @@ export async function publishCompanyRules(
  * captures are inconsistent, can include UI chrome and are not an auditable
  * document layout.
  */
+/** Who acknowledges the rules: printed on the last page of the PDF. */
+export type RulesAcknowledgementSheet = {
+  employeeName: string;
+  employeeNumber: string | null;
+  jobTitle: string | null;
+  signed: { name: string; at: Date; method: "electronic" | "paper"; ipAddress?: string | null } | null;
+};
+
+async function rulesVersionById(context: SetupContext, versionId: string) {
+  return withTenantContext(context, async (client) => {
+    const result = await client.query<CompanyRulesVersionRow>(
+      `SELECT ${companyRulesVersionFields}
+         FROM company_rules_versions v
+         LEFT JOIN organization_members author_member
+           ON author_member.organization_id=v.organization_id
+          AND author_member.id=v.created_by_member_id
+         LEFT JOIN users author_user ON author_user.id=author_member.user_id
+        WHERE v.organization_id=$1 AND v.id=$2`,
+      [context.organizationId, versionId],
+    );
+    if (!result.rows[0]) throw new NotFoundError("Version du règlement introuvable");
+    return mapCompanyRulesVersion(result.rows[0]);
+  });
+}
+
 export async function exportCompanyRulesPdf(
   context: SetupContext,
   french: boolean,
+  options: { versionId?: string; acknowledgement?: RulesAcknowledgementSheet } = {},
 ): Promise<Buffer> {
   const [policy, company] = await Promise.all([
-    currentCompanyRules(context),
+    options.versionId ? rulesVersionById(context, options.versionId) : currentCompanyRules(context),
     withTenantContext(context, async (client) => {
       const result = await client.query<CompanyRulesCompanyRow>(
-        `SELECT COALESCE(display_name, legal_name, slug) AS name,
-                address_line1,address_line2,city,region,postal_code
-           FROM organizations
-          WHERE id=$1`,
+        `SELECT COALESCE(o.display_name, o.legal_name, o.slug) AS name, settings.logo_url,
+                o.address_line1,o.address_line2,o.city,o.region,o.postal_code
+           FROM organizations o
+           LEFT JOIN organization_settings settings ON settings.organization_id=o.id
+          WHERE o.id=$1`,
         [context.organizationId],
       );
       return result.rows[0] ?? {
@@ -403,6 +432,8 @@ export async function exportCompanyRulesPdf(
       .slice(0, 2)
       .map((part) => part.slice(0, 1).toUpperCase())
       .join("") || "LH";
+  // Same logo as the contracts: the one uploaded in the company settings.
+  const logo = await companyLogo(company.logo_url);
 
   return new Promise<Buffer>((resolve, reject) => {
     const document = new PDFDocument({
@@ -435,12 +466,21 @@ export async function exportCompanyRulesPdf(
 
     const drawHeader = () => {
       document.rect(0, 0, pageWidth, 16).fill(navy);
-      document.roundedRect(left, 34, 48, 48, 10).fill("#FFFFFF");
-      document
-        .fillColor(navy)
-        .font("Helvetica-Bold")
-        .fontSize(15)
-        .text(initials, left, 50, { width: 48, align: "center" });
+      if (logo) {
+        try {
+          document.image(Buffer.from(logo.bytes), left, 34, { fit: [48, 48], align: "center", valign: "center" });
+        } catch {
+          document.roundedRect(left, 34, 48, 48, 10).fill(navy);
+          document.fillColor("#FFFFFF").font("Helvetica-Bold").fontSize(15).text(initials, left, 50, { width: 48, align: "center" });
+        }
+      } else {
+        document.roundedRect(left, 34, 48, 48, 10).fill(navy);
+        document
+          .fillColor("#FFFFFF")
+          .font("Helvetica-Bold")
+          .fontSize(15)
+          .text(initials, left, 50, { width: 48, align: "center" });
+      }
       document
         .fillColor(ink)
         .font("Helvetica-Bold")
@@ -626,6 +666,56 @@ export async function exportCompanyRulesPdf(
       }
       if (/^\d+\.\s/.test(line)) chapter(safeRulesText(line));
       else paragraph(line);
+    }
+
+    const sheet = options.acknowledgement;
+    if (sheet) {
+      // Acknowledgement page: the employee confirms receiving and understanding
+      // this exact version.  Signed in LiteHubs, it carries the signature
+      // record; printed, it has lines for the handwritten signature.
+      addPage();
+      document.fillColor(ink).font("Helvetica-Bold").fontSize(16).text(
+        french ? "Accusé de réception du règlement" : "Rules acknowledgement",
+        left,
+        cursorY,
+        { width: contentWidth },
+      );
+      cursorY += 30;
+      const statement = french
+        ? `Je soussigné(e), ${safeRulesText(sheet.employeeName, 120)}${sheet.employeeNumber ? `, matricule ${safeRulesText(sheet.employeeNumber, 40)}` : ""}${sheet.jobTitle ? `, ${safeRulesText(sheet.jobTitle, 80)}` : ""}, reconnais avoir reçu un exemplaire du « ${safeRulesText(title, 160)} » de ${safeRulesText(company.name, 80)}, version n° ${version} publiée le ${formatCompanyRulesDate(generatedAt, french)}. Je déclare l'avoir lu, l'avoir compris et m'engage à le respecter.`
+        : `I, ${safeRulesText(sheet.employeeName, 120)}, acknowledge receiving "${safeRulesText(title, 160)}" of ${safeRulesText(company.name, 80)}, version ${version}. I have read and understood it and undertake to comply with it.`;
+      document.fillColor(ink).font("Helvetica").fontSize(10.5).text(statement, left, cursorY, { width: contentWidth, lineGap: 3, align: "justify" });
+      cursorY = document.y + 26;
+      if (sheet.signed && sheet.signed.method === "electronic") {
+        document.roundedRect(left, cursorY, contentWidth, 112, 8).lineWidth(0.8).strokeColor(brand).stroke();
+        document.fillColor(brand).font("Helvetica-Bold").fontSize(8).text(french ? "SIGNÉ ÉLECTRONIQUEMENT DANS LITEHUBS" : "SIGNED ELECTRONICALLY IN LITEHUBS", left + 14, cursorY + 12);
+        document.fillColor(ink).font("Helvetica-Oblique").fontSize(20).text(safeRulesText(sheet.signed.name, 80), left + 14, cursorY + 30, { width: contentWidth - 28 });
+        document.fillColor(muted).font("Helvetica").fontSize(8.5).text(
+          `${french ? "Mention" : "Statement"} : « ${french ? "Lu, compris et approuvé" : "Read, understood and approved"} » · ${french ? "Signé le" : "Signed on"} ${formatCompanyRulesDate(sheet.signed.at, french)} ${sheet.signed.at.toISOString().slice(11, 16)} UTC${sheet.signed.ipAddress ? ` · IP ${safeRulesText(sheet.signed.ipAddress, 60)}` : ""}`,
+          left + 14,
+          cursorY + 70,
+          { width: contentWidth - 28 },
+        );
+        cursorY += 130;
+      } else {
+        const lines: [string, string][] = french
+          ? [["Mention manuscrite « Lu et approuvé »", ""], ["Fait à", ""], ["Le", ""], ["Signature du travailleur", ""]]
+          : [["Handwritten \"Read and approved\"", ""], ["Place", ""], ["Date", ""], ["Employee signature", ""]];
+        for (const [label] of lines) {
+          document.fillColor(muted).font("Helvetica").fontSize(9).text(`${label} :`, left, cursorY);
+          document.moveTo(left + 190, cursorY + 10).lineTo(pageWidth - left, cursorY + 10).strokeColor(border).lineWidth(0.8).stroke();
+          cursorY += label.toLowerCase().startsWith("signature") || label.toLowerCase().includes("signature") ? 60 : 32;
+        }
+        document.roundedRect(left + 190, cursorY - 52, contentWidth - 190, 48, 6).lineWidth(0.6).strokeColor(border).stroke();
+      }
+      document.fillColor(muted).font("Helvetica").fontSize(7.8).text(
+        french
+          ? "Un exemplaire de ce règlement est remis au travailleur. Ce document est conservé dans le dossier du travailleur dans LiteHubs."
+          : "A copy of these rules is given to the employee. This document is kept in the employee file in LiteHubs.",
+        left,
+        cursorY + 8,
+        { width: contentWidth },
+      );
     }
 
     const pageRange = document.bufferedPageRange();

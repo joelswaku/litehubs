@@ -1,5 +1,6 @@
 "use client";
 
+import { MyRulesCard } from "@/components/hr/rules-acknowledgements";
 import Link from "next/link";
 import { useEffect, useRef, useState, type PointerEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -743,7 +744,7 @@ export function MyAccountArea({
 
   // Mon compte reste limité à l’identité et à la sécurité. Les autres sujets
   // disposent chacun de leur entrée dédiée dans la navigation personnelle.
-  if (!initialSection) return <MyAccountProfile account={data} />;
+  if (!initialSection) return <MyAccountProfile account={data} orgSlug={orgSlug} />;
 
   const latestPay = data.payslips[0] ?? null;
   const historicPayslips = data.payslips.slice(1);
@@ -844,6 +845,7 @@ export function MyAccountArea({
           </div>
         </div>
       </section>
+      {initialSection === "contracts" ? <MyRulesCard orgSlug={orgSlug} fr={fr} /> : null}
       {initialSection ? null : (
         <AccountSectionNav
           fr={fr}

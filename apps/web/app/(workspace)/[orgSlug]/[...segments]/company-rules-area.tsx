@@ -15,7 +15,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Field, Input, Textarea } from "@/components/ui/input";
 import { get, orgApiUrl, orgUrl, put } from "@/lib/api";
-import { isOwner } from "@/lib/permissions";
+import { can, isOwner } from "@/lib/permissions";
+import { RulesAcknowledgementPanel } from "@/components/hr/rules-acknowledgements";
 import { useLanguage } from "@/providers/language-provider";
 import { useSessionUser } from "@/stores/session-store";
 
@@ -468,6 +469,8 @@ export function CompanyRulesArea({ orgSlug }: { orgSlug: string }) {
           ? "ce règlement est le cadre interne de Congo Omega. Il doit être complété par la validation d’un juriste local pour les obligations légales en République démocratique du Congo."
           : "these rules are Congo Omega’s internal framework. They must be complemented by local legal review for statutory obligations in the Democratic Republic of the Congo."}
       </section>
+
+      {canEdit || can(user, "employees.update") ? <RulesAcknowledgementPanel orgSlug={orgSlug} fr={fr} /> : null}
 
       {current ? (
         <section className="rounded-2xl border border-border bg-surface-1 p-5 shadow-sm sm:p-7">

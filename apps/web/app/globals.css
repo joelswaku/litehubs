@@ -313,3 +313,24 @@
     scrollbar-color: var(--border-strong) transparent;
   }
 }
+
+/* Ambient motion for the flagship pages (social studio, messaging). Slow and
+   decorative only; the reduced-motion rule above stops it. */
+@keyframes lh-float {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  33% { transform: translate3d(28px, -18px, 0) scale(1.06); }
+  66% { transform: translate3d(-22px, 14px, 0) scale(0.96); }
+}
+@keyframes lh-gradient-pan {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+@keyframes lh-pulse-ring {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--good) 55%, transparent); }
+  100% { box-shadow: 0 0 0 9px transparent; }
+}
+@keyframes lh-shimmer {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(220%); }
+}

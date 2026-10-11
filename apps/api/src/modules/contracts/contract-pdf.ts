@@ -231,7 +231,9 @@ export function stripTemplateSignatureSection(blocks: WorkspaceBlock[]): Workspa
 export async function companyLogo(url: string | null | undefined): Promise<{ bytes: Uint8Array; kind: "png" | "jpg" } | null> {
   if (!url) return null;
   try {
-    const parsed = new URL(url);
+    // Cloudinary converts any uploaded logo (WebP, SVG…) to PNG on the fly.
+    const converted = /\/upload\//.test(url) && !/\/upload\/f_/.test(url) ? url.replace("/upload/", "/upload/f_png/") : url;
+    const parsed = new URL(converted);
     if (parsed.protocol !== "https:" || !/(^|\.)res\.cloudinary\.com$/i.test(parsed.hostname)) return null;
     const response = await fetch(parsed, { signal: AbortSignal.timeout(5_000) });
     if (!response.ok) return null;
