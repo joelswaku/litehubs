@@ -13,6 +13,7 @@ import { db } from "../../config/database";
 import { readPrivateDocument } from "../../services/file-storage.service";
 import { BadRequestError, ForbiddenError, NotFoundError } from "../../utils/errors";
 import { withTenantContext } from "../../utils/tenant-query";
+import { queueDisplayName } from "../appointments/appointments.service";
 
 type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -23,7 +24,7 @@ export type DisplayContext = {
   isOwner: boolean;
   permissions: string[];
 };
-export type DisplaySection = "poultry" | "pigs" | "agriculture";
+export type DisplaySection = "poultry" | "pigs" | "agriculture" | "appointments";
 export type DisplayInput = {
   name: string;
   siteId?: string | null;
@@ -407,5 +408,66 @@ export async function publicDisplayVideo(token: string, documentId: string) {
     const video = result.rows[0];
     if (!video) throw new NotFoundError("Vidéo introuvable");
     return { fileName: String(video.file_name), mimeType: String(video.mime_type), buffer: await readPrivateDocument(String(video.storage_path)) };
+  });
+}
+
+/**
+ * Live appointment queue for a screen (asked every few seconds, unlike the
+ * hourly farm figures).  Names are shortened like on the reception screen.
+ */
+export async function publicDisplayQueue(token: string) {
+  const found = await lookup(token);
+  return withTenantContext(systemContext(found.organizationId), async (client) => {
+    const display = (
+      await client.query<Row>(`SELECT site_id,sections FROM farm_displays WHERE organization_id=$1 AND id=$2`, [found.organizationId, found.id])
+    ).rows[0];
+    if (!display || !(display.sections as string[]).includes("appointments")) return { enabled: false, nowServing: [], waiting: [], servedToday: 0, upcoming: [] };
+    const siteId = (display.site_id as string | null) ?? null;
+    const rows = await client.query<Row>(
+      `SELECT a.id,a.queue_number,a.status,a.visitor_name,a.called_at,svc.name AS service_name,desk.name AS desk_name,s.name AS site_name
+         FROM appointments a
+         LEFT JOIN appointment_services svc ON svc.organization_id=a.organization_id AND svc.id=a.service_id
+         LEFT JOIN appointment_desks desk ON desk.organization_id=a.organization_id AND desk.id=a.desk_id
+         LEFT JOIN sites s ON s.organization_id=a.organization_id AND s.id=a.site_id
+        WHERE a.organization_id=$1 AND ($2::uuid IS NULL OR a.site_id=$2) AND a.queue_date=CURRENT_DATE
+          AND a.status IN ('waiting','checked_in','called','serving')
+        ORDER BY CASE a.status WHEN 'called' THEN 0 WHEN 'serving' THEN 1 ELSE 2 END, a.called_at DESC NULLS LAST, a.queue_number
+        LIMIT 40`,
+      [found.organizationId, siteId],
+    );
+    const served = await client.query<{ total: number }>(
+      `SELECT count(*)::int AS total FROM appointments WHERE organization_id=$1 AND ($2::uuid IS NULL OR site_id=$2) AND queue_date=CURRENT_DATE AND status='completed'`,
+      [found.organizationId, siteId],
+    );
+    const upcoming = await client.query<Row>(
+      `SELECT a.scheduled_at,a.visitor_name,svc.name AS service_name
+         FROM appointments a
+         LEFT JOIN appointment_services svc ON svc.organization_id=a.organization_id AND svc.id=a.service_id
+        WHERE a.organization_id=$1 AND ($2::uuid IS NULL OR a.site_id=$2) AND a.status='scheduled'
+          AND a.scheduled_at >= now() - interval '15 minutes' AND a.scheduled_at < date_trunc('day', now()) + interval '1 day'
+        ORDER BY a.scheduled_at LIMIT 12`,
+      [found.organizationId, siteId],
+    );
+    const ticket = (row: Row) => ({
+      id: row.id as string,
+      ticket: Number(row.queue_number),
+      visitorName: queueDisplayName(row.visitor_name as string | null),
+      serviceName: (row.service_name as string | null) ?? null,
+      deskName: (row.desk_name as string | null) ?? null,
+      siteName: (row.site_name as string | null) ?? null,
+      status: row.status as string,
+      calledAt: (row.called_at as string | null) ?? null,
+    });
+    return {
+      enabled: true,
+      nowServing: rows.rows.filter((row) => row.status === "called" || row.status === "serving").map(ticket),
+      waiting: rows.rows.filter((row) => row.status === "waiting" || row.status === "checked_in").map(ticket),
+      servedToday: served.rows[0]?.total ?? 0,
+      upcoming: upcoming.rows.map((row) => ({
+        at: row.scheduled_at as string,
+        visitorName: queueDisplayName(row.visitor_name as string | null),
+        serviceName: (row.service_name as string | null) ?? null,
+      })),
+    };
   });
 }

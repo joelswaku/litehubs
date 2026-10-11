@@ -1008,7 +1008,7 @@ export async function publicCheckIn(orgSlug: string, siteCode: string, input: Pu
   return { ticket: checkedIn.ticket, siteName: checkedIn.siteName, welcomeMessage: checkedIn.welcomeMessage, confirmationChannel: delivery.primary, confirmationChannels: delivery.channels };
 }
 /** Public TV screens show a recognisable, but privacy-preserving, visitor name. */
-function queueDisplayName(value: string | null | undefined): string {
+export function queueDisplayName(value: string | null | undefined): string {
   const words = (value ?? "").trim().split(/\s+/).filter(Boolean);
   // An e-mail can accidentally be entered in the name field. It must never be
   // echoed on a public TV screen.

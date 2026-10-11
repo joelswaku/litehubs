@@ -32,7 +32,32 @@ type Payload = {
   pigs: Pigs | null;
   agriculture: Crops | null;
 };
-type Slide = { kind: "poultry"; page: number; pages: number } | { kind: "pigs"; page: number; pages: number } | { kind: "agriculture"; page: number; pages: number } | { kind: "video"; index: number };
+type Slide = { kind: "poultry"; page: number; pages: number } | { kind: "pigs"; page: number; pages: number } | { kind: "agriculture"; page: number; pages: number } | { kind: "appointments" } | { kind: "video"; index: number };
+type QueueTicket = { id: string; ticket: number; visitorName: string; serviceName: string | null; deskName: string | null; siteName: string | null; status: string; calledAt: string | null };
+type Queue = { enabled: boolean; nowServing: QueueTicket[]; waiting: QueueTicket[]; servedToday: number; upcoming: { at: string; visitorName: string; serviceName: string | null }[] };
+
+/** A short two-tone chime when a ticket is called (needs one click on the page first). */
+function chime() {
+  try {
+    const AudioCtx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const audio = new AudioCtx();
+    [880, 660].forEach((frequency, index) => {
+      const oscillator = audio.createOscillator();
+      const gain = audio.createGain();
+      oscillator.frequency.value = frequency;
+      oscillator.connect(gain);
+      gain.connect(audio.destination);
+      const start = audio.currentTime + index * 0.35;
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(0.4, start + 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.6);
+      oscillator.start(start);
+      oscillator.stop(start + 0.65);
+    });
+  } catch {
+    // No sound available: the visual call is enough.
+  }
+}
 
 const ROWS_PER_PAGE = 9;
 const HOUR = 60 * 60 * 1000;
@@ -108,6 +133,38 @@ export function FarmDisplayBoard({ token }: { token: string }) {
     retryDelay: 30_000,
   });
   const data = query.data;
+  const queueEnabled = Boolean(data?.display.sections.includes("appointments"));
+  const queue = useQuery({
+    queryKey: ["farm-display-queue", token],
+    queryFn: () => get<Queue>(`/public/displays/${token}/queue`),
+    refetchInterval: 5_000,
+    refetchIntervalInBackground: true,
+    enabled: queueEnabled,
+  });
+  const queueData = queueEnabled ? queue.data : undefined;
+  const hasQueue = Boolean(queueData && (queueData.nowServing.length || queueData.waiting.length || queueData.upcoming.length));
+  // A newly called ticket takes over the screen for a few seconds.
+  const seenCalls = useRef<Map<string, string> | null>(null);
+  const [calling, setCalling] = useState<QueueTicket | null>(null);
+  useEffect(() => {
+    if (!queueData) return;
+    const called = queueData.nowServing.filter((item) => item.status === "called" && item.calledAt);
+    if (!seenCalls.current) {
+      seenCalls.current = new Map(called.map((item) => [item.id, item.calledAt!]));
+      return;
+    }
+    const fresh = called.find((item) => seenCalls.current!.get(item.id) !== item.calledAt);
+    called.forEach((item) => seenCalls.current!.set(item.id, item.calledAt!));
+    if (fresh) {
+      setCalling(fresh);
+      chime();
+    }
+  }, [queueData]);
+  useEffect(() => {
+    if (!calling) return;
+    const timer = window.setTimeout(() => setCalling(null), 12_000);
+    return () => window.clearTimeout(timer);
+  }, [calling]);
   const slides = useMemo<Slide[]>(() => {
     if (!data) return [];
     const boards: Slide[] = [];
@@ -117,12 +174,21 @@ export function FarmDisplayBoard({ token }: { token: string }) {
     if (data.poultry?.rows.length) add("poultry", data.poultry.rows.length);
     if (data.pigs?.rows.length) add("pigs", data.pigs.rows.length);
     if (data.agriculture?.rows.length) add("agriculture", data.agriculture.rows.length);
+    // The queue comes first and returns between the other boards.
+    if (hasQueue) {
+      const withQueue: Slide[] = [{ kind: "appointments" }];
+      boards.forEach((board, index) => {
+        withQueue.push(board);
+        if (index % 2 === 1 && index < boards.length - 1) withQueue.push({ kind: "appointments" });
+      });
+      boards.splice(0, boards.length, ...withQueue);
+    }
     const videos = data.display.videos.map((_, index) => ({ kind: "video", index }) as Slide);
     if (!boards.length) return videos;
     if (!data.display.videosBetween || !videos.length) return boards;
     // One video after each full round of boards, taking turns.
     return [...boards, { kind: "video", index: -1 } as Slide];
-  }, [data]);
+  }, [data, hasQueue]);
   const [position, setPosition] = useState(0);
   const [videoTurn, setVideoTurn] = useState(0);
   const slide = slides.length ? slides[position % slides.length] : null;
@@ -226,6 +292,62 @@ export function FarmDisplayBoard({ token }: { token: string }) {
         ])}
       />
     );
+  } else if (slide?.kind === "appointments" && queueData) {
+    title = "Rendez-vous";
+    subtitle = "File d’attente";
+    kpis = (
+      <>
+        <Kpi label="En attente" value={fmt(queueData.waiting.length)} tone="text-amber-300" />
+        <Kpi label="Au guichet" value={fmt(queueData.nowServing.length)} tone="text-emerald-300" />
+        <Kpi label="Servis aujourd’hui" value={fmt(queueData.servedToday)} />
+        <Kpi label="Rendez-vous à venir" value={fmt(queueData.upcoming.length)} />
+        <Kpi label="Prochain" value={queueData.upcoming[0] ? new Date(queueData.upcoming[0].at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : "—"} tone="text-sky-200" />
+      </>
+    );
+    board = (
+      <div className="grid h-full min-h-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+        <div className="flex min-h-0 flex-col gap-3">
+          <p className="text-[clamp(.8rem,1vw,1.1rem)] font-bold uppercase tracking-[.2em] text-emerald-300">Appelés · au guichet</p>
+          {queueData.nowServing.length ? (
+            queueData.nowServing.slice(0, 4).map((item) => (
+              <div key={item.id} className={`flex items-center justify-between gap-4 rounded-2xl border px-5 py-3 ${item.status === "called" ? "border-amber-300/60 bg-amber-400/15" : "border-white/10 bg-white/[.06]"}`}>
+                <div className="min-w-0">
+                  <p className="font-mono text-[clamp(2rem,3.6vw,4rem)] font-black leading-none text-amber-300">{String(item.ticket).padStart(3, "0")}</p>
+                  <p className="mt-1 truncate text-[clamp(.9rem,1.3vw,1.4rem)] font-semibold text-white/85">{item.visitorName}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[clamp(.75rem,.9vw,1rem)] font-bold uppercase tracking-[.15em] text-sky-200/70">Guichet</p>
+                  <p className="text-[clamp(1.3rem,2.2vw,2.4rem)] font-black">{item.deskName ?? "Accueil"}</p>
+                  <p className={`text-sm font-bold ${item.status === "called" ? "animate-pulse text-amber-300" : "text-emerald-300"}`}>{item.status === "called" ? "Présentez-vous" : "En service"}</p>
+                </div>
+              </div>
+            ))
+          ) : (
+            <p className="rounded-2xl border border-white/10 bg-white/[.04] px-5 py-6 text-[clamp(1rem,1.4vw,1.5rem)] text-white/60">Aucun appel en cours</p>
+          )}
+        </div>
+        <div className="min-h-0">
+          <Board
+            columns={[{ label: "Ticket", w: 0.8 }, { label: "Client", w: 1.4 }, { label: "Service", w: 1.6 }, { label: "Statut", w: 1.1 }]}
+            rows={
+              queueData.waiting.length
+                ? queueData.waiting.slice(0, 8).map((item) => [
+                    <span key="t" className="font-mono text-amber-200">{String(item.ticket).padStart(3, "0")}</span>,
+                    item.visitorName,
+                    item.serviceName ?? "—",
+                    <StatusCell key="s" status="warn" text="En attente" />,
+                  ])
+                : queueData.upcoming.slice(0, 8).map((item) => [
+                    <span key="t" className="font-mono text-sky-200">{new Date(item.at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</span>,
+                    item.visitorName,
+                    item.serviceName ?? "—",
+                    <StatusCell key="s" status="ok" text="Rendez-vous" />,
+                  ])
+            }
+          />
+        </div>
+      </div>
+    );
   } else if (slide?.kind === "agriculture" && data.agriculture) {
     const { totals, rows } = data.agriculture;
     title = "Agriculture";
@@ -285,15 +407,17 @@ export function FarmDisplayBoard({ token }: { token: string }) {
 
       <section className="relative flex min-h-0 flex-1 flex-col px-[3vw] py-[2.2vh]">
         {slide && slide.kind !== "video" ? (
-          <div key={`${slide.kind}-${slide.page}`} className="flex min-h-0 flex-1 flex-col gap-[2vh]">
+          <div key={`${slide.kind}-${"page" in slide ? slide.page : position}`} className="flex min-h-0 flex-1 flex-col gap-[2vh]">
             <div className="flex flex-wrap items-end justify-between gap-4 animate-in fade-in slide-in-from-left-4 duration-500">
               <div>
                 <p className="text-[clamp(.8rem,1vw,1.1rem)] font-bold uppercase tracking-[.3em] text-amber-300">{subtitle}</p>
                 <h1 className="text-[clamp(2rem,4vw,4.4rem)] font-black uppercase leading-none tracking-tight">{title}</h1>
               </div>
-              <p className="text-[clamp(.8rem,1vw,1.1rem)] font-semibold text-white/60">
-                Page {slide.page + 1} / {slide.pages}
-              </p>
+              {"page" in slide ? (
+                <p className="text-[clamp(.8rem,1vw,1.1rem)] font-semibold text-white/60">
+                  Page {slide.page + 1} / {slide.pages}
+                </p>
+              ) : null}
             </div>
             <div className="grid grid-cols-5 gap-3">{kpis}</div>
             <div className="min-h-0 flex-1">{board}</div>
@@ -341,6 +465,19 @@ export function FarmDisplayBoard({ token }: { token: string }) {
       </footer>
       {slide && slide.kind !== "video" ? (
         <div key={`bar-${position}`} className="absolute bottom-0 left-0 h-1 bg-amber-400" style={{ animation: `lh-progress ${display.rotateSeconds}s linear forwards` }} />
+      ) : null}
+      {calling ? (
+        <div className="absolute inset-0 z-30 grid place-items-center bg-[#071433]/92 backdrop-blur-sm animate-in fade-in zoom-in-95 duration-500">
+          <div className="text-center">
+            <p className="text-[clamp(1.2rem,2.4vw,2.6rem)] font-black uppercase tracking-[.35em] text-sky-200">Ticket appelé</p>
+            <p className="mt-2 font-mono text-[clamp(7rem,20vw,22rem)] font-black leading-none text-amber-300 animate-pulse">{String(calling.ticket).padStart(3, "0")}</p>
+            <p className="mt-4 text-[clamp(1.5rem,3vw,3.2rem)] font-bold">{calling.visitorName}</p>
+            <p className="mt-3 inline-flex items-center gap-3 rounded-full border-2 border-amber-300/70 px-8 py-3 text-[clamp(1.4rem,2.6vw,2.8rem)] font-black uppercase">
+              Guichet {calling.deskName ?? "accueil"}
+            </p>
+            {calling.serviceName ? <p className="mt-4 text-[clamp(1rem,1.6vw,1.6rem)] text-white/70">{calling.serviceName}</p> : null}
+          </div>
+        </div>
       ) : null}
       {fullscreenHint ? (
         <p className="pointer-events-none absolute right-6 top-28 rounded-full bg-black/60 px-4 py-2 text-sm text-white/80 animate-in fade-in">Cliquez pour afficher en plein écran</p>

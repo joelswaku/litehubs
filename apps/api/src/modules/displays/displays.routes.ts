@@ -13,7 +13,7 @@ const displayParams = organizationParams.extend({ displayId: id });
 const displayInput = z.object({
   name: z.string().trim().min(2).max(80),
   siteId: id.nullable().optional(),
-  sections: z.array(z.enum(["poultry", "pigs", "agriculture"])).max(3),
+  sections: z.array(z.enum(["poultry", "pigs", "agriculture", "appointments"])).max(4),
   rotateSeconds: z.number().int().min(8).max(300),
   videoDocumentIds: z.array(id).max(20),
   videosBetween: z.boolean(),
@@ -61,6 +61,11 @@ displayRoutes.get("/public/displays/:token", screenLimiter, async (req, res) => 
   res.setHeader("Cache-Control", "no-store");
   res.setHeader("X-Robots-Tag", "noindex");
   res.json(await service.publicDisplay(param(req, "token")));
+});
+const queueLimiter = rateLimit({ windowMs: 60_000, limit: 150, standardHeaders: "draft-7", legacyHeaders: false });
+displayRoutes.get("/public/displays/:token/queue", queueLimiter, async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.json(await service.publicDisplayQueue(param(req, "token")));
 });
 displayRoutes.get("/public/displays/:token/videos/:documentId", screenLimiter, async (req: Request, res: Response) => {
   const documentId = id.parse(param(req, "documentId"));

@@ -5,14 +5,14 @@
  */
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bird, Copy, ExternalLink, Film, MonitorPlay, Pencil, PiggyBank, Plus, RefreshCw, Sprout, Trash2, X } from "lucide-react";
+import { Bird, CalendarClock, Copy, ExternalLink, Film, MonitorPlay, Pencil, PiggyBank, Plus, RefreshCw, Sprout, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ErrorState, SkeletonCard } from "@/components/ui/states";
 import { ApiError, del, get, orgUrl, post, put } from "@/lib/api";
 import { useLanguage } from "@/providers/language-provider";
 
-type Section = "poultry" | "pigs" | "agriculture";
+type Section = "poultry" | "pigs" | "agriculture" | "appointments";
 type Display = {
   id: string;
   name: string;
@@ -35,6 +35,7 @@ const SECTIONS: { key: Section; fr: string; en: string; icon: typeof Bird }[] = 
   { key: "poultry", fr: "Volaille", en: "Poultry", icon: Bird },
   { key: "pigs", fr: "Porcs", en: "Pigs", icon: PiggyBank },
   { key: "agriculture", fr: "Agriculture", en: "Crops", icon: Sprout },
+  { key: "appointments", fr: "Rendez-vous", en: "Appointments", icon: CalendarClock },
 ];
 const screenUrl = (token: string) => `${typeof window === "undefined" ? "" : window.location.origin}/display/${token}`;
 
@@ -91,7 +92,10 @@ function DisplayForm({ orgSlug, fr, data, initial, onClose }: { orgSlug: string;
           </div>
           <div>
             <p className="text-xs font-semibold text-ink-secondary">{tr(fr, "Tableaux à afficher", "Boards to show")}</p>
-            <div className="mt-2 grid gap-2 sm:grid-cols-3">
+            <p className="mt-0.5 text-xs text-ink-muted">
+              {tr(fr, "Rendez-vous : la file d’attente se met à jour en direct (toutes les 5 s) ; un ticket appelé s’affiche en grand avec un son. Choisissez le site de l’accueil ci-dessus.", "Appointments: the queue updates live; a called ticket is shown full screen with a chime.")}
+            </p>
+            <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
               {SECTIONS.map((section) => {
                 const Icon = section.icon;
                 const active = sections.includes(section.key);
