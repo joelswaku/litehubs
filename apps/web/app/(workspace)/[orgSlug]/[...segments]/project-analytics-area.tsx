@@ -138,10 +138,15 @@ const formatCount = (value: unknown, locale: string) =>
   );
 
 function budgetStatus(project: ProjectMetric, fr: boolean) {
-  if (project.available < 0)
+  if (project.available < -0.004)
     return {
       label: copy(fr, "Over budget", "Dépassé"),
       tone: "critical" as const,
+    };
+  if (project.utilizationPercent > 0 && Math.abs(project.available) <= 0.004)
+    return {
+      label: copy(fr, "Exhausted", "Épuisé"),
+      tone: "neutral" as const,
     };
   if (project.utilizationPercent >= 90)
     return {

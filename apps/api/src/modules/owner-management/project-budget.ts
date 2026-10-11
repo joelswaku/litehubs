@@ -42,6 +42,7 @@ export type ProjectTaskBudget = ProjectBudgetTaskInput & {
     | "within_budget"
     | "attention"
     | "nearly_exhausted"
+    | "exhausted"
     | "over_budget";
 };
 
@@ -142,9 +143,11 @@ export function calculateProjectBudget(input: {
     const status =
       planned <= 0
         ? "not_budgeted"
-        : available < 0
+        : available < -0.004
           ? "over_budget"
-          : utilizationPercent >= 90
+          : Math.abs(available) <= 0.004
+            ? "exhausted"
+            : utilizationPercent >= 90
             ? "nearly_exhausted"
             : utilizationPercent >= 80
               ? "attention"

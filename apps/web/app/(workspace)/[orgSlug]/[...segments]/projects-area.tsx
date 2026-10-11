@@ -5768,6 +5768,7 @@ function ProjectContent({
         within_budget: ["Within budget", "Dans le budget", "good"],
         attention: ["Attention", "Attention", "warning"],
         nearly_exhausted: ["Nearly exhausted", "Presque épuisé", "warning"],
+        exhausted: ["Exhausted", "Épuisé", "neutral"],
         over_budget: ["Over budget", "Dépassé", "critical"],
       };
       const item = copy[status] ?? ["Not budgeted", "Non budgétée", "neutral"];
