@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { PDFDocument, StandardFonts, degrees, rgb, type PDFImage, type PDFPage, type PDFFont } from "pdf-lib";
+import { PDFDocument } from "pdf-lib";
+import { layoutContractPdf, stampSignatures, type ContractParties, type SignatureRole, type SignatureRequirements, type SignatureSlots, type SignedField, type WorkspaceBlock } from "./contract-pdf";
 import type { PoolClient } from "pg";
 import { readPrivateDocument, storePrivateDocument } from "../../services/file-storage.service";
 import {
@@ -767,7 +768,7 @@ export async function myContractDocument(
       version?.rendered_document_id === row.document_id &&
       ["awaiting_employee_signature", "awaiting_employer_signature"].includes(version?.status ?? "");
     const regenerated = (hasPendingCountersignature || options.regenerateLayout) && version
-      ? await renderWorkspacePdf(client, context, version, row.title, row.reference)
+      ? await renderWorkspacePdf(client, context, version)
       : null;
 
     if (regenerated) {
@@ -938,10 +939,35 @@ type WorkspaceFieldRow = {
   signed_at: string | null;
   signature_data: string | null;
 };
-type WorkspaceBlock = { type: "heading" | "paragraph" | "table" | "page_break"; text?: string; rows?: string[][] };
 
 type TemplateRow = { id: string; code: string; name: string; contract_type: string; language: string; body: { blocks?: WorkspaceBlock[] }; is_active: boolean; created_at: string; updated_at: string };
 
+/** Merge fields a template may use, with a short description. */
+const MERGE_LABELS: Record<string, string> = {
+  "company.name": "nom de l’entreprise",
+  "company.address": "adresse de l’entreprise",
+  "employee.fullName": "nom complet",
+  "employee.employeeNumber": "matricule",
+  "employee.jobTitle": "poste",
+  "employee.workLocation": "lieu de travail",
+  "contract.startDate": "date de début",
+  "contract.endDate": "date de fin",
+  "contract.salary": "rémunération",
+  "contract.currency": "devise",
+  "contract.reference": "référence",
+  "contract.title": "titre",
+  "contract.employerSignerRole": "fonction du signataire",
+};
+const longDate = (value: string | null | undefined) => {
+  if (!value) return "";
+  const date = new Date(`${String(value).slice(0, 10)}T12:00:00`);
+  return Number.isNaN(date.getTime()) ? String(value) : new Intl.DateTimeFormat("fr-FR", { dateStyle: "long" }).format(date);
+};
+const amount = (value: string | null | undefined) => {
+  if (value === null || value === undefined || value === "") return "";
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? new Intl.NumberFormat("fr-FR", { minimumFractionDigits: parsed % 1 ? 2 : 0, maximumFractionDigits: 2 }).format(parsed).replace(/\u202f|\u00a0/g, " ") : String(value);
+};
 function contractMergeValues(contract: ContractRow, employee: { full_name: string | null; employee_number: string | null; job_title: string | null; site_name: string | null } | undefined, company: { name: string; address: string }) {
   return {
     "company.name": company.name,
@@ -950,17 +976,30 @@ function contractMergeValues(contract: ContractRow, employee: { full_name: strin
     "employee.employeeNumber": employee?.employee_number ?? "",
     "employee.jobTitle": employee?.job_title ?? "",
     "employee.workLocation": employee?.site_name ?? contract.province_name ?? "",
-    "contract.startDate": contract.starts_on ?? "",
-    "contract.endDate": contract.ends_on ?? "",
-    "contract.salary": contract.contract_value ?? "",
+    "contract.startDate": longDate(contract.starts_on),
+    "contract.endDate": longDate(contract.ends_on),
+    "contract.salary": amount(contract.contract_value),
     "contract.currency": contract.currency ?? "",
     "contract.reference": contract.reference,
     "contract.title": contract.title,
     "contract.employerSignerRole": contract.employer_signer_role ?? "",
-  };
+  } as Record<string, string>;
 }
+/** Placeholders a template uses that LiteHubs cannot fill. */
+function unknownMergeFields(blocks: WorkspaceBlock[]) {
+  const found = new Set<string>();
+  const scan = (value?: string) => {
+    for (const match of (value ?? "").matchAll(/{{\s*([^}]*?)\s*}}/g)) if (!(match[1]! in MERGE_LABELS)) found.add(`{{${match[1]}}}`);
+  };
+  for (const block of blocks) {
+    scan(block.text);
+    block.rows?.forEach((row) => row.forEach(scan));
+  }
+  return [...found];
+}
+/** A known field without a value prints a blank line to fill in by hand. */
 function substituteMerge(value: string, values: Record<string, string>) {
-  return value.replace(/{{\s*([a-zA-Z]+\.[a-zA-Z]+)\s*}}/g, (_match, key: string) => values[key] ?? "");
+  return value.replace(/{{\s*([a-zA-Z]+\.[a-zA-Z]+)\s*}}/g, (_match, key: string) => values[key]?.trim() || "________________");
 }
 function renderBlocks(blocks: WorkspaceBlock[], values: Record<string, string>): WorkspaceBlock[] {
   return blocks.map((block) => ({
@@ -969,72 +1008,113 @@ function renderBlocks(blocks: WorkspaceBlock[], values: Record<string, string>):
     rows: block.rows?.map((row) => row.map((cell) => substituteMerge(cell, values))),
   }));
 }
-function wrappedLines(text: string, max = 86): string[] {
-  const words = text.replace(/\r/g, "").split(/\s+/).filter(Boolean);
-  const lines: string[] = []; let line = "";
-  for (const word of words) { if ((line ? `${line} ${word}` : word).length > max && line) { lines.push(line); line = word; } else line = line ? `${line} ${word}` : word; }
-  if (line) lines.push(line); return lines.length ? lines : [""];
-}
-/**
- * A company logo is a branding asset rather than a contract attachment. It is
- * deliberately fetched only from Cloudinary, where LiteHubs stores company
- * logos. This prevents a profile URL from becoming a server-side request to an
- * arbitrary/private host when a contract PDF is generated.
- */
-async function companyLogo(url: string | null | undefined): Promise<{ bytes: Uint8Array; kind: "png" | "jpg" } | null> {
-  if (!url) return null;
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol !== "https:" || !/(^|\.)res\.cloudinary\.com$/i.test(parsed.hostname)) return null;
-    const response = await fetch(parsed, { signal: AbortSignal.timeout(5_000) });
-    if (!response.ok) return null;
-    const declaredSize = Number(response.headers.get("content-length") ?? "0");
-    if (Number.isFinite(declaredSize) && declaredSize > 2_000_000) return null;
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    if (!bytes.byteLength || bytes.byteLength > 2_000_000) return null;
-    const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
-    if (contentType.includes("image/png")) return { bytes, kind: "png" };
-    if (contentType.includes("image/jpeg") || contentType.includes("image/jpg")) return { bytes, kind: "jpg" };
-    return null;
-  } catch {
-    // A logo must never prevent a legally important contract from being made.
-    return null;
-  }
-}
+/* Contract PDF: layout, signature slots and stamping live in ./contract-pdf. */
 
-
-function companyInitials(companyName: string) {
-  const initials = companyName.trim().split(/\s+/).filter(Boolean).slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? "").join("");
-  return initials || "CO";
-}
-
-type SignatureRole = "employee" | "employer";
-type SignatureSlot = { pageNumber: number; x: number; y: number; width: number; height: number };
-type ContractPdfBranding = { companyName: string; reference: string; logoUrl?: string | null };
-/** Document-bound values woven into the security watermark. Both optional: a
- * draft has no frozen hash yet, and the mark still has to render without one. */
-type ContractSecurityMark = { versionLabel?: string | null; documentHash?: string | null };
-type SignatureRequirements = Record<SignatureRole, number>;
-
-/** A signature never belongs on a flowing text page. These coordinates point to
- * a dedicated signing sheet added after the contractual clauses. */
-function signatureSlot(role: SignatureRole, index: number, pageNumber: number): SignatureSlot {
+/** The data printed in the signature block and « Fait à … ». */
+type RenderContext = {
+  title: string;
+  reference: string;
+  companyName: string;
+  logoUrl: string | null;
+  parties: ContractParties;
+};
+async function renderContextFor(client: PoolClient, organizationId: string, contractId: string): Promise<RenderContext> {
+  const result = await client.query<{
+    title: string; reference: string; employer_signer_role: string | null; employee_name: string | null; job_title: string | null;
+    display_name: string | null; logo_url: string | null; city: string | null;
+  }>(
+    `SELECT c.title,c.reference,c.employer_signer_role,e.full_name AS employee_name,e.job_title,
+            o.display_name,settings.logo_url,o.city
+       FROM contracts c
+       JOIN organizations o ON o.id=c.organization_id
+       LEFT JOIN organization_settings settings ON settings.organization_id=o.id
+       LEFT JOIN employees e ON e.organization_id=c.organization_id AND e.id=c.employee_id
+      WHERE c.organization_id=$1 AND c.id=$2`,
+    [organizationId, contractId],
+  );
+  const row = result.rows[0];
+  if (!row) throw new NotFoundError("Contract not found");
+  const companyName = row.display_name?.trim() || "Entreprise";
   return {
-    pageNumber,
-    x: role === "employee" ? 70 : 330,
-    y: 455 - index * 58,
-    width: 195,
-    height: 46,
+    title: row.title,
+    reference: row.reference,
+    companyName,
+    logoUrl: row.logo_url,
+    parties: {
+      employerName: companyName,
+      employerRole: row.employer_signer_role,
+      employeeName: row.employee_name,
+      employeeTitle: row.job_title,
+      city: row.city,
+    },
   };
 }
+function signedFieldsOf(fields: WorkspaceFieldRow[]): SignedField[] {
+  return fields.map((field) => ({
+    signerRole: field.signer_role === "employer" ? "employer" : "employee",
+    status: field.status,
+    signedName: field.signed_name,
+    signatureData: field.signature_data,
+    signedAt: field.signed_at,
+    method: field.signature_method,
+  }));
+}
+/** Latest signature date: printed in « Fait à …, le … » on the final copy. */
+function lastSignatureDate(fields: WorkspaceFieldRow[]) {
+  const dates = fields.filter((field) => field.status === "signed" && field.signed_at).map((field) => String(field.signed_at));
+  return dates.length && dates.length === fields.length ? dates.sort().at(-1)!.slice(0, 10) : null;
+}
 
-function controlledSignatureFields<T extends { signerRole: SignatureRole }>(fields: T[], pageNumber: number) {
-  const counts: Record<SignatureRole, number> = { employee: 0, employer: 0 };
-  return fields.map((field) => {
-    const index = counts[field.signerRole]++;
-    return { ...field, ...signatureSlot(field.signerRole, index, pageNumber) };
-  });
+/**
+ * Renders a contract version.  A template version is laid out again from its
+ * frozen blocks (identical text, current layout); an uploaded PDF receives a
+ * signature sheet at the end.  Signed fields are stamped when requested.
+ */
+async function renderContractVersion(
+  client: PoolClient,
+  organizationId: string,
+  version: WorkspaceVersionRow,
+  fields: WorkspaceFieldRow[],
+  options: { mode?: "electronic" | "paper"; withSignatures?: boolean; versionLabel?: string; documentHash?: string | null },
+): Promise<Buffer> {
+  const ctx = await renderContextFor(client, organizationId, version.contract_id);
+  const plan = signatureRequirements(fields);
+  const fullySigned = fields.length > 0 && fields.every((field) => field.status === "signed");
+  const layoutOptions = {
+    title: ctx.title,
+    reference: ctx.reference,
+    companyName: ctx.companyName,
+    logoUrl: ctx.logoUrl,
+    signaturePlan: plan,
+    parties: ctx.parties,
+    mode: options.mode ?? "electronic",
+    signedOn: options.withSignatures && fullySigned ? lastSignatureDate(fields) : null,
+    security: { versionLabel: options.versionLabel ?? `V${version.version_number}`, documentHash: options.documentHash ?? null },
+  };
+  const blocks = version.rendered_content?.blocks ?? [];
+  let bytes: Buffer;
+  let slots: SignatureSlots;
+  if (blocks.length) {
+    ({ bytes, slots } = await layoutContractPdf(blocks, layoutOptions));
+  } else {
+    // Uploaded PDF: keep it untouched and append the standard signature sheet.
+    const sourceId = version.source_document_id ?? version.rendered_document_id;
+    const source = await client.query<{ storage_path: string }>(`SELECT storage_path FROM documents WHERE organization_id=$1 AND id=$2`, [organizationId, sourceId]);
+    if (!source.rows[0]) throw new NotFoundError("Contract PDF not found");
+    const pdf = await PDFDocument.load(await readPrivateDocument(source.rows[0].storage_path));
+    const offset = pdf.getPageCount();
+    const sheet = await layoutContractPdf([{ type: "heading", text: "Signatures des parties" }, { type: "paragraph", text: `Les parties signent le contrat « ${ctx.title} » (réf. ${ctx.reference}) qui précède, composé de ${offset} page(s).` }], layoutOptions);
+    const sheetPdf = await PDFDocument.load(sheet.bytes);
+    for (const copied of await pdf.copyPages(sheetPdf, sheetPdf.getPageIndices())) pdf.addPage(copied);
+    bytes = Buffer.from(await pdf.save());
+    slots = {
+      employee: sheet.slots.employee.map((slot) => ({ ...slot, pageNumber: slot.pageNumber + offset })),
+      employer: sheet.slots.employer.map((slot) => ({ ...slot, pageNumber: slot.pageNumber + offset })),
+    };
+  }
+  return options.withSignatures && fields.some((field) => field.status === "signed")
+    ? stampSignatures(bytes, slots, signedFieldsOf(fields))
+    : bytes;
 }
 
 function signatureRequirements<T extends { signerRole?: SignatureRole; signer_role?: SignatureRole }>(fields: T[]): SignatureRequirements {
@@ -1045,279 +1125,7 @@ function signatureRequirements<T extends { signerRole?: SignatureRole; signer_ro
   }
   return counts;
 }
-function storedSignatureSlots(fields: WorkspaceFieldRow[], pageNumber: number) {
-  const counts: Record<SignatureRole, number> = { employee: 0, employer: 0 };
-  const positions = new Map<string, SignatureSlot>();
-  for (const field of fields) {
-    const role: SignatureRole = field.signer_role === "employer" ? "employer" : "employee";
-    positions.set(field.id, signatureSlot(role, counts[role]++, pageNumber));
-  }
-  return positions;
-}
-
-async function contractPdf(blocks: WorkspaceBlock[], title: string, referenceText: string, companyName: string, logoUrl?: string | null, signaturePlan: SignatureRequirements = { employee: 1, employer: 1 }, security: ContractSecurityMark = {}): Promise<Buffer> {
-  const pdf = await PDFDocument.create();
-  const font = await pdf.embedFont(StandardFonts.Helvetica);
-  const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
-  const fetchedLogo = await companyLogo(logoUrl);
-  const pageWidth = 595.28;
-  const pageHeight = 841.89;
-  const margin = 54;
-  const ink = rgb(0.10, 0.14, 0.20);
-  const muted = rgb(.34, .40, .48);
-  const accent = rgb(.04, .43, .35);
-  let page = pdf.addPage([pageWidth, pageHeight]);
-  let y = pageHeight - 58;
-  const hasDocumentHeading = blocks.some((block) => block.type === "heading" && Boolean(block.text?.trim()));
-
-  const drawHeader = (
-    target: PDFPage,
-    headerLogo: PDFImage | null,
-    headerFont: PDFFont,
-    headerBold: PDFFont,
-  ) => {
-    target.drawRectangle({ x: 0, y: pageHeight - 82, width: pageWidth, height: 82, color: rgb(.965, .98, .975) });
-    target.drawRectangle({ x: 0, y: pageHeight - 5, width: pageWidth, height: 5, color: accent });
-    const company = companyName.toLocaleUpperCase("fr-FR").slice(0, 62);
-    const reference = referenceText.slice(0, 62);
-    if (headerLogo) {
-      const scale = Math.min(54 / headerLogo.width, 54 / headerLogo.height);
-      const width = headerLogo.width * scale;
-      const height = headerLogo.height * scale;
-      target.drawImage(headerLogo, { x: margin, y: pageHeight - 72 + (54 - height) / 2, width, height, opacity: 1 });
-    } else {
-      target.drawCircle({ x: margin + 19, y: pageHeight - 45, size: 19, color: accent });
-      const initials = companyInitials(companyName);
-      const initialsWidth = headerBold.widthOfTextAtSize(initials, 8.5);
-      target.drawText(initials, { x: margin + 19 - initialsWidth / 2, y: pageHeight - 48, size: 8.5, font: headerBold, color: rgb(1, 1, 1) });
-    }
-    const companyWidth = headerBold.widthOfTextAtSize(company, 13);
-    target.drawText(company, {
-      x: Math.max(margin + 82, pageWidth - margin - companyWidth),
-      y: pageHeight - 32,
-      size: 13,
-      font: headerBold,
-      color: rgb(.03, .22, .17),
-      opacity: 1,
-    });
-    if (reference) {
-      const referenceLabel = `Réf. ${reference}`;
-      const referenceWidth = headerFont.widthOfTextAtSize(referenceLabel, 8);
-      target.drawText(referenceLabel, {
-        x: Math.max(margin + 82, pageWidth - margin - referenceWidth),
-        y: pageHeight - 51,
-        size: 8,
-        font: headerFont,
-        color: muted,
-        opacity: 1,
-      });
-    }
-  };
-
-  /**
-   * Security watermark, drawn per page *before* any clause text.
-   *
-   * In PDF, later operators paint over earlier ones, so the contract body lands
-   * on top of this at full opacity and stays completely crisp. That ordering is
-   * the whole trick: a watermark stamped afterwards, as an overlay, has to drop
-   * to an opacity so low it deters nobody, precisely because it is sitting on
-   * the words. Underneath, it can be plainly visible and still cost nothing in
-   * legibility.
-   *
-   * Three features, each aimed at a different way of faking a contract:
-   *
-   * - **A guilloche rosette** of 52 overlapping hairlines at 0.3pt. Tedious to
-   *   redraw by hand, and a photocopier or phone camera renders the interference
-   *   pattern as moire rather than clean curves.
-   * - **Microtext** at 4.6pt, repeating the company, reference, version and
-   *   hash. Sharp when zoomed, mush once rescanned — the classic tell.
-   * - **Document-bound identifiers.** The reference, version and SHA-256 prefix
-   *   are inside the mark, so lifting a page into a different contract carries
-   *   the original's identity along and contradicts the document it is
-   *   pretending to belong to.
-   *
-   * None of this is a cryptographic guarantee — `document_hash_sha256` is what
-   * actually proves a file unaltered, and the footer prints it so a recipient
-   * can check. This raises the cost of a casual forgery and makes tampering
-   * visible to someone holding only the paper.
-   */
-  const securityCaption = [security.versionLabel, security.documentHash ? `SHA ${security.documentHash.slice(0, 10).toUpperCase()}` : null]
-    .filter(Boolean)
-    .join(" · ") || "EXEMPLAIRE CONTROLE";
-
-  const drawSecurityWatermark = (target: PDFPage) => {
-    const centreX = pageWidth / 2;
-    const centreY = pageHeight / 2;
-    const guilloche = rgb(.04, .43, .35);
-
-    // `size` is the radius, and the envelope of circles offset from a common
-    // centre leaves a hole of (radius - offset). Keeping the offset close to
-    // the radius shrinks that hole to almost nothing, which matters because an
-    // unfilled hole reads as a layout accident rather than a seal — very
-    // visibly so on a sparse page like the signature sheet.
-    const petals = 60;
-    const petalRadius = 72;
-    const petalOffset = 56;
-    for (let index = 0; index < petals; index += 1) {
-      const angle = (index / petals) * Math.PI * 2;
-      target.drawCircle({
-        x: centreX + Math.cos(angle) * petalOffset,
-        y: centreY + Math.sin(angle) * petalOffset,
-        size: petalRadius,
-        borderWidth: .3,
-        borderColor: guilloche,
-        borderOpacity: .07,
-      });
-    }
-
-    // No logo or initials in the watermark: the company logo appears only in
-    // the page header, and the seal stays a neutral rosette with microtext.
-
-    const unit = `${companyName.toLocaleUpperCase("fr-FR").slice(0, 48)} · ${referenceText.slice(0, 48)} · ${securityCaption} · DOCUMENT ORIGINAL · `;
-    const microSize = 4.6;
-    const unitWidth = Math.max(font.widthOfTextAtSize(unit, microSize), 1);
-    // The line has to span the page diagonally after a 24-degree rotation, not
-    // just its width, or the right edge of every row is left bare.
-    const line = unit.repeat(Math.ceil(980 / unitWidth) + 1);
-    for (let row = -3; row <= 19; row += 1) {
-      target.drawText(line, {
-        x: -150,
-        y: row * 46,
-        size: microSize,
-        font,
-        color: guilloche,
-        opacity: .11,
-        rotate: degrees(24),
-      });
-    }
-  };
-
-  const drawPageFrame = (firstPage: boolean) => {
-    // Watermark first: the header band below has to cover it, and the clause
-    // text drawn later has to sit on top of it.
-    drawSecurityWatermark(page);
-    page.drawRectangle({ x: 0, y: pageHeight - 82, width: pageWidth, height: 82, color: rgb(.965, .98, .975) });
-    page.drawRectangle({ x: 0, y: pageHeight - 5, width: pageWidth, height: 5, color: accent });
-    y = pageHeight - 106;    if (firstPage && !hasDocumentHeading) {
-      for (const line of wrappedLines(title, 48)) {
-        page.drawText(line.slice(0, 130), { x: margin, y, size: 18, font: bold, color: ink });
-        y -= 24;
-      }
-      y -= 8;
-    } else if (!firstPage) {
-      page.drawText(title.slice(0, 88), { x: margin, y, size: 10, font: bold, color: ink });
-      y -= 20;
-    }
-  };
-  const nextPage = () => {
-    page = pdf.addPage([pageWidth, pageHeight]);
-    drawPageFrame(false);
-  };
-  const ensure = (height: number) => { if (y - height < 62) nextPage(); };
-  const drawLines = (value: string, size: number, strong = false, indent = 0, continuationIndent = 0) => {
-    const lines = wrappedLines(value, size > 13 ? 56 : Math.max(58, 88 - Math.round(indent / 4)));
-    for (const [index, line] of lines.entries()) {
-      ensure(size + 7);
-      page.drawText(line.slice(0, 180), {
-        x: margin + indent + (index ? continuationIndent : 0),
-        y,
-        size,
-        font: strong ? bold : font,
-        color: ink,
-      });
-      y -= size + (size > 13 ? 7 : 6);
-    }
-  };
-  const drawParagraph = (value: string) => {
-    const lines = value.replace(/\r/g, "").replace(/\*\*/g, "").split(/\n+/).map((line) => line.trim());
-    for (const line of lines) {
-      if (!line || /^---+$/.test(line)) { y -= 8; continue; }
-      const list = line.match(/^(\d+[.)]|[-•])\s+(.+)$/);
-      if (list) {
-        drawLines(`${list[1]} ${list[2]}`, 10, false, 8, 12);
-        y -= 3;
-      } else {
-        drawLines(line, 10.5);
-        y -= 8;
-      }
-    }
-    y -= 4;
-  };
-
-  drawPageFrame(true);
-  let firstDocumentHeading = true;
-  for (const block of blocks) {
-    if (block.type === "page_break") { nextPage(); continue; }
-    if (block.type === "heading") {
-      y -= firstDocumentHeading ? 8 : 6;
-      // The first heading is the legal document title (for example
-      // “CONTRAT DE TRAVAIL”). Give it a clear hierarchy without making the
-      // following section titles oversized.
-      drawLines((block.text ?? "").replace(/\*\*/g, ""), firstDocumentHeading ? 18 : 14, true);
-      y -= firstDocumentHeading ? 11 : 8;
-      firstDocumentHeading = false;
-      continue;
-    }
-    if (block.type === "table") {
-      for (const [rowIndex, row] of (block.rows ?? []).entries()) {
-        drawLines(row.join("   |   "), 9.5, rowIndex === 0);
-        y -= 3;
-      }
-      y -= 7;
-      continue;
-    }
-    drawParagraph(block.text ?? "");
-  }
-
-    // Keep signatures on their own controlled page. Only the fields selected
-  // for this contract are printed; unused “employee 2…6” slots never appear.
-  if (signaturePlan.employee + signaturePlan.employer > 0) {
-        nextPage();
-    for (const role of ["employee", "employer"] as const) {
-      const count = Math.max(0, Math.min(6, signaturePlan[role]));
-      for (let index = 0; index < count; index += 1) {
-        const slot = signatureSlot(role, index, pdf.getPageCount());
-        const roleLabel = role === "employee" ? "Signature employé" : "Contre-signature employeur";
-        const heading = count > 1 ? `${roleLabel} ${index + 1}` : roleLabel;
-        page.drawText(heading, { x: slot.x, y: slot.y + slot.height + 8, size: 6.5, font: bold, color: muted });
-        page.drawLine({ start: { x: slot.x, y: slot.y + 8 }, end: { x: slot.x + slot.width, y: slot.y + 8 }, thickness: .55, color: rgb(.55, .62, .62) });
-      }
-    }
-  }
-
-  // Stamp the header after the complete document has been laid out so every
-  // content and signature page receives the same header. The watermark is not
-  // applied here on purpose: it goes down per page during layout, underneath
-  // the clause text, which is what keeps the text perfectly legible.
-  const finalized = await PDFDocument.load(await pdf.save());
-  const headerFont = await finalized.embedFont(StandardFonts.Helvetica);
-  const headerBold = await finalized.embedFont(StandardFonts.HelveticaBold);
-  let headerLogo: PDFImage | null = null;
-  if (fetchedLogo) {
-    try {
-      headerLogo = fetchedLogo.kind === "png"
-        ? await finalized.embedPng(fetchedLogo.bytes)
-        : await finalized.embedJpg(fetchedLogo.bytes);
-    } catch {
-      headerLogo = null;
-    }
-  }
-  const pages = finalized.getPages();
-  for (const [index, current] of pages.entries()) {
-    drawHeader(current, headerLogo, headerFont, headerBold);
-    current.drawLine({ start: { x: margin, y: 40 }, end: { x: pageWidth - margin, y: 40 }, thickness: .5, color: rgb(.82, .86, .87) });
-    const pageNumber = `${index + 1} / ${pages.length}`;
-    current.drawText(pageNumber, { x: pageWidth - margin - headerFont.widthOfTextAtSize(pageNumber, 7), y: 27, size: 7, font: headerFont, color: muted });
-    // The hash in plain text, so a recipient holding only this file can verify
-    // it against the record instead of trusting the watermark's appearance.
-    // The watermark deters; this is what actually proves the document.
-    if (security.documentHash) {
-      const seal = `SHA-256 ${security.documentHash.slice(0, 32)}…`;
-      current.drawText(seal, { x: margin, y: 27, size: 6, font: headerFont, color: muted });
-    }
-  }
-  return Buffer.from(await finalized.save());
-}async function employeeDetails(client: PoolClient, organizationId: string, employeeId: string | null) {
+async function employeeDetails(client: PoolClient, organizationId: string, employeeId: string | null) {
   if (!employeeId) return undefined;
   const result = await client.query<{ full_name: string | null; employee_number: string | null; job_title: string | null; site_name: string | null }>(
     `SELECT e.full_name,e.employee_number,e.job_title,s.name AS site_name FROM employees e
@@ -1340,38 +1148,21 @@ async function fieldsFor(client: PoolClient, organizationId: string, versionId: 
 }
 function workspaceField(row: WorkspaceFieldRow) { return { id: row.id, signerRole: row.signer_role, label: row.label, pageNumber: row.page_number, x: Number(row.x), y: Number(row.y), width: Number(row.width), height: Number(row.height), order: row.field_order, required: row.is_required, status: row.status, signedName: row.signed_name, method: row.signature_method, signedAt: row.signed_at }; }
 
-/** Rebuilds a preview from the frozen workspace blocks. It never updates the
- * immutable stored document; it only prevents a browser from seeing stale
- * layout or branding assets after a generator improvement. */
+/** Rebuilds a preview from the frozen version.  It never updates the stored
+ * document; it only keeps previews on the current layout. */
 async function renderWorkspacePdf(
   client: PoolClient,
   context: ContractsContext,
   version: WorkspaceVersionRow,
-  title: string,
-  reference: string,
 ): Promise<{ buffer: Buffer; hasCompletedSignature: boolean } | null> {
-  const blocks = version.rendered_content?.blocks;
-  if (!blocks?.length) return null;
   const fields = await fieldsFor(client, context.organizationId, version.id);
-  const organization = await client.query<{ display_name: string | null; logo_url: string | null }>(
-    "SELECT o.display_name, settings.logo_url FROM organizations o LEFT JOIN organization_settings settings ON settings.organization_id=o.id WHERE o.id=$1",
-    [context.organizationId],
-  );
-  const branding: ContractPdfBranding = {
-    companyName: organization.rows[0]?.display_name?.trim() || "LiteHubs",
-    reference,
-    logoUrl: organization.rows[0]?.logo_url ?? null,
-  };
-  const layout = await contractPdf(blocks, title, reference, branding.companyName, branding.logoUrl, signatureRequirements(fields), {
-    versionLabel: `V${version.version_number}`,
-    documentHash: version.document_hash_sha256,
-  });
-  const hasCompletedSignature = fields.some((field) => field.status === "signed");
+  if (!version.rendered_content?.blocks?.length && !version.source_document_id) return null;
   return {
-    hasCompletedSignature,
-    buffer: hasCompletedSignature
-      ? await renderPdfWithSignedFields(layout, fields, { branding, signaturePageReady: true })
-      : layout,
+    hasCompletedSignature: fields.some((field) => field.status === "signed"),
+    buffer: await renderContractVersion(client, context.organizationId, version, fields, {
+      withSignatures: true,
+      documentHash: version.document_hash_sha256,
+    }),
   };
 }
 
@@ -1414,7 +1205,8 @@ export async function contractWorkspace(context: ContractsContext, contractId: s
     const versions=await client.query<WorkspaceVersionRow>(`SELECT id,contract_id,version_number,template_id,source_document_id,rendered_document_id,final_document_id,status,rendered_content,document_hash_sha256,frozen_at::text,created_at::text FROM contract_document_versions WHERE organization_id=$1 AND contract_id=$2 ORDER BY version_number DESC`,[context.organizationId,contractId]);
     const current=versions.rows[0] ?? null; const currentFields=current ? await fieldsFor(client,context.organizationId,current.id) : [];
     const events=await client.query<{id:string;event_type:string;detail:unknown;created_at:string;actor_name:string|null}>(`SELECT e.id,e.event_type,e.detail,e.created_at::text,u.full_name AS actor_name FROM contract_signature_events e LEFT JOIN users u ON u.id=e.actor_user_id WHERE e.organization_id=$1 AND e.contract_id=$2 ORDER BY e.created_at DESC LIMIT 100`,[context.organizationId,contractId]);
-    return { contract:mapForContext(contract, context), versions:versions.rows.map((row)=>({id:row.id,number:row.version_number,status:row.status,templateId:row.template_id,sourceDocumentId:row.source_document_id,renderedDocumentId:row.rendered_document_id,finalDocumentId:row.final_document_id,hash:row.document_hash_sha256,frozenAt:row.frozen_at,createdAt:row.created_at})), currentVersion:current ? {id:current.id,number:current.version_number,status:current.status,blocks:(current.rendered_content?.blocks ?? []) as WorkspaceBlock[],fields:currentFields.map(workspaceField)} : null, events:events.rows.map((event)=>({id:event.id,type:event.event_type,detail:event.detail,createdAt:event.created_at,actorName:event.actor_name})) };
+    const paper=await renderContextFor(client,context.organizationId,contractId);
+    return { document:{companyName:paper.companyName,title:paper.title,reference:paper.reference,...paper.parties}, contract:mapForContext(contract, context), versions:versions.rows.map((row)=>({id:row.id,number:row.version_number,status:row.status,templateId:row.template_id,sourceDocumentId:row.source_document_id,renderedDocumentId:row.rendered_document_id,finalDocumentId:row.final_document_id,hash:row.document_hash_sha256,frozenAt:row.frozen_at,createdAt:row.created_at})), currentVersion:current ? {id:current.id,number:current.version_number,status:current.status,blocks:(current.rendered_content?.blocks ?? []) as WorkspaceBlock[],fields:currentFields.map(workspaceField),signedOn:lastSignatureDate(currentFields)} : null, events:events.rows.map((event)=>({id:event.id,type:event.event_type,detail:event.detail,createdAt:event.created_at,actorName:event.actor_name})) };
   });
 }
 export async function generateContractDocumentVersion(context: ContractsContext, contractId: string, input: import("./contracts.validation").GenerateContractVersionInput) {
@@ -1423,44 +1215,46 @@ export async function generateContractDocumentVersion(context: ContractsContext,
     let body=input.body ?? null; let templateId=input.templateId ?? null; let sourceDocumentId=input.sourceDocumentId ?? null;
     if (templateId) { const found=await client.query<TemplateRow>(`SELECT id,code,name,contract_type,language,body,is_active,created_at::text,updated_at::text FROM contract_templates WHERE organization_id=$1 AND id=$2 AND is_active`,[context.organizationId,templateId]); if (!found.rows[0]) throw new BadRequestError("Choose an active template in this company",{field:"templateId"}); if (found.rows[0].contract_type!==contract.contract_type) throw new BadRequestError("Choose a template that matches the contract type",{field:"templateId"}); body={ blocks: found.rows[0].body.blocks ?? [] }; }
     const employee=await employeeDetails(client,context.organizationId,contract.employee_id);
-    const organization=await client.query<{display_name:string|null;address_line1:string|null;address_line2:string|null;city:string|null;region:string|null;postal_code:string|null;logo_url:string|null}>("SELECT o.display_name,o.address_line1,o.address_line2,o.city,o.region,o.postal_code,settings.logo_url FROM organizations o LEFT JOIN organization_settings settings ON settings.organization_id=o.id WHERE o.id=$1",[context.organizationId]);
+    const organization=await client.query<{display_name:string|null;address_line1:string|null;address_line2:string|null;city:string|null;region:string|null;postal_code:string|null}>("SELECT o.display_name,o.address_line1,o.address_line2,o.city,o.region,o.postal_code FROM organizations o WHERE o.id=$1",[context.organizationId]);
     const organizationRow=organization.rows[0];
     const companyName=organizationRow?.display_name?.trim() || "Entreprise";
     const companyAddress=[organizationRow?.address_line1,organizationRow?.address_line2,organizationRow?.city,organizationRow?.region,organizationRow?.postal_code].filter((part): part is string => Boolean(part && part.trim())).join(", ");
-    let documentId: string;
     let rendered: { blocks: WorkspaceBlock[] };
     if (sourceDocumentId) {
       const source=await client.query<{id:string;mime_type:string}>(`SELECT id,mime_type FROM documents WHERE organization_id=$1 AND id=$2`,[context.organizationId,sourceDocumentId]);
       if (!source.rows[0]) throw new BadRequestError("Choose an uploaded PDF from this company",{field:"sourceDocumentId"});
       if (source.rows[0].mime_type!=="application/pdf") throw new BadRequestError("Upload or choose a PDF contract document for electronic signature",{field:"sourceDocumentId"});
-      documentId=source.rows[0].id; rendered={blocks:[]};
+      rendered={blocks:[]};
     } else {
       if (!body?.blocks?.length) throw new BadRequestError("Add contract content before generating a document",{field:"body"});
+      // A misspelt merge field ({{malaba}}) would print as raw text in a legal
+      // document: stop and name it instead.
+      const unknown=unknownMergeFields(body.blocks);
+      if (unknown.length) throw new BadRequestError(`Champs inconnus dans le modèle : ${unknown.join(", ")}. Corrigez le modèle (champs possibles : ${Object.keys(MERGE_LABELS).map((key)=>`{{${key}}}`).join(", ")}).`,{field:"body"});
       rendered={blocks:renderBlocks(body.blocks,contractMergeValues(contract,employee,{name:companyName,address:companyAddress}))};
-      // Labelled BROUILLON rather than left to the neutral default: this copy
-      // is generated before the version is frozen and has no hash, so it must
-      // not present itself as a controlled original.
-      const pdf=await contractPdf(rendered.blocks,contract.title,contract.reference,companyName,organizationRow?.logo_url ?? null,signatureRequirements(input.signatureFields),{versionLabel:"BROUILLON"});
-      const stored=await storePrivateDocument({organizationId:context.organizationId,originalName:`${contract.reference}-v${Date.now()}.pdf`,mimeType:"application/pdf",buffer:pdf});
-      const doc=await client.query<{id:string}>(`INSERT INTO documents (organization_id,title,description,category,storage_path,file_name,mime_type,size_bytes,checksum_sha256,subject_table,subject_id,province_id,is_confidential,uploaded_by) VALUES ($1,$2,$3,'contract',$4,$5,'application/pdf',$6,$7,'contracts',$8,$9,true,$10) RETURNING id`,[context.organizationId,`${contract.title} · brouillon`,"Version générée depuis le modèle de la société",stored.storagePath,`${contract.reference}-draft.pdf`,stored.bytes,stored.checksumSha256,contractId,contract.province_id,context.userId]);
-      documentId=doc.rows[0]!.id;
     }
     const numberResult=await client.query<{number:number}>(`SELECT COALESCE(MAX(version_number),0)+1 AS number FROM contract_document_versions WHERE organization_id=$1 AND contract_id=$2`,[context.organizationId,contractId]);
-    const version=await client.query<{id:string}>(`INSERT INTO contract_document_versions (organization_id,contract_id,version_number,template_id,source_document_id,rendered_document_id,status,rendered_content,created_by) VALUES ($1,$2,$3,$4,$5,$5,'draft',$6::jsonb,$7) RETURNING id`,[context.organizationId,contractId,numberResult.rows[0]!.number,templateId,documentId,JSON.stringify(rendered),context.userId]);
-    const renderedDocument = await client.query<{ storage_path: string }>(
-      `SELECT storage_path FROM documents WHERE organization_id=$1 AND id=$2`,
-      [context.organizationId, documentId],
-    );
-    if (!renderedDocument.rows[0]) throw new NotFoundError("Contract PDF not found");
-    const renderedPdf = await PDFDocument.load(await readPrivateDocument(renderedDocument.rows[0].storage_path));
-    // Template PDFs already include a dedicated signature page. An uploaded
-    // source PDF receives its signing sheet only when the signed copy is made.
-    const signaturePageNumber = sourceDocumentId
-      ? renderedPdf.getPageCount() + 1
-      : renderedPdf.getPageCount();
-    const signatureFields = controlledSignatureFields(input.signatureFields, signaturePageNumber);
-    for (const field of signatureFields) await client.query(`INSERT INTO contract_signature_fields (organization_id,version_id,signer_role,label,page_number,x,y,width,height,field_order,is_required) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,[context.organizationId,version.rows[0]!.id,field.signerRole,field.label,field.pageNumber,field.x,field.y,field.width,field.height,field.fieldOrder,field.isRequired]);
-    await addWorkspaceEvent(client,context,contractId,version.rows[0]!.id,null,"version_generated",{templateId,versionNumber:numberResult.rows[0]!.number}); return contractWorkspace(context,contractId);
+    const versionNumber=numberResult.rows[0]!.number;
+    // Draft rows first: the layout below needs the version (blocks, number).
+    const placeholderDocument = sourceDocumentId ?? null;
+    const version=await client.query<{id:string}>(`INSERT INTO contract_document_versions (organization_id,contract_id,version_number,template_id,source_document_id,rendered_document_id,status,rendered_content,created_by) VALUES ($1,$2,$3,$4,$5,$5,'draft',$6::jsonb,$7) RETURNING id`,[context.organizationId,contractId,versionNumber,templateId,placeholderDocument,JSON.stringify(rendered),context.userId]);
+    const versionRow=await versionFor(client,context.organizationId,contractId,version.rows[0]!.id);
+    // Field rows carry the role, label and order; positions come from the layout.
+    const ordered=(["employee","employer"] as const).flatMap((role)=>input.signatureFields.filter((field)=>field.signerRole===role).map((field,index)=>({...field,fieldOrder:index+1})));
+    const placeholderFields=ordered.map((field)=>({signer_role:field.signerRole,status:"pending"} as WorkspaceFieldRow));
+    const draft=await renderContractVersion(client,context.organizationId,versionRow,placeholderFields,{versionLabel:"BROUILLON"});
+    if (!sourceDocumentId) {
+      const stored=await storePrivateDocument({organizationId:context.organizationId,originalName:`${contract.reference}-v${versionNumber}.pdf`,mimeType:"application/pdf",buffer:draft});
+      const doc=await client.query<{id:string}>(`INSERT INTO documents (organization_id,title,description,category,storage_path,file_name,mime_type,size_bytes,checksum_sha256,subject_table,subject_id,province_id,is_confidential,uploaded_by) VALUES ($1,$2,$3,'contract',$4,$5,'application/pdf',$6,$7,'contracts',$8,$9,true,$10) RETURNING id`,[context.organizationId,`${contract.title} · brouillon`,"Version générée depuis le modèle de la société",stored.storagePath,`${contract.reference}-v${versionNumber}.pdf`,stored.bytes,stored.checksumSha256,contractId,contract.province_id,context.userId]);
+      await client.query(`UPDATE contract_document_versions SET rendered_document_id=$3 WHERE organization_id=$1 AND id=$2`,[context.organizationId,version.rows[0]!.id,doc.rows[0]!.id]);
+      versionRow.rendered_document_id=doc.rows[0]!.id;
+    }
+    const positions=await signaturePositions(client,context.organizationId,versionRow,placeholderFields);
+    for (const field of ordered) {
+      const slot=positions[field.signerRole][field.fieldOrder-1];
+      await client.query(`INSERT INTO contract_signature_fields (organization_id,version_id,signer_role,label,page_number,x,y,width,height,field_order,is_required) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,[context.organizationId,version.rows[0]!.id,field.signerRole,field.label,slot?.pageNumber ?? 1,Math.max(0,slot?.x ?? 0),Math.max(0,slot?.y ?? 0),slot?.width ?? 200,slot?.height ?? 60,field.fieldOrder,field.isRequired]);
+    }
+    await addWorkspaceEvent(client,context,contractId,version.rows[0]!.id,null,"version_generated",{templateId,versionNumber}); return contractWorkspace(context,contractId);
   });
 }
 export async function sendContractForSignature(context: ContractsContext, contractId: string, input: import("./contracts.validation").SendForSignatureInput) {
@@ -1510,109 +1304,97 @@ export async function remindContractSignature(context: ContractsContext, contrac
   });
 }
 
-type SignedPdfRenderOptions = {
-  branding?: ContractPdfBranding;
-  /** The supplied source was generated by contractPdf and already ends with a signing sheet. */
-  signaturePageReady?: boolean;
-};
-
-async function appendControlledSignaturePage(pdf: PDFDocument, branding: ContractPdfBranding, fields: WorkspaceFieldRow[]) {
-  // Build the sheet with the same logo, header, footer and evidence
-  // wording as a regular LiteHubs contract, then append only that final page.
-  const template = await PDFDocument.load(
-    await contractPdf([], "Signatures électroniques", branding.reference, branding.companyName, branding.logoUrl, signatureRequirements(fields)),
-  );
-  const [signaturePage] = await pdf.copyPages(template, [template.getPageCount() - 1]);
-  pdf.addPage(signaturePage);
-}
-
-async function renderPdfWithSignedFields(
-  source: Buffer,
-  fields: WorkspaceFieldRow[],
-  options: SignedPdfRenderOptions = {},
-): Promise<Buffer> {
-  const pdf = await PDFDocument.load(source);
-  const sourcePageCount = pdf.getPageCount();
-  // Fields created by the current workspace are placed in the safe area of a
-  // final signing sheet. Older records used page 1 / y=88, so deliberately
-  // remap those records instead of writing over a clause.
-  const fieldsAlreadyOnSigningSheet = fields.length > 0 && fields.every(
-    (field) => Number(field.page_number) === sourcePageCount && Number(field.y) >= 100,
-  );
-  const signaturePageReady = options.signaturePageReady || fieldsAlreadyOnSigningSheet;
-  if (!signaturePageReady) {
-    await appendControlledSignaturePage(pdf, options.branding ?? {
-      companyName: "LiteHubs",
-      reference: "",
-      logoUrl: null,
-    }, fields);
-  }  const remappedSlots = fieldsAlreadyOnSigningSheet
-    ? null
-    : storedSignatureSlots(fields, pdf.getPageCount());
-  const font = await pdf.embedFont(StandardFonts.HelveticaOblique);
-  for (const field of fields.filter((item) => item.status === "signed")) {
-    const slot = remappedSlots?.get(field.id) ?? {
-      pageNumber: Number(field.page_number),
-      x: Number(field.x),
-      y: Number(field.y),
-      width: Number(field.width),
-      height: Number(field.height),
-    };
-    const page = pdf.getPages()[slot.pageNumber - 1];
-    if (!page) throw new BadRequestError("A signature field refers to an unavailable PDF page");
-    const { x, y, width, height } = slot;
-    const imageMatch = field.signature_data?.match(/^data:image\/(png|jpeg);base64,([A-Za-z0-9+/=]+)$/);
-    const signerName = field.signed_name?.trim() || "Signed signer";
-    // The legal name is always printed, including for hand-drawn or uploaded
-    // signatures. The template provides the location; the signer provides the name.
-    page.drawText(signerName.slice(0, 72), { x: x + 5, y: y + height - 10, size: 8, font, color: rgb(.05, .28, .20) });
-    if (imageMatch) {
-      const imageBytes = Buffer.from(imageMatch[2]!, "base64");
-      const image = imageMatch[1] === "png" ? await pdf.embedPng(imageBytes) : await pdf.embedJpg(imageBytes);
-      const ratio = Math.min((width - 10) / image.width, Math.max(height - 24, 8) / image.height);
-      page.drawImage(image, { x: x + 5, y: y + 10, width: image.width * ratio, height: image.height * ratio });
-    } else {
-      page.drawText(signerName.slice(0, 72), { x: x + 5, y: y + height / 2 - 5, size: 14, font, color: rgb(.05, .28, .20) });
-    }
-    page.drawText(`Signed ${new Date(field.signed_at ?? Date.now()).toLocaleString("fr-FR")}`, { x: x + 5, y: y + 3, size: 6, font, color: rgb(.25, .3, .35) });
-  }
-  return Buffer.from(await pdf.save());
-}
-async function rebuildSignedContract(client: PoolClient, context: ContractsContext, contract: ContractRow, version: WorkspaceVersionRow) {
-  const source = await client.query<{ storage_path: string }>(`SELECT storage_path FROM documents WHERE organization_id=$1 AND id=$2`, [context.organizationId, version.rendered_document_id]);
-  if (!source.rows[0]) throw new NotFoundError("Contract PDF not found");
-    const fields = await fieldsFor(client, context.organizationId, version.id);
-  const organization = await client.query<{ display_name: string | null; logo_url: string | null }>(
-    "SELECT o.display_name, settings.logo_url FROM organizations o LEFT JOIN organization_settings settings ON settings.organization_id=o.id WHERE o.id=$1",
-    [context.organizationId],
-  );
-    const branding: ContractPdfBranding = {
-    companyName: organization.rows[0]?.display_name?.trim() || "LiteHubs",
-    reference: contract.reference,
-    logoUrl: organization.rows[0]?.logo_url ?? null,
+/** Signature-box positions of a version (stored on its fields for reference). */
+async function signaturePositions(client: PoolClient, organizationId: string, version: WorkspaceVersionRow, fields: WorkspaceFieldRow[]): Promise<SignatureSlots> {
+  const ctx = await renderContextFor(client, organizationId, version.contract_id);
+  const options = { title: ctx.title, reference: ctx.reference, companyName: ctx.companyName, logoUrl: null, signaturePlan: signatureRequirements(fields), parties: ctx.parties };
+  const blocks = version.rendered_content?.blocks ?? [];
+  if (blocks.length) return (await layoutContractPdf(blocks, options)).slots;
+  const sourceId = version.source_document_id ?? version.rendered_document_id;
+  const source = await client.query<{ storage_path: string }>(`SELECT storage_path FROM documents WHERE organization_id=$1 AND id=$2`, [organizationId, sourceId]);
+  const offset = source.rows[0] ? (await PDFDocument.load(await readPrivateDocument(source.rows[0].storage_path))).getPageCount() : 0;
+  const sheet = await layoutContractPdf([{ type: "heading", text: "Signatures des parties" }], options);
+  return {
+    employee: sheet.slots.employee.map((slot) => ({ ...slot, pageNumber: slot.pageNumber + offset })),
+    employer: sheet.slots.employer.map((slot) => ({ ...slot, pageNumber: slot.pageNumber + offset })),
   };
-  // A template version is rendered again from its frozen content. This lets an
-  // older pending contract benefit from the current safe layout and company
-  // branding without changing a completed/signed version.
-  const sourceBytes = version.rendered_content?.blocks?.length
-    ? await contractPdf(version.rendered_content.blocks, contract.title, contract.reference, branding.companyName, branding.logoUrl, signatureRequirements(fields), {
-        versionLabel: `V${version.version_number}`,
-        // Null on the first render of a signed copy: the hash is computed from
-        // these very bytes and written back afterwards, so it cannot be inside
-        // them. The watermark falls back to the version label alone.
-        documentHash: version.document_hash_sha256,
-      })
-    : await readPrivateDocument(source.rows[0].storage_path);
-  const bytes = await renderPdfWithSignedFields(sourceBytes, fields, {
-    branding,
-    signaturePageReady: Boolean(version.rendered_content?.blocks?.length),
-  });
+}
+
+async function rebuildSignedContract(client: PoolClient, context: ContractsContext, contract: ContractRow, version: WorkspaceVersionRow) {
+  const fields = await fieldsFor(client, context.organizationId, version.id);
+  // Laid out again from the frozen content, then the signatures are stamped.
+  // The hash is computed from these very bytes, so it cannot be inside them.
+  const bytes = await renderContractVersion(client, context.organizationId, version, fields, { withSignatures: true, documentHash: null });
   const stored = await storePrivateDocument({ organizationId: context.organizationId, originalName: `${contract.reference}-signed.pdf`, mimeType: "application/pdf", buffer: bytes });
   const doc = await client.query<{ id: string }>(`INSERT INTO documents (organization_id,title,description,category,storage_path,file_name,mime_type,size_bytes,checksum_sha256,subject_table,subject_id,province_id,is_confidential,uploaded_by) VALUES ($1,$2,$3,'contract',$4,$5,'application/pdf',$6,$7,'contracts',$8,$9,true,$10) RETURNING id`, [context.organizationId, `${contract.title} · signé`, "Exemplaire final figé avec signatures électroniques", stored.storagePath, `${contract.reference}-signed.pdf`, stored.bytes, stored.checksumSha256, contract.id, contract.province_id, context.userId]);
   await client.query(`UPDATE contract_document_versions SET final_document_id=$3,document_hash_sha256=$4,status='signed',frozen_at=COALESCE(frozen_at,now()) WHERE organization_id=$1 AND id=$2`, [context.organizationId, version.id, doc.rows[0]!.id, stored.checksumSha256]);
   await client.query(`UPDATE contracts SET document_id=$3,status='active',signed_on=COALESCE(signed_on,CURRENT_DATE) WHERE organization_id=$1 AND id=$2`, [context.organizationId, contract.id, doc.rows[0]!.id]);
   return { documentId: doc.rows[0]!.id, hash: stored.checksumSha256 };
-}export async function signContractSignatureField(context: ContractsContext, contractId: string, fieldId: string, input: import("./contracts.validation").SignContractFieldInput, signer: "employee" | "employer") {
+}
+
+/* ------------------------------------------------------------------ */
+/* Handwritten (paper) signature                                        */
+/* ------------------------------------------------------------------ */
+
+/** The copy to print: no draft mark, initials boxes on every page. */
+export async function paperContractCopy(context: ContractsContext, contractId: string) {
+  return withTenantContext(context, async (client) => {
+    const contract = await select(client, context, contractId);
+    await assertEditable(client, context, contract.province_id);
+    const version = await versionFor(client, context.organizationId, contractId);
+    if (version.status === "signed") throw new BadRequestError("Ce contrat est déjà signé : téléchargez l’exemplaire signé.");
+    const fields = await fieldsFor(client, context.organizationId, version.id);
+    const buffer = await renderContractVersion(client, context.organizationId, version, fields, { mode: "paper", versionLabel: `V${version.version_number}` });
+    await addWorkspaceEvent(client, context, contractId, version.id, null, "printed_for_paper_signature", {});
+    return { fileName: `${contract.reference}-a-signer.pdf`, buffer };
+  });
+}
+
+/** Records a contract signed by hand: the scanned copy becomes the original. */
+export async function recordPaperSignature(
+  context: ContractsContext,
+  contractId: string,
+  input: { signedOn: string; employerSignerName: string; note?: string | null },
+  file: Express.Multer.File,
+) {
+  return withTenantContext(context, async (client) => {
+    const contract = await select(client, context, contractId);
+    await assertEditable(client, context, contract.province_id);
+    if (contract.contract_type === "employment" && !(await mayCountersignForEmployer(client, context)))
+      throw new ForbiddenError("Seul le propriétaire ou un General Manager peut enregistrer un contrat de travail signé.");
+    const version = await versionFor(client, context.organizationId, contractId);
+    if (version.status === "signed") throw new BadRequestError("Ce contrat est déjà signé.");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(input.signedOn) || input.signedOn > new Date(Date.now() + 86_400_000).toISOString().slice(0, 10))
+      throw new BadRequestError("Indiquez une date de signature valide (pas dans le futur).", { field: "signedOn" });
+    const stored = await storePrivateDocument({ organizationId: context.organizationId, originalName: file.originalname || `${contract.reference}-signe-papier.pdf`, mimeType: file.mimetype, buffer: file.buffer });
+    const extension = file.mimetype === "application/pdf" ? "pdf" : file.mimetype === "image/png" ? "png" : "jpg";
+    const doc = await client.query<{ id: string }>(
+      `INSERT INTO documents (organization_id,title,description,category,storage_path,file_name,mime_type,size_bytes,checksum_sha256,subject_table,subject_id,province_id,is_confidential,uploaded_by)
+       VALUES ($1,$2,$3,'contract',$4,$5,$6,$7,$8,'contracts',$9,$10,true,$11) RETURNING id`,
+      [context.organizationId, `${contract.title} · signé sur papier`, input.note?.trim() || "Exemplaire signé à la main, scanné et enregistré dans LiteHubs", stored.storagePath, `${contract.reference}-signe-papier.${extension}`, file.mimetype, stored.bytes, stored.checksumSha256, contractId, contract.province_id, context.userId],
+    );
+    const employeeName = (await employeeDetails(client, context.organizationId, contract.employee_id))?.full_name ?? contract.employee_name ?? contract.counterparty_name ?? "Autre partie";
+    await client.query(
+      `UPDATE contract_signature_fields
+          SET status='signed',signed_by_member_id=$3,signature_method='paper',signed_at=$4::date + time '12:00',
+              signed_name=CASE WHEN signer_role='employer' THEN $5 ELSE $6 END,
+              consent_text='Signature manuscrite sur papier — exemplaire scanné enregistré'
+        WHERE organization_id=$1 AND version_id=$2 AND status<>'signed'`,
+      [context.organizationId, version.id, context.memberId, input.signedOn, input.employerSignerName.trim(), employeeName],
+    );
+    await client.query(
+      `UPDATE contract_document_versions SET final_document_id=$3,document_hash_sha256=$4,status='signed',frozen_at=COALESCE(frozen_at,now()) WHERE organization_id=$1 AND id=$2`,
+      [context.organizationId, version.id, doc.rows[0]!.id, stored.checksumSha256],
+    );
+    await client.query(
+      `UPDATE contracts SET document_id=$3,status='active',signed_on=$4::date WHERE organization_id=$1 AND id=$2`,
+      [context.organizationId, contractId, doc.rows[0]!.id, input.signedOn],
+    );
+    await addWorkspaceEvent(client, context, contractId, version.id, null, "paper_signature_recorded", { signedOn: input.signedOn, employerSignerName: input.employerSignerName.trim(), hash: stored.checksumSha256 });
+    return contractWorkspace(context, contractId);
+  });
+}
+export async function signContractSignatureField(context: ContractsContext, contractId: string, fieldId: string, input: import("./contracts.validation").SignContractFieldInput, signer: "employee" | "employer") {
   return withTenantContext(context, async (client) => {
     let contract: ContractRow; if (signer === "employer") { contract=await select(client,context,contractId); await assertEditable(client,context,contract.province_id); if (!await mayCountersignForEmployer(client, context)) throw new ForbiddenError("Only the owner or a General Manager may countersign an employment contract"); } else { const employeeId=await ownEmployeeId(client,context); contract=await selectOwnEmploymentContract(client,context,contractId,employeeId); }
     const version=await versionFor(client,context.organizationId,contractId); const found=await client.query<WorkspaceFieldRow>(`SELECT id,version_id,signer_role,label,page_number,x::text,y::text,width::text,height::text,field_order,is_required,status,signed_name,signature_method,signed_at::text FROM contract_signature_fields WHERE organization_id=$1 AND id=$2 AND version_id=$3`,[context.organizationId,fieldId,version.id]); const field=found.rows[0]; if (!field || field.signer_role!==signer) throw new NotFoundError("Signature field not found"); if (field.status==="signed") return contractWorkspace(context,contractId);
@@ -1628,7 +1410,7 @@ async function rebuildSignedContract(client: PoolClient, context: ContractsConte
 }
 export async function myContractWorkspace(context: ContractsContext, contractId: string) {
   return withTenantContext(context, async (client) => {
-    const employeeId=await ownEmployeeId(client,context); const contract=await selectOwnEmploymentContract(client,context,contractId,employeeId); const version=await versionFor(client,context.organizationId,contractId); const fields=await fieldsFor(client,context.organizationId,version.id); return { contract:map(contract), version:{id:version.id,number:version.version_number,status:version.status,documentId:version.final_document_id ?? version.rendered_document_id,hash:version.document_hash_sha256,blocks:version.rendered_content?.blocks ?? [],fields:fields.filter((field)=>field.signer_role==="employee").map(workspaceField)}, employeeCanSign:version.status==="awaiting_employee_signature" };
+    const employeeId=await ownEmployeeId(client,context); const contract=await selectOwnEmploymentContract(client,context,contractId,employeeId); const version=await versionFor(client,context.organizationId,contractId); const fields=await fieldsFor(client,context.organizationId,version.id); const paper=await renderContextFor(client,context.organizationId,contractId); const employer=fields.filter((field)=>field.signer_role==="employer").map(workspaceField); return { document:{companyName:paper.companyName,title:paper.title,reference:paper.reference,...paper.parties}, employerFields:employer.map((field)=>({id:field.id,label:field.label,status:field.status,signedName:field.signedName,signedAt:field.signedAt,method:field.method})), contract:map(contract), version:{signedOn:lastSignatureDate(fields),id:version.id,number:version.version_number,status:version.status,documentId:version.final_document_id ?? version.rendered_document_id,hash:version.document_hash_sha256,blocks:version.rendered_content?.blocks ?? [],fields:fields.filter((field)=>field.signer_role==="employee").map(workspaceField)}, employeeCanSign:version.status==="awaiting_employee_signature" };
   });
 }
 export async function contractWorkspaceDocument(
@@ -1644,7 +1426,7 @@ export async function contractWorkspaceDocument(
     const row = await client.query<{ id:string; title:string; file_name:string; mime_type:string; storage_path:string }>(`SELECT id,title,file_name,mime_type,storage_path FROM documents WHERE organization_id=$1 AND id=$2`, [context.organizationId, documentId]);
     if (!row.rows[0]) throw new NotFoundError("Contract document not found");
     const regenerated = options.regenerateLayout
-      ? await renderWorkspacePdf(client, context, version, contract.title, contract.reference)
+      ? await renderWorkspacePdf(client, context, version)
       : null;
     return {
       document: { id: row.rows[0].id, title: row.rows[0].title, fileName: row.rows[0].file_name, mimeType: row.rows[0].mime_type },

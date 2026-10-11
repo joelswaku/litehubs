@@ -1,5 +1,7 @@
 import type { Request, RequestHandler } from "express";
 import * as service from "./contracts.service";
+import { BadRequestError } from "../../utils/errors";
+import type { PaperSignatureInput } from "./contracts.validation";
 import type { ContractQuery, CreateContractInput, SignEmploymentContractInput, UpdateContractInput, ContractTemplateInput, GenerateContractVersionInput, SendForSignatureInput, SignContractFieldInput } from "./contracts.validation";
 
 function context(req: Request): service.ContractsContext {
@@ -63,3 +65,14 @@ export const previewWorkspaceDocument: RequestHandler = async (req, res) => {
   res.send(file.buffer);
 };
 export const downloadWorkspaceDocument: RequestHandler = async (req, res) => { const file=await service.contractWorkspaceDocument(context(req),param(req,"contractId")); res.type(file.document.mimeType); res.setHeader("Content-Disposition",`attachment; filename="${file.document.fileName.replace(/[\r\n"]/g, "")}"`); res.send(file.buffer); };
+export const printForPaperSignature: RequestHandler = async (req, res) => {
+  const file = await service.paperContractCopy(context(req), param(req, "contractId"));
+  res.type("application/pdf");
+  res.setHeader("Cache-Control", "private, no-store");
+  res.setHeader("Content-Disposition", `${req.query.download === "1" ? "attachment" : "inline"}; filename="${file.fileName.replace(/[\r\n"]/g, "")}"`);
+  res.send(file.buffer);
+};
+export const recordPaperSignature: RequestHandler = async (req, res) => {
+  if (!req.file) throw new BadRequestError("Joignez le contrat signé scanné (PDF ou photo).", { field: "file" });
+  res.json(await service.recordPaperSignature(context(req), param(req, "contractId"), req.body as PaperSignatureInput, req.file));
+};

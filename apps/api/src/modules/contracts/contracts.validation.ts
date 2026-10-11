@@ -125,3 +125,9 @@ export type ContractTemplateInput = z.infer<typeof contractTemplateSchema>;
 export type GenerateContractVersionInput = z.infer<typeof generateContractVersionSchema>;
 export type SendForSignatureInput = z.infer<typeof sendForSignatureSchema>;
 export type SignContractFieldInput = z.infer<typeof signContractFieldSchema>;
+export const paperSignatureSchema = z.object({
+  signedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD"),
+  employerSignerName: z.string().trim().min(2).max(220),
+  note: z.string().trim().max(500).nullable().optional(),
+});
+export type PaperSignatureInput = z.infer<typeof paperSignatureSchema>;

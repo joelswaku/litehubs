@@ -32,6 +32,7 @@ import type {
   WeeklyScheduleDay,
 } from "@/lib/attendance-api";
 import { PayslipStatement } from "@/components/payroll/payslip-statement";
+import { ContractPaper } from "@/components/contracts/contract-paper";
 
 const copy = (fr: boolean, english: string, french: string) =>
   fr ? french : english;
@@ -1582,244 +1583,24 @@ function EmployeePayslipStatement({
     </div>
   );
 }
-function InlineContractText({ text }: { text: string }) {
-  const parts = text.split(/(\*\*[^*]+\*\*)/g);
-  return (
-    <>
-      {parts.map((part, index) =>
-        part.startsWith("**") && part.endsWith("**") ? (
-          <strong key={`strong-${index}`} className="font-semibold text-ink">
-            {part.slice(2, -2)}
-          </strong>
-        ) : (
-          <span key={`text-${index}`}>{part}</span>
-        ),
-      )}
-    </>
-  );
-}
-function signedMoment(value: string | null | undefined, fr = true) {
-  if (!value || Number.isNaN(new Date(value).getTime())) return null;
-  return new Intl.DateTimeFormat(fr ? "fr-FR" : "en-US", {
-    dateStyle: "long",
-    timeStyle: "short",
-  }).format(new Date(value));
-}
-function ContractTextBlock({
-  text,
-  fr,
-  employeeName,
-  employeeField,
-  canSign = false,
-  onEmployeeSign,
-  isEmployeeSection = false,
-}: {
-  text: string;
-  fr: boolean;
-  employeeName: string;
-  employeeField?: {
+type EmployeeContractWorkspace = {
+  document?: {
+    companyName: string;
+    employerName?: string | null;
+    employerRole?: string | null;
+    employeeName?: string | null;
+    employeeTitle?: string | null;
+    city?: string | null;
+  };
+  employerFields?: {
+    id: string;
     status: string;
     signedName?: string | null;
     signedAt?: string | null;
-  };
-  canSign?: boolean;
-  onEmployeeSign?: () => void;
-  isEmployeeSection?: boolean;
-}) {
-  const lines = text.replace(/\r/g, "").split("\n");
-  let employeeSection = isEmployeeSection;
-  const compactLabel =
-    /^(r[ée]f[ée]rence|titre|adresse|nom|matricule|poste|lieu de travail|date|signature)\s*:/i;
-  return (
-    <div className="text-[17px] leading-8 text-ink">
-      {lines.map((line, index) => {
-        const heading = line.match(/^\s*#{1,6}\s+(.+?)\s*$/);
-        const plain = line
-          .replace(/^\s*#{1,6}\s*/, "")
-          .replace(/\*\*/g, "")
-          .replace(/\\$/, "")
-          .trim();
-        if (/^(le travailleur|employee|worker)$/i.test(plain))
-          employeeSection = true;
-        if (/^pour\s/i.test(plain)) employeeSection = false;
-        if (employeeSection && /^nom\s*:/i.test(plain))
-          return employeeField?.status === "signed" ? (
-            <p
-              key={`employee-name-${index}`}
-              className="mt-8 whitespace-pre-wrap text-ink-secondary"
-            >
-              Nom :{" "}
-              <strong className="font-semibold text-ink">
-                {employeeField.signedName ?? employeeName}
-              </strong>
-            </p>
-          ) : (
-            <div key={`employee-name-${index}`} className="mt-8">
-              <button
-                type="button"
-                onClick={onEmployeeSign}
-                disabled={!canSign}
-                className="mb-3 block rounded-lg border border-brand/30 bg-brand-subtle px-3 py-2 text-left text-xs font-semibold text-brand transition hover:bg-brand/15 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <span className="inline-flex items-center gap-2">
-                  <PenLine className="size-4" />
-                  {canSign
-                    ? "Cliquez ici pour confirmer votre nom et signer"
-                    : "Nom en attente de signature"}
-                </span>
-              </button>
-              <p className="border-b border-ink/35 pb-1">
-                Nom :{" "}
-                <strong className="font-semibold text-ink">
-                  {employeeName}
-                </strong>
-              </p>
-            </div>
-          );
-        if (employeeSection && /^signature\s*:/i.test(plain))
-          return employeeField?.status === "signed" ? (
-            <div
-              key={`employee-signature-${index}`}
-              className="mt-5 border-b-2 border-good/45 pb-3"
-            >
-              <p className="font-serif text-xl italic text-good">
-                Signature : {employeeField.signedName ?? employeeName}
-              </p>
-              {signedMoment(employeeField.signedAt, fr) ? (
-                <p className="mt-2 text-xs leading-5 text-ink-muted">
-                  {fr
-                    ? "Signé électroniquement le"
-                    : "Electronically signed on"}{" "}
-                  {signedMoment(employeeField.signedAt, fr)}
-                </p>
-              ) : null}
-            </div>
-          ) : (
-            <div key={`employee-signature-${index}`} className="mt-5">
-              <button
-                type="button"
-                onClick={onEmployeeSign}
-                disabled={!canSign}
-                className="mb-3 block rounded-lg border border-brand/30 bg-brand-subtle px-3 py-2 text-left text-xs font-semibold text-brand transition hover:bg-brand/15 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <span className="inline-flex items-center gap-2">
-                  <PenLine className="size-4" />
-                  {canSign ? "Cliquez ici pour signer" : "Signature en attente"}
-                </span>
-              </button>
-              <p className="border-b-2 border-ink/40 pb-1 text-sm text-ink">
-                Signature :{" "}
-                <span className="tracking-[.12em] text-ink-muted">
-                  ________________________
-                </span>
-              </p>
-            </div>
-          );
-        if (heading)
-          return (
-            <h3
-              key={`markdown-heading-${index}`}
-              className="mt-11 border-t border-border/70 pt-7 text-2xl font-bold leading-9 tracking-[-.02em] text-ink first:mt-0 first:border-0 first:pt-0"
-            >
-              <InlineContractText text={heading[1] ?? ""} />
-            </h3>
-          );
-        if (!line.trim()) return <div key={`space-${index}`} className="h-4" />;
-        const numbered = /^\d+[.)]\s+/.test(plain);
-        return (
-          <p
-            key={`markdown-line-${index}`}
-            className={`${compactLabel.test(plain) ? "mt-2 text-ink-secondary" : numbered ? "mt-4 pl-6 text-ink" : "mt-7 text-ink"} whitespace-pre-wrap`}
-          >
-            <InlineContractText text={line} />
-          </p>
-        );
-      })}
-    </div>
-  );
-}
-function EmployeeContractSignatureLine({
-  fr,
-  employeeName,
-  field,
-  canSign,
-  onSign,
-}: {
-  fr: boolean;
-  employeeName: string;
-  field:
-    | {
-        label: string;
-        status: string;
-        signedName?: string | null;
-        signedAt?: string | null;
-      }
-    | undefined;
-  canSign: boolean;
-  onSign: () => void;
-}) {
-  const signed = field?.status === "signed";
-  if (signed)
-    return (
-      <section className="mt-10 border-t border-ink/20 pt-5">
-        <p className="text-sm font-semibold text-ink">
-          {fr ? "Le travailleur" : "The employee"}
-        </p>
-        <p className="mt-2 text-sm text-ink-secondary">
-          {fr ? "Nom :" : "Name:"}{" "}
-          <span className="font-semibold text-ink">
-            {field?.signedName ?? employeeName}
-          </span>
-        </p>
-        <p className="mt-3 border-b-2 border-good/45 pb-2 font-serif text-xl italic text-good">
-          {fr ? "Signature :" : "Signature:"}{" "}
-          {field?.signedName ?? employeeName}
-        </p>
-        {signedMoment(field?.signedAt, fr) ? (
-          <p className="mt-2 text-xs text-ink-muted">
-            {fr ? "Signé électroniquement le" : "Electronically signed on"}{" "}
-            {signedMoment(field?.signedAt, fr)}
-          </p>
-        ) : null}
-      </section>
-    );
-  return (
-    <section className="mt-9 rounded-2xl border border-brand/30 bg-brand-subtle p-5">
-      <p className="text-sm font-semibold text-ink">
-        {fr ? "Le travailleur" : "The employee"}
-      </p>
-      <p className="mt-2 text-sm text-ink-secondary">
-        {fr ? "Nom :" : "Name:"}{" "}
-        <span className="font-medium text-ink">{employeeName}</span>
-      </p>
-      <p className="mt-1 text-sm text-ink-secondary">
-        {fr ? "Signature :" : "Signature:"}
-      </p>
-      <button
-        type="button"
-        onClick={onSign}
-        disabled={!canSign}
-        className="mt-2 flex w-full items-center gap-3 rounded-xl border border-dashed border-brand/50 bg-surface-1 px-4 py-3 text-left text-brand transition hover:bg-brand/10 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-brand text-white">
-          <PenLine className="size-5" />
-        </span>
-        <span>
-          <span className="block text-sm font-semibold">
-            {fr ? "Cliquez ici pour signer" : "Click here to sign"}
-          </span>
-          <span className="mt-0.5 block text-xs text-ink-secondary">
-            {fr
-              ? "Votre signature est protégée et enregistrée dans LiteHubs."
-              : "Your signature is protected and recorded in LiteHubs."}
-          </span>
-        </span>
-      </button>
-    </section>
-  );
-}
-type EmployeeContractWorkspace = {
+    method?: string | null;
+  }[];
   version: {
+    signedOn?: string | null;
     id: string;
     number: number;
     status: string;
@@ -1900,26 +1681,6 @@ function ContractReviewModal({
       block.type !== "page_break" &&
       Boolean(block.text?.trim() || block.rows?.length),
   );
-  const employeeSignatureBlockIndexes = new Set<number>();
-  let withinEmployeeSignatureSection = false;
-  blocks.forEach((block, index) => {
-    const plain = String(block.text ?? "")
-      .replace(/^\s*#{1,6}\s*/, "")
-      .trim();
-    if (block.type === "heading") {
-      if (/^(le travailleur|employee|worker)$/i.test(plain))
-        withinEmployeeSignatureSection = true;
-      else if (/^pour\s/i.test(plain)) withinEmployeeSignatureSection = false;
-    } else if (withinEmployeeSignatureSection && block.type !== "page_break")
-      employeeSignatureBlockIndexes.add(index);
-  });
-  const hasEmployeeSignatureSlot =
-    employeeSignatureBlockIndexes.size > 0 &&
-    blocks.some((block) =>
-      /^\s*signature\s*:/i.test(
-        String(block.text ?? "").replace(/^\s*#{1,6}\s*/, ""),
-      ),
-    );
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto overflow-x-hidden bg-slate-950/55 p-0 backdrop-blur-sm sm:p-6">
       <section
@@ -1965,90 +1726,42 @@ function ContractReviewModal({
         <div className="min-h-[78vh] bg-surface-2/25">
           <div className="min-h-[70vh] bg-slate-100 dark:bg-slate-950">
             {hasReadableText && readerMode === "text" ? (
-              <article className="h-[calc(100vh-4.5rem)] min-h-[540px] overflow-y-auto bg-surface-1 px-6 py-9 text-[17px] leading-8 text-ink sm:h-[70vh] sm:px-14 sm:py-14">
-                <div className="mx-auto max-w-3xl space-y-7">
-                  {blocks.map((block, index) => {
-                    if (block.type === "page_break")
-                      return (
-                        <hr
-                          key={`page-${index}`}
-                          className="my-10 border-border"
-                        />
-                      );
-                    if (block.type === "heading")
-                      return (
-                        <h3
-                          key={`heading-${index}`}
-                          className="pt-3 text-xl font-bold leading-8 text-ink"
-                        >
-                          {block.text}
-                        </h3>
-                      );
-                    if (block.type === "table")
-                      return (
-                        <div
-                          key={`table-${index}`}
-                          className="overflow-x-auto rounded-xl border border-border"
-                        >
-                          <table className="min-w-full border-collapse text-left text-sm">
-                            <tbody>
-                              {(block.rows ?? []).map((row, rowIndex) => (
-                                <tr
-                                  key={`row-${index}-${rowIndex}`}
-                                  className={
-                                    rowIndex === 0
-                                      ? "bg-surface-2 font-semibold"
-                                      : "border-t border-border"
-                                  }
-                                >
-                                  {row.map((cell, cellIndex) => (
-                                    <td
-                                      key={`cell-${index}-${rowIndex}-${cellIndex}`}
-                                      className="px-3 py-2 align-top"
-                                    >
-                                      {cell}
-                                    </td>
-                                  ))}
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      );
-                    return (
-                      <ContractTextBlock
-                        key={`paragraph-${index}`}
-                        text={block.text ?? ""}
-                        employeeName={employeeName}
-                        employeeField={fields[0]}
-                        canSign={needsSignature}
-                        isEmployeeSection={employeeSignatureBlockIndexes.has(
-                          index,
-                        )}
-                        onEmployeeSign={() => {
+              <div className="h-[calc(100vh-4.5rem)] min-h-[540px] overflow-y-auto sm:h-[70vh]">
+                <ContractPaper
+                  fr={fr}
+                  title={contract.title}
+                  reference={contract.reference}
+                  versionLabel={workspace.data ? `V${workspace.data.version.number}` : null}
+                  blocks={blocks}
+                  parties={{
+                    companyName: workspace.data?.document?.companyName ?? "",
+                    employerName: workspace.data?.document?.employerName,
+                    employerRole: workspace.data?.document?.employerRole,
+                    employeeName: workspace.data?.document?.employeeName ?? employeeName,
+                    employeeTitle: workspace.data?.document?.employeeTitle,
+                    city: workspace.data?.document?.city,
+                  }}
+                  employer={workspace.data?.employerFields?.[0]}
+                  employee={fields[0]}
+                  signedOn={workspace.data?.version.signedOn}
+                  employeeAction={
+                    needsSignature ? (
+                      <button
+                        type="button"
+                        onClick={() => {
                           setSignatureMethod("drawn");
                           setSignatureData(null);
                           setSignatureDialog(true);
                         }}
-                        fr={fr}
-                      />
-                    );
-                  })}
-                  {!hasEmployeeSignatureSlot ? (
-                    <EmployeeContractSignatureLine
-                      fr={fr}
-                      employeeName={employeeName}
-                      field={fields[0]}
-                      canSign={needsSignature}
-                      onSign={() => {
-                        setSignatureMethod("drawn");
-                        setSignatureData(null);
-                        setSignatureDialog(true);
-                      }}
-                    />
-                  ) : null}
-                </div>
-              </article>
+                        className="inline-flex items-center gap-2 rounded-lg border border-dashed border-emerald-700/50 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-800 hover:bg-emerald-100"
+                      >
+                        <PenLine className="size-4" />
+                        {copy(fr, "Click here to sign", "Cliquez ici pour signer")}
+                      </button>
+                    ) : null
+                  }
+                />
+              </div>
             ) : (
               <iframe
                 title={contract.title}

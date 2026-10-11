@@ -1,10 +1,13 @@
-import { Router } from "express";
+import multer from "multer";
+import { Router, type RequestHandler } from "express";
+import { storage } from "../../config/storage";
+import { BadRequestError } from "../../utils/errors";
 import { authenticate } from "../../middleware/auth.middleware";
 import { requireOrganization } from "../../middleware/organization.middleware";
 import { requireActiveEmployeeProfile, requirePermission } from "../../middleware/permissions.middleware";
 import { validate } from "../../middleware/validation.middleware";
 import * as controller from "./contracts.controller";
-import { contractParams, contractQuery, createContractSchema, organizationParams, signEmploymentContractSchema, updateContractSchema, contractTemplateParams, contractTemplateSchema, generateContractVersionSchema, sendForSignatureSchema, signatureFieldParams, signContractFieldSchema } from "./contracts.validation";
+import { contractParams, contractQuery, createContractSchema, organizationParams, signEmploymentContractSchema, updateContractSchema, contractTemplateParams, contractTemplateSchema, generateContractVersionSchema, sendForSignatureSchema, signatureFieldParams, signContractFieldSchema, paperSignatureSchema } from "./contracts.validation";
 
 export const contractsRoutes = Router();
 const inside = [authenticate, validate({ params: organizationParams }), requireOrganization] as const;
@@ -28,3 +31,21 @@ contractsRoutes.patch("/organizations/:orgSlug/my-contracts/:contractId/workspac
 contractsRoutes.post("/organizations/:orgSlug/contracts", ...inside, requirePermission("contracts.create"), validate({ body: createContractSchema }), controller.createContract);
 contractsRoutes.patch("/organizations/:orgSlug/contracts/:contractId", authenticate, validate({ params: contractParams }), requireOrganization, requirePermission("contracts.update"), validate({ body: updateContractSchema }), controller.updateContract);
 contractsRoutes.delete("/organizations/:orgSlug/contracts/:contractId", authenticate, validate({ params: contractParams }), requireOrganization, requirePermission("contracts.delete"), controller.deleteContract);
+
+/* Handwritten signature: print the copy to sign, then record the scanned original. */
+const scanUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { files: 1, fileSize: storage.maxUploadBytes },
+  fileFilter: (_req, file, callback) =>
+    ["application/pdf", "image/jpeg", "image/png"].includes(file.mimetype)
+      ? callback(null, true)
+      : callback(new BadRequestError("Envoyez le contrat signé en PDF, JPEG ou PNG.")),
+});
+const oneScan: RequestHandler = (req, res, next) =>
+  scanUpload.single("file")(req, res, (error: unknown) => {
+    if (error instanceof multer.MulterError)
+      return next(new BadRequestError(error.code === "LIMIT_FILE_SIZE" ? "Le fichier est trop lourd." : "Joignez un seul fichier."));
+    next(error);
+  });
+contractsRoutes.get("/organizations/:orgSlug/contracts/:contractId/workspace/print", authenticate, validate({ params: contractParams }), requireOrganization, requirePermission("contracts.update"), controller.printForPaperSignature);
+contractsRoutes.post("/organizations/:orgSlug/contracts/:contractId/workspace/paper-signature", authenticate, oneScan, validate({ params: contractParams, body: paperSignatureSchema }), requireOrganization, requirePermission("contracts.update"), controller.recordPaperSignature);
