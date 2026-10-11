@@ -9,6 +9,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Volume2, VolumeX } from "lucide-react";
 import { get } from "@/lib/api";
 import { API_PREFIX } from "@/lib/constants";
 
@@ -36,11 +37,24 @@ type Slide = { kind: "poultry"; page: number; pages: number } | { kind: "pigs"; 
 type QueueTicket = { id: string; ticket: number; visitorName: string; serviceName: string | null; deskName: string | null; siteName: string | null; status: string; calledAt: string | null };
 type Queue = { enabled: boolean; nowServing: QueueTicket[]; waiting: QueueTicket[]; servedToday: number; upcoming: { at: string; visitorName: string; serviceName: string | null }[] };
 
-/** A short two-tone chime when a ticket is called (needs one click on the page first). */
-function chime() {
+/** Browsers only allow sound after one click on the page: that click unlocks this context. */
+let sharedAudio: AudioContext | null = null;
+function unlockAudio() {
   try {
     const AudioCtx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    const audio = new AudioCtx();
+    sharedAudio ??= new AudioCtx();
+    void sharedAudio.resume();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** A short two-tone chime when a ticket is called. */
+function chime() {
+  try {
+    const audio = sharedAudio;
+    if (!audio || audio.state !== "running") return;
     [880, 660].forEach((frequency, index) => {
       const oscillator = audio.createOscillator();
       const gain = audio.createGain();
@@ -57,6 +71,17 @@ function chime() {
   } catch {
     // No sound available: the visual call is enough.
   }
+}
+
+/** Reads the called ticket aloud, in French, after the chime. */
+function announce(ticket: QueueTicket) {
+  if (!("speechSynthesis" in window)) return;
+  window.speechSynthesis.cancel();
+  const desk = ticket.deskName ? `au guichet ${ticket.deskName}` : "à l’accueil";
+  const utterance = new SpeechSynthesisUtterance(`Numéro ${ticket.ticket}, veuillez vous présenter ${desk}.`);
+  utterance.lang = "fr-FR";
+  utterance.rate = 0.9;
+  window.setTimeout(() => window.speechSynthesis.speak(utterance), 900);
 }
 
 const ROWS_PER_PAGE = 9;
@@ -142,6 +167,7 @@ export function FarmDisplayBoard({ token }: { token: string }) {
     enabled: queueEnabled,
   });
   const queueData = queueEnabled ? queue.data : undefined;
+  const [soundOn, setSoundOn] = useState(false);
   const hasQueue = Boolean(queueData && (queueData.nowServing.length || queueData.waiting.length || queueData.upcoming.length));
   // A newly called ticket takes over the screen for a few seconds.
   const seenCalls = useRef<Map<string, string> | null>(null);
@@ -157,9 +183,12 @@ export function FarmDisplayBoard({ token }: { token: string }) {
     called.forEach((item) => seenCalls.current!.set(item.id, item.calledAt!));
     if (fresh) {
       setCalling(fresh);
-      chime();
+      if (soundOn) {
+        chime();
+        announce(fresh);
+      }
     }
-  }, [queueData]);
+  }, [queueData, soundOn]);
   useEffect(() => {
     if (!calling) return;
     const timer = window.setTimeout(() => setCalling(null), 12_000);
@@ -382,6 +411,7 @@ export function FarmDisplayBoard({ token }: { token: string }) {
     <main
       className="relative flex h-dvh flex-col overflow-hidden bg-[radial-gradient(ellipse_at_top,#12307a,#071433_60%)] text-white"
       onClick={() => {
+        if (queueEnabled && unlockAudio()) setSoundOn(true);
         if (!document.fullscreenElement) void document.documentElement.requestFullscreen?.().catch(() => undefined);
       }}
     >
@@ -402,7 +432,26 @@ export function FarmDisplayBoard({ token }: { token: string }) {
             </p>
           </div>
         </div>
-        <Clock />
+        <div className="flex items-center gap-5">
+          {queueEnabled ? (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                if (soundOn) setSoundOn(false);
+                else if (unlockAudio()) {
+                  setSoundOn(true);
+                  chime();
+                }
+              }}
+              className={`inline-flex items-center gap-2 rounded-full border-2 px-4 py-2 text-sm font-bold uppercase tracking-wide transition ${soundOn ? "border-emerald-300/60 text-emerald-200" : "animate-pulse border-amber-300 bg-amber-400 text-[#0a1a44]"}`}
+            >
+              {soundOn ? <Volume2 className="size-4" /> : <VolumeX className="size-4" />}
+              {soundOn ? "Son activé" : "Activer le son"}
+            </button>
+          ) : null}
+          <Clock />
+        </div>
       </header>
 
       <section className="relative flex min-h-0 flex-1 flex-col px-[3vw] py-[2.2vh]">

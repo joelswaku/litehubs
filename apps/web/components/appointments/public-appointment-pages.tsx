@@ -921,30 +921,43 @@ export function PublicQueuePage({
             {isQueueIdle ? (
               <section className="relative grid flex-1 place-items-center overflow-hidden rounded-[2rem] border border-emerald-100/20 bg-[linear-gradient(135deg,rgba(6,78,59,.92),rgba(5,46,38,.96))] px-6 py-12 text-center shadow-[0_24px_70px_-36px_rgba(0,0,0,.72)] sm:rounded-[2.5rem] sm:px-12">
                 {idleVideoUrl ? (
-                  <video
-                    key={idleVideoUrl}
-                    src={idleVideoUrl}
-                    autoPlay
-                    muted
-                    loop
-                    playsInline
-                    preload="auto"
-                    className="absolute inset-0 size-full object-cover"
-                    aria-label={label(fr, "Vidéo d’accueil", "Welcome video")}
-                  />
-                ) : null}
-                {idleVideoUrl ? (
-                  <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(2,44,34,.26),rgba(2,18,15,.46))]" />
+                  <>
+                    {/* Same look as the display screens: blurred copy behind, full video on top. */}
+                    <video
+                      key={"bg-" + idleVideoUrl}
+                      src={idleVideoUrl}
+                      autoPlay
+                      muted
+                      loop
+                      playsInline
+                      aria-hidden
+                      tabIndex={-1}
+                      className="pointer-events-none absolute inset-0 size-full scale-125 object-cover opacity-70 blur-3xl saturate-150"
+                    />
+                    <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/40 via-black/20 to-black/60" />
+                    <video
+                      key={idleVideoUrl}
+                      src={idleVideoUrl}
+                      autoPlay
+                      muted
+                      loop
+                      playsInline
+                      preload="auto"
+                      className="absolute inset-0 z-10 size-full object-contain drop-shadow-[0_20px_60px_rgba(0,0,0,0.6)]"
+                      aria-label={label(fr, "Vidéo d’accueil", "Welcome video")}
+                    />
+                  </>
                 ) : null}
                 <div className="absolute -left-24 -top-24 size-80 rounded-full bg-emerald-300/10 blur-3xl motion-safe:animate-pulse" />
                 <div className="absolute -bottom-28 -right-20 size-96 rounded-full bg-teal-300/10 blur-3xl motion-safe:animate-pulse" />
-                <div
-                  className={
-                    idleVideoUrl
-                      ? "relative max-w-4xl rounded-3xl bg-slate-950/25 px-8 py-7 backdrop-blur-[2px]"
-                      : "relative max-w-4xl"
-                  }
-                >
+                {idleVideoUrl && (idleTitle || idleMessage) ? (
+                  <div className="absolute inset-x-0 bottom-0 z-20 overflow-hidden whitespace-nowrap border-t-2 border-amber-400/70 bg-[#0a1a44]/85 py-3 text-[clamp(1rem,1.6vw,1.8rem)]">
+                    <span className="inline-block animate-[lh-ticker_30s_linear_infinite] pl-[100%] font-semibold text-amber-200">
+                      {[idleTitle, idleMessage].filter(Boolean).join("  •  ")}
+                    </span>
+                  </div>
+                ) : null}
+                <div className={idleVideoUrl ? "hidden" : "relative max-w-4xl"}>
                   {!idleVideoUrl ? (
                     <span className="mx-auto grid size-20 place-items-center rounded-[1.75rem] border border-emerald-100/30 bg-white/10 text-emerald-100 shadow-xl sm:size-24">
                       <CalendarCheck2 className="size-10 sm:size-12" />
