@@ -81,7 +81,7 @@ function PaperForm({ orgSlug, fr, employeeId, onDone, onCancel }: { orgSlug: str
   );
 }
 
-export function RulesAcknowledgementPanel({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
+export function RulesAcknowledgementPanel({ orgSlug, fr, onPublishDefault, publishing = false }: { orgSlug: string; fr: boolean; onPublishDefault?: () => void; publishing?: boolean }) {
   const client = useQueryClient();
   const key = ["company-rules-acks", orgSlug];
   const overview = useQuery({ queryKey: key, queryFn: () => get<Overview>(orgUrl(orgSlug, "company-rules/acknowledgements")) });
@@ -105,9 +105,26 @@ export function RulesAcknowledgementPanel({ orgSlug, fr }: { orgSlug: string; fr
   if (overview.isError) return null;
   if (!data?.version)
     return (
-      <section className="rounded-2xl border border-border bg-surface-1 p-5 text-sm text-ink-secondary">
-        <p className="font-semibold text-ink">{tr(fr, "Signatures du règlement", "Rules signatures")}</p>
-        <p className="mt-1">{tr(fr, "Publiez une première version du règlement : chaque employé pourra ensuite la lire et la signer.", "Publish a first version: each employee can then read and sign it.")}</p>
+      <section className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-warning/40 bg-[linear-gradient(120deg,color-mix(in_srgb,var(--warning)_12%,transparent),transparent_60%),var(--surface-1)] p-5 text-sm text-ink-secondary">
+        <div className="max-w-2xl">
+          <p className="flex items-center gap-2 font-semibold text-ink">
+            <FileSignature className="size-4 text-warning" />
+            {tr(fr, "Signatures du règlement : publiez d’abord la version 1", "Rules signatures: publish version 1 first")}
+          </p>
+          <p className="mt-1 leading-6">
+            {tr(
+              fr,
+              "Le texte affiché ci-dessous est le modèle LiteHubs : il n’a pas encore été publié comme règlement officiel. Publiez-le (tel quel ou après modification) : il devient la version n° 1, chaque employé peut alors le lire et le signer dans son compte, et la liste des signatures apparaît ici.",
+              "The text below is the LiteHubs model and has not been published yet. Publish it to create version 1; employees can then read and sign it.",
+            )}
+          </p>
+        </div>
+        {onPublishDefault ? (
+          <Button loading={publishing} onClick={onPublishDefault}>
+            <FileSignature className="size-4" />
+            {tr(fr, "Publier la version 1", "Publish version 1")}
+          </Button>
+        ) : null}
       </section>
     );
   const { summary } = data;

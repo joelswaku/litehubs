@@ -394,6 +394,7 @@ export function CompanyRulesArea({ orgSlug }: { orgSlug: string }) {
       void client.invalidateQueries({
         queryKey: ["company-rules-versions", orgSlug],
       });
+      void client.invalidateQueries({ queryKey: ["company-rules-acks", orgSlug] });
       setEditorOpen(false);
     },
   });
@@ -449,7 +450,7 @@ export function CompanyRulesArea({ orgSlug }: { orgSlug: string }) {
           </div>
         </div>
         <div className="mt-6 grid gap-3 sm:grid-cols-3">
-          <StatusCard icon={BookOpenCheck} label={fr ? "Version interne" : "Internal version"} value={current ? `v${current.versionNumber}` : "1.0"} />
+          <StatusCard icon={BookOpenCheck} label={fr ? "Version interne" : "Internal version"} value={current ? `v${current.versionNumber}` : fr ? "Non publiée" : "Not published"} />
           <StatusCard icon={FileText} label={fr ? "Chapitres" : "Chapters"} value={String(chapterCount)} />
           <StatusCard icon={CheckCircle2} label={fr ? "Application" : "Applies to"} value={fr ? "Toute l’entreprise" : "Whole company"} />
         </div>
@@ -471,7 +472,19 @@ export function CompanyRulesArea({ orgSlug }: { orgSlug: string }) {
           : "these rules are Congo Omega’s internal framework. They must be complemented by local legal review for statutory obligations in the Democratic Republic of the Congo."}
       </section>
 
-      {canEdit || can(user, "employees.update") ? <RulesAcknowledgementPanel orgSlug={orgSlug} fr={fr} /> : null}
+      {canEdit || can(user, "employees.update") ? <RulesAcknowledgementPanel
+          orgSlug={orgSlug}
+          fr={fr}
+          publishing={publish.isPending}
+          onPublishDefault={
+            canEdit && !current
+              ? () => {
+                  if (window.confirm(fr ? "Publier ce règlement comme version officielle n° 1 ? Les employés pourront ensuite le signer." : "Publish these rules as official version 1?"))
+                    publish.mutate({ title, content: editableContent, changeNote: fr ? "Première version officielle" : "First official version" });
+                }
+              : undefined
+          }
+        /> : null}
 
       {current ? (
         <PublishedRules fr={fr} content={current.content} />
