@@ -167,7 +167,7 @@ export function SocialArea({ orgSlug }: { orgSlug: string }) {
 
   if (overview.isLoading)
     return (
-      <div className="mx-auto w-full max-w-6xl space-y-4 p-3 sm:p-6">
+      <div className="mx-auto w-full max-w-[1680px] space-y-4 p-3 sm:p-6">
         <div className="h-64 animate-pulse rounded-[28px] bg-[linear-gradient(120deg,#0b1530,#13306b)]" />
         <SkeletonCard rows={5} />
       </div>
@@ -191,7 +191,7 @@ export function SocialArea({ orgSlug }: { orgSlug: string }) {
   };
 
   return (
-    <div className="mx-auto w-full max-w-6xl space-y-5 p-3 sm:p-6">
+    <div className="mx-auto w-full max-w-[1680px] space-y-5 p-3 sm:p-6">
       <Hero fr={fr} account={account} connected={connected} stats={stats} onOpen={(next) => setTab(next)} />
 
       <nav
@@ -996,7 +996,7 @@ function Comments({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
     refetchInterval: 20_000,
   });
   return (
-    <div className="mx-auto max-w-3xl space-y-3">
+    <div className="mx-auto max-w-5xl space-y-3">
       <div className="flex items-center justify-between gap-3">
         <div className="inline-flex rounded-full border border-border bg-surface-1 p-1">
           {(["todo", "all"] as const).map((key) => (

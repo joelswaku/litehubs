@@ -45,6 +45,8 @@ export const PUBLIC_PATHS = [
   "/book",
   "/check-in",
   "/queue",
+  // Farm statistics screens: the secret link in the path is the access.
+  "/display",
   "/careers",
   // Public pages built by an organisation owner. The API still returns only
   // explicitly published blocks through its restricted public endpoint.

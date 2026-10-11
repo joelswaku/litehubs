@@ -39,6 +39,7 @@ import { mailRoutes } from "./modules/mail";
 import { chatRoutes } from "./modules/chat";
 import { aiInstructionsRoutes } from "./modules/ai-instructions";
 import { socialRoutes } from "./modules/social";
+import { displayRoutes } from "./modules/displays";
 import { shopRoutes } from "./modules/shop";
 import { publicAccountRoutes } from "./modules/public-accounts";
 
@@ -122,6 +123,7 @@ export function createApp(): Application {
   app.use(API_PREFIX, chatRoutes);
   app.use(API_PREFIX, aiInstructionsRoutes);
   app.use(API_PREFIX, socialRoutes);
+  app.use(API_PREFIX, displayRoutes);
   app.use(API_PREFIX, shopRoutes);
 
   // Tenant module routers mount here as they are built. Each one goes under

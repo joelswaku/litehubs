@@ -23,6 +23,7 @@ import {
   Landmark,
   LayoutDashboard,
   MessagesSquare,
+  MonitorPlay,
   Mail,
   PanelsTopLeft,
   type LucideIcon,
@@ -535,6 +536,12 @@ export const WORKSPACE_NAV: NavGroup[] = [
         path: "/social",
         icon: Share2,
         permission: "social.manage",
+      },
+      {
+        label: "Display screens",
+        path: "/displays",
+        icon: MonitorPlay,
+        permission: "reports.read",
       },
       {
         label: "Settings",

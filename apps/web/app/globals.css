@@ -334,3 +334,11 @@
   0% { transform: translateX(-120%); }
   100% { transform: translateX(220%); }
 }
+@keyframes lh-ticker {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-100%); }
+}
+@keyframes lh-progress {
+  0% { width: 0%; }
+  100% { width: 100%; }
+}
