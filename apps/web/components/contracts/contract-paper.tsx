@@ -94,7 +94,8 @@ export function stripTemplateSignatureSection(blocks: ContractBlock[]): Contract
 }
 
 function Rich({ text }: { text: string }) {
-  const cleaned = text.replace(/\{\{\s*[^}]*\}\}/g, BLANK).replace(/\\$/gm, "");
+  // Non-breaking spaces keep French punctuation with its word (« … ; »).
+  const cleaned = text.replace(/\{\{\s*[^}]*\}\}/g, BLANK).replace(/\\$/gm, "").replace(/ ([;:!?»])/g, "\u00a0$1").replace(/« /g, "«\u00a0");
   return (
     <>
       {cleaned.split(/(\*\*[^*]+\*\*)/g).map((part, index) =>

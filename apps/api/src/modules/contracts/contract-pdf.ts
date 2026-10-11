@@ -293,8 +293,8 @@ export async function layoutContractPdf(
 
   /**
    * Security watermark, drawn per page before any clause text, so the text
-   * stays crisp on top of it: a guilloche rosette (no logo, which stays in the
-   * header) and diagonal microtext with the company, reference, version and
+   * stays crisp on top of it: a guilloche rosette, the logo or initials in its
+   * centre, and diagonal microtext with the company, reference, version and
    * hash.  It raises the cost of a casual forgery; the SHA-256 printed in the
    * footer is what actually proves the file unaltered.
    */
@@ -339,9 +339,12 @@ export async function layoutContractPdf(
           spaceBefore = true;
           continue;
         }
-        const part = { text: token, bold: run.bold, width: runFont.widthOfTextAtSize(token, size) };
         const previous = words.at(-1);
-        if (!spaceBefore && previous) {
+        // French punctuation never starts a line (« … ; ») and « never ends one.
+        const glueAfterSpace = Boolean(previous) && spaceBefore && (/^[;:!?»]+[.,]?$/.test(token) || previous!.parts.at(-1)?.text.endsWith("«"));
+        const text = glueAfterSpace ? ` ${token}` : token;
+        const part = { text, bold: run.bold, width: runFont.widthOfTextAtSize(text, size) };
+        if ((!spaceBefore || glueAfterSpace) && previous) {
           previous.parts.push(part);
           previous.width += part.width;
         } else words.push({ parts: [part], width: part.width });

@@ -13,6 +13,7 @@ import { can, hasRole, isOwner } from "@/lib/permissions";
 import { useLanguage } from "@/providers/language-provider";
 import { useSessionUser } from "@/stores/session-store";
 import { ContractPaper } from "@/components/contracts/contract-paper";
+import { READY_CONTRACT_TEMPLATES, type ReadyContractTemplate } from "@/components/contracts/ready-contract-templates";
 
 type ContractStatus = "draft" | "pending_signature" | "ready_for_signature" | "awaiting_employee_signature" | "awaiting_employer_signature" | "signed" | "active" | "rejected" | "expired" | "terminated" | "renewed" | "cancelled";
 type Contract = {
@@ -43,7 +44,7 @@ type Employee = { id: string; fullName: string; employeeNumber: string };
 type DocumentItem = { id: string; title: string; category: string; subjectTable?: string | null; mimeType?: string | null; fileName?: string | null; createdAt?: string };
 const WORD_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 /** Contracts uploaded by the company (PDF or Word), never the PDFs LiteHubs generates. */
-const importedContracts = (documents: DocumentItem[]) => documents.filter((document) => document.category === "contract" && document.subjectTable !== "contracts" && (document.mimeType === "application/pdf" || document.mimeType === WORD_MIME) && document.title?.trim());
+const importedContracts = (documents: DocumentItem[]) => documents.filter((document) => document.category === "contract" && !document.subjectTable && (document.mimeType === "application/pdf" || document.mimeType === WORD_MIME) && document.title?.trim());
 type Province = { id: string; name: string; code: string };
 type Summary = { metrics: { total: number; active: number; pending: number; expiring: number; activeValueByCurrency: { currency: string; value: number }[] } };
 
@@ -109,7 +110,7 @@ export function ContractsArea({ orgSlug }: { orgSlug: string }) {
   const [creating, setCreating] = useState(false);
   const [filter, setFilter] = useState<"all" | ContractStatus>("all");
   const [workspaceContract, setWorkspaceContract] = useState<Contract | null>(null);
-  const [creatingTemplate, setCreatingTemplate] = useState(false);
+  const [creatingTemplate, setCreatingTemplate] = useState<false | { preset: ReadyContractTemplate | null }>(false);
   const [editingTemplate, setEditingTemplate] = useState<ContractTemplate | null>(null);
   const readable = can(user, "contracts.read");
   const writable = can(user, "contracts.create");
@@ -144,7 +145,7 @@ export function ContractsArea({ orgSlug }: { orgSlug: string }) {
       <div className="absolute right-10 top-0 size-44 rounded-full border border-brand/15" aria-hidden />
       <div className="relative flex flex-wrap items-start justify-between gap-5">
         <div className="max-w-3xl"><div className="flex items-center gap-2 text-brand"><span className="grid size-9 place-items-center rounded-xl border border-brand/20 bg-brand-subtle"><FileSignature className="size-4" /></span><span className="text-sm font-semibold">{fr ? "Juridique & engagements" : "Legal & commitments"}</span></div><h1 className="mt-3 text-2xl font-semibold tracking-[-.035em] text-ink sm:text-3xl">{fr ? "Contrats" : "Contracts"}</h1><p className="mt-2 text-sm leading-6 text-ink-secondary">{fr ? "Centralisez les engagements fournisseurs, employés, services et investissements. Les contrats de travail sont remis à chaque employé dans Mon compte." : "Keep supplier, employment, service and investment commitments in one controlled register. Employment contracts are delivered in each employee’s My account."}</p></div>
-        {writable && <div className="flex flex-wrap gap-2"><Button variant="secondary" onClick={() => setCreatingTemplate(true)}><FileSignature />{fr ? "Modèle" : "Template"}</Button><Button onClick={() => setCreating(true)}><Plus />{fr ? "Ajouter un contrat" : "Add contract"}</Button></div>}
+        {writable && <div className="flex flex-wrap gap-2"><Button variant="secondary" onClick={() => setCreatingTemplate({ preset: null })}><FileSignature />{fr ? "Modèle" : "Template"}</Button><Button onClick={() => setCreating(true)}><Plus />{fr ? "Ajouter un contrat" : "Add contract"}</Button></div>}
       </div>
       <div className="relative mt-7 grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Metric icon={FileSignature} label={fr ? "Total" : "Total"} value={String(metrics?.total ?? 0)} tone="sky" /><Metric icon={CheckCircle2} label={fr ? "Actifs" : "Active"} value={String(metrics?.active ?? 0)} tone="emerald" /><Metric icon={BellRing} label={fr ? "À signer" : "Awaiting signature"} value={String(metrics?.pending ?? 0)} tone="amber" /><Metric icon={CalendarClock} label={fr ? "Échéance < 60 j" : "Due < 60 days"} value={String(metrics?.expiring ?? 0)} tone="rose" /></div>
       {canManageSignerRole && metrics?.activeValueByCurrency?.length ? <p className="relative mt-4 text-xs text-ink-secondary">{fr ? "Valeur active : " : "Active value: "}{metrics.activeValueByCurrency.map((item) => new Intl.NumberFormat(fr ? "fr-FR" : "en-US", { style: "currency", currency: item.currency, maximumFractionDigits: 0 }).format(item.value)).join(" · ")}</p> : null}
@@ -157,7 +158,9 @@ export function ContractsArea({ orgSlug }: { orgSlug: string }) {
       error={templates.error instanceof Error ? templates.error.message : null}
       canCreate={writable}
       canEdit={canEditTemplates}
-      onCreate={() => setCreatingTemplate(true)}
+      onCreate={() => setCreatingTemplate({ preset: null })}
+      onUseReady={(preset) => setCreatingTemplate({ preset })}
+      orgSlug={orgSlug}
       onEdit={setEditingTemplate}
     />
 
@@ -167,18 +170,28 @@ export function ContractsArea({ orgSlug }: { orgSlug: string }) {
     </section>
 
     {workspaceContract && <ContractWorkspaceModal fr={fr} orgSlug={orgSlug} contract={workspaceContract} onClose={() => setWorkspaceContract(null)} />}
-    {creatingTemplate && <TemplateForm fr={fr} orgSlug={orgSlug} template={null} onClose={() => setCreatingTemplate(false)} />}
+    {creatingTemplate && <TemplateForm fr={fr} orgSlug={orgSlug} template={null} preset={creatingTemplate.preset} onClose={() => setCreatingTemplate(false)} />}
     {editingTemplate && <TemplateForm fr={fr} orgSlug={orgSlug} template={editingTemplate} onClose={() => setEditingTemplate(null)} />}
     {(creating || editing) && <ContractForm orgSlug={orgSlug} fr={fr} contract={editing} employees={employees.data?.employees ?? []} documents={documents.data?.documents ?? []} provinces={provinces.data?.provinces ?? []} signerRoles={signerRoles.data ?? []} canManageSignerRole={canManageSignerRole} busy={save.isPending} error={save.error} onClose={() => { setCreating(false); setEditing(null); }} onSave={(body) => save.mutate({ id: editing?.id, body })} />}
   </main>;
 }
 
-function TemplateLibrary({ fr, templates, loading, error, canCreate, canEdit, onCreate, onEdit }: { fr: boolean; templates: ContractTemplate[]; loading: boolean; error: string | null; canCreate: boolean; canEdit: boolean; onCreate: () => void; onEdit: (template: ContractTemplate) => void }) {
+function TemplateLibrary({ fr, orgSlug, templates, loading, error, canCreate, canEdit, onCreate, onUseReady, onEdit }: { fr: boolean; orgSlug: string; templates: ContractTemplate[]; loading: boolean; error: string | null; canCreate: boolean; canEdit: boolean; onCreate: () => void; onUseReady: (preset: ReadyContractTemplate) => void; onEdit: (template: ContractTemplate) => void }) {
+  const queryClient = useQueryClient();
+  const existingCodes = new Set(templates.map((template) => template.code));
+  const missing = READY_CONTRACT_TEMPLATES.filter((preset) => !existingCodes.has(preset.code));
+  const addAll = useMutation({
+    mutationFn: async () => {
+      for (const preset of missing) await post(orgUrl(orgSlug, "contracts/templates"), { name: preset.name, code: preset.code, contractType: preset.contractType, language: "fr", isActive: true, body: { blocks: templateBlocks(preset.name, preset.text) } });
+    },
+    onSettled: () => void queryClient.invalidateQueries({ queryKey: ["contract-templates", orgSlug] }),
+  });
   return <section className="overflow-hidden rounded-2xl border border-border-strong/80 bg-surface-1 shadow-[0_18px_44px_-34px_rgba(15,23,42,.42)]">
     <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border bg-[linear-gradient(112deg,rgba(20,184,166,.08),transparent_48%)] px-5 py-5">
       <div><div className="flex items-center gap-2"><span className="grid size-8 place-items-center rounded-lg border border-brand/20 bg-brand-subtle text-brand"><FileSignature className="size-4" /></span><h2 className="font-semibold text-ink">{fr ? "Bibliothèque de modèles" : "Template library"}</h2></div><p className="mt-2 max-w-2xl text-xs leading-5 text-ink-secondary">{fr ? "Les modèles réutilisables génèrent de nouvelles versions de contrat. Modifier un modèle ne change jamais les contrats ou signatures déjà envoyés." : "Reusable templates generate new contract versions. Editing a template never changes contracts or signatures already sent."}</p></div>
       {canCreate ? <Button size="sm" onClick={onCreate}><Plus />{fr ? "Créer un modèle" : "Create template"}</Button> : null}
     </div>
+    {canCreate ? <div className="border-b border-border bg-surface-2/40 px-5 py-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-sm font-semibold text-ink">{fr ? "Modèles prêts LiteHubs" : "Ready LiteHubs templates"}</p><p className="mt-0.5 text-xs leading-5 text-ink-secondary">{fr ? "Contrats complets prêts à l’emploi : ajoutez-les, puis ajustez seulement si besoin. Faites-les relire par un conseiller en droit du travail avant usage." : "Complete contracts ready to use: add them, then adjust only if needed. Have them reviewed by a labour-law adviser before use."}</p></div>{missing.length ? <Button size="sm" variant="secondary" loading={addAll.isPending} onClick={() => addAll.mutate()}><Plus />{fr ? `Ajouter les ${missing.length} modèles` : `Add ${missing.length} templates`}</Button> : <Badge variant="good">{fr ? "Tous ajoutés" : "All added"}</Badge>}</div>{addAll.error ? <p className="mt-2 text-xs text-critical">{(addAll.error as Error).message}</p> : null}<div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">{READY_CONTRACT_TEMPLATES.map((preset) => { const added = existingCodes.has(preset.code); return <div key={preset.key} className="flex flex-col justify-between gap-3 rounded-xl border border-border bg-surface-1 p-3"><div><p className="text-sm font-semibold leading-5 text-ink">{preset.name}</p><p className="mt-1 text-xs leading-5 text-ink-secondary">{preset.summary}</p></div>{added ? <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-good"><CheckCircle2 className="size-3.5" />{fr ? "Dans vos modèles" : "In your templates"}</span> : <button type="button" onClick={() => onUseReady(preset)} className="self-start text-xs font-semibold text-brand hover:underline">{fr ? "Voir et ajuster →" : "Review and adjust →"}</button>}</div>; })}</div></div> : null}
     {loading ? <div className="p-5"><SkeletonCard rows={2} /></div> : error ? <ErrorState title={fr ? "Impossible de charger les modèles" : "Could not load templates"} description={error} /> : templates.length ? <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">{templates.map((template) => {
       const excerpt = (template.body?.blocks ?? []).map((block) => block.text?.trim()).filter(Boolean).join(" ").slice(0, 180);
       return <article key={template.id} className={`group rounded-2xl border p-4 transition hover:-translate-y-0.5 hover:shadow-md ${template.isActive ? "border-brand/20 bg-[linear-gradient(145deg,rgba(20,184,166,.075),transparent_55%),var(--surface-1)]" : "border-border bg-surface-2/45 opacity-80"}`}>
@@ -394,13 +407,14 @@ function PaperSignaturePanel({ fr, orgSlug, contractId, onDone }: { fr: boolean;
     </form> : null}
   </section>;
 }
-function TemplateForm({ fr, orgSlug, template, onClose }: { fr: boolean; orgSlug: string; template: ContractTemplate | null; onClose: () => void }) {
+function TemplateForm({ fr, orgSlug, template, preset: initialPreset = null, onClose }: { fr: boolean; orgSlug: string; template: ContractTemplate | null; preset?: ReadyContractTemplate | null; onClose: () => void }) {
+  const [preset, setPreset] = useState<ReadyContractTemplate | null>(initialPreset);
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   // Headings come back as « ## … » lines so editing a template never loses them.
   const existingContent = template
     ? (template.body?.blocks ?? []).slice(1).map((block) => block.type === "heading" ? `## ${block.text ?? ""}` : block.text ?? "").filter(Boolean).join("\n\n")
-    : DEFAULT_EMPLOYMENT_CONTRACT_TEXT;
+    : preset?.text ?? DEFAULT_EMPLOYMENT_CONTRACT_TEXT;
   const save = useMutation({
     mutationFn: (body: unknown) => template ? patch(orgUrl(orgSlug, `contracts/templates/${template.id}`), body) : post(orgUrl(orgSlug, "contracts/templates"), body),
     onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ["contract-templates", orgSlug] }); onClose(); },
@@ -424,8 +438,9 @@ function TemplateForm({ fr, orgSlug, template, onClose }: { fr: boolean; orgSlug
     <div className="flex items-start justify-between gap-4 border-b border-border bg-[linear-gradient(110deg,rgba(20,184,166,.12),transparent_58%)] px-5 py-5"><div><p className="text-xs font-semibold uppercase tracking-[.14em] text-brand">{fr ? "Bibliothèque de modèles" : "Template library"}</p><h2 className="mt-1 text-lg font-semibold text-ink">{template ? (fr ? "Modifier le modèle" : "Edit template") : (fr ? "Créer un modèle" : "Create template")}</h2><p className="mt-1 max-w-xl text-xs leading-5 text-ink-secondary">{fr ? "Les champs {{employee.fullName}} et {{contract.startDate}} sont remplis de façon sécurisée à la génération. Une modification s’applique uniquement aux prochaines versions générées." : "Fields such as {{employee.fullName}} and {{contract.startDate}} are securely filled during generation. Changes only apply to future generated versions."}</p></div><button type="button" onClick={onClose} className="rounded-lg p-2 text-ink-secondary hover:bg-surface-3" aria-label={fr ? "Fermer" : "Close"}><X /></button></div>
     <div className="space-y-5 p-5">
       {error ? <div className="rounded-xl border border-critical/30 bg-critical/10 p-3 text-sm text-critical">{error}</div> : null}
-      <div className="grid gap-4 sm:grid-cols-2"><Field label={fr ? "Nom du modèle" : "Template name"} required><Input name="name" required defaultValue={template?.name ?? ""} /></Field><Field label={fr ? "Code unique" : "Unique code"} hint={fr ? "Lettres minuscules, chiffres, tirets ou underscores." : "Lowercase letters, numbers, hyphens or underscores."} required><Input name="code" required defaultValue={template?.code ?? ""} placeholder="contrat_travail_v1" /></Field><Field label={fr ? "Type" : "Type"} required><select name="contractType" className={selectClass} defaultValue={template?.contractType ?? "employment"}>{["employment", "service", "supply", "sales", "lease", "loan", "insurance", "nda", "other"].map((item) => <option key={item} value={item}>{contractTypeText(item, fr)}</option>)}</select></Field><Field label={fr ? "Langue" : "Language"}><select name="language" className={selectClass} defaultValue={template?.language ?? "fr"}><option value="fr">Français</option><option value="en">English</option></select></Field></div>
-      <Field label={fr ? "Clauses et contenu" : "Clauses and content"} hint={fr ? "« ## Article … » crée un titre, **texte** met en gras, « 1. » crée une liste. Champs remplis automatiquement : {{company.name}}, {{company.address}}, {{employee.fullName}}, {{employee.employeeNumber}}, {{employee.jobTitle}}, {{employee.workLocation}}, {{contract.startDate}}, {{contract.endDate}}, {{contract.salary}}, {{contract.currency}}, {{contract.employerSignerRole}}. Ne mettez pas de bloc de signature : il est ajouté automatiquement à la fin." : "“## Article …” makes a heading, **text** is bold, “1.” makes a list. Merge fields are filled automatically. Do not add a signature block: it is added automatically at the end."} required><Textarea name="body" required rows={18} defaultValue={existingContent} placeholder={fr ? "Utilisez {{employee.fullName}}, {{contract.startDate}}, {{contract.endDate}}, {{contract.salary}} et {{contract.currency}}." : "Use {{employee.fullName}}, {{contract.startDate}}, {{contract.endDate}}, {{contract.salary}} and {{contract.currency}}."} /></Field>
+      {!template ? <Field label={fr ? "Partir de" : "Start from"} hint={fr ? "Remplit le nom, le code et le texte ; vous pouvez ensuite tout ajuster." : "Fills the name, code and text; you can then adjust everything."}><select className={selectClass} value={preset?.key ?? ""} onChange={(event) => setPreset(READY_CONTRACT_TEMPLATES.find((item) => item.key === event.target.value) ?? null)}><option value="">{fr ? "Contrat de travail général LiteHubs" : "General LiteHubs employment contract"}</option>{READY_CONTRACT_TEMPLATES.map((item) => <option key={item.key} value={item.key}>{item.name}</option>)}</select></Field> : null}
+      <div key={preset?.key ?? "general"} className="space-y-5"><div className="grid gap-4 sm:grid-cols-2"><Field label={fr ? "Nom du modèle" : "Template name"} required><Input name="name" required defaultValue={template?.name ?? preset?.name ?? ""} /></Field><Field label={fr ? "Code unique" : "Unique code"} hint={fr ? "Lettres minuscules, chiffres, tirets ou underscores." : "Lowercase letters, numbers, hyphens or underscores."} required><Input name="code" required defaultValue={template?.code ?? preset?.code ?? ""} placeholder="contrat_travail_v1" /></Field><Field label={fr ? "Type" : "Type"} required><select name="contractType" className={selectClass} defaultValue={template?.contractType ?? "employment"}>{["employment", "service", "supply", "sales", "lease", "loan", "insurance", "nda", "other"].map((item) => <option key={item} value={item}>{contractTypeText(item, fr)}</option>)}</select></Field><Field label={fr ? "Langue" : "Language"}><select name="language" className={selectClass} defaultValue={template?.language ?? "fr"}><option value="fr">Français</option><option value="en">English</option></select></Field></div>
+      <Field label={fr ? "Clauses et contenu" : "Clauses and content"} hint={fr ? "« ## Article … » crée un titre, **texte** met en gras, « 1. » crée une liste. Champs remplis automatiquement : {{company.name}}, {{company.address}}, {{employee.fullName}}, {{employee.employeeNumber}}, {{employee.jobTitle}}, {{employee.workLocation}}, {{contract.startDate}}, {{contract.endDate}}, {{contract.salary}}, {{contract.currency}}, {{contract.paymentTerms}}, {{contract.employerSignerRole}}. Ne mettez pas de bloc de signature : il est ajouté automatiquement à la fin." : "“## Article …” makes a heading, **text** is bold, “1.” makes a list. Merge fields are filled automatically. Do not add a signature block: it is added automatically at the end."} required><Textarea name="body" required rows={18} defaultValue={existingContent} placeholder={fr ? "Utilisez {{employee.fullName}}, {{contract.startDate}}, {{contract.endDate}}, {{contract.salary}} et {{contract.currency}}." : "Use {{employee.fullName}}, {{contract.startDate}}, {{contract.endDate}}, {{contract.salary}} and {{contract.currency}}."} /></Field></div>
       <label className="flex items-start gap-3 rounded-xl border border-border bg-surface-2/45 p-3 text-sm text-ink"><input name="isActive" type="checkbox" defaultChecked={template?.isActive ?? true} className="mt-0.5 size-4 accent-brand" /><span><b>{fr ? "Modèle actif" : "Active template"}</b><span className="mt-0.5 block text-xs leading-5 text-ink-secondary">{fr ? "Décochez pour archiver : le modèle reste dans l’historique, mais ne peut plus servir pour une nouvelle version de contrat." : "Clear this to archive it: it stays in history but cannot be used for a new contract version."}</span></span></label>
     </div>
     <div className="flex justify-end gap-2 border-t border-border bg-surface-2 px-5 py-4"><Button type="button" variant="secondary" onClick={onClose}>{fr ? "Annuler" : "Cancel"}</Button><Button type="submit" loading={save.isPending}>{template ? (fr ? "Enregistrer les modifications" : "Save changes") : (fr ? "Enregistrer le modèle" : "Save template")}</Button></div>
