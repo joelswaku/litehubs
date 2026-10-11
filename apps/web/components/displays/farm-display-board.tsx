@@ -423,7 +423,20 @@ export function FarmDisplayBoard({ token }: { token: string }) {
             <div className="min-h-0 flex-1">{board}</div>
           </div>
         ) : videoUrl ? (
-          <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-3xl bg-black">
+          <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-3xl bg-[radial-gradient(ellipse_at_top,#14532d_0%,#0a0f0d_60%,#000_100%)]">
+            {/* Fills the bars around portrait or letterboxed videos with a soft, blurred copy. */}
+            <video
+              key={`bg-${videoUrl}-${position}`}
+              src={videoUrl}
+              autoPlay
+              muted
+              loop
+              playsInline
+              aria-hidden
+              tabIndex={-1}
+              className="pointer-events-none absolute inset-0 h-full w-full scale-125 object-cover opacity-70 blur-3xl saturate-150"
+            />
+            <div aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/40 via-black/20 to-black/60" />
             <video
               key={`${videoUrl}-${position}`}
               ref={videoRef}
@@ -434,9 +447,9 @@ export function FarmDisplayBoard({ token }: { token: string }) {
               onEnded={advance}
               onError={() => window.setTimeout(advance, 3000)}
               loop={slides.length === 1}
-              className="h-full w-full object-contain"
+              className="relative z-10 h-full w-full object-contain drop-shadow-[0_20px_60px_rgba(0,0,0,0.6)]"
             />
-            <p className="absolute left-5 top-4 rounded-full bg-black/50 px-4 py-1.5 text-sm font-semibold text-white/80">{video?.title}</p>
+            <p className="absolute left-5 top-4 z-20 rounded-full bg-black/50 px-4 py-1.5 text-sm font-semibold text-white/80">{video?.title}</p>
           </div>
         ) : (
           <div className="grid flex-1 place-items-center text-center">
