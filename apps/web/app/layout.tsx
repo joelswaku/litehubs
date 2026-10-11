@@ -72,6 +72,8 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  // Android Chrome: the keyboard shrinks the page instead of covering it.
+  interactiveWidget: "resizes-content",
   // Supervisors fill records on phones; the browser chrome should match the
   // active theme rather than sitting as a white bar above a dark app.
   themeColor: [

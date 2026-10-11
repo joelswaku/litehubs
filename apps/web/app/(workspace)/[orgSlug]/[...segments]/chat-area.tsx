@@ -181,7 +181,7 @@ export function ChatArea({ orgSlug }: { orgSlug: string }) {
   };
 
   return (
-    <div className="relative isolate flex h-[calc(100dvh-4rem)] min-h-[520px] gap-4 p-3 sm:p-5">
+    <div className="relative isolate flex h-[calc(var(--vvh,100dvh)-4rem)] min-h-[320px] gap-4 p-3 sm:min-h-[520px] sm:p-5">
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
         <div className="absolute -left-32 top-0 size-[28rem] rounded-full bg-brand/14 blur-3xl animate-[lh-float_22s_ease-in-out_infinite]" />
         <div className="absolute -right-32 bottom-[-6rem] size-[28rem] rounded-full bg-fuchsia-400/12 blur-3xl animate-[lh-float_28s_ease-in-out_infinite_reverse]" />
@@ -888,7 +888,7 @@ function Composer({
             }
           }}
           placeholder={tr(fr, "Écrire un message…", "Write a message…")}
-          className="max-h-40 min-h-10 flex-1 resize-none bg-transparent px-2 py-2 text-sm text-ink outline-none"
+          className="max-h-40 min-h-10 flex-1 resize-none bg-transparent px-2 py-2 text-base text-ink outline-none sm:text-sm"
         />
         <Button size="icon" className="rounded-xl bg-[linear-gradient(135deg,var(--brand),#5b4bd8)] text-white shadow-[0_8px_18px_-10px_var(--brand)] transition hover:brightness-110" loading={send.isPending} disabled={!body.trim() && !file} onClick={submit} aria-label={tr(fr, "Envoyer", "Send")}>
           <Send className="size-4" />
@@ -1509,7 +1509,7 @@ function VisitorView({
               }
             }}
             placeholder={tr(fr, "Répondre au client…", "Reply to the customer…")}
-            className="min-h-[44px] flex-1 resize-none bg-transparent px-2 py-2 text-sm text-ink outline-none"
+            className="min-h-[44px] flex-1 resize-none bg-transparent px-2 py-2 text-base text-ink outline-none sm:text-sm"
           />
           <Button size="icon" className="rounded-xl bg-[linear-gradient(135deg,var(--brand),#5b4bd8)] text-white shadow-[0_8px_18px_-10px_var(--brand)] transition hover:brightness-110" loading={reply.isPending} disabled={!body.trim()} type="submit" aria-label={tr(fr, "Envoyer", "Send")}>
             <Send className="size-4" />

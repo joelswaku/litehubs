@@ -19,6 +19,35 @@ export function PwaSupport() {
   const user = useSessionUser();
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
   const [isInstalled, setIsInstalled] = useState(false);
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
+
+  // Phones: iOS keeps 100dvh at full height when the keyboard opens, so the
+  // message box ends up behind it. Expose the visible height as --vvh so
+  // full-height screens (chat) shrink above the keyboard.
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    const root = document.documentElement;
+    const update = () => {
+      root.style.setProperty("--vvh", `${Math.round(viewport.height)}px`);
+      const open = window.innerHeight - viewport.height > 120;
+      setKeyboardOpen(open);
+      if (open) {
+        root.dataset.keyboard = "open";
+        // Keep the field being typed in just above the keyboard.
+        const field = document.activeElement;
+        if (field instanceof HTMLElement && /^(INPUT|TEXTAREA)$/.test(field.tagName))
+          window.requestAnimationFrame(() => field.scrollIntoView({ block: "nearest" }));
+      } else delete root.dataset.keyboard;
+    };
+    update();
+    viewport.addEventListener("resize", update);
+    return () => {
+      viewport.removeEventListener("resize", update);
+      root.style.removeProperty("--vvh");
+      delete root.dataset.keyboard;
+    };
+  }, []);
 
   useEffect(() => {
     // Next development bundles use stable URLs. A cache-first service worker
@@ -89,7 +118,7 @@ export function PwaSupport() {
     };
   }, []);
 
-  if (process.env.NODE_ENV !== "production" || !user || isInstalled) return null;
+  if (process.env.NODE_ENV !== "production" || !user || isInstalled || keyboardOpen) return null;
   return (
     <button
       type="button"
