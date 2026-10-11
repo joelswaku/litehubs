@@ -947,6 +947,7 @@ type TemplateRow = { id: string; code: string; name: string; contract_type: stri
 const MERGE_LABELS: Record<string, string> = {
   "company.name": "nom de l’entreprise",
   "company.address": "adresse de l’entreprise",
+  "company.rulesVersion": "version du règlement intérieur",
   "employee.fullName": "nom complet",
   "employee.employeeNumber": "matricule",
   "employee.jobTitle": "poste",
@@ -970,10 +971,11 @@ const amount = (value: string | null | undefined) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? new Intl.NumberFormat("fr-FR", { minimumFractionDigits: parsed % 1 ? 2 : 0, maximumFractionDigits: 2 }).format(parsed).replace(/\u202f|\u00a0/g, " ") : String(value);
 };
-function contractMergeValues(contract: ContractRow, employee: { full_name: string | null; employee_number: string | null; job_title: string | null; site_name: string | null } | undefined, company: { name: string; address: string }) {
+function contractMergeValues(contract: ContractRow, employee: { full_name: string | null; employee_number: string | null; job_title: string | null; site_name: string | null } | undefined, company: { name: string; address: string; rulesVersion?: string | null }) {
   return {
     "company.name": company.name,
     "company.address": company.address,
+    "company.rulesVersion": company.rulesVersion ?? "version en vigueur",
     "employee.fullName": employee?.full_name ?? contract.employee_name ?? "",
     "employee.employeeNumber": employee?.employee_number ?? "",
     "employee.jobTitle": employee?.job_title ?? "",
@@ -1241,7 +1243,11 @@ export async function generateContractDocumentVersion(context: ContractsContext,
       // document: stop and name it instead.
       const unknown=unknownMergeFields(body.blocks);
       if (unknown.length) throw new BadRequestError(`Champs inconnus dans le modèle : ${unknown.join(", ")}. Corrigez le modèle (champs possibles : ${Object.keys(MERGE_LABELS).map((key)=>`{{${key}}}`).join(", ")}).`,{field:"body"});
-      rendered={blocks:renderBlocks(body.blocks,contractMergeValues(contract,employee,{name:companyName,address:companyAddress}))};
+      // The rules version the employee acknowledges receiving (latest published).
+      const rules=await client.query<{version_number:number;created_at:string}>(`SELECT version_number,created_at::text FROM company_rules_versions WHERE organization_id=$1 AND status='published' ORDER BY version_number DESC LIMIT 1`,[context.organizationId]);
+      const rulesRow=rules.rows[0];
+      const rulesVersion=rulesRow?`version n° ${rulesRow.version_number} du ${longDate(rulesRow.created_at)}`:null;
+      rendered={blocks:renderBlocks(body.blocks,contractMergeValues(contract,employee,{name:companyName,address:companyAddress,rulesVersion}))};
     }
     // A new version replaces the previous one only while nobody has signed it.
     const previous=await client.query<{id:string;status:string;signed:number}>(`SELECT v.id,v.status,(SELECT count(*)::int FROM contract_signature_fields f WHERE f.organization_id=v.organization_id AND f.version_id=v.id AND f.status='signed') AS signed FROM contract_document_versions v WHERE v.organization_id=$1 AND v.contract_id=$2 ORDER BY v.version_number DESC LIMIT 1`,[context.organizationId,contractId]);

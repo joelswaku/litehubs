@@ -44,7 +44,8 @@ Le Travailleur respecte toutes les règles de santé, de sécurité, d’hygièn
 const CONFIDENTIALITY = (n: number) => `## Article ${n} — Confidentialité et matériel
 Le Travailleur s’engage à ne pas divulguer, pendant et après le contrat, les informations confidentielles de l’Employeur : données financières, clients, fournisseurs, procédures internes, documents et accès LiteHubs. Tout matériel, outil ou équipement confié reste la propriété de l’Employeur et doit être restitué à la fin du contrat ou sur demande.`;
 
-const DISCIPLINE = (n: number) => `## Article ${n} — Discipline
+const DISCIPLINE = (n: number) => `## Article ${n} — Règlement intérieur et discipline
+Le Travailleur reconnaît avoir reçu un exemplaire du règlement intérieur de {{company.name}} ({{company.rulesVersion}}), en avoir pris connaissance et s’engage à le respecter. Les mises à jour du règlement, adoptées selon les formes prévues par la loi, lui sont communiquées par LiteHubs ou par affichage.
 Tout manquement aux obligations du présent contrat ou au règlement intérieur peut donner lieu à une procédure disciplinaire conforme à la législation applicable et aux procédures internes de l’Employeur.`;
 
 const DISPUTES = (n: number) => `## Article ${n} — Règlement des différends
@@ -173,8 +174,9 @@ Le stage commence le **{{contract.startDate}}** et se termine le **{{contract.en
 ## Article 3 — Lieu et encadrement
 Le stage se déroule à **{{employee.workLocation}}**. Un maître de stage désigné par l’Entreprise d’accueil encadre le Stagiaire, fixe ses activités et évalue son travail.
 
-## Article 4 — Horaires et présence
+## Article 4 — Horaires, présence et règlement intérieur
 Le Stagiaire respecte les horaires du site et les procédures de présence (pointage LiteHubs). Toute absence doit être signalée et justifiée.
+Le Stagiaire reconnaît avoir reçu un exemplaire du règlement intérieur de {{company.name}} ({{company.rulesVersion}}), en avoir pris connaissance et s’engage à le respecter pendant toute la durée du stage.
 
 ## Article 5 — Gratification
 Le Stagiaire perçoit une gratification de **{{contract.salary}} {{contract.currency}}** par mois de stage. Modalités : {{contract.paymentTerms}}.
