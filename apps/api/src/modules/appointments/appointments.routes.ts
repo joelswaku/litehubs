@@ -103,6 +103,12 @@ appointmentRoutes.get(
   controller.summary,
 );
 appointmentRoutes.get(
+  "/organizations/:orgSlug/appointments/videos",
+  ...inside,
+  requirePermission("appointments.read"),
+  controller.idleVideos,
+);
+appointmentRoutes.get(
   "/organizations/:orgSlug/appointments/settings",
   ...inside,
   requirePermission("appointments.read"),

@@ -21,6 +21,7 @@ import { PhoneInput } from "@/components/ui/phone-input";
 import { EmptyState, ErrorState, SkeletonCard } from "@/components/ui/states";
 import { ApiError, get, post } from "@/lib/api";
 import { API_PREFIX } from "@/lib/constants";
+import { FarmDisplayBoard } from "@/components/displays/farm-display-board";
 
 type Site = {
   code: string;
@@ -845,6 +846,26 @@ export function PublicQueuePage({
           "Nous sommes prêts à vous accueillir. Présentez-vous au guichet ou suivez les instructions du site.",
           "We are ready to welcome you. Please come to reception or follow the site instructions.",
         ));
+  const idleScreenToken: string | null = queue.data?.idleDisplay?.screenToken ?? null;
+
+  // While nobody waits, the linked display screen (videos, statistics, ticker)
+  // takes over; the queue polling keeps running and brings the queue back.
+  if (queue.data && isQueueIdle && idleScreenToken)
+    return (
+      <div className="relative">
+        <FarmDisplayBoard token={idleScreenToken} idleOnly />
+        {!soundEnabled ? (
+          <button
+            type="button"
+            onClick={() => void toggleSound()}
+            className="fixed bottom-14 right-5 z-50 inline-flex min-h-10 items-center gap-2 rounded-xl border border-white/25 bg-black/50 px-4 text-sm font-bold text-white backdrop-blur transition hover:bg-black/70"
+          >
+            <MonitorPlay className="size-4" />
+            {label(fr, "Activer le son des appels", "Enable call sound")}
+          </button>
+        ) : null}
+      </div>
+    );
 
   return (
     <main className="min-h-dvh overflow-x-hidden bg-[radial-gradient(circle_at_16%_0%,#0f766e_0%,#073a31_38%,#062c25_78%)] px-4 py-4 text-white sm:px-7 sm:py-6 2xl:px-10">

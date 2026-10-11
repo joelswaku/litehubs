@@ -34,6 +34,8 @@ export const list: RequestHandler = async (req, res) =>
   res.json(await service.listAppointments(context(req), req.query as unknown as ListAppointmentsInput));
 export const summary: RequestHandler = async (req, res) =>
   res.json({ summary: await service.summary(context(req)) });
+export const idleVideos: RequestHandler = async (req, res) =>
+  res.json(await service.listIdleVideos(context(req)));
 export const settings: RequestHandler = async (req, res) =>
   res.json({ settings: await service.listSiteSettings(context(req)) });
 export const saveSettings: RequestHandler = async (req, res) =>

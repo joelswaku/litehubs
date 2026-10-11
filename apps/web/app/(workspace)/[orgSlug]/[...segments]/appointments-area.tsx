@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { SiteQr } from "@/components/appointments/site-qr";
+import { IdleScreenFields, type IdleScreenValue, type IdleVideo } from "@/components/displays/idle-screen-fields";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -2549,43 +2550,24 @@ function SettingsEditor({
     idleDisplayMessage: item.idleDisplayMessage ?? "",
     idleDisplayDocumentId: item.idleDisplayDocument?.id ?? null,
     idleDisplayDocument: item.idleDisplayDocument ?? null,
+    idleScreen: {
+      siteId: item.idleScreen?.siteId ?? null,
+      sections: item.idleScreen?.sections ?? [],
+      // The former single video becomes the first video of the list.
+      videoDocumentIds:
+        item.idleScreen?.videoDocumentIds ??
+        (item.idleDisplayDocument ? [item.idleDisplayDocument.id] : []),
+      rotateSeconds: item.idleScreen?.rotateSeconds ?? 20,
+      videosBetween: item.idleScreen?.videosBetween ?? true,
+      message: item.idleScreen?.message ?? item.idleDisplayMessage ?? "",
+    } as IdleScreenValue,
   });
-  const uploadIdleVideo = useMutation({
-    mutationFn: async (file: File) => {
-      if (!["video/mp4", "video/webm"].includes(file.type))
-        throw new Error(
-          tr(
-            fr,
-            "Choisissez une vidéo MP4 ou WebM.",
-            "Choose an MP4 or WebM video.",
-          ),
-        );
-      const data = new FormData();
-      data.set("file", file);
-      data.set("title", file.name.replace(/\.[^.]+$/, ""));
-      data.set("category", "general");
-      data.set("siteId", item.site.id);
-      return (
-        await api.post(orgUrl(orgSlug, "documents"), data, {
-          headers: { "Content-Type": "multipart/form-data" },
-        })
-      ).data.document;
-    },
-    onSuccess: (document: any) => {
-      setState((previous: any) => ({
-        ...previous,
-        idleDisplayDocumentId: document.id,
-        idleDisplayDocument: document,
-      }));
-      toast.success(
-        tr(
-          fr,
-          "Vidéo ajoutée. Enregistrez la configuration pour la diffuser sur la TV.",
-          "Video uploaded. Save the configuration to show it on TV.",
-        ),
-      );
-    },
-    onError: (error: Error) => toast.error(error.message),
+  const idleOptions = useQuery({
+    queryKey: ["appointment-idle-options", orgSlug],
+    queryFn: () =>
+      get<{ videos: IdleVideo[]; sites: { id: string; name: string }[] }>(
+        orgUrl(orgSlug, "appointments/videos"),
+      ),
   });
   const settingsPayload = (value: any) => ({
     siteId: item.site.id,
@@ -2600,6 +2582,9 @@ function SettingsEditor({
     idleDisplayTitle: value.idleDisplayTitle,
     idleDisplayMessage: value.idleDisplayMessage,
     idleDisplayDocumentId: value.idleDisplayDocumentId,
+    idleScreen: value.idleScreen
+      ? { ...value.idleScreen, message: value.idleScreen.message.trim() || null }
+      : undefined,
   });
   return (
     <Card className="border-brand/35">
@@ -2711,134 +2696,25 @@ function SettingsEditor({
               )}
             </p>
           </FormField>
-          <div className="md:col-span-4 grid gap-3 rounded-2xl border border-sky-500/20 bg-sky-500/[0.035] p-4 sm:grid-cols-[.8fr_1.2fr]">
-            <FormField
-              label={tr(
+          <div className="md:col-span-4 rounded-2xl border border-amber-500/25 bg-amber-500/[0.04] p-4">
+            <p className="text-sm font-semibold text-ink">
+              {tr(fr, "Écran TV lorsque la file est vide", "TV screen when the queue is empty")}
+            </p>
+            <p className="mt-1 mb-4 max-w-2xl text-xs leading-5 text-ink-secondary">
+              {tr(
                 fr,
-                "Titre lorsque la file est vide",
-                "Empty-queue title",
+                "Quand personne n’attend, la TV passe vos vidéos et/ou les statistiques, avec le message qui défile. Dès qu’un client arrive, la file d’attente revient automatiquement.",
+                "While nobody waits, the TV plays your videos and/or statistics with the scrolling message. As soon as a visitor arrives, the queue comes back automatically.",
               )}
-            >
-              <Input
-                maxLength={120}
-                placeholder={tr(
-                  fr,
-                  "Ex. Bienvenue à Congo Omega",
-                  "e.g. Welcome to Congo Omega",
-                )}
-                value={state.idleDisplayTitle}
-                onChange={(event) =>
-                  setState((previous: any) => ({
-                    ...previous,
-                    idleDisplayTitle: event.target.value,
-                  }))
-                }
-              />
-            </FormField>
-            <FormField
-              label={tr(
-                fr,
-                "Message lorsque la file est vide",
-                "Empty-queue message",
-              )}
-            >
-              <Textarea
-                maxLength={600}
-                rows={3}
-                placeholder={tr(
-                  fr,
-                  "Ex. Nous sommes prêts à vous accueillir. Présentez-vous au guichet ou scannez le QR code.",
-                  "e.g. We are ready to welcome you. Please come to reception or scan the QR code.",
-                )}
-                value={state.idleDisplayMessage}
-                onChange={(event) =>
-                  setState((previous: any) => ({
-                    ...previous,
-                    idleDisplayMessage: event.target.value,
-                  }))
-                }
-              />
-              <p className="mt-1 text-xs leading-5 text-ink-secondary">
-                {tr(
-                  fr,
-                  "Ce contenu animé apparaît uniquement sur la TV lorsqu’il n’y a aucun numéro en attente ni en cours.",
-                  "This animated content appears only on the TV when no ticket is waiting or being served.",
-                )}
-              </p>
-            </FormField>
+            </p>
+            <IdleScreenFields
+              fr={fr}
+              value={state.idleScreen}
+              onChange={(idleScreen) => setState((previous: any) => ({ ...previous, idleScreen }))}
+              videos={idleOptions.data?.videos ?? []}
+              sites={idleOptions.data?.sites ?? []}
+            />
           </div>
-          <div className="md:col-span-4 rounded-2xl border border-violet-500/20 bg-violet-500/[0.035] p-4">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold text-ink">
-                  {tr(
-                    fr,
-                    "Vidéo lorsque la file est vide",
-                    "Empty-queue video",
-                  )}
-                </p>
-                <p className="mt-1 max-w-2xl text-xs leading-5 text-ink-secondary">
-                  {tr(
-                    fr,
-                    "Ajoutez une courte vidéo MP4 ou WebM. Elle est diffusée automatiquement, sans son, uniquement sur la TV lorsque personne n’attend et qu’aucun numéro n’est appelé.",
-                    "Add a short MP4 or WebM video. It plays automatically without sound only on the TV when nobody is waiting and no ticket is called.",
-                  )}
-                </p>
-              </div>
-              {state.idleDisplayDocument ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  loading={saving}
-                  onClick={() => {
-                    const next = {
-                      ...state,
-                      idleDisplayDocumentId: null,
-                      idleDisplayDocument: null,
-                    };
-                    setState(next);
-                    onSave(settingsPayload(next));
-                  }}
-                >
-                  <Trash2 />
-                  {tr(fr, "Retirer la vidéo", "Remove video")}
-                </Button>
-              ) : null}
-            </div>
-            <div className="mt-4 flex flex-wrap items-center gap-3">
-              <input
-                aria-label={tr(
-                  fr,
-                  "Téléverser une vidéo pour la TV",
-                  "Upload a video for the TV",
-                )}
-                type="file"
-                accept="video/mp4,video/webm"
-                className="block max-w-full text-xs text-ink-secondary file:mr-3 file:rounded-lg file:border-0 file:bg-brand/10 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-brand hover:file:bg-brand/15"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  event.currentTarget.value = "";
-                  if (file) uploadIdleVideo.mutate(file);
-                }}
-              />
-              {uploadIdleVideo.isPending ? (
-                <span className="text-xs font-medium text-brand">
-                  {tr(fr, "Téléversement…", "Uploading…")}
-                </span>
-              ) : null}
-              {state.idleDisplayDocument ? (
-                <span className="rounded-full border border-violet-500/20 bg-surface-1 px-3 py-1.5 text-xs font-medium text-ink">
-                  {state.idleDisplayDocument.title ??
-                    state.idleDisplayDocument.fileName}
-                </span>
-              ) : (
-                <span className="text-xs text-ink-secondary">
-                  {tr(fr, "Aucune vidéo sélectionnée", "No video selected")}
-                </span>
-              )}
-            </div>
-          </div>{" "}
           <div className="md:col-span-4 rounded-2xl border border-brand/20 bg-brand/[0.035] p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>

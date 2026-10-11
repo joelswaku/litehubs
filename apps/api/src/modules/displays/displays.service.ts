@@ -85,7 +85,7 @@ export async function listDisplays(context: DisplayContext) {
     const displays = await client.query<Row>(
       `SELECT d.*, s.name AS site_name FROM farm_displays d
          LEFT JOIN sites s ON s.organization_id=d.organization_id AND s.id=d.site_id
-        WHERE d.organization_id=$1 ORDER BY d.created_at`,
+        WHERE d.organization_id=$1 AND d.appointment_site_id IS NULL ORDER BY d.created_at`,
       [context.organizationId],
     );
     const videos = await client.query<Row>(

@@ -65,6 +65,15 @@ export const appointmentSiteSettingsInput = z.object({
   idleDisplayTitle: optionalText(120),
   idleDisplayMessage: optionalText(600),
   idleDisplayDocumentId: id.nullable().optional(),
+  // The TV screen shown while nobody waits (videos, statistics, scrolling message).
+  idleScreen: z.object({
+    siteId: id.nullable().optional(),
+    sections: z.array(z.enum(["poultry", "pigs", "agriculture"])).max(3),
+    videoDocumentIds: z.array(id).max(20),
+    rotateSeconds: z.number().int().min(8).max(300),
+    videosBetween: z.boolean(),
+    message: z.string().trim().max(200).nullable().optional(),
+  }).optional(),
 }).superRefine((value, ctx) => {
   if (value.bookingClosesAt <= value.bookingOpensAt)
     ctx.addIssue({ code: "custom", path: ["bookingClosesAt"], message: "Closing time must be later than opening time" });

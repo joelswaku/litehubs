@@ -148,7 +148,8 @@ function Board({ columns, rows }: { columns: { label: string; className?: string
   );
 }
 
-export function FarmDisplayBoard({ token }: { token: string }) {
+/** idleOnly: shown by a site's queue TV while nobody waits — the queue page handles calls. */
+export function FarmDisplayBoard({ token, idleOnly = false }: { token: string; idleOnly?: boolean }) {
   const query = useQuery({
     queryKey: ["farm-display", token],
     queryFn: () => get<Payload>(`/public/displays/${token}`),
@@ -158,7 +159,7 @@ export function FarmDisplayBoard({ token }: { token: string }) {
     retryDelay: 30_000,
   });
   const data = query.data;
-  const queueEnabled = Boolean(data?.display.sections.includes("appointments"));
+  const queueEnabled = !idleOnly && Boolean(data?.display.sections.includes("appointments"));
   const queue = useQuery({
     queryKey: ["farm-display-queue", token],
     queryFn: () => get<Queue>(`/public/displays/${token}/queue`),

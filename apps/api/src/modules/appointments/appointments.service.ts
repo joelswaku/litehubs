@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import type { PoolClient } from "pg";
 import { db } from "../../config/database";
 import { readPrivateDocument } from "../../services/file-storage.service";
@@ -321,6 +322,14 @@ function settingsMap(row: Row) {
       fileName: row.idle_display_document_file_name ?? null,
       mimeType: row.idle_display_document_mime_type ?? null,
     } : null,
+    idleScreen: row.idle_screen_id ? {
+      siteId: row.idle_screen_site_id ?? null,
+      sections: (row.idle_screen_sections as string[]) ?? [],
+      videoDocumentIds: (row.idle_screen_video_ids as string[]) ?? [],
+      rotateSeconds: Number(row.idle_screen_rotate_seconds ?? 20),
+      videosBetween: Boolean(row.idle_screen_videos_between),
+      message: row.idle_screen_message ?? null,
+    } : null,
   };
 }
 
@@ -381,10 +390,11 @@ export async function listSiteSettings(context: AppointmentContext) {
     if (scope === "self") filter = " AND FALSE";
     if (scope === "province") { values.push(context.memberId); filter = " AND EXISTS (SELECT 1 FROM member_provinces mp WHERE mp.organization_id=s.organization_id AND mp.member_id=$2 AND mp.province_id=s.province_id)"; }
     const result = await client.query<Row>(
-      `SELECT settings.*,s.id AS site_id,s.code AS site_code,s.name AS site_name,s.province_id,p.name AS province_name, idle_document.title AS idle_display_document_title,idle_document.file_name AS idle_display_document_file_name,idle_document.mime_type AS idle_display_document_mime_type
+      `SELECT settings.*,s.id AS site_id,s.code AS site_code,s.name AS site_name,s.province_id,p.name AS province_name, idle_document.title AS idle_display_document_title,idle_document.file_name AS idle_display_document_file_name,idle_document.mime_type AS idle_display_document_mime_type,idle_screen.id AS idle_screen_id,idle_screen.site_id AS idle_screen_site_id,idle_screen.sections AS idle_screen_sections,idle_screen.video_document_ids AS idle_screen_video_ids,idle_screen.rotate_seconds AS idle_screen_rotate_seconds,idle_screen.videos_between AS idle_screen_videos_between,idle_screen.message AS idle_screen_message
        FROM sites s JOIN provinces p ON p.organization_id=s.organization_id AND p.id=s.province_id
        LEFT JOIN appointment_site_settings settings ON settings.organization_id=s.organization_id AND settings.site_id=s.id
        LEFT JOIN documents idle_document ON idle_document.organization_id=settings.organization_id AND idle_document.id=settings.idle_display_document_id
+       LEFT JOIN farm_displays idle_screen ON idle_screen.organization_id=s.organization_id AND idle_screen.appointment_site_id=s.id
        WHERE s.organization_id=$1 AND s.is_active${filter} ORDER BY p.name,s.name`, values);
     return result.rows.map((row) => { const value = settingsMap(row); if (!context.permissions.includes("appointments.create")) value.checkinToken = null; return value; });
   });
@@ -411,7 +421,8 @@ export async function saveSiteSettings(context: AppointmentContext, input: Appoi
        RETURNING *`,
       [context.organizationId,input.siteId,input.publicBookingEnabled,input.qrCheckinEnabled,input.queueDisplayEnabled,input.bookingOpensAt,input.bookingClosesAt,input.slotIntervalMinutes,input.defaultServiceMinutes,input.welcomeMessage ?? null,input.queueCallMessage ?? null,input.idleDisplayTitle ?? null,input.idleDisplayMessage ?? null,input.idleDisplayDocumentId ?? null,context.userId],
     );
-    const site = await client.query<Row>(`SELECT s.code AS site_code,s.name AS site_name,s.province_id,p.name AS province_name,idle_document.title AS idle_display_document_title,idle_document.file_name AS idle_display_document_file_name,idle_document.mime_type AS idle_display_document_mime_type FROM sites s JOIN provinces p ON p.organization_id=s.organization_id AND p.id=s.province_id LEFT JOIN appointment_site_settings settings ON settings.organization_id=s.organization_id AND settings.site_id=s.id LEFT JOIN documents idle_document ON idle_document.organization_id=settings.organization_id AND idle_document.id=settings.idle_display_document_id WHERE s.organization_id=$1 AND s.id=$2`,[context.organizationId,input.siteId]);
+    if (input.idleScreen) await saveIdleScreen(client, context, input.siteId, input.idleScreen);
+    const site = await client.query<Row>(`SELECT s.code AS site_code,s.name AS site_name,s.province_id,p.name AS province_name,idle_document.title AS idle_display_document_title,idle_document.file_name AS idle_display_document_file_name,idle_document.mime_type AS idle_display_document_mime_type,idle_screen.id AS idle_screen_id,idle_screen.site_id AS idle_screen_site_id,idle_screen.sections AS idle_screen_sections,idle_screen.video_document_ids AS idle_screen_video_ids,idle_screen.rotate_seconds AS idle_screen_rotate_seconds,idle_screen.videos_between AS idle_screen_videos_between,idle_screen.message AS idle_screen_message FROM sites s JOIN provinces p ON p.organization_id=s.organization_id AND p.id=s.province_id LEFT JOIN appointment_site_settings settings ON settings.organization_id=s.organization_id AND settings.site_id=s.id LEFT JOIN documents idle_document ON idle_document.organization_id=settings.organization_id AND idle_document.id=settings.idle_display_document_id LEFT JOIN farm_displays idle_screen ON idle_screen.organization_id=s.organization_id AND idle_screen.appointment_site_id=s.id WHERE s.organization_id=$1 AND s.id=$2`,[context.organizationId,input.siteId]);
     return settingsMap({ ...result.rows[0], ...site.rows[0] });
   });
 }
@@ -1029,7 +1040,11 @@ export async function publicQueueDisplay(orgSlug: string, siteCode: string) {
   const context = publicContext(site);
   return withTenantContext(context, async (client) => {
     const idleSettings = await client.query<Row>(
-      `SELECT idle_display_title,idle_display_message,idle_display_document_id FROM appointment_site_settings WHERE organization_id=$1 AND site_id=$2`,
+      `SELECT settings.idle_display_title,settings.idle_display_message,settings.idle_display_document_id,screen.token AS idle_screen_token
+         FROM appointment_site_settings settings
+         LEFT JOIN farm_displays screen ON screen.organization_id=settings.organization_id AND screen.appointment_site_id=settings.site_id AND screen.is_active
+              AND (cardinality(screen.sections) > 0 OR cardinality(screen.video_document_ids) > 0)
+        WHERE settings.organization_id=$1 AND settings.site_id=$2`,
       [site.organization_id, site.site_id],
     );    const rows = await client.query<Row>(
       `SELECT a.queue_number,a.status,a.visitor_name,a.queue_call_message,svc.name AS service_name,desk.name AS desk_name
@@ -1060,6 +1075,8 @@ export async function publicQueueDisplay(orgSlug: string, siteCode: string) {
         message: idleSettings.rows[0]?.idle_display_message ?? null,
         videoId: idleSettings.rows[0]?.idle_display_document_id ?? null,
         hasVideo: Boolean(idleSettings.rows[0]?.idle_display_document_id),
+        // A linked display screen (videos, statistics, ticker) plays while the queue is empty.
+        screenToken: idleSettings.rows[0]?.idle_screen_token ?? null,
       },
       refreshedAt: new Date().toISOString(),
     };
@@ -1091,4 +1108,55 @@ export async function publicIdleDisplayVideo(orgSlug: string, siteCode: string) 
       buffer: await readPrivateDocument(String(video.storage_path)),
     };
   });
+}
+
+/** Company videos the queue TV can play while nobody is waiting. */
+export async function listIdleVideos(context: AppointmentContext) {
+  return withTenantContext(context, async (client) => {
+    const result = await client.query<Row>(
+      `SELECT id,title,file_name,size_bytes FROM documents
+        WHERE organization_id=$1 AND mime_type IN ('video/mp4','video/webm') ORDER BY created_at DESC LIMIT 200`,
+      [context.organizationId],
+    );
+    const sites = await client.query<Row>(`SELECT id,name FROM sites WHERE organization_id=$1 AND is_active ORDER BY name`, [context.organizationId]);
+    return {
+      videos: result.rows.map((row) => ({ id: row.id as string, title: (row.title as string) || (row.file_name as string), sizeBytes: Number(row.size_bytes) })),
+      sites: sites.rows.map((row) => ({ id: row.id as string, name: row.name as string })),
+    };
+  });
+}
+
+type IdleScreenInput = NonNullable<AppointmentSiteSettingsInput["idleScreen"]>;
+
+/** The site's own display screen, created on first save and hidden from the "Display screens" list. */
+async function saveIdleScreen(client: PoolClient, context: AppointmentContext, siteId: string, input: IdleScreenInput) {
+  if (input.siteId) {
+    const site = await client.query(`SELECT 1 FROM sites WHERE organization_id=$1 AND id=$2`, [context.organizationId, input.siteId]);
+    if (!site.rowCount) throw new BadRequestError("Site not found", { field: "idleScreen.siteId" });
+  }
+  const videoIds = [...new Set(input.videoDocumentIds)];
+  if (videoIds.length) {
+    const videos = await client.query(
+      `SELECT id FROM documents WHERE organization_id=$1 AND id = ANY($2::uuid[]) AND mime_type IN ('video/mp4','video/webm')`,
+      [context.organizationId, videoIds],
+    );
+    if (videos.rowCount !== videoIds.length)
+      throw new BadRequestError("Choose MP4 or WebM videos from this company", { field: "idleScreen.videoDocumentIds" });
+  }
+  const name = await client.query<Row>(`SELECT name FROM sites WHERE organization_id=$1 AND id=$2`, [context.organizationId, siteId]);
+  const values = [
+    context.organizationId, siteId, `Accueil · ${name.rows[0]?.name ?? ""}`.slice(0, 80), input.siteId ?? null,
+    input.sections, input.rotateSeconds, videoIds, input.videosBetween && videoIds.length > 0, input.message?.trim() || null,
+  ];
+  const updated = await client.query(
+    `UPDATE farm_displays SET name=$3,site_id=$4,sections=$5,rotate_seconds=$6,video_document_ids=$7,videos_between=$8,message=$9,updated_at=now()
+      WHERE organization_id=$1 AND appointment_site_id=$2`,
+    values,
+  );
+  if (!updated.rowCount)
+    await client.query(
+      `INSERT INTO farm_displays (organization_id,appointment_site_id,name,site_id,sections,rotate_seconds,video_document_ids,videos_between,message,token)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      [...values, randomBytes(24).toString("base64url")],
+    );
 }
