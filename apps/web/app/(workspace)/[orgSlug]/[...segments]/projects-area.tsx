@@ -1206,7 +1206,7 @@ export function ProjectsArea({ orgSlug }: { orgSlug: string }) {
               : `${taskTitle.slice(0, 170)} · evidence`,
           );
           await api.post(
-            orgApiUrl(orgSlug, `task-evidence/${taskId}`),
+            orgUrl(orgSlug, `task-evidence/${taskId}`),
             evidenceForm,
             {
               headers: { "Content-Type": "multipart/form-data" },
@@ -1223,7 +1223,7 @@ export function ProjectsArea({ orgSlug }: { orgSlug: string }) {
         const uploadForm = new FormData();
         uploadForm.set("file", expenseEvidence);
         await api.post(
-          orgApiUrl(orgSlug, `expense-evidence/${expenseId}`),
+          orgUrl(orgSlug, `expense-evidence/${expenseId}`),
           uploadForm,
           {
             headers: { "Content-Type": "multipart/form-data" },

@@ -2337,7 +2337,7 @@ function SidebarTaskDetailDialog({
             ? `${taskTitle.slice(0, 110)} · ${fileName}`
             : `${taskTitle.slice(0, 170)} · evidence`,
         );
-        await api.post(orgApiUrl(orgSlug, `task-evidence/${task.id}`), form, {
+        await api.post(orgUrl(orgSlug, `task-evidence/${task.id}`), form, {
           headers: { "Content-Type": "multipart/form-data" },
         });
       }
