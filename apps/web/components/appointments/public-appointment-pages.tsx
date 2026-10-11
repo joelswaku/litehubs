@@ -867,79 +867,82 @@ export function PublicQueuePage({
       </div>
     );
 
+  const called = activeCalls.filter((call: any) => call.status === "called");
+  const tickerText = [
+    queue.data?.idleDisplay?.title?.trim(),
+    queue.data?.idleDisplay?.message?.trim(),
+    label(
+      fr,
+      "Les noms affichent uniquement le prénom et l’initiale afin de protéger la confidentialité des visiteurs.",
+      "Names are shown as first name and initial to protect visitor privacy.",
+    ),
+  ]
+    .filter(Boolean)
+    .join("   •   ");
+  const initials = (queue.data?.organizationName ?? "LiteHubs")
+    .split(/\s+/)
+    .map((word: string) => word[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+
   return (
-    <main className="min-h-dvh overflow-x-hidden bg-[radial-gradient(circle_at_16%_0%,#0f766e_0%,#073a31_38%,#062c25_78%)] px-4 py-4 text-white sm:px-7 sm:py-6 2xl:px-10">
-      <section className="mx-auto flex min-h-[calc(100dvh-2rem)] w-full max-w-[1920px] flex-col sm:min-h-[calc(100dvh-3rem)]">
-        <header className="mb-5 flex flex-wrap items-center justify-between gap-4 border-b border-emerald-100/15 pb-4 sm:mb-7 sm:pb-5">
-          <div className="flex min-w-0 items-center gap-3 sm:gap-4">
-            <span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-emerald-300 text-emerald-950 shadow-lg shadow-emerald-950/20 sm:size-14">
-              <MonitorPlay className="size-6 sm:size-7" />
-            </span>
-            <div className="min-w-0">
-              <p className="truncate text-xl font-extrabold tracking-tight sm:text-2xl">
-                {queue.data?.organizationName ?? "LiteHubs"}
-              </p>
-              <p className="mt-0.5 truncate text-sm font-medium text-emerald-100 sm:text-base">
-                {queue.data?.siteName ?? "…"}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 sm:gap-3">
-            <button
-              type="button"
-              onClick={() => void toggleSound()}
-              className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-emerald-100/30 bg-white/[0.04] px-3 text-xs font-bold text-emerald-50 transition hover:bg-white/10 sm:px-4 sm:text-sm"
-              aria-pressed={soundEnabled}
-            >
-              {soundEnabled ? (
-                <Volume2 className="size-4" />
-              ) : (
-                <VolumeX className="size-4" />
-              )}
-              {soundEnabled
-                ? label(fr, "Son activé", "Sound on")
-                : label(fr, "Activer le son", "Enable sound")}
-            </button>
-            <button
-              type="button"
-              onClick={() => setFr((value) => !value)}
-              className="min-h-10 rounded-xl border border-emerald-100/30 bg-white/[0.04] px-3 text-xs font-bold tracking-[.12em] text-emerald-50 transition hover:bg-white/10 sm:px-4 sm:text-sm"
-              aria-label={label(fr, "Afficher en anglais", "Show in French")}
-            >
-              {fr ? "EN" : "FR"}
-            </button>
-            <p className="hidden text-base font-semibold tabular-nums text-emerald-100 sm:block">
-              {new Date().toLocaleTimeString(fr ? "fr-FR" : "en-GB", {
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
+    <main className="flex min-h-dvh flex-col overflow-x-hidden bg-[#050d24] xl:h-dvh xl:min-h-[34rem] xl:overflow-hidden bg-[radial-gradient(ellipse_at_top,#12306e_0%,#0a1a44_45%,#050d24_100%)] text-white">
+      {/* Header — same look as the display screens. */}
+      <header className="flex shrink-0 items-center justify-between gap-4 border-b-4 border-amber-400 bg-[#0a1a44]/80 px-5 py-3 sm:px-8 sm:py-4">
+        <div className="flex min-w-0 items-center gap-4">
+          <span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-amber-400 text-lg font-black text-[#0a1a44] shadow-lg sm:size-14 sm:text-xl">
+            {initials}
+          </span>
+          <div className="min-w-0">
+            <p className="truncate text-xl font-black uppercase tracking-wide sm:text-3xl">
+              {queue.data?.organizationName ?? "LiteHubs"}
+            </p>
+            <p className="truncate text-sm font-semibold text-sky-200 sm:text-base">
+              {label(fr, "Accueil", "Reception")} · {queue.data?.siteName ?? "…"}
             </p>
           </div>
-        </header>
+        </div>
+        <div className="flex shrink-0 items-center gap-2 sm:gap-4">
+          <button
+            type="button"
+            onClick={() => void toggleSound()}
+            aria-pressed={soundEnabled}
+            className={`inline-flex items-center gap-2 rounded-full border-2 px-3 py-2 text-xs font-bold uppercase tracking-wide transition sm:px-4 sm:text-sm ${soundEnabled ? "border-emerald-300/60 text-emerald-200" : "animate-pulse border-amber-300 bg-amber-400 text-[#0a1a44]"}`}
+          >
+            {soundEnabled ? <Volume2 className="size-4" /> : <VolumeX className="size-4" />}
+            <span className="hidden sm:inline">
+              {soundEnabled ? label(fr, "Son activé", "Sound on") : label(fr, "Activer le son", "Enable sound")}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setFr((value) => !value)}
+            className="rounded-full border-2 border-white/25 px-3 py-2 text-xs font-bold tracking-[.12em] text-white/85 transition hover:bg-white/10 sm:text-sm"
+            aria-label={label(fr, "Afficher en anglais", "Show in French")}
+          >
+            {fr ? "EN" : "FR"}
+          </button>
+          <QueueClock fr={fr} />
+        </div>
+      </header>
+
+      <div className="flex min-h-0 flex-1 flex-col px-5 py-5 sm:px-8 sm:py-6">
         {queue.isLoading ? (
           <div className="grid flex-1 place-items-center">
-            <Loader2 className="size-10 animate-spin text-emerald-200" />
+            <Loader2 className="size-10 animate-spin text-sky-200" />
           </div>
         ) : queue.isError ? (
           <div className="grid flex-1 place-items-center text-center">
             <div>
               <p className="text-2xl font-semibold">{unavailableTitle}</p>
-              <p className="mt-3 max-w-md text-base leading-7 text-emerald-100">
-                {unavailableDescription}
-              </p>
-              <Button
-                type="button"
-                variant="secondary"
-                className="mt-6"
-                onClick={() => void queue.refetch()}
-              >
+              <p className="mt-3 max-w-md text-base leading-7 text-sky-100">{unavailableDescription}</p>
+              <Button type="button" variant="secondary" className="mt-6" onClick={() => void queue.refetch()}>
                 {label(fr, "Réessayer", "Try again")}
               </Button>
             </div>
           </div>
-        ) : (
-          <>
-            {isQueueIdle ? (
+        ) : isQueueIdle ? (
               <section className="relative grid flex-1 place-items-center overflow-hidden rounded-[2rem] border border-emerald-100/20 bg-[linear-gradient(135deg,rgba(6,78,59,.92),rgba(5,46,38,.96))] px-6 py-12 text-center shadow-[0_24px_70px_-36px_rgba(0,0,0,.72)] sm:rounded-[2.5rem] sm:px-12">
                 {idleVideoUrl ? (
                   <>
@@ -1011,156 +1014,194 @@ export function PublicQueuePage({
                   ) : null}
                 </div>
               </section>
-            ) : (
-              <>
-                {" "}
-                <div className="grid flex-1 gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(23rem,.85fr)] xl:gap-7">
-                  <section
-                    className="flex min-h-[30rem] flex-col rounded-[2rem] bg-white p-6 text-slate-950 shadow-[0_24px_70px_-36px_rgba(0,0,0,.72)] sm:rounded-[2.5rem] sm:p-9 xl:min-h-0 xl:p-12"
-                    aria-label={label(
-                      fr,
-                      "Numéro actuellement appelé",
-                      "Currently called ticket",
-                    )}
-                  >
-                    <p className="text-sm font-extrabold tracking-[.18em] text-emerald-700 sm:text-base">
-                      {label(fr, "EN COURS", "NOW SERVING")}
-                    </p>
-                    {activeCalls.length ? (
-                      <div
-                        className={`mt-5 grid flex-1 content-center gap-5 ${hasMultipleActiveCalls ? "2xl:grid-cols-2" : ""}`}
+        ) : (
+          <div className="grid min-h-0 flex-1 gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(26rem,1fr)] xl:gap-7">
+            {/* Now serving */}
+            <section
+              className="flex min-h-0 flex-col"
+              aria-label={label(fr, "Numéro actuellement appelé", "Currently called ticket")}
+            >
+              <div className="flex items-end justify-between gap-4">
+                <div>
+                  <p className="text-sm font-bold uppercase tracking-[.35em] text-amber-300">
+                    {label(fr, "Appel en cours", "Now calling")}
+                  </p>
+                  <h1 className="text-[clamp(2rem,3.4vw,3.6rem)] font-black uppercase leading-none tracking-tight">
+                    {label(fr, "Rendez-vous", "Appointments")}
+                  </h1>
+                </div>
+                <div className="flex gap-3">
+                  <QueueStat label={label(fr, "En attente", "Waiting")} value={waiting.length} tone="text-amber-300" />
+                  <QueueStat label={label(fr, "Au guichet", "At desk")} value={activeCalls.length} tone="text-emerald-300" />
+                </div>
+              </div>
+              {activeCalls.length ? (
+                <div className={`mt-5 grid min-h-0 flex-1 gap-4 ${hasMultipleActiveCalls ? "grid-rows-2 2xl:grid-cols-2 2xl:grid-rows-1" : ""}`}>
+                  {activeCalls.slice(0, hasMultipleActiveCalls ? 4 : 1).map((call: any) => {
+                    const isCalled = call.status === "called";
+                    return (
+                      <article
+                        key={`${call.ticket}-${call.deskName ?? "desk"}`}
+                        className={`relative flex min-h-0 flex-col justify-center overflow-hidden rounded-3xl border-2 bg-[linear-gradient(145deg,rgba(18,48,110,.95),rgba(8,20,56,.98))] px-7 py-6 shadow-[0_30px_80px_-40px_rgba(0,0,0,.9)] sm:px-10 ${isCalled ? "border-amber-400 animate-[lh-pulse-ring_2.4s_ease-out_infinite]" : "border-white/15"}`}
                       >
-                        {activeCalls.map((call: any) => (
-                          <article
-                            key={`${call.ticket}-${call.deskName ?? "desk"}`}
-                            className="rounded-[1.75rem] border border-emerald-100 bg-[linear-gradient(145deg,rgba(236,253,245,.98),rgba(209,250,229,.74))] p-6 shadow-sm sm:p-8"
-                          >
-                            <div className="flex flex-wrap items-start justify-between gap-4">
-                              <p
-                                className={
-                                  hasMultipleActiveCalls
-                                    ? "text-[clamp(5.5rem,9vw,11rem)] font-black leading-none tracking-[-.09em] text-slate-950"
-                                    : "text-[clamp(7.5rem,16vw,18rem)] font-black leading-[.82] tracking-[-.1em] text-slate-950"
-                                }
-                              >
-                                #{call.ticket}
-                              </p>
-                              {call.deskName ? (
-                                <span
-                                  className={
-                                    hasMultipleActiveCalls
-                                      ? "rounded-full bg-emerald-700 px-5 py-3 text-xl font-extrabold text-white shadow-sm"
-                                      : "rounded-3xl bg-emerald-700 px-7 py-5 text-[clamp(2.5rem,4vw,5rem)] font-black leading-none tracking-tight text-white shadow-xl shadow-emerald-950/25"
-                                  }
-                                >
-                                  {displayDeskName(call.deskName, fr)}
-                                </span>
-                              ) : null}
-                            </div>
-                            <p
-                              className={
-                                hasMultipleActiveCalls
-                                  ? "mt-5 truncate text-3xl font-extrabold tracking-tight text-emerald-950 sm:text-4xl"
-                                  : "mt-7 truncate text-[clamp(2.4rem,5.1vw,6.4rem)] font-extrabold leading-tight tracking-tight text-emerald-950"
-                              }
-                            >
-                              {call.visitorName}
+                        <div aria-hidden className="pointer-events-none absolute -right-20 -top-20 size-72 rounded-full bg-amber-400/10 blur-3xl" />
+                        <div className="relative flex flex-wrap items-center justify-between gap-x-8 gap-y-4">
+                          <div>
+                            <p className="text-xs font-bold uppercase tracking-[.3em] text-sky-200 sm:text-sm">
+                              {label(fr, "Ticket", "Ticket")}
                             </p>
                             <p
-                              className={
-                                hasMultipleActiveCalls
-                                  ? "mt-3 text-lg font-bold text-slate-700"
-                                  : "mt-4 text-[clamp(1.1rem,1.8vw,2rem)] font-bold text-slate-700"
-                              }
+                              className={`font-mono font-black leading-none tracking-tight text-amber-300 tabular-nums ${hasMultipleActiveCalls ? "text-[clamp(4.5rem,8vw,9rem)]" : "text-[clamp(7rem,15vw,16rem)]"}`}
                             >
-                              {call.serviceName ??
-                                label(
-                                  fr,
-                                  "Veuillez vous présenter",
-                                  "Please come forward",
-                                )}
-                            </p>
-                            {call.message ? (
-                              <p
-                                className={
-                                  hasMultipleActiveCalls
-                                    ? "mt-5 rounded-2xl border border-white/80 bg-white/75 px-4 py-3 text-base font-semibold leading-6 text-slate-700"
-                                    : "mt-7 rounded-2xl border border-white/80 bg-white/80 px-5 py-4 text-[clamp(1.1rem,1.65vw,1.8rem)] font-semibold leading-relaxed text-slate-700"
-                                }
-                              >
-                                {call.message}
-                              </p>
-                            ) : null}
-                          </article>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="grid flex-1 content-center">
-                        <p className="text-[clamp(8rem,16vw,18rem)] font-black leading-none tracking-[-.1em] text-slate-950">
-                          —
-                        </p>
-                        <p className="mt-5 text-[clamp(1.8rem,3.2vw,4rem)] font-extrabold tracking-tight text-emerald-800">
-                          {label(fr, "Veuillez patienter", "Please wait")}
-                        </p>
-                      </div>
-                    )}
-                  </section>
-                  <aside
-                    className="flex min-h-[30rem] flex-col rounded-[2rem] border border-emerald-100/20 bg-emerald-950/45 p-6 shadow-[0_24px_70px_-36px_rgba(0,0,0,.72)] backdrop-blur-sm sm:rounded-[2.5rem] sm:p-8 xl:min-h-0 xl:p-10"
-                    aria-label={label(
-                      fr,
-                      "Numéros en attente",
-                      "Waiting tickets",
-                    )}
-                  >
-                    <p className="text-sm font-extrabold tracking-[.18em] text-emerald-100 sm:text-base">
-                      {label(fr, "EN ATTENTE", "WAITING")}
-                    </p>
-                    <div className="mt-5 grid gap-3">
-                      {waiting.slice(0, 6).map((item: any) => (
-                        <div
-                          key={item.ticket}
-                          className="flex items-center gap-4 rounded-2xl border border-white/15 bg-white/10 px-4 py-4 shadow-sm sm:gap-5 sm:px-5"
-                        >
-                          <p className="shrink-0 text-[clamp(2.75rem,4.4vw,5.25rem)] font-black leading-none tracking-[-.08em] text-white">
-                            #{item.ticket}
-                          </p>
-                          <div className="min-w-0 flex-1 overflow-hidden">
-                            <p className="max-w-full truncate text-[clamp(1.75rem,2.5vw,3.5rem)] font-extrabold leading-tight tracking-tight text-emerald-50">
-                              {item.visitorName}
-                            </p>
-                            <p className="mt-2 max-w-full truncate text-[clamp(1rem,1.35vw,1.5rem)] font-semibold text-emerald-200">
-                              {item.serviceName}
+                              {String(call.ticket).padStart(3, "0")}
                             </p>
                           </div>
+                          {call.deskName ? (
+                            <div className="text-right">
+                              <p className="text-xs font-bold uppercase tracking-[.3em] text-sky-200 sm:text-sm">
+                                {label(fr, "Rendez-vous au", "Please go to")}
+                              </p>
+                              <p
+                                className={`mt-2 inline-flex items-center gap-3 rounded-2xl bg-emerald-400 px-6 py-3 font-black uppercase leading-none text-[#04261c] shadow-xl shadow-emerald-950/40 ${hasMultipleActiveCalls ? "text-[clamp(1.6rem,2.6vw,2.8rem)]" : "text-[clamp(2.4rem,4.5vw,5rem)]"}`}
+                              >
+                                <span aria-hidden>→</span>
+                                {displayDeskName(call.deskName, fr)}
+                              </p>
+                            </div>
+                          ) : null}
                         </div>
-                      ))}
-                    </div>
-                    {!waiting.length ? (
-                      <div className="grid flex-1 place-items-center text-center">
-                        <p className="text-xl font-semibold text-emerald-100">
-                          {label(
-                            fr,
-                            "Aucun numéro en attente",
-                            "No tickets waiting",
-                          )}
-                        </p>
-                      </div>
-                    ) : null}
-                  </aside>
+                        <div className="relative mt-5 border-t border-white/10 pt-5">
+                          <p
+                            className={`truncate font-extrabold leading-tight tracking-tight text-white ${hasMultipleActiveCalls ? "text-[clamp(1.8rem,2.8vw,3rem)]" : "text-[clamp(2.4rem,4.6vw,5.5rem)]"}`}
+                          >
+                            {call.visitorName}
+                          </p>
+                          <div className="mt-3 flex flex-wrap items-center gap-3">
+                            <span
+                              className={`inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-sm font-bold uppercase tracking-wide sm:text-base ${isCalled ? "bg-amber-400 text-[#0a1a44]" : "bg-emerald-400/15 text-emerald-200"}`}
+                            >
+                              <span className={`size-2.5 rounded-full ${isCalled ? "animate-pulse bg-[#0a1a44]" : "bg-emerald-300"}`} />
+                              {isCalled ? label(fr, "Appelé — présentez-vous", "Called — please come") : label(fr, "Au guichet", "Being served")}
+                            </span>
+                            {call.serviceName ? (
+                              <span className="text-[clamp(1rem,1.6vw,1.6rem)] font-semibold text-sky-100">{call.serviceName}</span>
+                            ) : null}
+                          </div>
+                          {call.message ? (
+                            <p className="mt-4 rounded-2xl border border-white/10 bg-white/[0.06] px-5 py-3 text-[clamp(1rem,1.5vw,1.6rem)] font-semibold leading-snug text-white/90">
+                              {call.message}
+                            </p>
+                          ) : null}
+                        </div>
+                      </article>
+                    );
+                  })}
                 </div>
-              </>
-            )}{" "}
-            <p className="mt-5 pb-1 text-center text-xs leading-5 text-emerald-100 sm:mt-6 sm:text-sm">
-              {label(
-                fr,
-                "Les noms affichent uniquement le prénom et l’initiale afin de protéger la confidentialité des visiteurs.",
-                "Names are shown as first name and initial to protect visitor privacy.",
+              ) : (
+                <div className="mt-5 grid flex-1 place-items-center rounded-3xl border-2 border-white/10 bg-white/[0.04] text-center">
+                  <div>
+                    <p className="font-mono text-[clamp(6rem,12vw,12rem)] font-black leading-none text-white/20">— — —</p>
+                    <p className="mt-4 text-[clamp(1.6rem,3vw,3rem)] font-extrabold text-sky-100">
+                      {label(fr, "Veuillez patienter, vous serez appelé", "Please wait, you will be called")}
+                    </p>
+                  </div>
+                </div>
               )}
-            </p>
-          </>
+            </section>
+
+            {/* Next tickets — airport-board style */}
+            <aside className="flex min-h-0 flex-col" aria-label={label(fr, "Numéros en attente", "Waiting tickets")}>
+              <div className="flex items-end justify-between">
+                <p className="text-sm font-bold uppercase tracking-[.35em] text-amber-300">
+                  {label(fr, "Prochains numéros", "Next tickets")}
+                </p>
+                {called.length ? null : (
+                  <p className="text-sm font-semibold text-sky-200">{label(fr, "Ordre de passage", "Order of service")}</p>
+                )}
+              </div>
+              <div className="mt-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#0a1a44]/70 shadow-[0_30px_80px_-40px_rgba(0,0,0,.9)]">
+                <div className="grid grid-cols-[5.5rem_minmax(0,1fr)_4.5rem] gap-3 bg-[#12306e] px-5 py-3 text-xs font-bold uppercase tracking-[.2em] text-sky-200 sm:grid-cols-[7rem_minmax(0,1fr)_5rem] sm:text-sm">
+                  <span>{label(fr, "Ticket", "Ticket")}</span>
+                  <span>{label(fr, "Nom · service", "Name · service")}</span>
+                  <span className="text-right">{label(fr, "Rang", "Order")}</span>
+                </div>
+                {waiting.length ? (
+                  <div className="min-h-0 flex-1 divide-y divide-white/5 overflow-hidden">
+                    {waiting.slice(0, 8).map((item: any, index: number) => (
+                      <div
+                        key={item.ticket}
+                        className={`grid grid-cols-[5.5rem_minmax(0,1fr)_4.5rem] items-center gap-3 px-5 py-3 sm:grid-cols-[7rem_minmax(0,1fr)_5rem] sm:py-4 ${index === 0 ? "bg-amber-400/10" : index % 2 ? "bg-white/[0.03]" : ""}`}
+                      >
+                        <span className={`font-mono text-[clamp(1.8rem,2.6vw,2.8rem)] font-black leading-none tabular-nums ${index === 0 ? "text-amber-300" : "text-white"}`}>
+                          {String(item.ticket).padStart(3, "0")}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block truncate text-[clamp(1.2rem,1.8vw,1.9rem)] font-bold leading-tight text-white">
+                            {item.visitorName}
+                          </span>
+                          {item.serviceName ? (
+                            <span className="block truncate text-sm font-medium text-sky-200 sm:text-base">{item.serviceName}</span>
+                          ) : null}
+                        </span>
+                        <span className={`text-right text-sm font-bold uppercase sm:text-base ${index === 0 ? "text-amber-300" : "text-sky-200"}`}>
+                          {index === 0 ? label(fr, "Suivant", "Next") : `${index + 1}${fr ? "e" : ""}`}
+                        </span>
+                      </div>
+                    ))}
+                    {waiting.length > 8 ? (
+                      <p className="px-5 py-3 text-center text-sm font-semibold text-sky-200">
+                        + {waiting.length - 8} {label(fr, "autre(s) en attente", "more waiting")}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="grid flex-1 place-items-center p-6 text-center">
+                    <p className="text-xl font-semibold text-sky-100">{label(fr, "Aucun numéro en attente", "No tickets waiting")}</p>
+                  </div>
+                )}
+              </div>
+            </aside>
+          </div>
         )}
-      </section>
+      </div>
+
+      {/* Footer ticker */}
+      <footer className="relative shrink-0 overflow-hidden whitespace-nowrap border-t-2 border-amber-400/70 bg-[#0a1a44] py-3 text-[clamp(.95rem,1.4vw,1.5rem)]">
+        <span className="inline-block animate-[lh-ticker_40s_linear_infinite] pl-[100%] font-semibold text-amber-200">
+          {tickerText}
+        </span>
+      </footer>
     </main>
+  );
+}
+
+function QueueClock({ fr }: { fr: boolean }) {
+  const [now, setNow] = useState<Date | null>(null);
+  useEffect(() => {
+    setNow(new Date());
+    const timer = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  if (!now) return null;
+  const locale = fr ? "fr-FR" : "en-GB";
+  return (
+    <div className="hidden text-right sm:block">
+      <p className="font-mono text-3xl font-black leading-none tabular-nums text-amber-300 lg:text-4xl">
+        {now.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" })}
+        <span className="text-lg text-amber-200/70 lg:text-xl">:{String(now.getSeconds()).padStart(2, "0")}</span>
+      </p>
+      <p className="mt-1 text-xs font-semibold capitalize text-sky-200 lg:text-sm">
+        {now.toLocaleDateString(locale, { weekday: "long", day: "numeric", month: "long" })}
+      </p>
+    </div>
+  );
+}
+
+function QueueStat({ label: text, value, tone }: { label: string; value: number; tone: string }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-2 text-right">
+      <p className="text-[10px] font-bold uppercase tracking-[.25em] text-sky-200 sm:text-xs">{text}</p>
+      <p className={`font-mono text-2xl font-black leading-none tabular-nums sm:text-3xl ${tone}`}>{value}</p>
+    </div>
   );
 }
