@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { PDFDocument } from "pdf-lib";
+import { IMPORTABLE_CONTRACT_MIME, importContractBlocks, WORD_MIME } from "./contract-import";
 import { layoutContractPdf, stampSignatures, type ContractParties, type SignatureRole, type SignatureRequirements, type SignatureSlots, type SignedField, type WorkspaceBlock } from "./contract-pdf";
 import type { PoolClient } from "pg";
 import { readPrivateDocument, storePrivateDocument } from "../../services/file-storage.service";
@@ -929,7 +930,7 @@ export async function signMyEmploymentContract(
 type WorkspaceVersionRow = {
   id: string; contract_id: string; version_number: number; template_id: string | null;
   source_document_id: string | null; rendered_document_id: string | null; final_document_id: string | null;
-  status: string; rendered_content: { blocks?: WorkspaceBlock[] }; document_hash_sha256: string | null;
+  status: string; rendered_content: { blocks?: WorkspaceBlock[]; importedFrom?: { documentId: string; fileName: string | null } }; document_hash_sha256: string | null;
   frozen_at: string | null; created_at: string;
 };
 type WorkspaceFieldRow = {
@@ -1206,7 +1207,7 @@ export async function contractWorkspace(context: ContractsContext, contractId: s
     const current=versions.rows[0] ?? null; const currentFields=current ? await fieldsFor(client,context.organizationId,current.id) : [];
     const events=await client.query<{id:string;event_type:string;detail:unknown;created_at:string;actor_name:string|null}>(`SELECT e.id,e.event_type,e.detail,e.created_at::text,u.full_name AS actor_name FROM contract_signature_events e LEFT JOIN users u ON u.id=e.actor_user_id WHERE e.organization_id=$1 AND e.contract_id=$2 ORDER BY e.created_at DESC LIMIT 100`,[context.organizationId,contractId]);
     const paper=await renderContextFor(client,context.organizationId,contractId);
-    return { document:{companyName:paper.companyName,title:paper.title,reference:paper.reference,...paper.parties}, contract:mapForContext(contract, context), versions:versions.rows.map((row)=>({id:row.id,number:row.version_number,status:row.status,templateId:row.template_id,sourceDocumentId:row.source_document_id,renderedDocumentId:row.rendered_document_id,finalDocumentId:row.final_document_id,hash:row.document_hash_sha256,frozenAt:row.frozen_at,createdAt:row.created_at})), currentVersion:current ? {id:current.id,number:current.version_number,status:current.status,blocks:(current.rendered_content?.blocks ?? []) as WorkspaceBlock[],fields:currentFields.map(workspaceField),signedOn:lastSignatureDate(currentFields)} : null, events:events.rows.map((event)=>({id:event.id,type:event.event_type,detail:event.detail,createdAt:event.created_at,actorName:event.actor_name})) };
+    return { document:{companyName:paper.companyName,title:paper.title,reference:paper.reference,...paper.parties}, contract:mapForContext(contract, context), versions:versions.rows.map((row)=>({id:row.id,number:row.version_number,status:row.status,templateId:row.template_id,sourceDocumentId:row.source_document_id,renderedDocumentId:row.rendered_document_id,finalDocumentId:row.final_document_id,hash:row.document_hash_sha256,frozenAt:row.frozen_at,createdAt:row.created_at})), currentVersion:current ? {id:current.id,number:current.version_number,status:current.status,blocks:(current.rendered_content?.blocks ?? []) as WorkspaceBlock[],importedFrom:current.rendered_content?.importedFrom ?? null,fields:currentFields.map(workspaceField),signedOn:lastSignatureDate(currentFields)} : null, events:events.rows.map((event)=>({id:event.id,type:event.event_type,detail:event.detail,createdAt:event.created_at,actorName:event.actor_name})) };
   });
 }
 export async function generateContractDocumentVersion(context: ContractsContext, contractId: string, input: import("./contracts.validation").GenerateContractVersionInput) {
@@ -1219,12 +1220,19 @@ export async function generateContractDocumentVersion(context: ContractsContext,
     const organizationRow=organization.rows[0];
     const companyName=organizationRow?.display_name?.trim() || "Entreprise";
     const companyAddress=[organizationRow?.address_line1,organizationRow?.address_line2,organizationRow?.city,organizationRow?.region,organizationRow?.postal_code].filter((part): part is string => Boolean(part && part.trim())).join(", ");
-    let rendered: { blocks: WorkspaceBlock[] };
+    let rendered: { blocks: WorkspaceBlock[]; importedFrom?: { documentId: string; fileName: string | null } };
     if (sourceDocumentId) {
-      const source=await client.query<{id:string;mime_type:string}>(`SELECT id,mime_type FROM documents WHERE organization_id=$1 AND id=$2`,[context.organizationId,sourceDocumentId]);
-      if (!source.rows[0]) throw new BadRequestError("Choose an uploaded PDF from this company",{field:"sourceDocumentId"});
-      if (source.rows[0].mime_type!=="application/pdf") throw new BadRequestError("Upload or choose a PDF contract document for electronic signature",{field:"sourceDocumentId"});
-      rendered={blocks:[]};
+      const source=await client.query<{id:string;mime_type:string;storage_path:string;file_name:string|null}>(`SELECT id,mime_type,storage_path,file_name FROM documents WHERE organization_id=$1 AND id=$2`,[context.organizationId,sourceDocumentId]);
+      const file=source.rows[0];
+      if (!file) throw new BadRequestError("Choisissez un contrat importé de cette société.",{field:"sourceDocumentId"});
+      if (!IMPORTABLE_CONTRACT_MIME.has(file.mime_type)) throw new BadRequestError("Importez le contrat en PDF ou en Word (.docx).",{field:"sourceDocumentId"});
+      // The imported text is laid out like a LiteHubs contract; a scanned PDF
+      // (no text) keeps its pages and gets the signature sheet appended.
+      let imported: WorkspaceBlock[] | null = null;
+      try { imported = await importContractBlocks(await readPrivateDocument(file.storage_path), file.mime_type); } catch { imported = null; }
+      if (imported) rendered={blocks:imported,importedFrom:{documentId:file.id,fileName:file.file_name}};
+      else if (file.mime_type===WORD_MIME) throw new BadRequestError("Le texte de ce fichier Word n’a pas pu être lu. Enregistrez-le en PDF ou collez le texte dans un modèle.",{field:"sourceDocumentId"});
+      else rendered={blocks:[]};
     } else {
       if (!body?.blocks?.length) throw new BadRequestError("Add contract content before generating a document",{field:"body"});
       // A misspelt merge field ({{malaba}}) would print as raw text in a legal
@@ -1251,7 +1259,7 @@ export async function generateContractDocumentVersion(context: ContractsContext,
     const ordered=(["employee","employer"] as const).flatMap((role)=>input.signatureFields.filter((field)=>field.signerRole===role).map((field,index)=>({...field,fieldOrder:index+1})));
     const placeholderFields=ordered.map((field)=>({signer_role:field.signerRole,status:"pending"} as WorkspaceFieldRow));
     const draft=await renderContractVersion(client,context.organizationId,versionRow,placeholderFields,{versionLabel:"BROUILLON"});
-    if (!sourceDocumentId) {
+    if (rendered.blocks.length) {
       const stored=await storePrivateDocument({organizationId:context.organizationId,originalName:`${contract.reference}-v${versionNumber}.pdf`,mimeType:"application/pdf",buffer:draft});
       const doc=await client.query<{id:string}>(`INSERT INTO documents (organization_id,title,description,category,storage_path,file_name,mime_type,size_bytes,checksum_sha256,subject_table,subject_id,province_id,is_confidential,uploaded_by) VALUES ($1,$2,$3,'contract',$4,$5,'application/pdf',$6,$7,'contracts',$8,$9,true,$10) RETURNING id`,[context.organizationId,`${contract.title} · brouillon`,"Version générée depuis le modèle de la société",stored.storagePath,`${contract.reference}-v${versionNumber}.pdf`,stored.bytes,stored.checksumSha256,contractId,contract.province_id,context.userId]);
       await client.query(`UPDATE contract_document_versions SET rendered_document_id=$3 WHERE organization_id=$1 AND id=$2`,[context.organizationId,version.rows[0]!.id,doc.rows[0]!.id]);
