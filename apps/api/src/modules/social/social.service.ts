@@ -562,6 +562,7 @@ function mapPost(row: Row) {
     instagramMediaId: (row.instagram_media_id as string | null) ?? null,
     error: (row.error as string | null) ?? null,
     author: (row.author as string | null) ?? null,
+    aiGenerated: Boolean(row.ai_generated),
   };
 }
 
@@ -574,7 +575,7 @@ export async function listPosts(context: ChatContext) {
          LEFT JOIN organization_members m ON m.organization_id=p.organization_id AND m.id=p.created_by_member_id
          LEFT JOIN users u ON u.id=m.user_id
         WHERE p.organization_id=$1
-        ORDER BY CASE WHEN p.status='scheduled' THEN 0 ELSE 1 END, COALESCE(p.published_at,p.scheduled_at) DESC
+        ORDER BY CASE p.status WHEN 'draft' THEN 0 WHEN 'scheduled' THEN 1 ELSE 2 END, CASE WHEN p.status IN ('draft','scheduled') THEN p.scheduled_at END ASC, COALESCE(p.published_at,p.scheduled_at) DESC
         LIMIT 100`,
       [context.organizationId],
     );
@@ -629,6 +630,64 @@ export async function createPost(
   // "Publier maintenant": done right away so the person sees the result.
   if (when.getTime() <= Date.now() + 60_000) await publishPost(context.organizationId, id);
   return listPosts(context);
+}
+
+/** Edits a draft or a post not yet published. */
+export async function updatePost(
+  context: ChatContext,
+  postId: string,
+  input: { message?: string; imageUrl?: string | null; toFacebook?: boolean; toInstagram?: boolean; scheduledAt?: string },
+) {
+  assertManager(context);
+  await withTenantContext(context, async (client) => {
+    const current = (
+      await client.query<Row>(`SELECT * FROM social_posts WHERE organization_id=$1 AND id=$2 AND status IN ('draft','scheduled','failed')`, [
+        context.organizationId,
+        postId,
+      ])
+    ).rows[0];
+    if (!current) throw new BadRequestError("Seule une publication pas encore en ligne peut être modifiée.");
+    const next = {
+      message: input.message !== undefined ? input.message.trim().slice(0, 5000) : String(current.message),
+      imageUrl: input.imageUrl !== undefined ? input.imageUrl || null : (current.image_url as string | null),
+      toFacebook: input.toFacebook ?? Boolean(current.to_facebook),
+      toInstagram: input.toInstagram ?? Boolean(current.to_instagram),
+      scheduledAt: input.scheduledAt ? new Date(input.scheduledAt) : new Date(current.scheduled_at),
+    };
+    if (Number.isNaN(next.scheduledAt.getTime())) throw new BadRequestError("Date invalide.");
+    if (!next.toFacebook && !next.toInstagram) throw new BadRequestError("Choisissez Facebook, Instagram ou les deux.");
+    if (next.toInstagram && !next.imageUrl) throw new BadRequestError("Instagram exige une photo.");
+    if (!next.message && !next.imageUrl) throw new BadRequestError("Écrivez un texte ou ajoutez une photo.");
+    await client.query(
+      `UPDATE social_posts SET message=$3,image_url=$4,to_facebook=$5,to_instagram=$6,scheduled_at=$7,error=NULL WHERE organization_id=$1 AND id=$2`,
+      [context.organizationId, postId, next.message, next.imageUrl, next.toFacebook, next.toInstagram, next.scheduledAt.toISOString()],
+    );
+  });
+  return listPosts(context);
+}
+
+/** Approves drafts: they are then published automatically at their date. */
+export async function approvePosts(context: ChatContext, postIds: string[] | "all") {
+  assertManager(context);
+  const approved = await withTenantContext(context, async (client) => {
+    const drafts = await client.query<Row>(
+      postIds === "all"
+        ? `SELECT * FROM social_posts WHERE organization_id=$1 AND status='draft'`
+        : `SELECT * FROM social_posts WHERE organization_id=$1 AND status='draft' AND id = ANY($2::uuid[])`,
+      postIds === "all" ? [context.organizationId] : [context.organizationId, postIds],
+    );
+    for (const draft of drafts.rows) {
+      if (draft.to_instagram && !draft.image_url) throw new BadRequestError("Une publication Instagram n’a pas de photo : ajoutez-en une ou décochez Instagram.");
+      if (!String(draft.message ?? "").trim() && !draft.image_url) throw new BadRequestError("Une publication est vide.");
+    }
+    // A date already passed is published at the next scheduler run.
+    await client.query(
+      `UPDATE social_posts SET status='scheduled',scheduled_at=GREATEST(scheduled_at,now()) WHERE organization_id=$1 AND id = ANY($2::uuid[])`,
+      [context.organizationId, drafts.rows.map((row) => row.id)],
+    );
+    return drafts.rows.length;
+  });
+  return { approved, ...(await listPosts(context)) };
 }
 
 export async function deletePost(context: ChatContext, postId: string) {

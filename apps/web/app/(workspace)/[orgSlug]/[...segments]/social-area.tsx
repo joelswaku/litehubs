@@ -10,6 +10,7 @@ import {
   ImagePlus,
   Link2,
   MessageCircle,
+  Pencil,
   PauseCircle,
   PlayCircle,
   RefreshCw,
@@ -24,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { EmptyState, ErrorState, SkeletonCard } from "@/components/ui/states";
 import { api, del, get, orgUrl, patch, post } from "@/lib/api";
 import { useLanguage } from "@/providers/language-provider";
+import { AdCopyForm, ContentPlanForm, PostEditor } from "@/components/social/social-ai";
 
 type Account = {
   id: string;
@@ -64,6 +66,7 @@ type Post = {
   publishedAt: string | null;
   error: string | null;
   author: string | null;
+  aiGenerated?: boolean;
 };
 
 const tr = (fr: boolean, french: string, english: string) => (fr ? french : english);
@@ -338,6 +341,8 @@ function Posts({ orgSlug, fr, account }: { orgSlug: string; fr: boolean; account
   const [later, setLater] = useState(false);
   const [scheduledAt, setScheduledAt] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [panel, setPanel] = useState<null | "plan" | "ad">(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const done = (data: { posts: Post[] }) => {
     queryClient.setQueryData(["social-posts", orgSlug], data);
@@ -376,6 +381,17 @@ function Posts({ orgSlug, fr, account }: { orgSlug: string; fr: boolean; account
     onSuccess: done,
     onError: (error) => toast.error(errorMessage(error)),
   });
+  const approve = useMutation({
+    mutationFn: (ids: string[] | "all") => post<{ posts: Post[]; approved: number }>(orgUrl(orgSlug, "social/posts/approve"), { postIds: ids }),
+    onSuccess: (data) => {
+      done(data);
+      toast.success(
+        tr(fr, `${data.approved} publication(s) approuvée(s) : elles partiront aux dates prévues.`, `${data.approved} post(s) approved: they will go out on their dates.`),
+      );
+    },
+    onError: (error) => toast.error(errorMessage(error)),
+  });
+  const drafts = (posts.data?.posts ?? []).filter((item) => item.status === "draft");
 
   const upload = async (file: File) => {
     setUploading(true);
@@ -396,8 +412,23 @@ function Posts({ orgSlug, fr, account }: { orgSlug: string; fr: boolean; account
   const canSend = (toFacebook || toInstagram) && (message.trim() || imageUrl) && !instagramNeedsImage && (!later || scheduledAt);
 
   return (
+    <div className="space-y-4">
+    <div className="flex flex-wrap gap-2">
+      <Button variant={panel === "plan" ? "primary" : "secondary"} size="sm" onClick={() => setPanel(panel === "plan" ? null : "plan")}>
+        <Sparkles className="size-4" />
+        {tr(fr, "Plan de publications IA", "AI content plan")}
+      </Button>
+      <Button variant={panel === "ad" ? "primary" : "secondary"} size="sm" onClick={() => setPanel(panel === "ad" ? null : "ad")}>
+        <Sparkles className="size-4" />
+        {tr(fr, "Texte de publicité IA", "AI ad copy")}
+      </Button>
+    </div>
+    {panel === "plan" ? (
+      <ContentPlanForm orgSlug={orgSlug} fr={fr} hasInstagram={Boolean(account.instagram)} onDone={done} onClose={() => setPanel(null)} />
+    ) : null}
+    {panel === "ad" ? <AdCopyForm orgSlug={orgSlug} fr={fr} onClose={() => setPanel(null)} /> : null}
     <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
-      <section className="space-y-3 rounded-2xl border border-border bg-surface-1 p-4">
+      <section className="h-fit space-y-3 rounded-2xl border border-border bg-surface-1 p-4">
         <p className="font-semibold text-ink">{tr(fr, "Nouvelle publication", "New post")}</p>
         <textarea
           value={message}
@@ -482,6 +513,17 @@ function Posts({ orgSlug, fr, account }: { orgSlug: string; fr: boolean; account
       </section>
 
       <section className="space-y-2">
+        {drafts.length ? (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-warning/40 bg-warning/10 p-3">
+            <p className="text-sm text-ink">
+              <b>{drafts.length}</b> {tr(fr, "brouillon(s) à relire. Rien n’est publié avant votre approbation.", "draft(s) to review. Nothing is published before you approve.")}
+            </p>
+            <Button size="sm" loading={approve.isPending && approve.variables === "all"} onClick={() => approve.mutate("all")}>
+              <Check className="size-4" />
+              {tr(fr, "Tout approuver", "Approve all")}
+            </Button>
+          </div>
+        ) : null}
         {posts.isLoading ? (
           <SkeletonCard rows={4} />
         ) : !posts.data?.posts.length ? (
@@ -503,7 +545,7 @@ function Posts({ orgSlug, fr, account }: { orgSlug: string; fr: boolean; account
                 >
                   {
                     {
-                      draft: tr(fr, "Brouillon", "Draft"),
+                      draft: tr(fr, `${item.aiGenerated ? "Brouillon IA" : "Brouillon"} · prévu ${when(item.scheduledAt, fr)}`, `${item.aiGenerated ? "AI draft" : "Draft"} · planned ${when(item.scheduledAt, fr)}`),
                       scheduled: tr(fr, `Programmé · ${when(item.scheduledAt, fr)}`, `Scheduled · ${when(item.scheduledAt, fr)}`),
                       publishing: tr(fr, "Publication…", "Publishing…"),
                       published: tr(fr, `Publié · ${when(item.publishedAt ?? item.scheduledAt, fr)}`, `Published`),
@@ -518,21 +560,40 @@ function Posts({ orgSlug, fr, account }: { orgSlug: string; fr: boolean; account
                 {item.imageUrl ? (
                   <img src={item.imageUrl} alt="" className="size-16 shrink-0 rounded-lg object-cover" />
                 ) : null}
-                <p className="line-clamp-4 whitespace-pre-wrap text-sm text-ink">{item.message || "—"}</p>
+                <p className={`${item.status === "draft" ? "" : "line-clamp-4"} whitespace-pre-wrap text-sm text-ink`}>{item.message || "—"}</p>
               </div>
               {item.error ? <p className="mt-2 text-xs text-critical">{item.error}</p> : null}
-              {item.status === "failed" || item.status === "partial" || item.status === "scheduled" ? (
-                <div className="mt-2 flex gap-1.5">
-                  {item.status !== "scheduled" ? (
-                    <Button size="sm" variant="outline" loading={retry.isPending} onClick={() => retry.mutate(item.id)}>
-                      <RefreshCw className="size-4" />
-                      {tr(fr, "Réessayer", "Retry")}
+              {editingId === item.id ? (
+                <PostEditor orgSlug={orgSlug} fr={fr} item={item} hasInstagram={Boolean(account.instagram)} onSaved={done} onClose={() => setEditingId(null)} />
+              ) : null}
+              {editingId !== item.id && (item.status === "draft" || item.status === "scheduled") ? (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {item.status === "draft" ? (
+                    <Button size="sm" loading={approve.isPending && Array.isArray(approve.variables) && approve.variables[0] === item.id} onClick={() => approve.mutate([item.id])}>
+                      <Check className="size-4" />
+                      {tr(fr, "Approuver", "Approve")}
                     </Button>
                   ) : null}
-                  {item.status !== "partial" ? (
+                  <Button size="sm" variant="outline" onClick={() => setEditingId(item.id)}>
+                    <Pencil className="size-4" />
+                    {tr(fr, "Modifier", "Edit")}
+                  </Button>
+                  <Button size="sm" variant="ghost" loading={remove.isPending && remove.variables === item.id} onClick={() => remove.mutate(item.id)}>
+                    <Trash2 className="size-4" />
+                    {item.status === "scheduled" ? tr(fr, "Annuler", "Cancel") : tr(fr, "Supprimer", "Delete")}
+                  </Button>
+                </div>
+              ) : null}
+              {item.status === "failed" || item.status === "partial" ? (
+                <div className="mt-2 flex gap-1.5">
+                  <Button size="sm" variant="outline" loading={retry.isPending} onClick={() => retry.mutate(item.id)}>
+                    <RefreshCw className="size-4" />
+                    {tr(fr, "Réessayer", "Retry")}
+                  </Button>
+                  {item.status === "failed" ? (
                     <Button size="sm" variant="ghost" loading={remove.isPending} onClick={() => remove.mutate(item.id)}>
                       <Trash2 className="size-4" />
-                      {item.status === "scheduled" ? tr(fr, "Annuler", "Cancel") : tr(fr, "Supprimer", "Delete")}
+                      {tr(fr, "Supprimer", "Delete")}
                     </Button>
                   ) : null}
                 </div>
@@ -541,6 +602,7 @@ function Posts({ orgSlug, fr, account }: { orgSlug: string; fr: boolean; account
           ))
         )}
       </section>
+    </div>
     </div>
   );
 }

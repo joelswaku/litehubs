@@ -13,6 +13,7 @@ import type { ChatContext } from "../chat/chat.service";
 import { organizationSlugSchema } from "../organization/organization.validation";
 import { validSignature } from "./meta-graph";
 import * as service from "./social.service";
+import * as ai from "./social-ai.service";
 
 const id = z.string().uuid();
 const organizationParams = z.object({ orgSlug: organizationSlugSchema });
@@ -87,6 +88,27 @@ socialRoutes.get(`${base}/posts`, ...inside(organizationParams), async (req, res
 });
 socialRoutes.post(`${base}/posts`, ...inside(organizationParams, postInput), async (req, res) => {
   res.status(201).json(await service.createPost(context(req), req.body as z.infer<typeof postInput>));
+});
+const postUpdate = z.object({
+  message: z.string().max(5000).optional(),
+  imageUrl: httpsUrl.nullable().optional(),
+  toFacebook: z.boolean().optional(),
+  toInstagram: z.boolean().optional(),
+  scheduledAt: z.string().datetime({ offset: true }).optional(),
+});
+socialRoutes.patch(`${base}/posts/:postId`, ...inside(postParams, postUpdate), async (req, res) => {
+  res.json(await service.updatePost(context(req), param(req, "postId"), req.body as z.infer<typeof postUpdate>));
+});
+const approveInput = z.object({ postIds: z.union([z.literal("all"), z.array(id).min(1).max(50)]) });
+socialRoutes.post(`${base}/posts/approve`, ...inside(organizationParams, approveInput), async (req, res) => {
+  res.json(await service.approvePosts(context(req), (req.body as z.infer<typeof approveInput>).postIds));
+});
+socialRoutes.post(`${base}/ai/plan`, ...inside(organizationParams, ai.planInput), async (req, res) => {
+  const result = await ai.createContentPlan(context(req), req.body as ai.PlanInput);
+  res.status(201).json({ ...result, ...(await service.listPosts(context(req))) });
+});
+socialRoutes.post(`${base}/ai/ad`, ...inside(organizationParams, ai.adInput), async (req, res) => {
+  res.json(await ai.createAdCopy(context(req), req.body as ai.AdInput));
 });
 socialRoutes.post(`${base}/posts/:postId/retry`, ...inside(postParams), async (req, res) => {
   res.json(await service.retryPost(context(req), param(req, "postId")));
