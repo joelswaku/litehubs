@@ -293,8 +293,8 @@ export async function layoutContractPdf(
 
   /**
    * Security watermark, drawn per page before any clause text, so the text
-   * stays crisp on top of it: a guilloche rosette, the logo or initials in its
-   * centre, and diagonal microtext with the company, reference, version and
+   * stays crisp on top of it: a guilloche rosette (no logo, which stays in the
+   * header) and diagonal microtext with the company, reference, version and
    * hash.  It raises the cost of a casual forgery; the SHA-256 printed in the
    * footer is what actually proves the file unaltered.
    */
@@ -305,14 +305,7 @@ export async function layoutContractPdf(
       const angle = (index / 60) * Math.PI * 2;
       page.drawCircle({ x: cx + Math.cos(angle) * 56, y: cy + Math.sin(angle) * 56, size: 72, borderWidth: 0.3, borderColor: ACCENT, borderOpacity: 0.06 });
     }
-    if (logo) {
-      const scale = Math.min(104 / logo.width, 104 / logo.height);
-      page.drawImage(logo, { x: cx - (logo.width * scale) / 2, y: cy - (logo.height * scale) / 2, width: logo.width * scale, height: logo.height * scale, opacity: 0.09 });
-    } else {
-      const initials = companyInitials(options.companyName);
-      const width = bold.widthOfTextAtSize(initials, 54);
-      page.drawText(initials, { x: cx - width / 2, y: cy - 54 * 0.34, size: 54, font: bold, color: ACCENT, opacity: 0.1 });
-    }
+    // No logo or initials in the watermark: the company logo stays in the header only.
     const unit = safe(font, `${options.companyName.toLocaleUpperCase("fr-FR").slice(0, 48)} · ${options.reference.slice(0, 48)} · ${securityCaption} · DOCUMENT ORIGINAL · `);
     const unitWidth = Math.max(font.widthOfTextAtSize(unit, 4.6), 1);
     const line = unit.repeat(Math.ceil(980 / unitWidth) + 1);
