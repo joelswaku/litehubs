@@ -7979,10 +7979,11 @@ function EditorDialog({
     "maintenance-part": label(fr, "Maintenance part", "Pièce de maintenance"),
   };
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-ink/45 p-4 backdrop-blur-sm">
-      <div className="mx-auto my-8 max-w-3xl rounded-2xl border border-border bg-surface-1 shadow-2xl">
-        <div className="flex items-start justify-between border-b border-border p-5">
-          <div>
+    <div className="fixed inset-0 z-50 overflow-y-auto overflow-x-hidden overscroll-contain bg-ink/45 backdrop-blur-sm sm:p-4">
+      {/* Phones: full-screen sheet; nothing may be wider than the screen. */}
+      <div className="mx-auto min-h-dvh w-full min-w-0 max-w-3xl overflow-x-hidden bg-surface-1 shadow-2xl sm:my-8 sm:min-h-0 sm:rounded-2xl sm:border sm:border-border">
+        <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-border bg-surface-1/95 px-4 py-3 backdrop-blur sm:static sm:p-5">
+          <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-[.14em] text-brand">
               {editing
                 ? label(fr, "Edit", "Modifier")
@@ -8002,7 +8003,7 @@ function EditorDialog({
           </Button>
         </div>
         <form
-          className="grid gap-4 p-5 md:grid-cols-2"
+          className="grid min-w-0 grid-cols-1 gap-4 break-words p-4 sm:p-5 md:grid-cols-2 [&>*]:min-w-0 [&_input]:min-w-0 [&_input]:max-w-full [&_select]:min-w-0 [&_select]:max-w-full [&_select]:truncate [&_textarea]:max-w-full"
           onSubmit={submit}
           noValidate={editor.kind === "project" || editor.kind === "task"}
         >
@@ -8055,7 +8056,7 @@ function EditorDialog({
               isOwner={isOwner}
             />
           </EditorFormErrorsContext.Provider>
-          <div className="flex justify-end gap-2 border-t border-border pt-4 md:col-span-2">
+          <div className="sticky bottom-0 -mx-4 flex flex-wrap justify-end gap-2 border-t border-border bg-surface-1/95 px-4 py-3 backdrop-blur sm:static sm:mx-0 sm:bg-transparent sm:px-0 sm:pb-0 sm:pt-4 md:col-span-2">
             <Button type="button" variant="ghost" onClick={onClose}>
               {label(fr, "Cancel", "Annuler")}
             </Button>
