@@ -129,3 +129,37 @@ export const deleteAttachment: RequestHandler = async (req, res) => {
   await service.deleteAttachment(contextOf(req), parameter(req, "imageId"));
   res.status(204).send();
 };
+
+function queryText(req: Request, name: string): string | undefined {
+  const value = (req.query as Record<string, unknown>)[name];
+  const text = Array.isArray(value) ? value[0] : value;
+  return typeof text === "string" && text.trim() ? text.trim().slice(0, 120) : undefined;
+}
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const listDocumentTrash: RequestHandler = async (req, res) => {
+  const projectId = parameter(req, "projectId");
+  if (!UUID.test(projectId)) throw new BadRequestError("Projet invalide");
+  const from = queryText(req, "from");
+  const to = queryText(req, "to");
+  const categoryId = queryText(req, "categoryId");
+  res.setHeader("Cache-Control", "no-store");
+  res.json({
+    items: await service.listDocumentTrash(contextOf(req), projectId, {
+      from: from && DAY.test(from) ? from : undefined,
+      to: to && DAY.test(to) ? to : undefined,
+      q: queryText(req, "q"),
+      categoryId: categoryId && UUID.test(categoryId) ? categoryId : undefined,
+    }),
+  });
+};
+export const restoreDocumentTrash: RequestHandler = async (req, res) => {
+  const trashId = parameter(req, "trashId");
+  if (!UUID.test(trashId)) throw new BadRequestError("Élément invalide");
+  res.json(await service.restoreDocumentTrash(contextOf(req), trashId));
+};
+export const purgeDocumentTrash: RequestHandler = async (req, res) => {
+  const trashId = parameter(req, "trashId");
+  if (!UUID.test(trashId)) throw new BadRequestError("Élément invalide");
+  res.json(await service.purgeDocumentTrash(contextOf(req), trashId));
+};

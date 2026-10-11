@@ -540,7 +540,7 @@ async function queueOwnedFilesForPurge(
   client: PoolClient,
   organizationId: string,
 ): Promise<void> {
-  const [documents, cloudinary] = await Promise.all([
+  const [documents, cloudinary, trash] = await Promise.all([
     client.query(
       `SELECT storage_path AS storage_key
          FROM documents
@@ -555,6 +555,16 @@ async function queueOwnedFilesForPurge(
           AND storage_public_id IS NOT NULL`,
       [organizationId],
     ),
+    // Documents in the project trash still have their stored file.
+    client.query(
+      `SELECT storage_provider,
+              CASE WHEN storage_provider = 'cloudinary' THEN storage_public_id ELSE storage_key END AS storage_key
+         FROM management_document_trash
+        WHERE organization_id = $1
+          AND storage_provider IN ('cloudinary', 'private_document')
+          AND COALESCE(CASE WHEN storage_provider = 'cloudinary' THEN storage_public_id ELSE storage_key END, '') <> ''`,
+      [organizationId],
+    ),
   ]);
   const files: PurgeFile[] = [
     ...documents.rows.map((row: { storage_key: string }) => ({
@@ -563,6 +573,10 @@ async function queueOwnedFilesForPurge(
     })),
     ...cloudinary.rows.map((row: { storage_key: string }) => ({
       storage_provider: "cloudinary" as const,
+      storage_key: row.storage_key,
+    })),
+    ...trash.rows.map((row: { storage_provider: "cloudinary" | "private_document"; storage_key: string }) => ({
+      storage_provider: row.storage_provider,
       storage_key: row.storage_key,
     })),
   ];

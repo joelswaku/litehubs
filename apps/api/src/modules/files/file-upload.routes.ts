@@ -140,3 +140,23 @@ fileUploadRoutes.post(
   requireOrganization,
   controller.deleteAttachment,
 );
+
+/* Project document trash (deleted documents can be restored). */
+fileUploadRoutes.get(
+  "/organizations/:orgSlug/projects/:projectId/document-trash",
+  authenticate,
+  requireOrganization,
+  controller.listDocumentTrash,
+);
+fileUploadRoutes.post(
+  "/organizations/:orgSlug/document-trash/:trashId/restore",
+  authenticate,
+  requireOrganization,
+  controller.restoreDocumentTrash,
+);
+fileUploadRoutes.delete(
+  "/organizations/:orgSlug/document-trash/:trashId",
+  authenticate,
+  requireOrganization,
+  controller.purgeDocumentTrash,
+);

@@ -1,6 +1,7 @@
 import path from "node:path";
 import type { PoolClient } from "pg";
 import { withTenantContext } from "../../utils/tenant-query";
+import { logger } from "../../config/logger";
 import {
   assertDocumentPolicy,
   visibleDocumentIds,
@@ -736,27 +737,220 @@ export async function deleteAttachment(
     recordId: String(attachment.entity_id),
   } as AttachmentTarget;
   await assertTargetAccess(context, target, "update");
-  if (attachment.storage_provider === "cloudinary") {
-    await deleteStoredImage({
-      provider: "cloudinary",
-      publicId:
-        typeof attachment.storage_public_id === "string"
-          ? attachment.storage_public_id
-          : null,
-    });
-  } else if (attachment.storage_provider === "private_document") {
-    const storageKey =
-      typeof attachment.storage_key === "string" ? attachment.storage_key : "";
-    if (!storageKey)
-      throw new BadRequestError("This private evidence document has no file");
-    await deletePrivateDocument(storageKey);
-  } else {
-    throw new NotFoundError("Evidence attachment not found");
-  }
+  // Moved to the project trash: the stored file is kept so the document can
+  // be restored; it is only erased when deleted from the trash.
   await withTenantContext(context, async (client) => {
+    const row = await client.query<Row>(
+      `SELECT d.*, c.name AS category_name,
+              COALESCE((SELECT array_agg(role_id) FROM management_document_role_access r
+                         WHERE r.organization_id=d.organization_id AND r.document_id=d.id), '{}') AS role_ids,
+              COALESCE((SELECT array_agg(member_id) FROM management_document_member_access m
+                         WHERE m.organization_id=d.organization_id AND m.document_id=d.id), '{}') AS member_ids
+         FROM management_document_links d
+         LEFT JOIN management_document_categories c ON c.organization_id=d.organization_id AND c.id=d.document_category_id
+        WHERE d.organization_id=$1 AND d.id=$2 FOR UPDATE OF d`,
+      [context.organizationId, imageId],
+    );
+    const document = row.rows[0];
+    if (!document) throw new NotFoundError("Document not found");
+    const { category_name, role_ids, member_ids, ...record } = document as Row & {
+      category_name: string | null;
+      role_ids: string[];
+      member_ids: string[];
+    };
+    await client.query(
+      `INSERT INTO management_document_trash
+         (organization_id,document_id,project_id,entity_type,entity_id,title,document_type,document_category_id,
+          document_category_name,mime_type,file_size_bytes,storage_provider,storage_key,storage_public_id,record,
+          role_ids,member_ids,uploaded_by_member_id,uploaded_at,deleted_by_member_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16::uuid[],$17::uuid[],$18,$19,$20)
+       ON CONFLICT (organization_id,document_id) DO NOTHING`,
+      [
+        context.organizationId,
+        imageId,
+        record.project_id ?? null,
+        record.entity_type,
+        record.entity_id ?? null,
+        record.title ?? null,
+        record.document_type ?? null,
+        record.document_category_id ?? null,
+        category_name,
+        record.mime_type ?? null,
+        record.file_size_bytes ?? null,
+        record.storage_provider,
+        record.storage_key ?? null,
+        record.storage_public_id ?? null,
+        JSON.stringify(record),
+        role_ids ?? [],
+        member_ids ?? [],
+        record.uploaded_by_member_id ?? null,
+        record.created_at ?? null,
+        context.memberId,
+      ],
+    );
     await client.query(
       "DELETE FROM management_document_links WHERE organization_id = $1 AND id = $2",
       [context.organizationId, imageId],
     );
   });
+}
+
+/* ------------------------------------------------------------------ */
+/* Project document trash                                               */
+/* ------------------------------------------------------------------ */
+
+export type TrashFilters = { from?: string; to?: string; q?: string; categoryId?: string };
+
+const projectTarget = (projectId: string) =>
+  ({ module: "owner-management", resource: "projects", recordId: projectId }) as AttachmentTarget;
+
+export async function listDocumentTrash(
+  context: FileContext,
+  projectId: string,
+  filters: TrashFilters,
+) {
+  await assertTargetAccess(context, projectTarget(projectId), "update");
+  const values: unknown[] = [context.organizationId, projectId];
+  const where = ["t.organization_id = $1", "t.project_id = $2"];
+  if (filters.from) {
+    values.push(filters.from);
+    where.push(`t.deleted_at >= $${values.length}::date`);
+  }
+  if (filters.to) {
+    values.push(filters.to);
+    where.push(`t.deleted_at < ($${values.length}::date + 1)`);
+  }
+  if (filters.q?.trim()) {
+    values.push(`%${filters.q.trim()}%`);
+    where.push(`t.title ILIKE $${values.length}`);
+  }
+  if (filters.categoryId) {
+    values.push(filters.categoryId);
+    where.push(`t.document_category_id = $${values.length}`);
+  }
+  return withTenantContext(context, async (client) => {
+    const result = await client.query<Row>(
+      `SELECT t.id, t.document_id, t.title, t.document_type, t.document_category_id, t.document_category_name,
+              t.mime_type, t.file_size_bytes, t.uploaded_at, t.deleted_at,
+              deleter.full_name AS deleted_by_name, uploader.full_name AS uploaded_by_name
+         FROM management_document_trash t
+         LEFT JOIN organization_members dm ON dm.organization_id=t.organization_id AND dm.id=t.deleted_by_member_id
+         LEFT JOIN users deleter ON deleter.id=dm.user_id
+         LEFT JOIN organization_members um ON um.organization_id=t.organization_id AND um.id=t.uploaded_by_member_id
+         LEFT JOIN users uploader ON uploader.id=um.user_id
+        WHERE ${where.join(" AND ")}
+        ORDER BY t.deleted_at DESC
+        LIMIT 300`,
+      values,
+    );
+    return result.rows.map((row) => ({
+      id: row.id,
+      documentId: row.document_id,
+      title: row.title,
+      documentType: row.document_type,
+      documentCategoryId: row.document_category_id,
+      documentCategoryName: row.document_category_name,
+      mimeType: row.mime_type,
+      fileSizeBytes: row.file_size_bytes === null ? null : Number(row.file_size_bytes),
+      uploadedAt: row.uploaded_at,
+      uploadedByName: row.uploaded_by_name,
+      deletedAt: row.deleted_at,
+      deletedByName: row.deleted_by_name,
+    }));
+  });
+}
+
+async function trashRow(context: FileContext, trashId: string) {
+  const row = await withTenantContext(context, async (client) =>
+    (
+      await client.query<Row>(
+        "SELECT * FROM management_document_trash WHERE organization_id=$1 AND id=$2",
+        [context.organizationId, trashId],
+      )
+    ).rows[0],
+  );
+  if (!row) throw new NotFoundError("Ce document n’est plus dans la corbeille.");
+  const [module = "", resource = ""] = String(row.entity_type).split(":", 2);
+  if (row.entity_id && isAttachmentTarget(module, resource))
+    await assertTargetAccess(
+      context,
+      { module, resource, recordId: String(row.entity_id) } as AttachmentTarget,
+      "update",
+    );
+  else if (row.project_id) await assertTargetAccess(context, projectTarget(String(row.project_id)), "update");
+  else throw new NotFoundError("Ce document n’est plus dans la corbeille.");
+  return row;
+}
+
+export async function restoreDocumentTrash(context: FileContext, trashId: string) {
+  const row = await trashRow(context, trashId);
+  await withTenantContext(context, async (client) => {
+    const record = { ...(row.record as Row) };
+    // The folder may have been removed since: the document comes back unfiled.
+    if (record.document_category_id) {
+      const category = await client.query(
+        "SELECT 1 FROM management_document_categories WHERE organization_id=$1 AND id=$2",
+        [context.organizationId, record.document_category_id],
+      );
+      if (!category.rowCount) record.document_category_id = null;
+    }
+    if (record.locked_by_member_id) {
+      const member = await client.query(
+        "SELECT 1 FROM organization_members WHERE organization_id=$1 AND id=$2",
+        [context.organizationId, record.locked_by_member_id],
+      );
+      if (!member.rowCount) record.locked_by_member_id = null;
+    }
+    try {
+      await client.query("SAVEPOINT restore_document");
+      await client.query(
+        `INSERT INTO management_document_links
+         SELECT * FROM jsonb_populate_record(NULL::management_document_links, $1::jsonb)`,
+        [JSON.stringify(record)],
+      );
+      await client.query("RELEASE SAVEPOINT restore_document");
+    } catch (error) {
+      await client.query("ROLLBACK TO SAVEPOINT restore_document");
+      logger.warn({ err: error, trashId }, "Document restore failed");
+      throw new BadRequestError(
+        "Ce document ne peut pas être restauré : l’élément auquel il appartenait (projet ou fiche) n’existe plus.",
+      );
+    }
+    await client.query(
+      `INSERT INTO management_document_role_access(organization_id,document_id,role_id)
+       SELECT $1,$2,r.id FROM roles r WHERE r.organization_id=$1 AND r.id = ANY($3::uuid[])
+       ON CONFLICT DO NOTHING`,
+      [context.organizationId, row.document_id, row.role_ids ?? []],
+    );
+    await client.query(
+      `INSERT INTO management_document_member_access(organization_id,document_id,member_id)
+       SELECT $1,$2,m.id FROM organization_members m WHERE m.organization_id=$1 AND m.id = ANY($3::uuid[])
+       ON CONFLICT DO NOTHING`,
+      [context.organizationId, row.document_id, row.member_ids ?? []],
+    );
+    await client.query("DELETE FROM management_document_trash WHERE organization_id=$1 AND id=$2", [
+      context.organizationId,
+      trashId,
+    ]);
+  });
+  return { restored: true };
+}
+
+export async function purgeDocumentTrash(context: FileContext, trashId: string) {
+  const row = await trashRow(context, trashId);
+  if (row.storage_provider === "cloudinary") {
+    await deleteStoredImage({
+      provider: "cloudinary",
+      publicId: typeof row.storage_public_id === "string" ? row.storage_public_id : null,
+    });
+  } else if (row.storage_provider === "private_document" && typeof row.storage_key === "string" && row.storage_key) {
+    await deletePrivateDocument(row.storage_key);
+  }
+  await withTenantContext(context, async (client) => {
+    await client.query("DELETE FROM management_document_trash WHERE organization_id=$1 AND id=$2", [
+      context.organizationId,
+      trashId,
+    ]);
+  });
+  return { deleted: true };
 }

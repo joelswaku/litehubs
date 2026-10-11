@@ -41,6 +41,7 @@ import {
   PackageCheck,
   Pencil,
   Plus,
+  RotateCcw,
   ReceiptText,
   ShieldCheck,
   Settings2,
@@ -1473,6 +1474,8 @@ export function ProjectsArea({ orgSlug }: { orgSlug: string }) {
       void client.invalidateQueries({
         queryKey: ["project-record", orgSlug, activeId, "documents"],
       });
+      void client.invalidateQueries({ queryKey: ["document-trash", orgSlug] });
+      toast.success(fr ? "Déplacé dans la corbeille du projet." : "Moved to the project trash.");
     },
   });
   const classifyDocument = useMutation({
@@ -5659,16 +5662,26 @@ function ProjectContent({
                     title: label(fr, "Delete document", "Supprimer le document"),
                     description: label(
                       fr,
-                      `“${String(document.title ?? "Document")}” will be permanently deleted from the project and cannot be recovered. A document still used by a task must first be removed from that task.`,
-                      `« ${String(document.title ?? "Document")} » sera définitivement supprimé du projet et ne pourra pas être récupéré. Un document encore utilisé par une tâche doit d’abord être retiré de cette tâche.`,
+                      `“${String(document.title ?? "Document")}” will be moved to the project trash. You can restore it from there. A document still used by a task must first be removed from that task.`,
+                      `« ${String(document.title ?? "Document")} » sera déplacé dans la corbeille du projet. Vous pourrez le restaurer depuis la corbeille. Un document encore utilisé par une tâche doit d’abord être retiré de cette tâche.`,
                     ),
-                    confirmLabel: label(fr, "Delete permanently", "Supprimer définitivement"),
+                    confirmLabel: label(fr, "Move to trash", "Mettre à la corbeille"),
                     tone: "danger",
                     onConfirm: () => removeImage(String(document.id)),
                   })
               : undefined
           }
         />
+        {canControl("projects.update") ? (
+          <DocumentTrash
+            orgSlug={orgSlug}
+            projectId={String(project.id)}
+            categories={documentCategories}
+            fr={fr}
+            locale={locale}
+            onConfirmAction={onConfirmAction}
+          />
+        ) : null}
         <Panel
           title={label(
             fr,
@@ -16885,13 +16898,13 @@ function ImagePanel({
                           title: label(fr, "Delete image", "Supprimer l’image"),
                           description: label(
                             fr,
-                            "This image will be permanently deleted from the project library and cannot be recovered.",
-                            "Cette image sera définitivement supprimée de la bibliothèque du projet et ne pourra pas être récupérée.",
+                            "This image will be moved to the project trash. You can restore it from there.",
+                            "Cette image sera déplacée dans la corbeille du projet. Vous pourrez la restaurer depuis la corbeille.",
                           ),
                           confirmLabel: label(
                             fr,
-                            "Delete permanently",
-                            "Supprimer définitivement",
+                            "Move to trash",
+                            "Mettre à la corbeille",
                           ),
                           tone: "danger",
                           onConfirm: () => removeImage(imageId),
@@ -17025,6 +17038,218 @@ function ImagePanel({
         </Button>
       </form>
     </>
+  );
+}
+/** Deleted project documents: kept with their file until deleted for good. */
+function DocumentTrash({
+  orgSlug,
+  projectId,
+  categories,
+  fr,
+  locale,
+  onConfirmAction,
+}: {
+  orgSlug: string;
+  projectId: string;
+  categories: DocumentCategory[];
+  fr: boolean;
+  locale: string;
+  onConfirmAction: (request: ConfirmationRequest) => void;
+}) {
+  const client = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [categoryId, setCategoryId] = useState("");
+  const params = new URLSearchParams();
+  if (q.trim()) params.set("q", q.trim());
+  if (from) params.set("from", from);
+  if (to) params.set("to", to);
+  if (categoryId) params.set("categoryId", categoryId);
+  const query = params.toString();
+  const trash = useQuery({
+    queryKey: ["document-trash", orgSlug, projectId, query],
+    queryFn: () =>
+      get<{ items: Row[] }>(
+        orgUrl(orgSlug, `projects/${projectId}/document-trash${query ? `?${query}` : ""}`),
+      ),
+    enabled: open,
+  });
+  const refresh = () => {
+    void client.invalidateQueries({ queryKey: ["document-trash", orgSlug] });
+    void client.invalidateQueries({ queryKey: ["project-images", orgSlug] });
+    void client.invalidateQueries({ queryKey: ["project-record", orgSlug] });
+  };
+  const failed = (error: unknown) =>
+    toast.error(error instanceof ApiError ? error.message : label(fr, "Action failed.", "L’action a échoué."));
+  const restore = useMutation({
+    mutationFn: (id: string) => api.post(orgUrl(orgSlug, `document-trash/${id}/restore`)),
+    onSuccess: () => {
+      refresh();
+      toast.success(label(fr, "Document restored.", "Document restauré."));
+    },
+    onError: failed,
+  });
+  const purge = useMutation({
+    mutationFn: (id: string) => del(orgUrl(orgSlug, `document-trash/${id}`)),
+    onSuccess: () => {
+      refresh();
+      toast.success(label(fr, "Deleted permanently.", "Supprimé définitivement."));
+    },
+    onError: failed,
+  });
+  const items = trash.data?.items ?? [];
+  const filtered = Boolean(q.trim() || from || to || categoryId);
+  return (
+    <section className="mt-4 overflow-hidden rounded-xl border border-border bg-surface-2">
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-3 bg-surface-1 px-4 py-3 text-left hover:bg-surface-2"
+      >
+        <span className="flex items-center gap-2">
+          <Trash2 className="size-4 text-ink-secondary" aria-hidden />
+          <span>
+            <span className="block text-sm font-semibold text-ink">
+              {label(fr, "Project trash", "Corbeille du projet")}
+            </span>
+            <span className="block text-xs text-ink-muted">
+              {label(
+                fr,
+                "Deleted documents and photos. Restore them or delete them for good.",
+                "Documents et photos supprimés. Restaurez-les ou supprimez-les définitivement.",
+              )}
+            </span>
+          </span>
+        </span>
+        <span className="text-xs font-semibold text-brand">
+          {open ? label(fr, "Close", "Fermer") : label(fr, "Open", "Ouvrir")}
+        </span>
+      </button>
+      {open ? (
+        <div className="border-t border-border p-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Field label={label(fr, "Search", "Rechercher")} htmlFor="trash-q">
+              <Input
+                id="trash-q"
+                value={q}
+                onChange={(event) => setQ(event.target.value)}
+                placeholder={label(fr, "Document name", "Nom du document")}
+              />
+            </Field>
+            <Field label={label(fr, "Folder", "Dossier")} htmlFor="trash-folder">
+              <select
+                id="trash-folder"
+                value={categoryId}
+                onChange={(event) => setCategoryId(event.target.value)}
+                className="h-9 w-full rounded-md border border-border-strong bg-surface-1 px-3 text-sm text-ink"
+              >
+                <option value="">{label(fr, "All folders", "Tous les dossiers")}</option>
+                {categories.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label={label(fr, "Deleted from", "Supprimé du")} htmlFor="trash-from">
+              <Input id="trash-from" type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
+            </Field>
+            <Field label={label(fr, "To", "Au")} htmlFor="trash-to">
+              <Input id="trash-to" type="date" value={to} onChange={(event) => setTo(event.target.value)} />
+            </Field>
+          </div>
+          {filtered ? (
+            <button
+              type="button"
+              onClick={() => {
+                setQ("");
+                setFrom("");
+                setTo("");
+                setCategoryId("");
+              }}
+              className="mt-2 text-xs font-semibold text-brand hover:underline"
+            >
+              {label(fr, "Clear filters", "Effacer les filtres")}
+            </button>
+          ) : null}
+          {trash.isLoading ? (
+            <Skeleton className="mt-4 h-24 w-full" />
+          ) : trash.isError ? (
+            <p className="mt-4 text-sm text-critical">
+              {trash.error instanceof ApiError
+                ? trash.error.message
+                : label(fr, "Could not load the trash.", "Impossible d’ouvrir la corbeille.")}
+            </p>
+          ) : items.length ? (
+            <ul className="mt-4 max-h-[28rem] divide-y divide-border overflow-y-auto rounded-lg border border-border bg-surface-1">
+              {items.map((item) => {
+                const id = String(item.id);
+                const title = String(item.title ?? label(fr, "Untitled document", "Document sans titre"));
+                return (
+                  <li key={id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-ink">{title}</p>
+                      <p className="mt-1 text-xs leading-5 text-ink-secondary">
+                        {String(item.documentCategoryName ?? label(fr, "Not categorised", "Non classé"))}
+                        {" · "}
+                        {fileSize(item.fileSizeBytes)}
+                        {" · "}
+                        {label(fr, "Deleted on", "Supprimé le")} {date(item.deletedAt, locale)}
+                        {item.deletedByName ? ` ${label(fr, "by", "par")} ${String(item.deletedByName)}` : ""}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        loading={restore.isPending && restore.variables === id}
+                        disabled={restore.isPending || purge.isPending}
+                        onClick={() => restore.mutate(id)}
+                      >
+                        <RotateCcw className="size-3.5" aria-hidden />
+                        {label(fr, "Restore", "Restaurer")}
+                      </Button>
+                      <button
+                        type="button"
+                        disabled={restore.isPending || purge.isPending}
+                        onClick={() =>
+                          onConfirmAction({
+                            title: label(fr, "Delete permanently", "Supprimer définitivement"),
+                            description: label(
+                              fr,
+                              `“${title}” and its file will be erased. This cannot be undone.`,
+                              `« ${title} » et son fichier seront effacés. Cette action est irréversible.`,
+                            ),
+                            confirmLabel: label(fr, "Delete permanently", "Supprimer définitivement"),
+                            tone: "danger",
+                            onConfirm: () => purge.mutate(id),
+                          })
+                        }
+                        className="grid size-8 place-items-center rounded-md text-ink-secondary hover:bg-surface-3 hover:text-critical disabled:opacity-50"
+                        aria-label={label(fr, "Delete permanently", "Supprimer définitivement")}
+                        title={label(fr, "Delete permanently", "Supprimer définitivement")}
+                      >
+                        <Trash2 className="size-4" aria-hidden />
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="mt-4 text-sm text-ink-muted">
+              {filtered
+                ? label(fr, "No deleted document matches these filters.", "Aucun document supprimé ne correspond à ces filtres.")
+                : label(fr, "The trash is empty.", "La corbeille est vide.")}
+            </p>
+          )}
+        </div>
+      ) : null}
+    </section>
   );
 }
 function ConfirmDialog({
