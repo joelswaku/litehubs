@@ -8,6 +8,9 @@ import {
 import { validate } from "../../middleware/validation.middleware";
 import { ForbiddenError } from "../../utils/errors";
 import * as controller from "./owner-management.controller";
+import { exportIncidentPdf } from "./incident-pdf";
+import { exportProjectAnalyticsPdf } from "./project-analytics-pdf";
+import { exportMyTasksReportPdf, myTasksReportQuery } from "./my-tasks-pdf";
 import {
   approvalDecisionBody,
   documentAccessBody,
@@ -294,6 +297,24 @@ ownerManagementRoutes.get(
   requirePermission("projects.read"),
   validate({ query: projectAnalyticsQuery }),
   controller.projectAnalytics,
+);
+// Registered before /projects/:projectId/export.pdf so "analytics" is not read as a project id.
+ownerManagementRoutes.get(
+  "/organizations/:orgSlug/owner-management/projects/analytics/export.pdf",
+  ...inOrganization,
+  requirePermission("projects.read"),
+  validate({ query: projectAnalyticsQuery }),
+  exportProjectAnalyticsPdf,
+);
+// Same access as GET /owner-management/incidents/:recordId (incidents.read +
+// the service's province/site visibility check).
+ownerManagementRoutes.get(
+  "/organizations/:orgSlug/owner-management/incidents/:recordId/export.pdf",
+  authenticate,
+  validate({ params: ownerManagementDecisionParams }),
+  requireOrganization,
+  requirePermission("incidents.read"),
+  exportIncidentPdf,
 );
 
 ownerManagementRoutes.get(
@@ -587,6 +608,14 @@ ownerManagementRoutes.get(
   "/organizations/:orgSlug/my-tasks",
   ...inOrganization,
   controller.listMyAssignedTasks,
+);
+// Rapport d'activité (PDF) of the caller's own assigned tasks: same
+// permissionless, self-limited access as GET /my-tasks.
+ownerManagementRoutes.get(
+  "/organizations/:orgSlug/my-tasks/activity-report.pdf",
+  ...inOrganization,
+  validate({ query: myTasksReportQuery }),
+  exportMyTasksReportPdf,
 );
 ownerManagementRoutes.patch(
   "/organizations/:orgSlug/my-tasks/:taskId",

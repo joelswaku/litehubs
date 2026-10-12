@@ -14,6 +14,8 @@ import { BadRequestError, ForbiddenError, ServiceUnavailableError } from "../../
 import { withTenantContext } from "../../utils/tenant-query";
 import { readAiInstructions } from "../ai-instructions/ai-instructions.service";
 import type { ChatContext } from "../chat/chat.service";
+import { createPoster } from "./social-poster.service";
+import { type BankPhoto, describePhotos, readPhotos, readSpecialDays, specialDaysBetween } from "./social-photos.service";
 
 type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -155,6 +157,9 @@ export const planInput = z.object({
   tone: z.enum(["professional", "friendly", "promotional", "educational"]).default("friendly"),
   toFacebook: z.boolean(),
   toInstagram: z.boolean(),
+  // AI posters: none, only for special days / events, or also ~1 post in 3.
+  posters: z.enum(["none", "special", "some"]).default("special"),
+  useSpecialDays: z.boolean().default(true),
 });
 export type PlanInput = z.infer<typeof planInput>;
 
@@ -175,45 +180,117 @@ const planSchema = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["message", "imageIndex"],
+        required: ["message", "imageIndex", "posterHeadline"],
         properties: {
           message: { type: "string" },
           imageIndex: { type: ["integer", "null"] },
+          posterHeadline: { type: "string" },
         },
       },
     },
   },
 };
-const planOutput = z.object({ posts: z.array(z.object({ message: z.string(), imageIndex: z.number().int().nullable() })) });
+const planOutput = z.object({
+  posts: z.array(z.object({ message: z.string(), imageIndex: z.number().int().nullable(), posterHeadline: z.string().default("") })),
+});
+
+/** A wall-clock day + time in the browser's zone → UTC. */
+function atLocal(year: number, month: number, day: number, time: string, offsetMinutes: number) {
+  const [hours, minutes] = time.split(":").map(Number) as [number, number];
+  return new Date(Date.UTC(year, month - 1, day, hours, minutes) + offsetMinutes * 60_000);
+}
 
 /** Dates of the plan: start date, then every N days, at the chosen local time. */
 function planDates(input: PlanInput) {
-  const [hours, minutes] = input.time.split(":").map(Number) as [number, number];
   const [year, month, day] = input.startDate.split("-").map(Number) as [number, number, number];
-  return Array.from({ length: input.count }, (_, index) => {
-    // Local wall-clock time → UTC using the browser's offset (getTimezoneOffset).
-    const utc = Date.UTC(year, month - 1, day + index * input.everyDays, hours, minutes) + input.timeZoneOffsetMinutes * 60_000;
-    return new Date(utc);
-  });
+  return Array.from({ length: input.count }, (_, index) => atLocal(year, month, day + index * input.everyDays, input.time, input.timeZoneOffsetMinutes));
 }
+
+type Slot = {
+  at: Date;
+  special: string | null; // name of the special day / event
+  fixedPhoto: BankPhoto | null; // a finished poster or the event photo
+  eventPhotos: BankPhoto[]; // event photos for an AI poster
+};
 
 export async function createContentPlan(context: ChatContext, input: PlanInput) {
   assertManager(context);
   if (!input.toFacebook && !input.toInstagram) throw new BadRequestError("Choisissez Facebook, Instagram ou les deux.");
   const dates = planDates(input);
   if (dates[0]!.getTime() < Date.now() - 5 * 60_000) throw new BadRequestError("La première date est déjà passée : choisissez une date à venir.");
-  const data = await withTenantContext(context, (client) => knowledge(client, context.organizationId));
+  const { data, bank, days } = await withTenantContext(context, async (client) => ({
+    data: await knowledge(client, context.organizationId),
+    bank: await readPhotos(client, context.organizationId),
+    days: await readSpecialDays(client, context.organizationId),
+  }));
   if (!data.account) throw new BadRequestError("Connectez d’abord la Page Facebook de l’entreprise.");
   if (input.toInstagram && !data.account.igUserId) throw new BadRequestError("Aucun compte Instagram professionnel n’est relié à la Page.");
 
+  /* Slots: the regular dates, plus special days and events inside the plan. */
+  const from = new Date(input.startDate + "T00:00:00Z");
+  const to = new Date(dates[dates.length - 1]!.getTime() + 86_400_000);
+  const slots: Slot[] = dates.map((at) => ({ at, special: null, fixedPhoto: null, eventPhotos: [] }));
+  const specials = new Map<string, string[]>();
+  if (input.useSpecialDays) for (const day of specialDaysBetween(days, from, to)) specials.set(day.date, [...(specials.get(day.date) ?? []), day.name]);
+  const dated = bank.filter((photo) => photo.kind !== "normal" && photo.eventDate && photo.eventDate >= from.toISOString().slice(0, 10) && photo.eventDate <= to.toISOString().slice(0, 10));
+  for (const photo of dated) specials.set(photo.eventDate!, [...new Set([...(specials.get(photo.eventDate!) ?? []), photo.eventName || "Événement"])]);
+  for (const [date, names] of [...specials.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+    const [year, month, day] = date.split("-").map(Number) as [number, number, number];
+    const at = atLocal(year, month, day, input.time, input.timeZoneOffsetMinutes);
+    if (at.getTime() < Date.now()) continue;
+    const onDay = dated.filter((photo) => photo.eventDate === date && !photo.reserved);
+    const poster = onDay.find((photo) => photo.kind === "poster") ?? null;
+    const eventPhotos = onDay.filter((photo) => photo.kind === "event");
+    // The special post replaces a regular post planned the same day.
+    const same = slots.findIndex((slot) => !slot.special && slot.at.toISOString().slice(0, 10) === date);
+    const slot: Slot = { at, special: names.join(" / "), fixedPhoto: poster ?? eventPhotos[0] ?? null, eventPhotos };
+    if (same >= 0) slots[same] = slot;
+    else slots.push(slot);
+  }
+  slots.sort((a, b) => a.at.getTime() - b.at.getTime());
+
+  /* Photos for the regular posts: never published first, then the oldest used. */
+  const candidates = bank
+    .filter((photo) => photo.kind === "normal" && !photo.reserved)
+    .sort((a, b) => a.publishedCount - b.publishedCount || (a.lastPublishedAt ?? "").localeCompare(b.lastPublishedAt ?? "") || a.createdAt.localeCompare(b.createdAt))
+    .slice(0, Math.min(24, slots.length * 2 + 2));
+  const toDescribe = [...candidates, ...dated].filter((photo) => !photo.description);
+  if (toDescribe.length) {
+    await withTenantContext(context, (client) => describePhotos(client, context.organizationId, toDescribe));
+    const fresh = await withTenantContext(context, (client) => readPhotos(client, context.organizationId));
+    const byId = new Map(fresh.map((photo) => [photo.id, photo]));
+    candidates.forEach((photo, index) => (candidates[index] = byId.get(photo.id) ?? photo));
+    slots.forEach((slot) => {
+      if (slot.fixedPhoto) slot.fixedPhoto = byId.get(slot.fixedPhoto.id) ?? slot.fixedPhoto;
+    });
+  }
+  // Without a photo bank, the shop and website images are used as before.
+  const pool: { title: string; url: string; photo: BankPhoto | null }[] = candidates.length
+    ? candidates.map((photo) => ({ title: photo.description || photo.originalName || "Photo", url: photo.url, photo }))
+    : data.images.map((image) => ({ title: image.title, url: image.url, photo: null }));
+
+  const describe = (photo: BankPhoto) => photo.description || photo.originalName || (photo.kind === "poster" ? "Affiche" : "Photo");
+  const slotLines = slots.map((slot, index) => {
+    const when = slot.at.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+    if (!slot.special) return `${index + 1}. ${when} — publication normale : choisis une photo dans la liste.`;
+    const visual = slot.fixedPhoto
+      ? slot.fixedPhoto.kind === "poster"
+        ? `affiche déjà prête (« ${describe(slot.fixedPhoto)} ») : écris le texte qui l’accompagne, imageIndex = null.`
+        : `photo de l’événement (« ${describe(slot.fixedPhoto)} »), imageIndex = null.`
+      : "pas de photo dédiée : choisis la photo la plus adaptée dans la liste, ou null.";
+    return `${index + 1}. ${when} — JOUR SPÉCIAL « ${slot.special} » : publication dédiée à ce jour (vœux, célébration ou annonce selon le cas) ; ${visual}`;
+  });
+
   const prompt = [
     `Tu es le responsable des réseaux sociaux de ${data.company || "l’entreprise"} (République démocratique du Congo).`,
-    `Rédige ${input.count} publications ${input.toInstagram ? (input.toFacebook ? "Facebook et Instagram" : "Instagram") : "Facebook"} différentes, à publier dans cet ordre, une tous les ${input.everyDays} jour(s).`,
+    `Rédige exactement ${slots.length} publications ${input.toInstagram ? (input.toFacebook ? "Facebook et Instagram" : "Instagram") : "Facebook"}, une par ligne du calendrier ci-dessous, dans le même ordre.`,
     `Ton : ${TONES[input.tone]}. Écris en français, sauf si la demande précise une autre langue.`,
     "Chaque publication : une accroche forte en première ligne, 2 à 5 phrases courtes, un appel à l’action (écrire en message privé, commander, visiter le site…), puis 3 à 6 hashtags pertinents à la fin. Emojis avec modération (0 à 3).",
-    "Règles strictes : n’invente aucun prix, chiffre, date, promotion, garantie ou témoignage qui n’est pas dans les données ci-dessous ou dans la demande. Pas de fausse urgence. Varie les sujets et les formulations.",
-    data.images.length
-      ? `Photos disponibles (choisis celle qui illustre le mieux chaque publication par son numéro, ou null si aucune ne convient ; évite de réutiliser la même photo) :\n${data.images.map((image, index) => `${index}. ${image.title}`).join("\n")}`
+    "Le texte doit correspondre à ce que montre la photo choisie. Règles strictes : n’invente aucun prix, chiffre, date, promotion, garantie ou témoignage qui n’est pas dans les données ci-dessous ou dans la demande. Pas de fausse urgence. Varie les sujets et les formulations.",
+    "posterHeadline : un titre d’affiche très court (2 à 6 mots, français, sans hashtag), par exemple « Bonne fête de l’Indépendance » ou « Poulets de chair disponibles ».",
+    `Calendrier :\n${slotLines.join("\n")}`,
+    pool.length
+      ? `Photos disponibles (choisis par son numéro la photo qui illustre le mieux chaque publication ; chaque photo une seule fois ; utilise d’abord les premières de la liste, jamais publiées) :\n${pool.map((image, index) => `${index}. ${image.title}`).join("\n")}`
       : "Aucune photo n’est disponible : imageIndex = null.",
     knowledgeText(data),
     `Demande du responsable (thème de la campagne) :\n<<<\n${input.brief}\n>>>`,
@@ -221,24 +298,92 @@ export async function createContentPlan(context: ChatContext, input: PlanInput) 
     .filter(Boolean)
     .join("\n\n");
 
-  const parsed = planOutput.safeParse(await askJson(prompt, "content_plan", planSchema, 4_000));
+  const parsed = planOutput.safeParse(await askJson(prompt, "content_plan", planSchema, 6_000));
   if (!parsed.success || !parsed.data.posts.length) throw new BadRequestError("L’assistant IA n’a pas proposé de publications. Réessayez.");
-  const posts = parsed.data.posts.slice(0, input.count);
+  const posts = parsed.data.posts.slice(0, slots.length);
 
+  /* Photo of each post; never the same photo twice, unused photos first. */
+  const used = new Set<number>();
+  const nextFree = () => pool.findIndex((_, index) => !used.has(index));
+  const posterJobs: string[] = [];
   await withTenantContext(context, async (client) => {
     for (const [index, post] of posts.entries()) {
-      const image = post.imageIndex !== null ? data.images[post.imageIndex] : undefined;
+      const slot = slots[index]!;
+      let image: { url: string; photo: BankPhoto | null } | null = slot.fixedPhoto ? { url: slot.fixedPhoto.url, photo: slot.fixedPhoto } : null;
+      if (!image) {
+        let pick = post.imageIndex !== null && post.imageIndex >= 0 && post.imageIndex < pool.length && !used.has(post.imageIndex) ? post.imageIndex : -1;
+        // A regular post always gets a bank photo while some are left.
+        if (pick < 0 && candidates.length && (!slot.special || post.imageIndex !== null)) pick = nextFree();
+        if (pick >= 0) {
+          used.add(pick);
+          image = { url: pool[pick]!.url, photo: pool[pick]!.photo };
+        }
+      }
+      const wantsPoster =
+        Boolean(image) &&
+        image!.photo?.kind !== "poster" &&
+        (input.posters === "some" ? Boolean(slot.special) || index % 3 === 2 : input.posters === "special" ? Boolean(slot.special) : false);
+      const posterPhotos = slot.eventPhotos.length ? slot.eventPhotos.slice(0, 3).map((photo) => photo.url) : image ? [image.url] : [];
       // Instagram needs a photo: without one, the draft goes to Facebook only.
       const toInstagram = input.toInstagram && Boolean(image);
       const toFacebook = input.toFacebook || !toInstagram;
-      await client.query(
-        `INSERT INTO social_posts(organization_id,social_account_id,to_facebook,to_instagram,message,image_url,status,scheduled_at,created_by_member_id,ai_generated)
-         VALUES($1,$2,$3,$4,$5,$6,'draft',$7,$8,true)`,
-        [context.organizationId, data.account!.id, toFacebook, toInstagram, post.message.trim().slice(0, 5000), image?.url ?? null, dates[index]!.toISOString(), context.memberId],
+      const inserted = await client.query<{ id: string }>(
+        `INSERT INTO social_posts(organization_id,social_account_id,to_facebook,to_instagram,message,image_url,status,scheduled_at,created_by_member_id,ai_generated,photo_id,poster_status,poster_spec)
+         VALUES($1,$2,$3,$4,$5,$6,'draft',$7,$8,true,$9,$10,$11) RETURNING id`,
+        [
+          context.organizationId,
+          data.account!.id,
+          toFacebook,
+          toInstagram,
+          post.message.trim().slice(0, 5000),
+          image?.url ?? null,
+          slot.at.toISOString(),
+          context.memberId,
+          image?.photo?.id ?? null,
+          wantsPoster ? "pending" : null,
+          wantsPoster
+            ? JSON.stringify({
+                imageUrls: posterPhotos,
+                headline: (post.posterHeadline || slot.special || "").slice(0, 80) || undefined,
+                style: slot.special ? "premium" : "nature",
+                format: "portrait",
+              })
+            : null,
+        ],
       );
+      if (wantsPoster) posterJobs.push(inserted.rows[0]!.id);
     }
   });
-  return { created: posts.length };
+  if (posterJobs.length) void runPosterJobs(context, posterJobs);
+  return { created: posts.length, specials: slots.filter((slot) => slot.special).length, posters: posterJobs.length };
+}
+
+/** AI posters are made one by one after the plan; each replaces the post photo when ready. */
+async function runPosterJobs(context: ChatContext, postIds: string[]) {
+  for (const postId of postIds) {
+    const job = await withTenantContext(context, async (client) =>
+      (await client.query<Row>(`SELECT poster_spec FROM social_posts WHERE organization_id=$1 AND id=$2 AND poster_status='pending'`, [context.organizationId, postId])).rows[0],
+    ).catch(() => null);
+    if (!job?.poster_spec) continue;
+    const spec = job.poster_spec as { imageUrls: string[]; headline?: string; style: "nature" | "premium" | "collage" | "bold"; format: "portrait" | "square" };
+    try {
+      const made = await createPoster(context, { imageUrls: spec.imageUrls, headline: spec.headline, style: spec.style, format: spec.format });
+      await withTenantContext(context, (client) =>
+        client.query(
+          `UPDATE social_posts SET image_url=$3,poster_status='done' WHERE organization_id=$1 AND id=$2 AND poster_status='pending' AND status IN ('draft','scheduled','failed')`,
+          [context.organizationId, postId, made.url],
+        ),
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Échec de l’affiche";
+      await withTenantContext(context, (client) =>
+        client.query(
+          `UPDATE social_posts SET poster_status='failed',poster_spec=COALESCE(poster_spec,'{}'::jsonb) || jsonb_build_object('error',$3::text) WHERE organization_id=$1 AND id=$2 AND poster_status='pending'`,
+          [context.organizationId, postId, message.slice(0, 300)],
+        ),
+      ).catch(() => undefined);
+    }
+  }
 }
 
 /* ------------------------------------------------------------------ */

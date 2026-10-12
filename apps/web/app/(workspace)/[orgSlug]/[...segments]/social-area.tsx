@@ -12,6 +12,7 @@ import {
   Archive,
   ArchiveRestore,
   ArrowRight,
+  Images,
   CalendarClock,
   Check,
   CheckCircle2,
@@ -45,6 +46,8 @@ import { ErrorState, SkeletonCard } from "@/components/ui/states";
 import { api, del, get, orgUrl, patch, post } from "@/lib/api";
 import { useLanguage } from "@/providers/language-provider";
 import { AdCopyForm, ContentPlanForm, PostEditor } from "@/components/social/social-ai";
+import { PosterStudio } from "@/components/social/social-poster";
+import { PhotoBank } from "@/components/social/social-photo-bank";
 
 type Account = {
   id: string;
@@ -89,6 +92,8 @@ type Post = {
   facebookPostId?: string | null;
   instagramMediaId?: string | null;
   archivedAt?: string | null;
+  posterStatus?: "pending" | "done" | "failed" | null;
+  posterError?: string | null;
 };
 type PostList = { posts: Post[]; historyTotal?: number; archivedTotal?: number };
 
@@ -558,7 +563,8 @@ function Posts({ orgSlug, fr, account }: { orgSlug: string; fr: boolean; account
   const [later, setLater] = useState(false);
   const [scheduledAt, setScheduledAt] = useState("");
   const [uploading, setUploading] = useState(false);
-  const [panel, setPanel] = useState<null | "plan" | "ad">(null);
+  const [panel, setPanel] = useState<null | "plan" | "ad" | "bank">(null);
+  const [poster, setPoster] = useState<null | { postId?: string; headline?: string }>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const done = () => {
@@ -662,9 +668,16 @@ function Posts({ orgSlug, fr, account }: { orgSlug: string; fr: boolean; account
 
   return (
     <div className="space-y-5">
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {(
           [
+            {
+              key: "bank" as const,
+              icon: Images,
+              title: tr(fr, "Banque photos", "Photo bank"),
+              text: tr(fr, "Déposez vos photos : l’IA publie d’abord celles jamais publiées.", "Drop photos: the AI publishes unused ones first."),
+              gradient: "from-[#059669] via-[#10b981] to-[#84cc16]",
+            },
             {
               key: "plan" as const,
               icon: Sparkles,
@@ -679,15 +692,22 @@ function Posts({ orgSlug, fr, account }: { orgSlug: string; fr: boolean; account
               text: tr(fr, "Annonce, public cible et conseils prêts pour Meta Ads Manager.", "Ad, audience and tips ready for Meta Ads Manager."),
               gradient: "from-[#f58529] via-[#dd2a7b] to-[#8134af]",
             },
+            {
+              key: "poster" as const,
+              icon: Wand2,
+              title: tr(fr, "Affiche IA", "AI poster"),
+              text: tr(fr, "Vos photos + votre logo → une affiche pro pour Facebook et Instagram.", "Your photos + logo → a pro poster."),
+              gradient: "from-[#047857] via-[#16a34a] to-[#ca8a04]",
+            },
           ]
         ).map((card) => {
           const Icon = card.icon;
-          const active = panel === card.key;
+          const active = card.key !== "poster" && panel === card.key;
           return (
             <button
               key={card.key}
               type="button"
-              onClick={() => setPanel(active ? null : card.key)}
+              onClick={() => (card.key === "poster" ? setPoster({}) : setPanel(active ? null : card.key))}
               className={`group relative overflow-hidden rounded-3xl bg-gradient-to-br ${card.gradient} p-[1.5px] text-left transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_22px_44px_-26px_rgba(91,75,216,.8)] ${active ? "shadow-[0_22px_44px_-26px_rgba(91,75,216,.9)]" : ""}`}
             >
               <span className="flex h-full items-center gap-4 rounded-[calc(1.5rem-1.5px)] bg-surface-1 p-4">
@@ -704,6 +724,25 @@ function Posts({ orgSlug, fr, account }: { orgSlug: string; fr: boolean; account
           );
         })}
       </div>
+      {poster ? (
+        <PosterStudio
+          orgSlug={orgSlug}
+          fr={fr}
+          postId={poster.postId}
+          defaultHeadline={poster.headline}
+          onDone={() => done()}
+          onUse={(url) => {
+            setImageUrl(url);
+            toast.success(tr(fr, "Affiche ajoutée à la nouvelle publication.", "Poster added to the new post."));
+          }}
+          onClose={() => setPoster(null)}
+        />
+      ) : null}
+      {panel === "bank" ? (
+        <div className="animate-in fade-in slide-in-from-top-2 duration-300">
+          <PhotoBank orgSlug={orgSlug} fr={fr} onClose={() => setPanel(null)} />
+        </div>
+      ) : null}
       {panel === "plan" ? (
         <div className="animate-in fade-in slide-in-from-top-2 duration-300">
           <ContentPlanForm orgSlug={orgSlug} fr={fr} hasInstagram={Boolean(account.instagram)} onDone={() => done()} onClose={() => setPanel(null)} />
@@ -895,6 +934,17 @@ function Posts({ orgSlug, fr, account }: { orgSlug: string; fr: boolean; account
                             <p className={`${item.status === "draft" ? "" : "line-clamp-4"} whitespace-pre-wrap text-sm leading-6 text-ink`}>{item.message || "—"}</p>
                           </div>
                           {item.error ? <p className="mt-2 rounded-lg bg-critical/8 px-2.5 py-1.5 text-xs text-critical">{item.error}</p> : null}
+                          {item.posterStatus === "pending" ? (
+                            <p className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+                              <Wand2 className="size-3.5 animate-pulse" />
+                              {tr(fr, "Affiche IA en cours de création… la photo sera remplacée automatiquement.", "AI poster being created…")}
+                            </p>
+                          ) : item.posterStatus === "failed" && ["draft", "scheduled"].includes(item.status) ? (
+                            <p className="mt-2 rounded-lg bg-amber-500/10 px-2.5 py-1.5 text-xs text-amber-800 dark:text-amber-300">
+                              {tr(fr, "L’affiche IA n’a pas pu être créée : la photo d’origine sera publiée. Vous pouvez réessayer avec « Affiche IA ».", "The AI poster failed: the original photo will be used.")}
+                              {item.posterError ? ` (${item.posterError})` : ""}
+                            </p>
+                          ) : null}
                           {editingId === item.id ? (
                             <PostEditor orgSlug={orgSlug} fr={fr} item={item} hasInstagram={Boolean(account.instagram)} onSaved={() => done()} onClose={() => setEditingId(null)} />
                           ) : null}
@@ -909,6 +959,10 @@ function Posts({ orgSlug, fr, account }: { orgSlug: string; fr: boolean; account
                               <Button size="sm" variant="outline" onClick={() => setEditingId(item.id)}>
                                 <Pencil className="size-4" />
                                 {tr(fr, "Modifier", "Edit")}
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={() => setPoster({ postId: item.id })}>
+                                <Wand2 className="size-4" />
+                                {tr(fr, "Affiche IA", "AI poster")}
                               </Button>
                               <Button size="sm" variant="ghost" loading={remove.isPending && remove.variables === item.id} onClick={() => remove.mutate(item.id)}>
                                 <Trash2 className="size-4" />

@@ -160,5 +160,15 @@ export type AssignEmployeeInput = z.infer<typeof assignEmployeeSchema>;
 export type ChangeAssignmentInput = z.infer<typeof changeAssignmentSchema>;
 export type ScheduleExceptionInput = z.infer<typeof scheduleExceptionSchema>;
 export type ClockInput = z.infer<typeof clockSchema>;
+export const attendanceSheetQuery = z.object({
+  month: z
+    .string()
+    .regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Use YYYY-MM")
+    .optional(),
+  employeeId: idSchema.optional(),
+  siteId: idSchema.optional(),
+});
+
+export type AttendanceSheetInput = z.infer<typeof attendanceSheetQuery>;
 export type ListAttendanceInput = z.infer<typeof listAttendanceQuery>;
 export type CorrectAttendanceInput = z.infer<typeof correctAttendanceSchema>;

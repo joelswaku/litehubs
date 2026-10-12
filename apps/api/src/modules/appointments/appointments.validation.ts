@@ -51,6 +51,15 @@ export const listAppointmentsQuery = z.object({
   offset: z.coerce.number().int().min(0).max(10_000).default(0),
 });
 
+export const appointmentSchedulePdfQuery = z.object({
+  siteId: id.optional(),
+  date: z.string().date().optional(),
+  inline: z.enum(["0", "1"]).optional(),
+});
+export const appointmentPdfQuery = z.object({
+  inline: z.enum(["0", "1"]).optional(),
+});
+
 export const appointmentSiteSettingsInput = z.object({
   siteId: id,
   publicBookingEnabled: z.boolean().default(false),
@@ -155,6 +164,7 @@ export const publicCheckInInput = z.object({
 });
 
 export type ListAppointmentsInput = z.infer<typeof listAppointmentsQuery>;
+export type AppointmentSchedulePdfInput = z.infer<typeof appointmentSchedulePdfQuery>;
 export type AppointmentSiteSettingsInput = z.infer<typeof appointmentSiteSettingsInput>;
 export type AppointmentServiceInput = z.infer<typeof appointmentServiceInput>;
 export type AppointmentDeskInput = z.infer<typeof appointmentDeskInput>;

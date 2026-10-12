@@ -5,6 +5,7 @@ import { requirePermission } from "../../middleware/permissions.middleware";
 import { validate } from "../../middleware/validation.middleware";
 import * as controller from "./daily-work.controller";
 import {
+  activityReportQuery,
   aiChecklistDraftBody,
   applyAiChecklistBody,
   dailyWorkQuery,
@@ -161,6 +162,15 @@ dailyWorkRoutes.get(
   requirePermission("daily_operations.read"),
   validate({ query: dailyWorkQuery }),
   controller.listReports,
+);
+// Rapport d'activité (PDF) for one employee and period: same permission and
+// province/self scope as the reports listing.
+dailyWorkRoutes.get(
+  "/organizations/:orgSlug/daily-work/activity-report.pdf",
+  ...inOrganization,
+  requirePermission("daily_operations.read"),
+  validate({ query: activityReportQuery }),
+  controller.downloadActivityReport,
 );
 dailyWorkRoutes.post(
   "/organizations/:orgSlug/daily-work/reports",

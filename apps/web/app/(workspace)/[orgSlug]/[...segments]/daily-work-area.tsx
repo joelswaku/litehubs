@@ -20,6 +20,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Textarea } from "@/components/ui/input";
+import { PdfButton } from "@/components/ui/pdf-button";
 import { ErrorState, Skeleton } from "@/components/ui/states";
 import { ApiError, get, orgUrl } from "@/lib/api";
 import { dailyWorkApi } from "@/lib/daily-work-api";
@@ -80,6 +81,7 @@ type Report = {
   problems?: string | null;
   helpNeeded?: string | null;
   status: "draft" | "submitted" | "reviewed" | "flagged";
+  employeeId?: string | null;
   employeeName?: string | null;
   siteName?: string | null;
   reviewedAt?: string | null;
@@ -157,6 +159,13 @@ const localToday = () => {
   const date = new Date();
   const offset = date.getTimezoneOffset() * 60_000;
   return new Date(date.getTime() - offset).toISOString().slice(0, 10);
+};
+/** Monday–Sunday (YYYY-MM-DD) of the week containing `day`. */
+const weekOf = (day: string) => {
+  const date = new Date(`${day.slice(0, 10)}T12:00:00Z`);
+  const monday = new Date(date.getTime() - ((date.getUTCDay() + 6) % 7) * 86_400_000);
+  const sunday = new Date(monday.getTime() + 6 * 86_400_000);
+  return { from: monday.toISOString().slice(0, 10), to: sunday.toISOString().slice(0, 10) };
 };
 const badge = (status: string) =>
   status === "verified" || status === "reviewed"
@@ -762,6 +771,7 @@ export function DailyWorkArea({ orgSlug }: { orgSlug: string }) {
             />
           ) : tab === "reports" ? (
             <Reports
+              orgSlug={orgSlug}
               items={reports.data ?? []}
               loading={reports.isPending}
               copy={copy}
@@ -1524,6 +1534,7 @@ function ResponseInput({
   );
 }
 function Reports({
+  orgSlug,
   items,
   loading,
   copy,
@@ -1533,6 +1544,7 @@ function Reports({
   onReview,
   working,
 }: {
+  orgSlug: string;
   items: Report[];
   loading: boolean;
   copy: { noData: string; review: string; flag: string };
@@ -1543,6 +1555,39 @@ function Reports({
   working: boolean;
 }) {
   const { locale } = useLanguage();
+  const fr = locale === "fr";
+  const [period, setPeriod] = useState(() => weekOf(localToday()));
+  const activityPath = orgUrl(orgSlug, "daily-work/activity-report.pdf");
+  const myActivity = (
+    <div className="flex flex-wrap items-end gap-2 border-b border-border px-5 py-3">
+      <label className="grid gap-1 text-xs font-medium text-ink-secondary">
+        {fr ? "Du" : "From"}
+        <Input
+          type="date"
+          value={period.from}
+          max={period.to}
+          onChange={(event) => event.target.value && setPeriod((current) => ({ ...current, from: event.target.value }))}
+          className="h-9 w-40"
+        />
+      </label>
+      <label className="grid gap-1 text-xs font-medium text-ink-secondary">
+        {fr ? "Au" : "To"}
+        <Input
+          type="date"
+          value={period.to}
+          min={period.from}
+          onChange={(event) => event.target.value && setPeriod((current) => ({ ...current, to: event.target.value }))}
+          className="h-9 w-40"
+        />
+      </label>
+      <PdfButton
+        path={activityPath}
+        fileName={`rapport-activite-${period.from}-${period.to}.pdf`}
+        params={period}
+        label={fr ? "Mon rapport d’activité" : "My activity report"}
+      />
+    </div>
+  );
   const signedLabel =
     locale === "fr" ? "Terminé et signé" : "Completed and signed";
   const verifiedLabel =
@@ -1554,9 +1599,16 @@ function Reports({
         <Skeleton className="h-20" />
       </div>
     );
-  if (!items.length) return <Empty text={copy.noData} />;
+  if (!items.length)
+    return (
+      <>
+        {myActivity}
+        <Empty text={copy.noData} />
+      </>
+    );
   return (
     <div className="divide-y divide-border/90">
+      {myActivity}
       {items.map((report) => (
         <div
           key={report.id}
@@ -1569,9 +1621,19 @@ function Reports({
                 {titleCase(report.reportLevel)} · {report.siteName ?? "—"}
               </p>
             </div>
-            <Badge variant={badge(report.status)}>
-              {titleCase(report.status)}
-            </Badge>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant={badge(report.status)}>
+                {titleCase(report.status)}
+              </Badge>
+              {report.employeeId ? (
+                <PdfButton
+                  path={activityPath}
+                  fileName={`rapport-activite-${weekOf(report.workDate).from}.pdf`}
+                  params={{ employeeId: report.employeeId, ...weekOf(report.workDate) }}
+                  label={fr ? "Rapport d’activité (semaine)" : "Weekly activity report"}
+                />
+              ) : null}
+            </div>
           </div>
           {report.problems ? (
             <p className="mt-3 text-sm text-ink-secondary">{report.problems}</p>

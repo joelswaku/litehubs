@@ -62,6 +62,15 @@ performanceRoutes.get(
   requirePermission("performance.read"),
   controller.listGoals,
 );
+// Fiche d'évaluation: same access and scope as the review's goals listing.
+performanceRoutes.get(
+  "/organizations/:orgSlug/performance-reviews/:reviewId/export.pdf",
+  authenticate,
+  validate({ params: reviewParams }),
+  requireOrganization,
+  requirePermission("performance.read"),
+  controller.downloadReviewPdf,
+);
 performanceRoutes.post(
   "/organizations/:orgSlug/performance-reviews/:reviewId/goals",
   authenticate,
@@ -118,4 +127,13 @@ performanceRoutes.get(
   requireActiveEmployeeProfile,
   validate({ query: analyticsQuery }),
   controller.myPerformance,
+);
+// Personal evaluation sheet: only a review of the caller's own employee record.
+performanceRoutes.get(
+  "/organizations/:orgSlug/my-performance/reviews/:reviewId/export.pdf",
+  authenticate,
+  validate({ params: reviewParams }),
+  requireOrganization,
+  requireActiveEmployeeProfile,
+  controller.downloadMyReviewPdf,
 );

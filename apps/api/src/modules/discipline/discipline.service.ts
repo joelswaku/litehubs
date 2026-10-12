@@ -5,6 +5,7 @@ import {
   ForbiddenError,
   NotFoundError,
 } from "../../utils/errors";
+import { createPdf, pdfDate, type PdfBuilder } from "../../utils/pdf-builder";
 import { withTenantContext } from "../../utils/tenant-query";
 import type {
   ActionQuery,
@@ -441,4 +442,188 @@ export async function summary(context: DisciplineContext) {
       },
     };
   });
+}
+
+/* ------------------------------------------------------------------ */
+/* Letters (PDF): written warning / request for explanation           */
+/* ------------------------------------------------------------------ */
+
+const categoryLabels: Record<string, string> = {
+  attendance: "Assiduité / présence",
+  conduct: "Comportement",
+  performance: "Performance",
+  safety: "Sécurité",
+  biosecurity: "Biosécurité",
+  theft: "Vol",
+  insubordination: "Insubordination",
+  other: "Autre",
+};
+const severityLabels: Record<string, string> = {
+  minor: "Mineure",
+  serious: "Grave",
+  gross: "Lourde",
+};
+const measureLabels: Record<string, string> = {
+  none: "Aucune sanction",
+  verbal_warning: "Avertissement verbal",
+  written_warning: "Avertissement écrit",
+  final_warning: "Dernier avertissement",
+  suspension: "Mise à pied / suspension",
+  demotion: "Rétrogradation",
+  dismissal: "Licenciement",
+};
+const statusLabels: Record<Status, string> = {
+  open: "Ouvert",
+  under_review: "En attente de décision",
+  upheld: "Sanction confirmée",
+  dismissed: "Classé sans suite",
+  appealed: "Recours en cours",
+  closed: "Clôturé",
+};
+
+export async function disciplineLetterPdf(
+  context: DisciplineContext,
+  actionId: string,
+  kind?: "warning" | "explanation",
+) {
+  return withTenantContext(context, async (client) => {
+    /* Same visibility rule as listActions. */
+    const scope = await scopeOf(client, context);
+    if (scope === "self")
+      throw new ForbiddenError(
+        "Disciplinary records are not available in self-service",
+      );
+    const params: unknown[] = [context.organizationId, actionId];
+    let access = "";
+    if (scope === "province") {
+      params.push(context.memberId);
+      access = ` AND a.province_id IN (SELECT province_id FROM member_provinces WHERE organization_id=$1 AND member_id=$${params.length})`;
+    }
+    const result = await client.query<ActionRow>(
+      `SELECT ${actionFields} FROM disciplinary_actions a JOIN employees e ON e.organization_id=a.organization_id AND e.id=a.employee_id LEFT JOIN provinces p ON p.organization_id=a.organization_id AND p.id=e.province_id LEFT JOIN sites s ON s.organization_id=a.organization_id AND s.id=e.site_id LEFT JOIN users raiser ON raiser.id=a.raised_by LEFT JOIN users submitter ON submitter.id=a.submitted_by LEFT JOIN users decider ON decider.id=a.decided_by WHERE a.organization_id=$1 AND a.id=$2${access}`,
+      params,
+    );
+    const row = result.rows[0];
+    if (!row) throw new NotFoundError("Disciplinary record not found");
+    const type =
+      kind ??
+      (["open", "under_review"].includes(row.status) ? "explanation" : "warning");
+
+    const rules = await client.query<{
+      version_number: number;
+      title: string;
+      created_at: Date;
+      signed_at: Date | null;
+      ack_version: number | null;
+    }>(
+      `SELECT v.version_number, v.title, v.created_at,
+              ack.signed_at, ack.version_number AS ack_version
+         FROM company_rules_versions v
+         LEFT JOIN LATERAL (
+           SELECT a.signed_at, av.version_number
+             FROM company_rules_acknowledgements a
+             JOIN company_rules_versions av ON av.organization_id=a.organization_id AND av.id=a.rules_version_id
+            WHERE a.organization_id=v.organization_id AND a.employee_id=$2
+            ORDER BY av.version_number DESC LIMIT 1
+         ) ack ON true
+        WHERE v.organization_id=$1 AND v.status='published'
+        ORDER BY v.version_number DESC LIMIT 1`,
+      [context.organizationId, row.employee_id],
+    );
+    const rule = rules.rows[0];
+
+    const title =
+      type === "explanation"
+        ? "Demande d'explication"
+        : row.action_taken === "final_warning"
+          ? "Dernier avertissement écrit"
+          : "Avertissement écrit";
+    const pdf = await createPdf(client, context.organizationId, {
+      title,
+      subtitle: `${row.employee_name} · Dossier ${row.reference}`,
+      reference: row.reference,
+    });
+    pdf.section("Destinataire").fields([
+      ["Nom complet", row.employee_name],
+      ["Matricule", row.employee_number],
+      ["Fonction", row.employee_job_title],
+      ["Affectation", [row.site_name, row.province_name].filter(Boolean).join(" · ") || null],
+    ]);
+    pdf.section("Dossier").fields(
+      [
+        ["Référence", row.reference],
+        ["Date des faits", pdfDate(row.occurred_on)],
+        ["Signalé le", pdfDate(row.reported_on)],
+        ["Catégorie", categoryLabels[row.category] ?? row.category],
+        ["Gravité", severityLabels[row.severity] ?? row.severity],
+        ["Statut", statusLabels[row.status] ?? row.status],
+      ],
+      3,
+    );
+    pdf.section("Exposé des faits").paragraph(row.description);
+    pdf.section("Références au règlement");
+    if (rule) {
+      pdf.paragraph(
+        `Règlement de l'entreprise en vigueur : « ${rule.title} », version ${rule.version_number} publiée le ${pdfDate(rule.created_at)}.`,
+      );
+      pdf.paragraph(
+        rule.signed_at
+          ? `L'employé a accusé réception du règlement (version ${rule.ack_version ?? "—"}) le ${pdfDate(rule.signed_at)}.`
+          : "Aucun accusé de réception du règlement n'est enregistré pour cet employé.",
+        { size: 9, color: "#61708B" },
+      );
+    } else {
+      pdf.paragraph("Aucun règlement d'entreprise publié n'est enregistré dans LiteHubs.", { size: 9, color: "#61708B" });
+    }
+
+    if (type === "explanation") {
+      pdf.section("Objet");
+      pdf.paragraph(
+        `Madame, Monsieur ${row.employee_name}, les faits décrits ci-dessus, survenus le ${pdfDate(row.occurred_on)}, ont été portés à la connaissance de la direction. Nous vous demandons de fournir par écrit vos explications sur ces faits dans le délai indiqué ci-dessous. Votre réponse sera versée au dossier et prise en compte avant toute décision.`,
+      );
+      pdf.fields([
+        ["Réponse attendue au plus tard le", "____ / ____ / ________"],
+        ["Dossier ouvert par", row.raised_by_name],
+      ]);
+    } else {
+      pdf.section("Mesure notifiée");
+      pdf.fields([
+        ["Mesure", measureLabels[row.action_taken] ?? row.action_taken],
+        ["Valable jusqu'au", row.expires_on ? pdfDate(row.expires_on) : "—"],
+        ["Décision rendue par", row.decided_by_name],
+        ["Date de la décision", row.decided_at ? pdfDate(row.decided_at) : "—"],
+      ]);
+      if (row.decision_note) pdf.paragraph(`Motivation : ${row.decision_note}`);
+      pdf.paragraph(
+        `Madame, Monsieur ${row.employee_name}, en raison des faits exposés ci-dessus, la direction vous notifie la mesure indiquée. Nous vous demandons de veiller strictement au respect du règlement de l'entreprise. Toute récidive pourra entraîner une sanction plus lourde.`,
+      );
+      if (row.status === "under_review" || row.status === "open")
+        pdf.note("Ce dossier n'a pas encore fait l'objet d'une décision finale dans LiteHubs.");
+    }
+
+    pdf.section("Réponse de l'employé");
+    if (row.employee_statement)
+      pdf.paragraph(`Déclaration déjà enregistrée : ${row.employee_statement}`, { size: 9 });
+    writingLines(pdf, 8);
+    pdf.signatures(["Employé (reçu le)", "Responsable"]);
+    pdf.note(
+      "La signature de l'employé atteste uniquement la réception de ce document et non son accord sur les faits. Un exemplaire est remis à l'employé, un autre est conservé dans son dossier.",
+    );
+    const slug = type === "explanation" ? "demande-explication" : "avertissement";
+    return { buffer: await pdf.finish(), fileName: `${slug}-${row.reference}.pdf` };
+  });
+}
+
+/** Blank ruled lines for a handwritten answer. */
+function writingLines(pdf: PdfBuilder, count: number) {
+  const doc = pdf.doc;
+  const left = doc.page.margins.left;
+  const right = doc.page.width - doc.page.margins.right;
+  for (let index = 0; index < count; index += 1) {
+    if (doc.y + 22 > doc.page.height - doc.page.margins.bottom) doc.addPage();
+    doc.y += 20;
+    doc.moveTo(left, doc.y).lineTo(right, doc.y).strokeColor("#D5DDEB").lineWidth(0.6).stroke();
+  }
+  doc.y += 8;
+  doc.x = left;
 }

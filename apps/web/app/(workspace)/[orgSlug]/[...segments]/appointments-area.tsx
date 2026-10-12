@@ -32,6 +32,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Field, Input, Textarea } from "@/components/ui/input";
+import { PdfButton } from "@/components/ui/pdf-button";
 import { PhoneInput } from "@/components/ui/phone-input";
 import { EmptyState, ErrorState, SkeletonCard } from "@/components/ui/states";
 import { ApiError, api, del, get, orgUrl, patch, post, put } from "@/lib/api";
@@ -121,6 +122,9 @@ export function AppointmentsArea({ orgSlug }: { orgSlug: string }) {
   const controllable = can(user, "appointments.update");
   const canManageSetup = isOwner(user);
   const [siteId, setSiteId] = useState("");
+  const [scheduleDate, setScheduleDate] = useState(() =>
+    new Date().toLocaleDateString("en-CA"),
+  );
   const [upcomingOffset, setUpcomingOffset] = useState(0);
   const [deskId, setDeskId] = useState("");
   const [messageTemplateId, setMessageTemplateId] = useState("");
@@ -1236,6 +1240,24 @@ export function AppointmentsArea({ orgSlug }: { orgSlug: string }) {
                 </option>
               ))}
             </select>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="date"
+                aria-label={tr(fr, "Date du planning", "Schedule date")}
+                className="control h-10 max-w-40 bg-surface-1 shadow-sm"
+                value={scheduleDate}
+                onChange={(event) => setScheduleDate(event.target.value)}
+              />
+              <PdfButton
+                path={orgUrl(orgSlug, "appointments/schedule.pdf")}
+                fileName={`planning-rendez-vous-${scheduleDate || "jour"}.pdf`}
+                label={tr(fr, "Planning PDF", "Schedule PDF")}
+                params={{
+                  siteId: siteId || undefined,
+                  date: scheduleDate || undefined,
+                }}
+              />
+            </div>
             {selectedSite && (
               <div className="flex flex-wrap items-center gap-2">
                 <select
@@ -1292,6 +1314,7 @@ export function AppointmentsArea({ orgSlug }: { orgSlug: string }) {
                   controls={controllable}
                   deskId={deskId}
                   siteId={selectedSite}
+                  orgSlug={orgSlug}
                   messageTemplateId={messageTemplateId}
                   callNext={callNext}
                   transition={transition}
@@ -1418,16 +1441,27 @@ export function AppointmentsArea({ orgSlug }: { orgSlug: string }) {
                         ) : null}
                       </div>
                     </div>
-                    {controllable && (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        loading={checkIn.isPending}
-                        onClick={() => checkIn.mutate(row.id)}
-                      >
-                        {tr(fr, "Arrivé", "Check in")}
-                      </Button>
-                    )}
+                    <div className="flex shrink-0 items-center gap-2">
+                      <PdfButton
+                        path={orgUrl(
+                          orgSlug,
+                          `appointments/${row.id}/ticket.pdf`,
+                        )}
+                        fileName={`ticket-${row.reference ?? row.id}.pdf`}
+                        size="icon-sm"
+                        variant="ghost"
+                      />
+                      {controllable && (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          loading={checkIn.isPending}
+                          onClick={() => checkIn.mutate(row.id)}
+                        >
+                          {tr(fr, "Arrivé", "Check in")}
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 ))}
                 <div className="flex items-center justify-between gap-3 border-t border-border/70 pt-3">
@@ -2093,6 +2127,7 @@ function QueueRow({
   controls,
   deskId,
   siteId,
+  orgSlug,
   messageTemplateId,
   callNext,
   transition,
@@ -2117,6 +2152,14 @@ function QueueRow({
           {row.desk?.name ? ` · ${row.desk.name}` : ""}
         </p>
       </div>
+      {orgSlug ? (
+        <PdfButton
+          path={orgUrl(orgSlug, `appointments/${row.id}/ticket.pdf`)}
+          fileName={`ticket-${row.reference ?? row.id}.pdf`}
+          size="icon-sm"
+          variant="ghost"
+        />
+      ) : null}
       {controls && (
         <div className="flex gap-2">
           {["waiting", "checked_in"].includes(row.status) && (

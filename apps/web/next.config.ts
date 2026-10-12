@@ -60,6 +60,8 @@ const nextConfig: NextConfig = {
   experimental: {
     // Trims the client bundle for the two libraries with the largest surface.
     optimizePackageImports: ["lucide-react", "recharts"],
+    // AI posters can take up to a few minutes; the default proxy cut is 30 s.
+    proxyTimeout: 300_000,
   },
 };
 

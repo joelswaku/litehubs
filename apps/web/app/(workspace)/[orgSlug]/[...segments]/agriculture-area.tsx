@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { PdfButton } from "@/components/ui/pdf-button";
 import { Field, Input, Textarea } from "@/components/ui/input";
 import { EmptyState, ErrorState, SkeletonCard } from "@/components/ui/states";
 import { ApiError, get, orgUrl } from "@/lib/api";
@@ -768,6 +769,7 @@ export function AgricultureArea({ orgSlug }: { orgSlug: string }) {
           ) : items.length ? (
             <RecordList
               resource={resource}
+              orgSlug={orgSlug}
               fr={fr}
               items={items}
               canUpdate={canDo(resource, "update")}
@@ -937,6 +939,7 @@ function secondary(item: Item, resource: AgricultureResource, fr: boolean) {
 }
 function RecordList({
   resource,
+  orgSlug,
   fr,
   items,
   canUpdate,
@@ -946,6 +949,7 @@ function RecordList({
   onDelete,
 }: {
   resource: AgricultureResource;
+  orgSlug: string;
   fr: boolean;
   items: Item[];
   canUpdate: boolean;
@@ -976,6 +980,14 @@ function RecordList({
               <Button size="sm" variant="ghost" onClick={() => onView(item.id)}>
                 {fr ? "Voir" : "View"}
               </Button>
+              {resource === "plots" || resource === "plantings" ? (
+                <PdfButton
+                  path={orgUrl(orgSlug, `agriculture/${resource}/${item.id}/sheet.pdf`)}
+                  fileName={`${resource === "plots" ? "fiche-parcelle" : "fiche-culture"}-${String(item.code ?? item.id)}.pdf`}
+                  label={fr ? "Fiche" : "Sheet"}
+                  variant="ghost"
+                />
+              ) : null}
               {canUpdate ? (
                 <Button size="sm" variant="ghost" onClick={() => onEdit(item)}>
                   {fr ? "Modifier" : "Edit"}

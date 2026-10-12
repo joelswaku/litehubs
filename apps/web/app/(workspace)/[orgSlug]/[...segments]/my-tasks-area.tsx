@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { PdfButton } from "@/components/ui/pdf-button";
 import { EmptyState, ErrorState, SkeletonCard } from "@/components/ui/states";
 import { Textarea } from "@/components/ui/input";
 import { get, orgUrl, patch, post } from "@/lib/api";
@@ -77,6 +78,15 @@ const priorityLabel = (priority: string, fr: boolean) => {
   return fr ? label[1] : label[0];
 };
 
+/** Monday–Sunday (YYYY-MM-DD) of the current local week. */
+function currentWeek() {
+  const today = new Date();
+  const local = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
+  const monday = new Date(local.getTime() - ((local.getUTCDay() + 6) % 7) * 86_400_000);
+  const sunday = new Date(monday.getTime() + 6 * 86_400_000);
+  return { from: monday.toISOString().slice(0, 10), to: sunday.toISOString().slice(0, 10) };
+}
+
 export function MyTasksArea({ orgSlug }: { orgSlug: string }) {
   const { locale } = useLanguage();
   const fr = locale === "fr";
@@ -96,6 +106,7 @@ export function MyTasksArea({ orgSlug }: { orgSlug: string }) {
   const [blocker, setBlocker] = useState("");
   const [notes, setNotes] = useState("");
   const [evidenceFile, setEvidenceFile] = useState<File | null>(null);
+  const [reportPeriod, setReportPeriod] = useState(currentWeek);
 
   useEffect(() => {
     if (!selected) return;
@@ -235,6 +246,35 @@ export function MyTasksArea({ orgSlug }: { orgSlug: string }) {
             "Seul le travail qui vous est attribué apparaît ici. Mettez à jour son statut, signalez un blocage, ajoutez une preuve, puis transmettez le travail terminé à votre responsable.",
           )}
         </p>
+        <div className="mt-5 flex flex-wrap items-end gap-2">
+          <label className="grid gap-1 text-xs font-medium text-blue-50/90">
+            {copy(fr, "From", "Du")}
+            <input
+              type="date"
+              value={reportPeriod.from}
+              max={reportPeriod.to}
+              onChange={(event) => event.target.value && setReportPeriod((current) => ({ ...current, from: event.target.value }))}
+              className="h-9 rounded-lg border border-white/25 bg-white/10 px-2 text-sm text-white [color-scheme:dark] focus:outline-none focus:ring-2 focus:ring-white/40"
+            />
+          </label>
+          <label className="grid gap-1 text-xs font-medium text-blue-50/90">
+            {copy(fr, "To", "Au")}
+            <input
+              type="date"
+              value={reportPeriod.to}
+              min={reportPeriod.from}
+              onChange={(event) => event.target.value && setReportPeriod((current) => ({ ...current, to: event.target.value }))}
+              className="h-9 rounded-lg border border-white/25 bg-white/10 px-2 text-sm text-white [color-scheme:dark] focus:outline-none focus:ring-2 focus:ring-white/40"
+            />
+          </label>
+          <PdfButton
+            path={orgUrl(orgSlug, "my-tasks/activity-report.pdf")}
+            fileName={`rapport-activite-taches-${reportPeriod.from}-${reportPeriod.to}.pdf`}
+            params={reportPeriod}
+            variant="secondary"
+            label={copy(fr, "Activity report", "Rapport d’activité")}
+          />
+        </div>
       </section>
 
       <section className="grid gap-3 sm:grid-cols-3">

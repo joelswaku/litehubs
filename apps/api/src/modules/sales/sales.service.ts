@@ -34,7 +34,7 @@ const nullableText = (value: string | null | undefined) => {
   return normalized || null;
 };
 
-async function maySeeProvince(client: PoolClient, context: SalesContext, provinceId: string | null): Promise<boolean> {
+export async function maySeeProvince(client: PoolClient, context: SalesContext, provinceId: string | null): Promise<boolean> {
   if (context.isOwner || !provinceId) return true;
   if (!isUuid(context.memberId)) return false;
   if (!isUuid(provinceId)) {

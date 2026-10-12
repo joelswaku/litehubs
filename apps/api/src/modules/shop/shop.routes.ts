@@ -9,6 +9,8 @@ import { validate } from "../../middleware/validation.middleware";
 import { BadRequestError } from "../../utils/errors";
 import type { ChatContext } from "../chat/chat.service";
 import { organizationSlugSchema } from "../organization/organization.validation";
+import { sendPdf } from "../../utils/pdf-builder";
+import * as shopPdf from "./shop-pdf";
 import * as service from "./shop.service";
 
 const id = z.string().uuid();
@@ -114,6 +116,16 @@ shopRoutes.get(`${base}/orders`, ...inside(organizationParams), async (req, res)
 });
 shopRoutes.post(`${base}/orders/:orderId/cancel`, ...inside(orderParams, z.object({ reason: z.string().max(300).default("") })), async (req, res) => {
   res.json(await service.cancelWebOrder(context(req), param(req, "orderId"), (req.body as { reason: string }).reason));
+});
+
+/* Printable documents — same access as the orders list (service-level check). */
+shopRoutes.get(`${base}/orders/:orderId/export.pdf`, ...inside(orderParams), async (req, res) => {
+  const file = await shopPdf.shopOrderFormPdf(context(req), param(req, "orderId"));
+  sendPdf(res, file.buffer, file.fileName, (req.query as { inline?: string }).inline === "1");
+});
+shopRoutes.get(`${base}/orders/:orderId/delivery-note.pdf`, ...inside(orderParams), async (req, res) => {
+  const file = await shopPdf.shopDeliveryNotePdf(context(req), param(req, "orderId"));
+  sendPdf(res, file.buffer, file.fileName, (req.query as { inline?: string }).inline === "1");
 });
 
 /* Public shop (no login). */

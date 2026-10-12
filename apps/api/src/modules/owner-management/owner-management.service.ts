@@ -8919,6 +8919,8 @@ async function createInventoryMovementHistoryPdf(
     const pages = doc.bufferedPageRange();
     for (let page = 0; page < pages.count; page += 1) {
       doc.switchToPage(page);
+      // The footer sits below the bottom margin: without this, PDFKit moves it to a new blank page.
+      doc.page.margins.bottom = 0;
       doc
         .fillColor(muted)
         .font("Helvetica")
@@ -9764,6 +9766,8 @@ export async function procurementDocumentPdf(
     const pageRange = doc.bufferedPageRange();
     for (let index = 0; index < pageRange.count; index += 1) {
       doc.switchToPage(pageRange.start + index);
+      // The footer sits below the bottom margin: without this, PDFKit moves it to a new blank page.
+      doc.page.margins.bottom = 0;
       const footerLineY = pageHeight - 84;
       const footerTextY = pageHeight - 74;
       doc
@@ -10270,6 +10274,8 @@ export async function purchaseRequestFormPdf(
     const pages = doc.bufferedPageRange();
     for (let index = 0; index < pages.count; index += 1) {
       doc.switchToPage(pages.start + index);
+      // The footer sits below the bottom margin: without this, PDFKit moves it to a new blank page.
+      doc.page.margins.bottom = 0;
       footer(index + 1, pages.count);
     }
     doc.end();
@@ -11090,6 +11096,8 @@ async function inventoryManualStockFormPdf(
     const pages = doc.bufferedPageRange();
     for (let index = 0; index < pages.count; index += 1) {
       doc.switchToPage(pages.start + index);
+      // The footer sits below the bottom margin: without this, PDFKit moves it to a new blank page.
+      doc.page.margins.bottom = 0;
       const footerLineY = pageHeight - 84;
       const footerTextY = pageHeight - 74;
       doc
@@ -11697,6 +11705,8 @@ function projectPdfBuffer(
     const pages = document.bufferedPageRange();
     for (let index = 0; index < pages.count; index += 1) {
       document.switchToPage(pages.start + index);
+      // The footer sits below the bottom margin: without this, PDFKit moves it to a new blank page.
+      document.page.margins.bottom = 0;
       document
         .fillColor(muted)
         .font("Helvetica")

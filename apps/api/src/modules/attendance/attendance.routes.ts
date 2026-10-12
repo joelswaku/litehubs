@@ -12,6 +12,7 @@ import {
   assignmentParams,
   changeAssignmentSchema,
   attendanceParams,
+  attendanceSheetQuery,
   clockSchema,
   correctAttendanceSchema,
   exceptionParams,
@@ -127,6 +128,14 @@ attendanceRoutes.get(
   requirePermission("attendance.read"),
   validate({ query: listAttendanceQuery }),
   controller.listAttendance,
+);
+
+attendanceRoutes.get(
+  "/organizations/:orgSlug/attendance/sheet.pdf",
+  ...inOrganization,
+  requirePermission("attendance.read"),
+  validate({ query: attendanceSheetQuery }),
+  controller.attendanceSheetPdf,
 );
 
 attendanceRoutes.post(

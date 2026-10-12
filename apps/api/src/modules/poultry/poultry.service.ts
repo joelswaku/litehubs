@@ -1,3 +1,4 @@
+import { numberPdfPages } from "../../utils/pdf-page-numbers";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import type { PoolClient } from "pg";
 import {
@@ -790,7 +791,7 @@ export async function flockProfilePdf(context: PoultryContext, flockId: string):
     for (const [name, current] of [["Bâtiment", value("house_name")], ["Ferme / site", value("site_name")], ["Province", value("province_name")], ["Race / souche", value("breed")], ["Fournisseur / couvoir", value("source_name")], ["Date d’arrivée", value("arrival_date")], ["Date d’éclosion", value("hatch_date")], ["Fin prévue", value("expected_production_end_date")], ["Modèle de performance", model?.rows[0] ? `${model.rows[0].name} · ${model.rows[0].code}` : "Aucun modèle attribué"]] as Array<[string, string]>) write(`${name} : ${current}`);
     if (raw("notes")) { y -= 8; write("Notes", 13, true); write(String(raw("notes"))); }
     for (const current of pdf.getPages()) current.drawText(`Document contrôlé · ${companyName} · Lot ${value("code")}`.slice(0, 110), { x: 52, y: 25, size: 7, font, color: rgb(.40, .45, .50) });
-    return Buffer.from(await pdf.save());
+    return numberPdfPages(Buffer.from(await pdf.save()));
   });
 }function stringInput(input: Input, name: string): string {
   const item = input[name];

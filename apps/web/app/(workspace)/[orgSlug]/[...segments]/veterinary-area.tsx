@@ -18,6 +18,7 @@ import {
 import Link from "next/link";
 import { Badge, severityVariant } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { PdfButton } from "@/components/ui/pdf-button";
 import { EmptyState, ErrorState, Skeleton } from "@/components/ui/states";
 import { get, orgUrl } from "@/lib/api";
 import { poultryApi } from "@/lib/poultry-api";
@@ -646,6 +647,16 @@ export function VeterinaryArea({ orgSlug }: { orgSlug: string }) {
             )}
           </div>
           <aside className="space-y-5">
+            {can(user, "poultry.vaccinations.read") ||
+            can(user, "pigs.vaccinations.read") ? (
+              <VaccinationCalendarCard
+                orgSlug={orgSlug}
+                siteId={siteId}
+                fr={fr}
+                poultry={can(user, "poultry.vaccinations.read")}
+                pigs={can(user, "pigs.vaccinations.read")}
+              />
+            ) : null}
             <section className="rounded-2xl border border-border bg-surface-1 p-5 shadow-sm">
               <p className="text-xs font-semibold uppercase tracking-[.12em] text-brand">
                 {text(
@@ -933,6 +944,17 @@ function ClinicalDetail({
           <Button variant="ghost" onClick={onClose}>
             {text(fr, "Close", "Fermer")}
           </Button>
+          {entry.source.resource === "treatments" ? (
+            <PdfButton
+              path={orgUrl(
+                orgSlug,
+                `${destination}/treatments/${entry.record.id}/report.pdf`,
+              )}
+              fileName={`rapport-traitement-${destination === "poultry" ? "volaille" : "porcs"}-${entry.record.id.slice(0, 8)}.pdf`}
+              label={text(fr, "Treatment report", "Rapport de traitement")}
+              size="md"
+            />
+          ) : null}
           <Link
             href={`/${orgSlug}/${destination}`}
             className="inline-flex h-9 items-center gap-2 rounded-md bg-brand px-4 text-sm font-medium text-brand-ink transition-colors hover:bg-brand-hover"
@@ -945,5 +967,86 @@ function ClinicalDetail({
         </div>
       </div>
     </div>
+  );
+}
+
+function VaccinationCalendarCard({
+  orgSlug,
+  siteId,
+  fr,
+  poultry,
+  pigs,
+}: {
+  orgSlug: string;
+  siteId: string;
+  fr: boolean;
+  poultry: boolean;
+  pigs: boolean;
+}) {
+  const [from, setFrom] = useState(() => plusDays(-30));
+  const [to, setTo] = useState(() => plusDays(90));
+  const params = {
+    siteId: siteId || undefined,
+    from: from || undefined,
+    to: to || undefined,
+  };
+  const inputClass =
+    "h-9 w-full rounded-lg border border-border bg-surface-1 px-2 text-xs text-ink";
+  return (
+    <section className="rounded-2xl border border-border bg-surface-1 p-5 shadow-sm">
+      <p className="text-xs font-semibold uppercase tracking-[.12em] text-brand">
+        {text(fr, "Printable", "À imprimer")}
+      </p>
+      <h2 className="mt-1 text-lg font-semibold tracking-tight text-ink">
+        {text(fr, "Vaccination calendar", "Calendrier de vaccination")}
+      </h2>
+      <p className="mt-1 text-sm text-ink-secondary">
+        {text(
+          fr,
+          "Vaccinations given and boosters or programme doses due in the period, by flock, pen or animal.",
+          "Vaccinations réalisées et rappels ou doses du programme prévus sur la période, par lot, loge ou animal.",
+        )}
+      </p>
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        <label className="text-xs font-medium text-ink-secondary">
+          {text(fr, "From", "Du")}
+          <input
+            type="date"
+            value={from}
+            max={to}
+            onChange={(event) => setFrom(event.target.value)}
+            className={`mt-1 ${inputClass}`}
+          />
+        </label>
+        <label className="text-xs font-medium text-ink-secondary">
+          {text(fr, "To", "Au")}
+          <input
+            type="date"
+            value={to}
+            min={from}
+            onChange={(event) => setTo(event.target.value)}
+            className={`mt-1 ${inputClass}`}
+          />
+        </label>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {poultry ? (
+          <PdfButton
+            path={orgUrl(orgSlug, "poultry/vaccinations/calendar/export.pdf")}
+            fileName={`calendrier-vaccination-volaille-${from}-${to}.pdf`}
+            label={text(fr, "Poultry PDF", "PDF Volaille")}
+            params={params}
+          />
+        ) : null}
+        {pigs ? (
+          <PdfButton
+            path={orgUrl(orgSlug, "pigs/vaccinations/calendar/export.pdf")}
+            fileName={`calendrier-vaccination-porcs-${from}-${to}.pdf`}
+            label={text(fr, "Pigs PDF", "PDF Porcs")}
+            params={params}
+          />
+        ) : null}
+      </div>
+    </section>
   );
 }

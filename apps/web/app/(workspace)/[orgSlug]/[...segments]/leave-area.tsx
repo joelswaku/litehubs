@@ -18,6 +18,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { HrPdfButton } from "@/components/hr/hr-pdf-button";
+import { PdfButton } from "@/components/ui/pdf-button";
 import { Field, Input, Textarea } from "@/components/ui/input";
 import {
   EmptyState,
@@ -386,6 +387,7 @@ export function LeaveArea({
         </section>
         <RequestDetail
           request={selected}
+          orgSlug={orgSlug}
           fr={fr}
           canApprove={canApprove}
           canCancel={canRequest}
@@ -430,6 +432,15 @@ export function LeaveArea({
                       {balance.employee.employeeNumber}
                     </p>
                   </div>
+                  <div className="flex flex-wrap items-center gap-3">
+                  {summary.data!.balances.findIndex((item) => item.employee.id === balance.employee.id) === index ? (
+                    <PdfButton
+                      path={orgUrl(orgSlug, `leave-balances/${balance.employee.id}/export.pdf`)}
+                      fileName={`solde-conges-${balance.employee.employeeNumber}-${new Date().getUTCFullYear()}.pdf`}
+                      params={{ year: new Date().getUTCFullYear() }}
+                      label={t(fr, "Balance", "Solde PDF")}
+                    />
+                  ) : null}
                   <div className="grid grid-cols-3 gap-2 text-right text-xs">
                     <span>
                       <b className="block text-sm text-ink">
@@ -449,6 +460,7 @@ export function LeaveArea({
                       </b>
                       {t(fr, "Restant", "Remaining")}
                     </span>
+                  </div>
                   </div>
                 </div>
               ))}
@@ -529,6 +541,7 @@ function Metric({
 }
 function RequestDetail({
   request,
+  orgSlug,
   fr,
   canApprove,
   canCancel,
@@ -539,6 +552,7 @@ function RequestDetail({
   onCancel,
 }: {
   request: LeaveRequest | null;
+  orgSlug: string;
   fr: boolean;
   canApprove: boolean;
   canCancel: boolean;
@@ -629,6 +643,17 @@ function RequestDetail({
       ) : null}
       {error ? <p className="mt-3 text-xs text-critical">{error}</p> : null}
       <div className="mt-5 flex flex-wrap gap-2">
+        <PdfButton
+          path={orgUrl(orgSlug, `leave-requests/${request.id}/export.pdf`)}
+          fileName={`demande-conge-${request.employee.employeeNumber}-${request.startsOn}.pdf`}
+          label={t(fr, "Leave form", "Formulaire PDF")}
+        />
+        <PdfButton
+          path={orgUrl(orgSlug, `leave-balances/${request.employee.id}/export.pdf`)}
+          fileName={`solde-conges-${request.employee.employeeNumber}-${request.startsOn.slice(0, 4)}.pdf`}
+          params={{ year: Number(request.startsOn.slice(0, 4)) }}
+          label={t(fr, "Balance", "Solde PDF")}
+        />
         {canApprove && request.status === "pending" ? (
           <>
             <Button size="sm" loading={busy} onClick={onApprove}>

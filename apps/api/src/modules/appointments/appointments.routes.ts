@@ -8,8 +8,11 @@ import {
 } from "../../middleware/permissions.middleware";
 import { validate } from "../../middleware/validation.middleware";
 import * as controller from "./appointments.controller";
+import { appointmentSchedulePdf, appointmentTicketPdf } from "./appointments-pdf";
 import {
   appointmentParams,
+  appointmentPdfQuery,
+  appointmentSchedulePdfQuery,
   appointmentCallMessageInput,
   appointmentCallMessageParams,
   appointmentDeskInput,
@@ -95,6 +98,21 @@ appointmentRoutes.get(
   requirePermission("appointments.read"),
   validate({ query: listAppointmentsQuery }),
   controller.list,
+);
+appointmentRoutes.get(
+  "/organizations/:orgSlug/appointments/schedule.pdf",
+  ...inside,
+  requirePermission("appointments.read"),
+  validate({ query: appointmentSchedulePdfQuery }),
+  appointmentSchedulePdf,
+);
+appointmentRoutes.get(
+  "/organizations/:orgSlug/appointments/:appointmentId/ticket.pdf",
+  authenticate,
+  validate({ params: appointmentParams, query: appointmentPdfQuery }),
+  requireOrganization,
+  requirePermission("appointments.read"),
+  appointmentTicketPdf,
 );
 appointmentRoutes.get(
   "/organizations/:orgSlug/appointments/summary",

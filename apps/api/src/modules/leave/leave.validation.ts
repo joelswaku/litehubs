@@ -71,3 +71,7 @@ export type CancelLeaveInput = z.infer<typeof cancelLeaveSchema>;
 export type CreateLeaveTypeInput = z.infer<typeof createLeaveTypeSchema>;
 export type UpdateLeaveTypeInput = z.infer<typeof updateLeaveTypeSchema>;
 export type LeaveRequestQuery = z.infer<typeof leaveRequestQuery>;
+export const leaveBalanceParams = organizationParams.extend({ employeeId: id });
+export const leaveBalanceQuery = z.object({
+  year: z.coerce.number().int().min(2000).max(2200).optional(),
+});

@@ -44,6 +44,21 @@ employeeRoutes.get(
   controller.getMyAccount,
 );
 
+// Self-service printable documents: same guard as /my-account, built only
+// from the caller's own employee record.
+employeeRoutes.get(
+  "/organizations/:orgSlug/my-account/employee-file.pdf",
+  ...inOrganization,
+  requireActiveEmployeeProfile,
+  controller.downloadMyEmployeeFilePdf,
+);
+employeeRoutes.get(
+  "/organizations/:orgSlug/my-account/work-certificate.pdf",
+  ...inOrganization,
+  requireActiveEmployeeProfile,
+  controller.downloadMyWorkCertificatePdf,
+);
+
 employeeRoutes.post(
   "/organizations/:orgSlug/employees",
   ...inOrganization,
@@ -68,6 +83,25 @@ employeeRoutes.get(
   requireOrganization,
   requirePermission("employees.read"),
   controller.getEmployee,
+);
+
+// Fiche employé: same access and field masking as GET /employees/:employeeId.
+employeeRoutes.get(
+  "/organizations/:orgSlug/employees/:employeeId/file.pdf",
+  authenticate,
+  validate({ params: employeeParams }),
+  requireOrganization,
+  requirePermission("employees.read"),
+  controller.downloadEmployeeFilePdf,
+);
+// Attestation de travail: the service further limits issuance to Owner/HR.
+employeeRoutes.get(
+  "/organizations/:orgSlug/employees/:employeeId/work-certificate.pdf",
+  authenticate,
+  validate({ params: employeeParams }),
+  requireOrganization,
+  requirePermission("employees.read"),
+  controller.downloadWorkCertificatePdf,
 );
 
 // Identity, permits, contracts and payslips are one confidential employee

@@ -1,3 +1,4 @@
+import { numberPdfPages } from "../../utils/pdf-page-numbers";
 import PDFDocument from "pdfkit";
 import type { PoolClient } from "pg";
 import {
@@ -1297,14 +1298,14 @@ export async function fleetRunPdf(
       [context.organizationId, runId],
     );
     const organization = await client.query<{ name: string }>(
-      "SELECT name FROM organizations WHERE id=$1",
+      "SELECT COALESCE(display_name, legal_name, slug) AS name FROM organizations WHERE id=$1",
       [context.organizationId],
     );
     const chunks: Buffer[] = [];
     const doc = new PDFDocument({ margin: 44, size: "A4" });
     doc.on("data", (chunk: Buffer) => chunks.push(chunk));
     const finished = new Promise<Buffer>((resolve, reject) => {
-      doc.on("end", () => resolve(Buffer.concat(chunks)));
+      doc.on("end", () => void numberPdfPages(Buffer.concat(chunks)).then(resolve));
       doc.on("error", reject);
     });
     doc

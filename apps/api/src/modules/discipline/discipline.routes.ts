@@ -9,6 +9,7 @@ import {
   actionQuery,
   createActionSchema,
   decisionSchema,
+  letterQuery,
   organizationParams,
   updateActionSchema,
 } from "./discipline.validation";
@@ -57,4 +58,13 @@ disciplineRoutes.get(
   ...inside,
   requirePermission("disciplinary_actions.read"),
   controller.summary,
+);
+disciplineRoutes.get(
+  "/organizations/:orgSlug/disciplinary-actions/:actionId/letter.pdf",
+  authenticate,
+  validate({ params: actionParams }),
+  requireOrganization,
+  requirePermission("disciplinary_actions.read"),
+  validate({ query: letterQuery }),
+  controller.letterPdf,
 );

@@ -1,6 +1,8 @@
 import type { Request, RequestHandler } from "express";
+import { sendPdf } from "../../utils/pdf-builder";
+import * as salesPdf from "./sales-pdf";
 import * as service from "./sales.service";
-import type { CreateOrderInput, CustomerInput, CustomerUpdateInput, DeliveryInput, OfferInput, PaymentInput, SalesListQuery } from "./sales.validation";
+import type { CreateOrderInput, CustomerInput, CustomerUpdateInput, DeliveryInput, OfferInput, PaymentInput, PdfPeriodQuery, SalesListQuery } from "./sales.validation";
 
 function context(req: Request): service.SalesContext {
   return { organizationId: req.organization!.id, userId: req.user!.id, memberId: req.membership!.memberId, isOwner: req.membership!.isOwner, permissions: req.membership!.permissions };
@@ -24,3 +26,11 @@ export const invoiceOrder: RequestHandler = async (req,res)=>res.status(201).jso
 export const payments: RequestHandler = async (req,res)=>res.json({ payments:await service.listPayments(context(req),req.query as unknown as SalesListQuery) });
 export const receivePayment: RequestHandler = async (req,res)=>res.status(201).json({ payment:await service.receivePayment(context(req),req.body as PaymentInput) });
 export const financeSummary: RequestHandler = async (req,res)=>res.json({ summary:await service.financeSummary(context(req)) });
+
+/* Printable documents (PDF). */
+const inline=(req:Request)=>(req.query as { inline?: string }).inline==="1";
+export const invoicePdf: RequestHandler = async (req,res)=>{const file=await salesPdf.invoicePdf(context(req),{invoiceId:param(req,"id")});sendPdf(res,file.buffer,file.fileName,inline(req));};
+export const orderInvoicePdf: RequestHandler = async (req,res)=>{const file=await salesPdf.invoicePdf(context(req),{orderId:param(req,"orderId")});sendPdf(res,file.buffer,file.fileName,inline(req));};
+export const paymentReceiptPdf: RequestHandler = async (req,res)=>{const file=await salesPdf.paymentReceiptPdf(context(req),param(req,"id"));sendPdf(res,file.buffer,file.fileName,inline(req));};
+export const customerStatementPdf: RequestHandler = async (req,res)=>{const query=req.query as unknown as PdfPeriodQuery;const file=await salesPdf.customerStatementPdf(context(req),param(req,"id"),{from:query.from,to:query.to});sendPdf(res,file.buffer,file.fileName,inline(req));};
+export const salesReportPdf: RequestHandler = async (req,res)=>{const query=req.query as unknown as PdfPeriodQuery;const file=await salesPdf.salesReportPdf(context(req),{from:query.from,to:query.to});sendPdf(res,file.buffer,file.fileName,inline(req));};

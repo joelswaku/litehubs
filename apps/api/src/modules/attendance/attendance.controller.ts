@@ -1,7 +1,9 @@
 import type { Request, RequestHandler } from "express";
+import { sendPdf } from "../../utils/pdf-builder";
 import * as service from "./attendance.service";
 import type {
   AssignEmployeeInput,
+  AttendanceSheetInput,
   ChangeAssignmentInput,
   ClockInput,
   CorrectAttendanceInput,
@@ -152,4 +154,12 @@ export const approveAttendance: RequestHandler = async (req, res) => {
       parameter(req, "attendanceId"),
     ),
   });
+};
+
+export const attendanceSheetPdf: RequestHandler = async (req, res) => {
+  const { buffer, fileName } = await service.attendanceSheetPdf(
+    contextOf(req),
+    req.query as AttendanceSheetInput,
+  );
+  sendPdf(res, buffer, fileName, req.query.inline === "1");
 };

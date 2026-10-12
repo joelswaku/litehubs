@@ -1128,3 +1128,72 @@ export async function overview(
     };
   });
 }
+
+/**
+ * Data for the printable « Rapport d'activité » of one employee over a period.
+ * Visibility mirrors the existing listings: a self-scoped caller only gets
+ * their own reports/checklists; province-scoped callers only rows in their
+ * provinces (and only for an employee assigned to one of them).
+ */
+export async function employeeActivity(
+  context: DailyWorkContext,
+  input: { employeeId?: string; from: string; to: string },
+) {
+  return withTenantContext(context, async (client) => {
+    const scope = await scopeOf(client, context);
+    const own = await ownEmployeeId(client, context);
+    const employeeId = input.employeeId ?? own;
+    if (!employeeId)
+      throw new BadRequestError("Choose an employee for the activity report", {
+        field: "employeeId",
+      });
+    if (scope === "self" && employeeId !== own)
+      throw new NotFoundError("Employee not found");
+    const found = await client.query<{
+      id: string;
+      member_id: string | null;
+      full_name: string;
+      province_id: string | null;
+    }>(
+      "SELECT id, member_id, full_name, province_id FROM employees WHERE organization_id = $1 AND id = $2",
+      [context.organizationId, employeeId],
+    );
+    const employee = found.rows[0];
+    if (!employee) throw new NotFoundError("Employee not found");
+    if (scope === "province" && employeeId !== own)
+      await assertProvince(client, context, employee.province_id);
+    const provinces = scope === "self" ? null : await provinceIds(client, context);
+
+    const reportValues: unknown[] = [context.organizationId, employeeId, input.from, input.to];
+    const reportConditions = [
+      "r.organization_id=$1",
+      "r.employee_id=$2",
+      "r.work_date BETWEEN $3::date AND $4::date",
+    ];
+    addProvinceFilter(reportValues, reportConditions, provinces, "r.province_id");
+    const reports = await client.query<Row>(
+      `SELECT r.id,r.work_date::text AS work_date,r.report_level,r.status,r.summary,r.work_done,r.problems,r.help_needed,r.submitted_at,r.review_note,s.name AS site_name,reviewer.full_name AS reviewer_name FROM daily_reports r LEFT JOIN sites s ON s.organization_id=r.organization_id AND s.id=r.site_id LEFT JOIN organization_members rm ON rm.organization_id=r.organization_id AND rm.id=r.reviewed_by LEFT JOIN users reviewer ON reviewer.id=rm.user_id WHERE ${reportConditions.join(" AND ")} ORDER BY r.work_date,r.submitted_at NULLS LAST LIMIT 500`,
+      reportValues,
+    );
+
+    const runValues: unknown[] = [context.organizationId, input.from, input.to, employeeId, employee.member_id];
+    const runConditions = [
+      "r.organization_id=$1",
+      "r.work_date BETWEEN $2::date AND $3::date",
+      "(r.completed_by=$4 OR ($5::uuid IS NOT NULL AND r.created_by_member_id=$5::uuid))",
+    ];
+    if (scope === "self") {
+      runValues.push(context.memberId);
+      runConditions.push(`r.created_by_member_id=$${runValues.length}`);
+    } else addProvinceFilter(runValues, runConditions, provinces, "r.province_id");
+    const runs = await client.query<Row>(
+      `SELECT r.id,r.work_date::text AS work_date,r.status,r.items_total,r.items_completed,r.items_failed,r.created_at,r.completed_at,t.name AS template_name,s.name AS site_name FROM checklist_runs r JOIN checklist_templates t ON t.organization_id=r.organization_id AND t.id=r.template_id LEFT JOIN sites s ON s.organization_id=r.organization_id AND s.id=r.site_id WHERE ${runConditions.join(" AND ")} ORDER BY r.work_date,r.created_at LIMIT 500`,
+      runValues,
+    );
+    return {
+      employee: { id: employee.id, fullName: employee.full_name },
+      reports: reports.rows.map(mapRow),
+      runs: runs.rows.map(mapRow),
+    };
+  });
+}

@@ -1,3 +1,4 @@
+import { numberPdfPages } from "../../utils/pdf-page-numbers";
 import PDFDocument from "pdfkit";
 import { withTenantContext } from "../../utils/tenant-query";
 import type { AuditQuery } from "./audit.validation";
@@ -39,7 +40,7 @@ async function organizationName(context: AuditContext) {
     async (client) =>
       (
         await client.query<OrganizationRow>(
-          "SELECT name FROM organizations WHERE id = $1",
+          "SELECT COALESCE(display_name, legal_name, slug) AS name FROM organizations WHERE id = $1",
           [context.organizationId],
         )
       ).rows[0]?.name ?? "Organization",
@@ -81,7 +82,7 @@ export async function exportAuditPdf(
     });
     const chunks: Buffer[] = [];
     document.on("data", (chunk: Buffer) => chunks.push(chunk));
-    document.on("end", () => resolve(Buffer.concat(chunks)));
+    document.on("end", () => void numberPdfPages(Buffer.concat(chunks)).then(resolve));
     document.on("error", reject);
 
     document.rect(0, 0, document.page.width, 88).fill("#10243f");
@@ -177,6 +178,8 @@ export async function exportAuditPdf(
       document.y = top + height + 10;
     }
 
+    // Below the bottom margin: without this, PDFKit adds a blank page for the footer.
+    document.page.margins.bottom = 0;
     document
       .fillColor("#64748b")
       .font("Helvetica")

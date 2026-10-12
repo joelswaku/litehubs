@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { motion } from "motion/react";
 import { CategoryChart } from "@/components/charts/category-chart";
+import { InsightsBoard } from "@/components/dashboard/insights-board";
 import { Badge } from "@/components/ui/badge";
 import {
   ActiveServicesBar,
@@ -172,6 +173,7 @@ export function DashboardView({ orgSlug }: { orgSlug: string }) {
           loading={appointmentQueue.isLoading}
         />
       ) : null}
+      {layout !== "employee" ? <InsightsBoard orgSlug={orgSlug} fr={fr} /> : null}
       {layout === "executive" || layout === "manager" ? (
         <ExecutiveLayout {...context} />
       ) : null}

@@ -564,6 +564,9 @@ function mapPost(row: Row) {
     author: (row.author as string | null) ?? null,
     aiGenerated: Boolean(row.ai_generated),
     archivedAt: (row.archived_at as string | null) ?? null,
+    photoId: (row.photo_id as string | null) ?? null,
+    posterStatus: (row.poster_status as "pending" | "done" | "failed" | null) ?? null,
+    posterError: ((row.poster_spec as { error?: string } | null)?.error as string | undefined) ?? null,
   };
 }
 
@@ -863,7 +866,7 @@ export async function publishDuePostsForOrganization(organizationId: string) {
   if (!env.meta.enabled) return;
   const due = await withTenantContext({ organizationId, userId: null }, (client) =>
     client.query<{ id: string }>(
-      `SELECT id FROM social_posts WHERE organization_id=$1 AND status='scheduled' AND scheduled_at <= now() ORDER BY scheduled_at LIMIT 10`,
+      `SELECT id FROM social_posts WHERE organization_id=$1 AND status='scheduled' AND scheduled_at <= now() AND poster_status IS DISTINCT FROM 'pending' ORDER BY scheduled_at LIMIT 10`,
       [organizationId],
     ),
   );

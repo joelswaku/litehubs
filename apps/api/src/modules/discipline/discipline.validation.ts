@@ -93,6 +93,11 @@ export const actionQuery = z.object({
   severity: z.enum(severities).optional(),
 });
 
+export const letterQuery = z.object({
+  kind: z.enum(["warning", "explanation"]).optional(),
+});
+
+export type LetterQuery = z.infer<typeof letterQuery>;
 export type CreateActionInput = z.infer<typeof createActionSchema>;
 export type UpdateActionInput = z.infer<typeof updateActionSchema>;
 export type DecisionInput = z.infer<typeof decisionSchema>;

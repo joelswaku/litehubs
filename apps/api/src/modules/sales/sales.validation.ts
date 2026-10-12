@@ -149,3 +149,13 @@ export type CreateOrderInput = z.infer<typeof createOrderInput>;
 export type DeliveryInput = z.infer<typeof deliveryInput>;
 export type PaymentInput = z.infer<typeof paymentInput>;
 export type SalesListQuery = z.infer<typeof salesListQuery>;
+
+export const pdfPeriodQuery = z.object({
+  from: date.optional(),
+  to: date.optional(),
+  inline: z.enum(["0", "1"]).optional(),
+}).superRefine((value, ctx) => {
+  if (value.from && value.to && value.to < value.from)
+    ctx.addIssue({ code: "custom", path: ["to"], message: "End date cannot be before start date" });
+});
+export type PdfPeriodQuery = z.infer<typeof pdfPeriodQuery>;

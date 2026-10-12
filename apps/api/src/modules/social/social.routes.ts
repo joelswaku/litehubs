@@ -14,6 +14,8 @@ import { organizationSlugSchema } from "../organization/organization.validation"
 import { validSignature } from "./meta-graph";
 import * as service from "./social.service";
 import * as ai from "./social-ai.service";
+import * as poster from "./social-poster.service";
+import * as photos from "./social-photos.service";
 
 const id = z.string().uuid();
 const organizationParams = z.object({ orgSlug: organizationSlugSchema });
@@ -49,6 +51,10 @@ const inside = (params: z.ZodTypeAny, body?: z.ZodTypeAny) =>
 const upload = multer({ storage: multer.memoryStorage(), limits: { files: 1, fileSize: storage.maxUploadBytes } });
 const oneImage: RequestHandler = (req, res, next) =>
   upload.single("file")(req, res, (error: unknown) => (error ? next(new BadRequestError("Image trop lourde ou invalide")) : next()));
+
+const bankUpload = multer({ storage: multer.memoryStorage(), limits: { files: 20, fileSize: storage.maxUploadBytes } });
+const manyImages: RequestHandler = (req, res, next) =>
+  bankUpload.array("files", 20)(req, res, (error: unknown) => (error ? next(new BadRequestError("Photos trop lourdes ou invalides (20 au maximum)")) : next()));
 
 export const socialRoutes = Router();
 const base = "/organizations/:orgSlug/social";
@@ -111,6 +117,22 @@ socialRoutes.post(`${base}/ai/plan`, ...inside(organizationParams, ai.planInput)
   const result = await ai.createContentPlan(context(req), req.body as ai.PlanInput);
   res.status(201).json({ ...result, ...(await service.listPosts(context(req))) });
 });
+socialRoutes.get(`${base}/ai/poster`, ...inside(organizationParams), async (req, res) => {
+  res.json(await poster.posterOptions(context(req)));
+});
+// Each poster is a paid image: keep a ceiling per company and hour.
+const posterLimiter = rateLimit({
+  windowMs: 60 * 60_000,
+  limit: 20,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  keyGenerator: (req) => `poster:${String(req.params.orgSlug ?? "")}`,
+  message: { error: { message: "Limite d’affiches atteinte pour cette heure. Réessayez plus tard." } },
+});
+socialRoutes.post(`${base}/ai/poster`, posterLimiter, ...inside(organizationParams, poster.posterInput), async (req, res) => {
+  const created = await poster.createPoster(context(req), req.body as poster.PosterInput);
+  res.status(201).json({ poster: created, ...(await service.listPosts(context(req))) });
+});
 socialRoutes.post(`${base}/ai/ad`, ...inside(organizationParams, ai.adInput), async (req, res) => {
   res.json(await ai.createAdCopy(context(req), req.body as ai.AdInput));
 });
@@ -123,6 +145,34 @@ socialRoutes.delete(`${base}/posts/:postId`, ...inside(postParams), async (req, 
 socialRoutes.post(`${base}/images`, authenticate, oneImage, validate({ params: organizationParams }), requireOrganization, async (req, res) => {
   if (!req.file) throw new BadRequestError("Choisissez une image");
   res.status(201).json(await service.uploadPostImage(context(req), req.file));
+});
+
+/* Photo bank and special days. */
+const photoParams = organizationParams.extend({ photoId: id });
+const dayParams = organizationParams.extend({ dayId: id });
+socialRoutes.get(`${base}/photos`, ...inside(organizationParams), async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.json(await photos.listPhotos(context(req)));
+});
+socialRoutes.post(`${base}/photos`, authenticate, manyImages, validate({ params: organizationParams }), requireOrganization, async (req, res) => {
+  const meta = photos.photoMeta.parse({
+    kind: req.body?.kind || "normal",
+    eventName: req.body?.eventName || null,
+    eventDate: req.body?.eventDate || null,
+  });
+  res.status(201).json(await photos.uploadPhotos(context(req), (req.files as Express.Multer.File[] | undefined) ?? [], meta));
+});
+socialRoutes.put(`${base}/photos/:photoId`, ...inside(photoParams, photos.photoMeta), async (req, res) => {
+  res.json(await photos.updatePhoto(context(req), param(req, "photoId"), req.body as photos.PhotoMeta));
+});
+socialRoutes.delete(`${base}/photos/:photoId`, ...inside(photoParams), async (req, res) => {
+  res.json(await photos.deletePhoto(context(req), param(req, "photoId")));
+});
+socialRoutes.post(`${base}/special-days`, ...inside(organizationParams, photos.specialDayInput), async (req, res) => {
+  res.status(201).json(await photos.addSpecialDay(context(req), req.body as z.infer<typeof photos.specialDayInput>));
+});
+socialRoutes.delete(`${base}/special-days/:dayId`, ...inside(dayParams), async (req, res) => {
+  res.json(await photos.removeSpecialDay(context(req), param(req, "dayId")));
 });
 
 /* Meta callbacks (public). */

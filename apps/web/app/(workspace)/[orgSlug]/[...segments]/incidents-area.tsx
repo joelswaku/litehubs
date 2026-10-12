@@ -16,6 +16,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Textarea } from "@/components/ui/input";
+import { PdfButton } from "@/components/ui/pdf-button";
 import { EmptyState, ErrorState, Skeleton } from "@/components/ui/states";
 import { ApiError, get, orgUrl } from "@/lib/api";
 import {
@@ -289,16 +290,26 @@ export function IncidentsArea({ orgSlug }: { orgSlug: string }) {
                         ) : null}
                       </div>
                     </div>
-                    {can(user, "incidents.update") ? (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => setEditor(item)}
-                      >
-                        <Pencil />
-                        {copy(fr, "Manage", "Gérer")}
-                      </Button>
-                    ) : null}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <PdfButton
+                        path={orgUrl(
+                          orgSlug,
+                          `owner-management/incidents/${item.id}/export.pdf`,
+                        )}
+                        fileName={`rapport-incident-${value(item.reference) || item.id}.pdf`}
+                        label={copy(fr, "Report", "Rapport")}
+                      />
+                      {can(user, "incidents.update") ? (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => setEditor(item)}
+                        >
+                          <Pencil />
+                          {copy(fr, "Manage", "Gérer")}
+                        </Button>
+                      ) : null}
+                    </div>
                   </div>
                 </article>
               ))}

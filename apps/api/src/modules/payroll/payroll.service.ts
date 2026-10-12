@@ -1,3 +1,4 @@
+import { numberPdfPages } from "../../utils/pdf-page-numbers";
 import PDFDocument from "pdfkit";
 import type { PoolClient } from "pg";
 import { env } from "../../config/env";
@@ -1570,7 +1571,7 @@ export async function createPayslipPdf(
     });
     const chunks: Buffer[] = [];
     doc.on("data", (chunk: Buffer) => chunks.push(chunk));
-    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("end", () => void numberPdfPages(Buffer.concat(chunks)).then(resolve));
     doc.on("error", reject);
 
     const pageWidth = doc.page.width;

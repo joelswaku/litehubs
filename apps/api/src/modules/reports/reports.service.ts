@@ -1,3 +1,4 @@
+import { numberPdfPages } from "../../utils/pdf-page-numbers";
 import ExcelJS from "exceljs";
 import PDFDocument from "pdfkit";
 import type { PoolClient } from "pg";
@@ -270,13 +271,14 @@ export async function exportPdf(context: ReportsContext, query: ReportQuery, fre
   return new Promise<Buffer>((resolve, reject) => {
     const doc = new PDFDocument({ size: "A4", margin: 48, info: { Title: french ? "Rapport d’exploitation" : "Operations report", Author: report.organization.name } });
     const chunks: Buffer[] = [];
-    doc.on("data", (chunk: Buffer) => chunks.push(chunk)); doc.on("end", () => resolve(Buffer.concat(chunks))); doc.on("error", reject);
+    doc.on("data", (chunk: Buffer) => chunks.push(chunk)); doc.on("end", () => void numberPdfPages(Buffer.concat(chunks)).then(resolve)); doc.on("error", reject);
     doc.rect(0, 0, doc.page.width, 88).fill("#10243f");
     doc.fillColor("#fff").font("Helvetica-Bold").fontSize(18).text(report.organization.name, 48, 31);
     doc.fillColor("#cbdff7").font("Helvetica").fontSize(9).text(french ? "Rapport d’exploitation confidentiel" : "Confidential operations report", 48, 57);
     doc.fillColor("#10243f").font("Helvetica-Bold").fontSize(16).text(french ? "Rapport de pilotage" : "Control report", 48, 112);
     doc.fillColor("#64748b").font("Helvetica").fontSize(9).text(`${report.range.from} — ${report.range.to}`, 48, 139); doc.y = 172;
     for (const [label, content] of reportRows(report, french)) { if (doc.y > 735) { doc.addPage(); doc.y = 52; } const top = doc.y; doc.roundedRect(48, top, doc.page.width - 96, 37, 6).fillAndStroke("#f7f8fa", "#d8e1ea"); doc.fillColor("#64748b").font("Helvetica-Bold").fontSize(8).text(label, 60, top + 8); doc.fillColor("#10243f").font("Helvetica").fontSize(9).text(content, 60, top + 20, { width: doc.page.width - 120 }); doc.y = top + 47; }
+    doc.page.margins.bottom = 0; // footer below the margin must not open a blank page
     doc.fillColor("#64748b").fontSize(7).text(`${report.organization.name} · ${french ? "Document protégé" : "Protected document"}`, 48, doc.page.height - 34, { width: doc.page.width - 96, align: "center" }); doc.end();
   });
 }

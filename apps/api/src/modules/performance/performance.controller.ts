@@ -1,5 +1,7 @@
 import type { Request, RequestHandler } from "express";
 import * as service from "./performance.service";
+import { reviewSheetPdf } from "./performance-pdf";
+import { sendPdf } from "../../utils/pdf-builder";
 import type {
   CreateGoalInput,
   CreateReviewInput,
@@ -85,4 +87,11 @@ export const analytics: RequestHandler = async (req, res) =>
 export const myPerformance: RequestHandler = async (req, res) =>
   res.json(
     await service.myPerformance(context(req), req.query as AnalyticsQuery),
-  );
+  );export const downloadReviewPdf: RequestHandler = async (req, res) => {
+  const { buffer, fileName } = await reviewSheetPdf(context(req), param(req, "reviewId"));
+  sendPdf(res, buffer, fileName);
+};
+export const downloadMyReviewPdf: RequestHandler = async (req, res) => {
+  const { buffer, fileName } = await reviewSheetPdf(context(req), param(req, "reviewId"), { selfOnly: true });
+  sendPdf(res, buffer, fileName);
+};

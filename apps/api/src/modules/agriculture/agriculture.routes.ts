@@ -5,6 +5,11 @@ import { requirePermission } from "../../middleware/permissions.middleware";
 import { validate } from "../../middleware/validation.middleware";
 import { ForbiddenError } from "../../utils/errors";
 import * as controller from "./agriculture.controller";
+import * as pdf from "./agriculture-pdf";
+import {
+  agriculturePlantingSheetParams,
+  agriculturePlotSheetParams,
+} from "./agriculture-pdf";
 import {
   agricultureListQuery,
   agricultureOverviewQuery,
@@ -81,6 +86,25 @@ agricultureRoutes.get(
   requirePermission("agriculture.farms.read", "agriculture.fields.read"),
   validate({ query: agricultureOverviewQuery }),
   controller.agricultureOverview,
+);
+
+/* Printable sheets — same access as reading the plot / crop cycle record. */
+agricultureRoutes.get(
+  "/organizations/:orgSlug/agriculture/plots/:plotId/sheet.pdf",
+  authenticate,
+  validate({ params: agriculturePlotSheetParams }),
+  requireOrganization,
+  requirePermission("agriculture.plots.read"),
+  pdf.downloadPlotSheetPdf,
+);
+
+agricultureRoutes.get(
+  "/organizations/:orgSlug/agriculture/plantings/:plantingId/sheet.pdf",
+  authenticate,
+  validate({ params: agriculturePlantingSheetParams }),
+  requireOrganization,
+  requirePermission("agriculture.plantings.read"),
+  pdf.downloadPlantingSheetPdf,
 );
 
 agricultureRoutes.get(

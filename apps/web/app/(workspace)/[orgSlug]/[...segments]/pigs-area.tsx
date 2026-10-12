@@ -35,6 +35,7 @@ import {
 import { toast } from "sonner";
 import { Badge, severityVariant } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { PdfButton } from "@/components/ui/pdf-button";
 import { Field, Input, Textarea } from "@/components/ui/input";
 import { EmptyState, ErrorState, SkeletonCard } from "@/components/ui/states";
 import { ApiError, get, orgUrl } from "@/lib/api";
@@ -1054,12 +1055,22 @@ export function PigsArea({ orgSlug }: { orgSlug: string }) {
                 {resourceName(resource, fr)}
               </h2>
             </div>
-            {canDo(resource, "create") ? (
-              <Button size="sm" onClick={() => setEditor({ resource })}>
-                <Plus />
-                {fr ? "Ajouter" : "Add"} {resourceName(resource, fr)}
-              </Button>
-            ) : null}
+            <div className="flex flex-wrap gap-2">
+              {resource === "vaccinations" ? (
+                <PdfButton
+                  path={orgUrl(orgSlug, "pigs/vaccinations/calendar/export.pdf")}
+                  fileName="calendrier-vaccination-porcs.pdf"
+                  label={fr ? "Calendrier PDF" : "Calendar PDF"}
+                  params={{ siteId: siteId || undefined }}
+                />
+              ) : null}
+              {canDo(resource, "create") ? (
+                <Button size="sm" onClick={() => setEditor({ resource })}>
+                  <Plus />
+                  {fr ? "Ajouter" : "Add"} {resourceName(resource, fr)}
+                </Button>
+              ) : null}
+            </div>
           </div>
           {recordQueries[PIG_RESOURCES.indexOf(resource)]?.isPending ? (
             <SkeletonCard rows={5} />
@@ -1077,6 +1088,7 @@ export function PigsArea({ orgSlug }: { orgSlug: string }) {
           ) : items.length ? (
             <RecordList
               fr={fr}
+              orgSlug={orgSlug}
               resource={resource}
               items={items}
               canUpdate={canDo(resource, "update")}
@@ -1194,6 +1206,7 @@ function Metric({
 
 function RecordList({
   fr,
+  orgSlug,
   resource,
   items,
   canUpdate,
@@ -1203,6 +1216,7 @@ function RecordList({
   onDelete,
 }: {
   fr: boolean;
+  orgSlug: string;
   resource: PigResource;
   items: Item[];
   canUpdate: boolean;
@@ -1233,6 +1247,21 @@ function RecordList({
               <Button size="sm" variant="ghost" onClick={() => onView(item.id)}>
                 {fr ? "Voir" : "View"}
               </Button>
+              {resource === "pens" ? (
+                <PdfButton
+                  path={orgUrl(orgSlug, `pigs/pens/${item.id}/sheet.pdf`)}
+                  fileName={`fiche-loge-${String(item.code ?? item.id)}.pdf`}
+                  label={fr ? "Fiche" : "Sheet"}
+                  variant="ghost"
+                />
+              ) : resource === "treatments" ? (
+                <PdfButton
+                  path={orgUrl(orgSlug, `pigs/treatments/${item.id}/report.pdf`)}
+                  fileName={`rapport-traitement-${item.id.slice(0, 8)}.pdf`}
+                  label={fr ? "Rapport" : "Report"}
+                  variant="ghost"
+                />
+              ) : null}
               {canUpdate ? (
                 <Button size="sm" variant="ghost" onClick={() => onEdit(item)}>
                   {fr ? "Modifier" : "Edit"}

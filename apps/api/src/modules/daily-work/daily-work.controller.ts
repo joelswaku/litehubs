@@ -1,8 +1,11 @@
 import type { Request, RequestHandler } from "express";
 import * as checklistAi from "./daily-work-ai.service";
 import * as service from "./daily-work.service";
+import { activityReportPdf } from "./daily-work-pdf";
+import { sendPdf } from "../../utils/pdf-builder";
 import type {
   AiChecklistDraftInput,
+  ActivityReportQuery,
   ApplyAiChecklistInput,
   DailyWorkQuery,
 } from "./daily-work.validation";
@@ -163,3 +166,10 @@ export const acknowledgeHandover: RequestHandler = async (req, res) =>
       parameter(req, "handoverId"),
     ),
   });
+export const downloadActivityReport: RequestHandler = async (req, res) => {
+  const { buffer, fileName } = await activityReportPdf(
+    contextOf(req),
+    req.query as unknown as ActivityReportQuery,
+  );
+  sendPdf(res, buffer, fileName);
+};

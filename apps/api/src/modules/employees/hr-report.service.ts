@@ -1,3 +1,4 @@
+import { numberPdfPages } from "../../utils/pdf-page-numbers";
 import PDFDocument from "pdfkit";
 import {
   BadRequestError,
@@ -190,10 +191,12 @@ function create(
     });
     const chunks: Buffer[] = [];
     doc.on("data", (c: Buffer) => chunks.push(c));
-    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("end", () => void numberPdfPages(Buffer.concat(chunks)).then(resolve));
     doc.on("error", reject);
     title(doc, organization, report);
     void draw(doc).then(() => {
+      // Below the bottom margin: without this, PDFKit adds a blank page for the footer.
+      doc.page.margins.bottom = 0;
       doc
         .fillColor("#64748b")
         .fontSize(7)

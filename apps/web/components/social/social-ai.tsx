@@ -27,6 +27,8 @@ export type SocialPost = {
   error: string | null;
   author: string | null;
   aiGenerated?: boolean;
+  posterStatus?: "pending" | "done" | "failed" | null;
+  posterError?: string | null;
 };
 type PostList = { posts: SocialPost[] };
 
@@ -70,9 +72,11 @@ export function ContentPlanForm({
   const [tone, setTone] = useState("friendly");
   const [toFacebook, setToFacebook] = useState(true);
   const [toInstagram, setToInstagram] = useState(hasInstagram);
+  const [posters, setPosters] = useState<"none" | "special" | "some">("special");
+  const [useSpecialDays, setUseSpecialDays] = useState(true);
   const generate = useMutation({
     mutationFn: () =>
-      post<PostList & { created: number }>(orgUrl(orgSlug, "social/ai/plan"), {
+      post<PostList & { created: number; specials: number; posters: number }>(orgUrl(orgSlug, "social/ai/plan"), {
         brief,
         count,
         startDate,
@@ -81,12 +85,18 @@ export function ContentPlanForm({
         tone,
         toFacebook,
         toInstagram,
+        posters,
+        useSpecialDays,
         timeZoneOffsetMinutes: new Date(`${startDate}T${time}`).getTimezoneOffset(),
-      }),
+      }, { timeout: 180_000 }),
     onSuccess: (data) => {
       onDone(data);
       toast.success(
-        tr(fr, `${data.created} brouillon(s) prêts : relisez-les puis approuvez.`, `${data.created} draft(s) ready: review, then approve.`),
+        tr(
+          fr,
+          `${data.created} brouillon(s) prêts${data.specials ? ` dont ${data.specials} pour un jour spécial` : ""}${data.posters ? ` · ${data.posters} affiche(s) IA en cours de création` : ""} : relisez-les puis approuvez.`,
+          `${data.created} draft(s) ready: review, then approve.`,
+        ),
       );
       onClose();
     },
@@ -176,11 +186,25 @@ export function ContentPlanForm({
           </label>
         </div>
       </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <label className={labelClass} htmlFor="plan-posters">{tr(fr, "Affiches IA", "AI posters")}</label>
+          <select id="plan-posters" value={posters} onChange={(event) => setPosters(event.target.value as typeof posters)} className={inputClass}>
+            <option value="special">{tr(fr, "Seulement pour les jours spéciaux", "Only for special days")}</option>
+            <option value="some">{tr(fr, "Jours spéciaux + 1 publication sur 3", "Special days + 1 post in 3")}</option>
+            <option value="none">{tr(fr, "Aucune : photos telles quelles", "None: photos as they are")}</option>
+          </select>
+        </div>
+        <label className="flex items-end gap-2 pb-2 text-sm text-ink">
+          <input type="checkbox" checked={useSpecialDays} onChange={(event) => setUseSpecialDays(event.target.checked)} />
+          {tr(fr, "Ajouter les jours spéciaux du calendrier", "Add special days from the calendar")}
+        </label>
+      </div>
       <p className="text-xs leading-5 text-ink-muted">
         {tr(
           fr,
-          "Photos : l’IA choisit parmi les photos de vos produits de la boutique et de la médiathèque du site. Une publication sans photo ne part que sur Facebook.",
-          "Photos: the AI picks from your shop products and website media. A post without a photo goes to Facebook only.",
+          "Photos : l’IA regarde les photos de la Banque photos et utilise d’abord celles jamais publiées (sinon les photos de la boutique et du site). Les photos « Événement » et « Affiche prête » partent à leur date. Une publication sans photo ne part que sur Facebook.",
+          "Photos: the AI looks at the photo bank and uses never-published photos first. Event photos and ready posters go out on their date.",
         )}
       </p>
       <Button className="w-full" loading={generate.isPending} disabled={brief.trim().length < 5 || (!toFacebook && !toInstagram)} onClick={() => generate.mutate()}>

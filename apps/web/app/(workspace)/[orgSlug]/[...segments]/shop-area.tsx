@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, Eye, EyeOff, ImagePlus, Pencil, Plus, ShoppingBag, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { PdfButton } from "@/components/ui/pdf-button";
 import { EmptyState, ErrorState, SkeletonCard } from "@/components/ui/states";
 import { api, del, get, orgUrl, post, put } from "@/lib/api";
 import { useLanguage } from "@/providers/language-provider";
@@ -464,6 +465,20 @@ function Orders({ orgSlug, fr }: { orgSlug: string; fr: boolean }) {
               ))}
             </ul>
             {order.cancelledReason ? <p className="mt-1 text-xs text-ink-muted">{order.cancelledReason}</p> : null}
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              <PdfButton
+                path={orgUrl(orgSlug, `shop/orders/${order.id}/export.pdf`)}
+                fileName={`bon-de-commande-${order.number}.pdf`}
+                label={tr(fr, "Bon de commande", "Order form")}
+              />
+              {order.status !== "cancelled" ? (
+                <PdfButton
+                  path={orgUrl(orgSlug, `shop/orders/${order.id}/delivery-note.pdf`)}
+                  fileName={`bon-de-livraison-${order.number}.pdf`}
+                  label={tr(fr, "Bon de livraison", "Delivery note")}
+                />
+              ) : null}
+            </div>
             {order.status === "draft" ? (
               <div className="mt-3 flex flex-wrap gap-1.5">
                 <Button size="sm" loading={confirm.isPending} onClick={() => confirm.mutate(order.id)}>

@@ -5,6 +5,7 @@ import {
   ForbiddenError,
   NotFoundError,
 } from "../../utils/errors";
+import { createPdf, pdfDate } from "../../utils/pdf-builder";
 import { withTenantContext } from "../../utils/tenant-query";
 import type {
   AssignEmployeeInput,
@@ -1461,5 +1462,261 @@ export async function approveAttendance(
     return mapAttendance(
       (await attendanceRow(client, context.organizationId, attendanceId))!,
     );
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* Monthly attendance sheet (PDF)                                      */
+/* ------------------------------------------------------------------ */
+
+const sheetStatusLabels: Record<AttendanceStatus, string> = {
+  present: "Présent",
+  late: "En retard",
+  absent: "Absent",
+  leave: "Congé",
+};
+
+function sheetTime(value: Date | null): string {
+  if (!value) return "—";
+  return new Date(value).toLocaleTimeString("fr-FR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Africa/Kinshasa",
+  });
+}
+
+function sheetHours(minutes: number | null | undefined): string {
+  if (minutes == null) return "—";
+  const total = Math.round(Number(minutes));
+  return `${Math.floor(total / 60)} h ${String(total % 60).padStart(2, "0")}`;
+}
+
+function monthBounds(month: string) {
+  const [year, monthIndex] = month.split("-").map(Number) as [number, number];
+  const last = new Date(Date.UTC(year, monthIndex, 0)).getUTCDate();
+  return {
+    start: `${month}-01`,
+    end: `${month}-${String(last).padStart(2, "0")}`,
+    days: Array.from({ length: last }, (_, index) => `${month}-${String(index + 1).padStart(2, "0")}`),
+    label: new Date(Date.UTC(year, monthIndex - 1, 15)).toLocaleDateString("fr-FR", { month: "long", year: "numeric", timeZone: "UTC" }),
+  };
+}
+
+function sheetTotals(rows: AttendanceRow[]) {
+  const count = (status: AttendanceStatus) => rows.filter((row) => row.status === status).length;
+  return {
+    present: count("present"),
+    late: count("late"),
+    absent: count("absent"),
+    leave: count("leave"),
+    worked: rows.reduce((sum, row) => sum + Number(row.worked_minutes ?? 0), 0),
+    overtime: rows.reduce((sum, row) => sum + Number(row.overtime_minutes ?? 0), 0),
+  };
+}
+
+export async function attendanceSheetPdf(
+  context: WorkforceContext,
+  input: { month?: string; employeeId?: string; siteId?: string },
+) {
+  const month = input.month ?? new Date().toISOString().slice(0, 7);
+  const bounds = monthBounds(month);
+  return withTenantContext(context, async (client) => {
+    const scope = await scopeOf(client, context);
+    let employee: EmployeeRow | undefined;
+    let site: { id: string; name: string; province_id: string; province_name: string | null } | undefined;
+    if (input.employeeId) {
+      employee = await selectEmployee(client, context.organizationId, "id", input.employeeId);
+      if (!employee) throw new NotFoundError("Employee not found");
+      await assertEmployeeAccess(client, context, employee, true);
+    } else if (input.siteId) {
+      const result = await client.query<{ id: string; name: string; province_id: string; province_name: string | null }>(
+        `SELECT s.id, s.name, s.province_id, p.name AS province_name
+           FROM sites s LEFT JOIN provinces p ON p.organization_id = s.organization_id AND p.id = s.province_id
+          WHERE s.organization_id = $1 AND s.id = $2`,
+        [context.organizationId, input.siteId],
+      );
+      site = result.rows[0];
+      if (!site) throw new NotFoundError("Site not found");
+      if (scope === "province") await assertProvinceAccess(client, context, site.province_id);
+    }
+
+    /* Same visibility rule as listAttendance. */
+    const conditions = ["a.organization_id = $1", "a.work_date BETWEEN $2::date AND $3::date"];
+    const values: unknown[] = [context.organizationId, bounds.start, bounds.end];
+    if (input.employeeId) {
+      values.push(input.employeeId);
+      conditions.push(`a.employee_id = $${values.length}`);
+    }
+    if (input.siteId) {
+      values.push(input.siteId);
+      conditions.push(`a.site_id = $${values.length}`);
+    }
+    if (scope === "province") {
+      values.push(context.memberId);
+      conditions.push(
+        `EXISTS (SELECT 1 FROM member_provinces mp WHERE mp.organization_id = a.organization_id AND mp.member_id = $${values.length} AND mp.province_id = a.province_id)`,
+      );
+    }
+    if (scope === "self") {
+      values.push(context.memberId);
+      conditions.push(`e.member_id = $${values.length}`);
+    }
+    const result = await client.query<AttendanceRow>(
+      `SELECT ${attendanceFields}
+         FROM attendance_records a
+         JOIN employees e ON e.organization_id = a.organization_id AND e.id = a.employee_id
+         LEFT JOIN shifts s ON s.organization_id = a.organization_id AND s.id = a.shift_id
+         JOIN provinces p ON p.organization_id = a.organization_id AND p.id = a.province_id
+         JOIN sites site ON site.organization_id = a.organization_id AND site.id = a.site_id
+         LEFT JOIN departments d ON d.organization_id = a.organization_id AND d.id = a.department_id
+         LEFT JOIN users approver ON approver.id = a.approved_by_user_id
+        WHERE ${conditions.join(" AND ")}
+        ORDER BY a.work_date, e.full_name`,
+      values,
+    );
+    const rows = result.rows;
+    const totals = sheetTotals(rows);
+    const statsRow: [string, unknown][] = [
+      ["Présent", totals.present],
+      ["En retard", totals.late],
+      ["Absent", totals.absent],
+      ["Congé", totals.leave],
+      ["Heures travaillées", sheetHours(totals.worked)],
+      ["Heures sup.", sheetHours(totals.overtime)],
+    ];
+
+    if (employee) {
+      const pdf = await createPdf(client, context.organizationId, {
+        title: "Feuille de présence",
+        subtitle: `${employee.full_name} · ${bounds.label}`,
+        reference: `PRES-${employee.employee_number}-${month}`,
+        landscape: true,
+      });
+      pdf.section("Employé").fields(
+        [
+          ["Nom complet", employee.full_name],
+          ["Matricule", employee.employee_number],
+          ["Fonction", employee.job_title],
+          ["Site", employee.site_name],
+          ["Province", employee.province_name],
+          ["Période", `${pdfDate(bounds.start)} au ${pdfDate(bounds.end)}`],
+        ],
+        3,
+      );
+      pdf.stats(statsRow);
+      const byDay = new Map(rows.map((row) => [row.work_date, row]));
+      pdf.section("Pointages du mois").table(
+        [
+          { label: "Date", width: 1 },
+          { label: "Jour", width: 0.8 },
+          { label: "Horaire", width: 1.3 },
+          { label: "Arrivée", width: 0.8, align: "center" },
+          { label: "Départ", width: 0.8, align: "center" },
+          { label: "Heures", width: 0.8, align: "right" },
+          { label: "Heures sup.", width: 0.8, align: "right" },
+          { label: "Statut", width: 0.9 },
+          { label: "Validé", width: 0.9 },
+          { label: "Observations", width: 1.8 },
+        ],
+        bounds.days.map((day) => {
+          const row = byDay.get(day);
+          const weekday = new Date(`${day}T12:00:00Z`).toLocaleDateString("fr-FR", { weekday: "short", timeZone: "UTC" });
+          if (!row) return [pdfDate(day), weekday, "", "", "", "", "", "Non pointé", "", ""];
+          return [
+            pdfDate(day),
+            weekday,
+            row.shift_name ?? "—",
+            sheetTime(row.clock_in_at),
+            sheetTime(row.clock_out_at),
+            sheetHours(row.worked_minutes),
+            row.overtime_minutes ? sheetHours(row.overtime_minutes) : "—",
+            sheetStatusLabels[row.status] ?? row.status,
+            row.approved_at ? pdfDate(row.approved_at) : "Non",
+            [row.notes, row.correction_note ? `Correction : ${row.correction_note}` : null].filter(Boolean).join(" · "),
+          ];
+        }),
+        {
+          totals: ["Total", "", "", "", "", sheetHours(totals.worked), sheetHours(totals.overtime), `${totals.present + totals.late} j. travaillés`, "", ""],
+        },
+      );
+      pdf.signatures(["Employé", "Chef de site"]);
+      return { buffer: await pdf.finish(), fileName: `feuille-presence-${employee.employee_number}-${month}.pdf` };
+    }
+
+    const pdf = await createPdf(client, context.organizationId, {
+      title: "Feuille de présence",
+      subtitle: `${site ? site.name : "Tous les sites"} · ${bounds.label}`,
+      reference: `PRES-${site ? site.name.replace(/\s+/g, "").slice(0, 12).toUpperCase() : "ORG"}-${month}`,
+      landscape: true,
+    });
+    pdf.section("Périmètre").fields(
+      [
+        ["Site", site ? site.name : "Tous les sites accessibles"],
+        ["Province", site?.province_name ?? "—"],
+        ["Période", `${pdfDate(bounds.start)} au ${pdfDate(bounds.end)}`],
+      ],
+      3,
+    );
+    pdf.stats(statsRow);
+    const people = new Map<string, AttendanceRow[]>();
+    for (const row of rows) people.set(row.employee_id, [...(people.get(row.employee_id) ?? []), row]);
+    const summary = [...people.values()]
+      .map((list) => ({ first: list[0]!, totals: sheetTotals(list) }))
+      .sort((a, b) => a.first.employee_name.localeCompare(b.first.employee_name, "fr"));
+    pdf.section("Récapitulatif par employé").table(
+      [
+        { label: "Employé", width: 2 },
+        { label: "Matricule", width: 0.9 },
+        { label: "Présent", width: 0.7, align: "right" },
+        { label: "Retard", width: 0.7, align: "right" },
+        { label: "Absent", width: 0.7, align: "right" },
+        { label: "Congé", width: 0.7, align: "right" },
+        { label: "Heures", width: 0.9, align: "right" },
+        { label: "Heures sup.", width: 0.9, align: "right" },
+        { label: "Visa employé", width: 1.2 },
+      ],
+      summary.map(({ first, totals: t }) => [
+        first.employee_name,
+        first.employee_number,
+        t.present,
+        t.late,
+        t.absent,
+        t.leave,
+        sheetHours(t.worked),
+        sheetHours(t.overtime),
+        "",
+      ]),
+      {
+        totals: summary.length
+          ? ["Total", `${summary.length} employé(s)`, totals.present, totals.late, totals.absent, totals.leave, sheetHours(totals.worked), sheetHours(totals.overtime), ""]
+          : undefined,
+        empty: "Aucun pointage pour cette période.",
+      },
+    );
+    if (rows.length)
+      pdf.section("Détail des pointages").table(
+        [
+          { label: "Date", width: 0.9 },
+          { label: "Employé", width: 1.8 },
+          ...(site ? [] : [{ label: "Site", width: 1.2 }]),
+          { label: "Arrivée", width: 0.7, align: "center" as const },
+          { label: "Départ", width: 0.7, align: "center" as const },
+          { label: "Heures", width: 0.8, align: "right" as const },
+          { label: "Statut", width: 0.9 },
+          { label: "Validé", width: 0.9 },
+        ],
+        rows.map((row) => [
+          pdfDate(row.work_date),
+          `${row.employee_name} (${row.employee_number})`,
+          ...(site ? [] : [row.site_name]),
+          sheetTime(row.clock_in_at),
+          sheetTime(row.clock_out_at),
+          sheetHours(row.worked_minutes),
+          sheetStatusLabels[row.status] ?? row.status,
+          row.approved_at ? pdfDate(row.approved_at) : "Non",
+        ]),
+      );
+    pdf.signatures(["Chef de site", "Ressources humaines"]);
+    return { buffer: await pdf.finish(), fileName: `feuille-presence-${site ? site.name : "sites"}-${month}.pdf` };
   });
 }

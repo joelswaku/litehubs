@@ -19,6 +19,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { HrPdfButton } from "@/components/hr/hr-pdf-button";
+import { PdfButton } from "@/components/ui/pdf-button";
 import { Field as BaseField, Input, Textarea } from "@/components/ui/input";
 import {
   EmptyState,
@@ -397,6 +398,7 @@ export function DisciplineArea({ orgSlug }: { orgSlug: string }) {
         </section>
         <ActionDetail
           action={selected}
+          orgSlug={orgSlug}
           fr={fr}
           canUpdate={canUpdate}
           canSubmitForDecision={canSubmitForDecision}
@@ -528,6 +530,7 @@ function InfoCard({
 }
 function ActionDetail({
   action,
+  orgSlug,
   fr,
   canUpdate,
   canSubmitForDecision,
@@ -540,6 +543,7 @@ function ActionDetail({
   onDecide,
 }: {
   action: Action | null;
+  orgSlug: string;
   fr: boolean;
   canUpdate: boolean;
   canSubmitForDecision: boolean;
@@ -670,6 +674,20 @@ function ActionDetail({
         </div>
       ) : null}
       {error ? <p className="mt-3 text-xs text-critical">{error}</p> : null}
+      <div className="mt-5 flex flex-wrap gap-2">
+        <PdfButton
+          path={orgUrl(orgSlug, `disciplinary-actions/${action.id}/letter.pdf`)}
+          params={{ kind: "explanation" }}
+          fileName={`demande-explication-${action.reference}.pdf`}
+          label={text(fr, "Explanation request", "Demande d’explication")}
+        />
+        <PdfButton
+          path={orgUrl(orgSlug, `disciplinary-actions/${action.id}/letter.pdf`)}
+          params={{ kind: "warning" }}
+          fileName={`avertissement-${action.reference}.pdf`}
+          label={text(fr, "Written warning", "Avertissement écrit")}
+        />
+      </div>
       {canUpdate || canMakeFinalDecision ? (
         <div className="mt-5 flex flex-wrap gap-2">
           {canUpdate ? (

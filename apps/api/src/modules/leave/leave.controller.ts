@@ -1,4 +1,5 @@
 import type { Request, RequestHandler } from "express";
+import { sendPdf } from "../../utils/pdf-builder";
 import * as service from "./leave.service";
 import type {
   CancelLeaveInput,
@@ -77,3 +78,18 @@ export const summary: RequestHandler = async (req, res) =>
   );
 export const currentEmployee: RequestHandler = async (req, res) =>
   res.json({ employee: await service.currentEmployee(context(req)) });
+export const requestPdf: RequestHandler = async (req, res) => {
+  const { buffer, fileName } = await service.leaveRequestPdf(
+    context(req),
+    param(req, "leaveRequestId"),
+  );
+  sendPdf(res, buffer, fileName, req.query.inline === "1");
+};
+export const balancePdf: RequestHandler = async (req, res) => {
+  const { buffer, fileName } = await service.leaveBalancePdf(
+    context(req),
+    param(req, "employeeId"),
+    Number(req.query.year ?? new Date().getUTCFullYear()),
+  );
+  sendPdf(res, buffer, fileName, req.query.inline === "1");
+};

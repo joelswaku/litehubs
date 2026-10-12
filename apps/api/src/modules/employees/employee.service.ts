@@ -283,7 +283,7 @@ function mapEmployee(
 }
 
 /** Owner and HR Officer are the only roles allowed to open personnel data. */
-async function canReadPrivateEmployeeData(
+export async function canReadPrivateEmployeeData(
   client: PoolClient,
   context: EmployeeContext,
 ): Promise<boolean> {

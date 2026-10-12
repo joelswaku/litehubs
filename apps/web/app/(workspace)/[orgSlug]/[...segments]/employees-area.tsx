@@ -27,6 +27,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { HrPdfButton } from "@/components/hr/hr-pdf-button";
+import { PdfButton } from "@/components/ui/pdf-button";
 import { Field, Input, Textarea } from "@/components/ui/input";
 import { PhoneInput } from "@/components/ui/phone-input";
 import {
@@ -1752,6 +1753,22 @@ function EmployeeProfile({
             className="w-full justify-between border-border bg-surface-2 text-ink hover:border-brand/40 hover:bg-brand/5 hover:text-brand"
           />
         ) : null}
+        <div className="grid gap-2 sm:grid-cols-2">
+          <PdfButton
+            path={orgUrl(orgSlug, `employees/${employee.id}/file.pdf`)}
+            fileName={`fiche-employe-${employee.employeeNumber}.pdf`}
+            label={label(fr, "Employee sheet", "Fiche employé")}
+            className="w-full"
+          />
+          {canDossier ? (
+            <PdfButton
+              path={orgUrl(orgSlug, `employees/${employee.id}/work-certificate.pdf`)}
+              fileName={`attestation-de-travail-${employee.employeeNumber}.pdf`}
+              label={label(fr, "Work certificate", "Attestation de travail")}
+              className="w-full"
+            />
+          ) : null}
+        </div>
         {canUpdate ? (
           <Button
             className="w-full justify-between"

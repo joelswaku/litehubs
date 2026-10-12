@@ -332,6 +332,47 @@ export async function listWebOrders(context: ChatContext, filter: "todo" | "all"
   });
 }
 
+/**
+ * One web order for printable documents (bon de commande / bon de livraison):
+ * same right and same `channel='website'` filter as the orders list.
+ */
+export async function webOrderForPdf(context: ChatContext, orderId: string, client: PoolClient) {
+  assertOrders(context);
+  const result = await client.query<Row>(
+    `SELECT o.*, c.code AS customer_code FROM sales_orders o
+       LEFT JOIN customers c ON c.organization_id=o.organization_id AND c.id=o.customer_id
+      WHERE o.organization_id=$1 AND o.id=$2 AND o.channel='website'`,
+    [context.organizationId, orderId],
+  );
+  const row = result.rows[0];
+  if (!row) throw new NotFoundError("Commande introuvable");
+  const [lines, deliveries, settings] = await Promise.all([
+    client.query<Row>(`SELECT * FROM sales_order_lines WHERE organization_id=$1 AND order_id=$2 ORDER BY line_number`, [context.organizationId, orderId]),
+    client.query<Row>(
+      `SELECT delivery_number, delivered_on::text AS delivered_on, driver_name, received_by, status FROM sales_deliveries
+        WHERE organization_id=$1 AND order_id=$2 ORDER BY delivered_on, created_at`,
+      [context.organizationId, orderId],
+    ),
+    settingsOf(client, context.organizationId),
+  ]);
+  return {
+    order: mapOrder(row, lines.rows),
+    customerCode: (row.customer_code as string | null) ?? null,
+    orderDate: row.order_date,
+    requiredDate: row.required_date,
+    lines: lines.rows.map((line) => ({
+      description: line.description as string,
+      quantity: num(line.quantity),
+      deliveredQuantity: num(line.delivered_quantity),
+      unit: line.unit as string,
+      unitPrice: num(line.unit_price),
+      total: num(line.line_total),
+    })),
+    deliveries: deliveries.rows,
+    settings,
+  };
+}
+
 /** "Annuler" a web order that cannot be served (out of stock, no answer…). */
 export async function cancelWebOrder(context: ChatContext, orderId: string, reason: string) {
   assertOrders(context);

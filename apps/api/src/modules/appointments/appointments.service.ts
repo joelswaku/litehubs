@@ -368,6 +368,30 @@ export async function listAppointments(context: AppointmentContext, input: ListA
   });
 }
 
+/** One appointment, limited by exactly the same data scope as listAppointments. */
+export async function getAppointment(context: AppointmentContext, appointmentId: string) {
+  return withTenantContext(context, async (client) => {
+    const scope = await scopeOf(client, context);
+    const values: unknown[] = [context.organizationId, appointmentId];
+    const terms = ["a.organization_id=$1", "a.id=$2"];
+    if (scope === "self") terms.push("FALSE");
+    if (scope === "province") { values.push(context.memberId); terms.push(`EXISTS (SELECT 1 FROM member_provinces mp WHERE mp.organization_id=a.organization_id AND mp.member_id=$${values.length} AND mp.province_id=a.province_id)`); }
+    const rows = await client.query<Row>(
+      `SELECT ${appointmentFields} FROM appointments a
+       JOIN sites s ON s.organization_id=a.organization_id AND s.id=a.site_id
+       JOIN provinces p ON p.organization_id=a.organization_id AND p.id=a.province_id
+       LEFT JOIN appointment_services svc ON svc.organization_id=a.organization_id AND svc.id=a.service_id
+       LEFT JOIN appointment_desks desk ON desk.organization_id=a.organization_id AND desk.id=a.desk_id
+       LEFT JOIN organization_members assignee ON assignee.organization_id=a.organization_id AND assignee.id=a.assigned_member_id
+       LEFT JOIN users assignee_user ON assignee_user.id=assignee.user_id
+       WHERE ${terms.join(" AND ")}`,
+      values,
+    );
+    if (!rows.rows[0]) throw new NotFoundError("Appointment not found");
+    return mapAppointment(rows.rows[0]);
+  });
+}
+
 export async function summary(context: AppointmentContext) {
   return withTenantContext(context, async (client) => {
     const scope = await scopeOf(client, context); const values: unknown[] = [context.organizationId]; let filter = "";

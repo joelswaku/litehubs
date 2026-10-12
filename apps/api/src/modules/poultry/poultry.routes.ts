@@ -7,6 +7,11 @@ import { ForbiddenError } from "../../utils/errors";
 import * as controller from "./poultry.controller";
 import { poultryPerformanceRoutes } from "./poultry-performance.routes";
 import { poultryInsightsRoutes } from "./poultry-insights.routes";
+import * as veterinaryPdf from "./poultry-veterinary-pdf";
+import {
+  poultryTreatmentReportParams,
+  poultryVaccinationCalendarQuery,
+} from "./poultry-veterinary-pdf";
 import {
   flockProfileParams,
   organizationParams,
@@ -99,6 +104,24 @@ poultryRoutes.get(
   requireOrganization,
   requirePermission("poultry.flocks.read"),
   controller.downloadFlockProfilePdf,
+);
+
+/* Veterinary documents — same access as reading the underlying records. */
+poultryRoutes.get(
+  "/organizations/:orgSlug/poultry/treatments/:recordId/report.pdf",
+  authenticate,
+  validate({ params: poultryTreatmentReportParams }),
+  requireOrganization,
+  requirePermission("poultry.treatments.read"),
+  veterinaryPdf.downloadPoultryTreatmentReportPdf,
+);
+
+poultryRoutes.get(
+  "/organizations/:orgSlug/poultry/vaccinations/calendar/export.pdf",
+  ...inOrganization,
+  requirePermission("poultry.vaccinations.read"),
+  validate({ query: poultryVaccinationCalendarQuery }),
+  veterinaryPdf.downloadPoultryVaccinationCalendarPdf,
 );
 
 

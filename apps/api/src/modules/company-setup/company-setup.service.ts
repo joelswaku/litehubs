@@ -721,6 +721,8 @@ export async function exportCompanyRulesPdf(
     const pageRange = document.bufferedPageRange();
     for (let index = pageRange.start; index < pageRange.start + pageRange.count; index += 1) {
       document.switchToPage(index);
+      // The footer sits below the bottom margin: without this, PDFKit moves it to a new blank page.
+      document.page.margins.bottom = 0;
       const footerLineY = pageHeight - 76;
       const footerTextY = pageHeight - 66;
       document

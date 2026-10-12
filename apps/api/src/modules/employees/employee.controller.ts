@@ -1,6 +1,8 @@
 import type { Request, RequestHandler } from "express";
 import * as service from "./employee.service";
 import * as reports from "./hr-report.service";
+import * as employeePdf from "./employee-pdf";
+import { sendPdf } from "../../utils/pdf-builder";
 import * as authService from "../auth/auth.service";
 import type {
   CreateEmployeeInput,
@@ -148,4 +150,31 @@ export const deleteEmployeeCreationAllowance: RequestHandler = async (
     parameter(req, "provinceId"),
   );
   res.status(204).send();
+};
+
+// Printable employee documents (shared LiteHubs PDF layout).
+export const downloadEmployeeFilePdf: RequestHandler = async (req, res) => {
+  const { buffer, fileName } = await employeePdf.employeeFilePdf(
+    contextOf(req),
+    parameter(req, "employeeId"),
+  );
+  sendPdf(res, buffer, fileName);
+};
+
+export const downloadWorkCertificatePdf: RequestHandler = async (req, res) => {
+  const { buffer, fileName } = await employeePdf.employeeCertificatePdf(
+    contextOf(req),
+    parameter(req, "employeeId"),
+  );
+  sendPdf(res, buffer, fileName);
+};
+
+export const downloadMyEmployeeFilePdf: RequestHandler = async (req, res) => {
+  const { buffer, fileName } = await employeePdf.myEmployeePdf(contextOf(req), "file");
+  sendPdf(res, buffer, fileName);
+};
+
+export const downloadMyWorkCertificatePdf: RequestHandler = async (req, res) => {
+  const { buffer, fileName } = await employeePdf.myEmployeePdf(contextOf(req), "certificate");
+  sendPdf(res, buffer, fileName);
 };

@@ -28,7 +28,9 @@ import {
 } from "recharts";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { PdfButton } from "@/components/ui/pdf-button";
 import { EmptyState, ErrorState, Skeleton } from "@/components/ui/states";
+import { orgUrl } from "@/lib/api";
 import { ownerManagementApi } from "@/lib/owner-management-api";
 import { useLanguage } from "@/providers/language-provider";
 
@@ -571,17 +573,37 @@ export function ProjectAnalyticsArea({
               )}
             </p>
           </div>
-          {!embedded ? (
-            <Link href={`/${orgSlug}/projects`}>
-              <Button
-                variant="secondary"
-                className="border-white/20 bg-white text-[#0d366b] hover:bg-blue-50"
-              >
-                <FolderKanban className="size-4" />
-                {copy(fr, "Open projects", "Ouvrir les projets")}
-              </Button>
-            </Link>
-          ) : null}
+          <div className="flex flex-wrap items-center gap-2">
+            <PdfButton
+              path={orgUrl(
+                orgSlug,
+                "owner-management/projects/analytics/export.pdf",
+              )}
+              fileName="rapport-global-projets.pdf"
+              label={copy(fr, "PDF report", "Rapport PDF")}
+              size="md"
+              variant="secondary"
+              className="border-white/20 bg-white text-[#0d366b] hover:bg-blue-50"
+              params={{
+                provinceId: provinceId || undefined,
+                siteId: siteId || undefined,
+                projectType: projectType || undefined,
+                managerId: managerId || undefined,
+                status: status || undefined,
+              }}
+            />
+            {!embedded ? (
+              <Link href={`/${orgSlug}/projects`}>
+                <Button
+                  variant="secondary"
+                  className="border-white/20 bg-white text-[#0d366b] hover:bg-blue-50"
+                >
+                  <FolderKanban className="size-4" />
+                  {copy(fr, "Open projects", "Ouvrir les projets")}
+                </Button>
+              </Link>
+            ) : null}
+          </div>
         </div>
         <div className="relative mt-7 flex gap-3 overflow-x-auto pb-1">
           <FlowStep

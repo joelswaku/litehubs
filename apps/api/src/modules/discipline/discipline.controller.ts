@@ -1,9 +1,11 @@
 import type { Request, RequestHandler } from "express";
+import { sendPdf } from "../../utils/pdf-builder";
 import * as service from "./discipline.service";
 import type {
   ActionQuery,
   CreateActionInput,
   DecisionInput,
+  LetterQuery,
   UpdateActionInput,
 } from "./discipline.validation";
 
@@ -49,3 +51,11 @@ export const decideAction: RequestHandler = async (req, res) =>
   });
 export const summary: RequestHandler = async (req, res) =>
   res.json(await service.summary(context(req)));
+export const letterPdf: RequestHandler = async (req, res) => {
+  const { buffer, fileName } = await service.disciplineLetterPdf(
+    context(req),
+    param(req, "actionId"),
+    (req.query as LetterQuery).kind,
+  );
+  sendPdf(res, buffer, fileName, req.query.inline === "1");
+};

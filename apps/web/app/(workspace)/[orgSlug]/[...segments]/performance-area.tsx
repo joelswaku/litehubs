@@ -21,6 +21,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { HrPdfButton } from "@/components/hr/hr-pdf-button";
+import { PdfButton } from "@/components/ui/pdf-button";
 import { Field as BaseField, Input, Textarea } from "@/components/ui/input";
 import {
   EmptyState,
@@ -419,6 +420,7 @@ export function PerformanceArea({ orgSlug }: { orgSlug: string }) {
           )}
         </section>
         <ReviewDetail
+          orgSlug={orgSlug}
           review={selected}
           goals={goals.data ?? []}
           goalsLoading={goals.isPending}
@@ -561,6 +563,7 @@ function Dialog({
   );
 }
 function ReviewDetail({
+  orgSlug,
   review,
   goals,
   goalsLoading,
@@ -576,6 +579,7 @@ function ReviewDetail({
   onAddGoal,
   onEditGoal,
 }: {
+  orgSlug: string;
   review: Review | null;
   goals: GoalItem[];
   goalsLoading: boolean;
@@ -621,9 +625,16 @@ function ReviewDetail({
             #{review.employee.employeeNumber} · {review.employee.jobTitle}
           </p>
         </div>
-        <Badge variant={statusVariant(review.status)}>
-          {words(review.status)}
-        </Badge>
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          <Badge variant={statusVariant(review.status)}>
+            {words(review.status)}
+          </Badge>
+          <PdfButton
+            path={orgUrl(orgSlug, `performance-reviews/${review.id}/export.pdf`)}
+            fileName={`fiche-evaluation-${review.employee.employeeNumber}-${review.periodEnd}.pdf`}
+            label={t(fr, "Evaluation sheet", "Fiche d’évaluation")}
+          />
+        </div>
       </div>
       <dl className="mt-5 grid grid-cols-2 gap-3 text-sm">
         <Info

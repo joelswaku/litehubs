@@ -83,6 +83,8 @@ const schema = z
     OPENAI_API_KEY: z.string().trim().min(1).optional(),
     OPEN_API_KEY: z.string().trim().min(1).optional(),
     OPEN_MODEL: z.string().trim().min(1).max(160).default("gpt-5.6"),
+    OPENAI_IMAGE_MODEL: z.string().trim().min(1).max(160).default("gpt-image-2"),
+    OPENAI_IMAGE_QUALITY: z.enum(["low", "medium", "high"]).default("medium"),
     AI_ENABLED: z.string().trim().optional(),
     AI_DAILY_REQUEST_LIMIT: z.coerce
       .number()
@@ -255,6 +257,8 @@ export const env = {
       ) && Boolean(config.OPENAI_API_KEY ?? config.OPEN_API_KEY),
     apiKey: config.OPENAI_API_KEY ?? config.OPEN_API_KEY,
     model: config.OPEN_MODEL,
+    imageModel: config.OPENAI_IMAGE_MODEL,
+    imageQuality: config.OPENAI_IMAGE_QUALITY,
     dailyRequestLimit:
       config.AI_DAILY_REQUEST_LIMIT ?? config.AI_DAILY_REQUEST_LIMITE ?? 20,
   },

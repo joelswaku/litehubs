@@ -5,6 +5,12 @@ import { requirePermission } from "../../middleware/permissions.middleware";
 import { validate } from "../../middleware/validation.middleware";
 import { ForbiddenError } from "../../utils/errors";
 import * as controller from "./pig.controller";
+import * as pdf from "./pig-pdf";
+import {
+  pigPenSheetParams,
+  pigTreatmentReportParams,
+  pigVaccinationCalendarQuery,
+} from "./pig-pdf";
 import {
   organizationParams,
   parsePigBody,
@@ -85,6 +91,33 @@ pigRoutes.get(
   requirePermission("pigs.pens.read", "pigs.animals.read"),
   validate({ query: pigOverviewQuery }),
   controller.pigOverview,
+);
+
+/* Printable documents — same access as reading the underlying records. */
+pigRoutes.get(
+  "/organizations/:orgSlug/pigs/pens/:penId/sheet.pdf",
+  authenticate,
+  validate({ params: pigPenSheetParams }),
+  requireOrganization,
+  requirePermission("pigs.pens.read"),
+  pdf.downloadPenSheetPdf,
+);
+
+pigRoutes.get(
+  "/organizations/:orgSlug/pigs/treatments/:recordId/report.pdf",
+  authenticate,
+  validate({ params: pigTreatmentReportParams }),
+  requireOrganization,
+  requirePermission("pigs.treatments.read"),
+  pdf.downloadTreatmentReportPdf,
+);
+
+pigRoutes.get(
+  "/organizations/:orgSlug/pigs/vaccinations/calendar/export.pdf",
+  ...inOrganization,
+  requirePermission("pigs.vaccinations.read"),
+  validate({ query: pigVaccinationCalendarQuery }),
+  pdf.downloadVaccinationCalendarPdf,
 );
 
 pigRoutes.get(

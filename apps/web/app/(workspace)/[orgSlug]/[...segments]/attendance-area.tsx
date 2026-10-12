@@ -18,6 +18,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { HrPdfButton } from "@/components/hr/hr-pdf-button";
+import { PdfButton } from "@/components/ui/pdf-button";
 import { Field, Input } from "@/components/ui/input";
 import {
   EmptyState,
@@ -25,7 +26,7 @@ import {
   NoAccessState,
   SkeletonCard,
 } from "@/components/ui/states";
-import { ApiError } from "@/lib/api";
+import { ApiError, orgUrl } from "@/lib/api";
 import {
   attendanceApi,
   type AttendanceRecord,
@@ -477,6 +478,10 @@ function Timesheets({
 }) {
   const queryClient = useQueryClient();
   const [pendingOnly, setPendingOnly] = useState(true);
+  const [sheetMonth, setSheetMonth] = useState(() =>
+    new Date().toISOString().slice(0, 7),
+  );
+  const [sheetTarget, setSheetTarget] = useState("all");
 
   const records = useQuery({
     queryKey: ["attendance-records", orgSlug],
@@ -513,6 +518,25 @@ function Timesheets({
   const all = records.data ?? [];
   const rows = pendingOnly ? all.filter((row) => !approvalDate(row)) : all;
   const awaiting = all.filter((row) => !approvalDate(row)).length;
+  const fr = locale.startsWith("fr");
+  const sheetEmployees = new Map<string, string>();
+  const sheetSites = new Map<string, string>();
+  for (const row of all) {
+    const id = row.employee?.id ?? row.employeeId;
+    if (id) sheetEmployees.set(id, employeeName(row));
+    const site = (row as AttendanceRecord & { site?: { id: string; name?: string | null } | null }).site;
+    if (site?.id) sheetSites.set(site.id, site.name ?? site.id);
+  }
+  const [targetKind, targetId] = sheetTarget.split(":");
+  const sheetParams: Record<string, unknown> = { month: sheetMonth };
+  if (targetKind === "employee" && targetId) sheetParams.employeeId = targetId;
+  if (targetKind === "site" && targetId) sheetParams.siteId = targetId;
+  const sheetName =
+    targetKind === "employee" && targetId
+      ? sheetEmployees.get(targetId)
+      : targetKind === "site" && targetId
+        ? sheetSites.get(targetId)
+        : "sites";
 
   return (
     <section className="overflow-hidden rounded-2xl border border-border bg-gradient-to-br from-surface-1 via-surface-1 to-surface-2 shadow-[0_18px_42px_-32px_rgba(15,23,42,.38)] dark:shadow-[0_18px_42px_-32px_rgba(0,0,0,.85)]">
@@ -534,6 +558,44 @@ function Timesheets({
           />
           {t("attendance.onlyPending" as never)}
         </label>
+      </div>
+      <div className="flex flex-wrap items-end gap-2 border-b border-border bg-surface-2/50 px-4 py-3">
+        <p className="mr-auto text-xs font-semibold text-ink-secondary">
+          {fr ? "Feuille de présence mensuelle" : "Monthly attendance sheet"}
+        </p>
+        <input
+          type="month"
+          value={sheetMonth}
+          onChange={(event) =>
+            setSheetMonth(event.target.value || new Date().toISOString().slice(0, 7))
+          }
+          aria-label={fr ? "Mois" : "Month"}
+          className="h-9 rounded-lg border border-border bg-surface-1 px-2 text-sm text-ink"
+        />
+        <select
+          value={sheetTarget}
+          onChange={(event) => setSheetTarget(event.target.value)}
+          aria-label={fr ? "Périmètre" : "Scope"}
+          className="h-9 max-w-[16rem] rounded-lg border border-border bg-surface-1 px-2 text-sm text-ink"
+        >
+          <option value="all">{fr ? "Tous les sites" : "All sites"}</option>
+          {[...sheetSites].map(([id, name]) => (
+            <option key={`site-${id}`} value={`site:${id}`}>
+              {(fr ? "Site : " : "Site: ") + name}
+            </option>
+          ))}
+          {[...sheetEmployees].map(([id, name]) => (
+            <option key={`employee-${id}`} value={`employee:${id}`}>
+              {name}
+            </option>
+          ))}
+        </select>
+        <PdfButton
+          path={orgUrl(orgSlug, "attendance/sheet.pdf")}
+          params={sheetParams}
+          fileName={`feuille-presence-${(sheetName ?? "sites").replace(/\s+/g, "-").toLowerCase()}-${sheetMonth}.pdf`}
+          label={fr ? "Feuille PDF" : "Sheet PDF"}
+        />
       </div>
 
       {rows.length === 0 ? (

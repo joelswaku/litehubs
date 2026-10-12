@@ -635,3 +635,39 @@ export async function myPerformance(
 
   return { ...performance, reviews };
 }
+/**
+ * Data for the printable evaluation sheet. It applies the same scope checks as
+ * GET /performance-reviews/:id/goals (reviewFor). With `selfOnly`, the review
+ * must belong to the caller's own employee record (my-performance access);
+ * goal details are then included only when the caller can already list them.
+ */
+export async function reviewSheet(
+  context: PerformanceContext,
+  reviewId: string,
+  options: { selfOnly?: boolean } = {},
+) {
+  const { review, goals } = await withTenantContext(context, async (client) => {
+    const row = await reviewFor(client, context, reviewId);
+    if (options.selfOnly && row.employee_member_id !== context.memberId)
+      throw new NotFoundError("Performance review not found");
+    const includeGoals =
+      !options.selfOnly || context.isOwner || context.permissions.includes("performance.read");
+    const goalRows = includeGoals
+      ? await client.query<GoalRow>(
+          `SELECT * FROM performance_review_goals WHERE organization_id=$1 AND review_id=$2 ORDER BY CASE status WHEN 'in_progress' THEN 0 WHEN 'not_started' THEN 1 WHEN 'achieved' THEN 2 ELSE 3 END,due_on NULLS LAST,created_at`,
+          [context.organizationId, reviewId],
+        )
+      : null;
+    return { review: mapReview(row), goals: goalRows ? goalRows.rows.map(mapGoal) : null };
+  });
+  // Automatic indicators for the review period, scoped exactly like
+  // GET /performance-analytics. Unavailable (e.g. former employee) → null.
+  const indicators = await analytics(context, {
+    employeeId: review.employee.id,
+    from: review.periodStart,
+    to: review.periodEnd,
+  })
+    .then((result) => ({ policy: result.policy, score: result.employees[0] ?? null }))
+    .catch(() => null);
+  return { review, goals, indicators };
+}

@@ -11,6 +11,8 @@ import {
   cancelLeaveSchema,
   createLeaveTypeSchema,
   decideLeaveSchema,
+  leaveBalanceParams,
+  leaveBalanceQuery,
   leaveRequestParams,
   leaveRequestQuery,
   leaveTypeParams,
@@ -89,4 +91,21 @@ leaveRoutes.get(
   ...inside,
   requirePermission("leave.read"),
   controller.summary,
+);
+leaveRoutes.get(
+  "/organizations/:orgSlug/leave-requests/:leaveRequestId/export.pdf",
+  authenticate,
+  validate({ params: leaveRequestParams }),
+  requireOrganization,
+  requirePermission("leave.read"),
+  controller.requestPdf,
+);
+leaveRoutes.get(
+  "/organizations/:orgSlug/leave-balances/:employeeId/export.pdf",
+  authenticate,
+  validate({ params: leaveBalanceParams }),
+  requireOrganization,
+  requirePermission("leave.read"),
+  validate({ query: leaveBalanceQuery }),
+  controller.balancePdf,
 );

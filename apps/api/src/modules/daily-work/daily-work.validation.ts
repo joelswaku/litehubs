@@ -186,3 +186,15 @@ export const handoverBody = z.object({
   urgentItems: optionalText(8000),
   equipmentStatus: optionalText(4000),
 });
+
+export const activityReportQuery = z
+  .object({
+    employeeId: id.optional(),
+    from: date.optional(),
+    to: date.optional(),
+  })
+  .refine((value) => !value.from || !value.to || value.from <= value.to, {
+    path: ["to"],
+    message: "End date must be on or after start date",
+  });
+export type ActivityReportQuery = z.infer<typeof activityReportQuery>;

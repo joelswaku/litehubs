@@ -5,6 +5,7 @@ import {
   ForbiddenError,
   NotFoundError,
 } from "../../utils/errors";
+import { createPdf, pdfDate, pdfMoney } from "../../utils/pdf-builder";
 import { withTenantContext } from "../../utils/tenant-query";
 import type {
   CancelLeaveInput,
@@ -510,5 +511,221 @@ export async function currentEmployee(context: LeaveContext) {
           site: row.site_id ? { id: row.site_id, name: row.site_name } : null,
         }
       : null;
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* PDF documents                                                       */
+/* ------------------------------------------------------------------ */
+
+const statusLabels: Record<RequestStatus, string> = {
+  pending: "En attente",
+  approved: "Approuvée",
+  rejected: "Refusée",
+  cancelled: "Annulée",
+  taken: "Prise",
+};
+const days = (value: unknown) =>
+  `${pdfMoney(value)} jour${Number(value) > 1 ? "s" : ""}`;
+
+/** Same visibility rule as listRequests (self / province / organization). */
+async function assertRequestVisible(
+  client: PoolClient,
+  context: LeaveContext,
+  row: RequestRow,
+) {
+  const scope = await scopeOf(client, context);
+  if (scope === "organization") return;
+  if (scope === "self") {
+    if (row.employee_member_id !== context.memberId)
+      throw new NotFoundError("Leave request not found");
+    return;
+  }
+  if (!row.province_id) throw new NotFoundError("Leave request not found");
+  const r = await client.query(
+    `SELECT 1 FROM member_provinces WHERE organization_id=$1 AND member_id=$2 AND province_id=$3`,
+    [context.organizationId, context.memberId, row.province_id],
+  );
+  if ((r.rowCount ?? 0) === 0)
+    throw new NotFoundError("Leave request not found");
+}
+
+export async function leaveRequestPdf(context: LeaveContext, id: string) {
+  return withTenantContext(context, async (c) => {
+    const row = await requestFor(c, context.organizationId, id);
+    await assertRequestVisible(c, context, row);
+    const reference = `CONGE-${row.id.slice(0, 8).toUpperCase()}`;
+    const pdf = await createPdf(c, context.organizationId, {
+      title: "Demande de congé",
+      subtitle: `${row.employee_name} · ${row.leave_type_name}`,
+      reference,
+    });
+    pdf.section("Employé").fields([
+      ["Nom complet", row.employee_name],
+      ["Matricule", row.employee_number],
+      ["Fonction", row.employee_job_title],
+      ["Affectation", [row.site_name, row.province_name].filter(Boolean).join(" · ") || null],
+    ]);
+    pdf.section("Congé demandé").fields([
+      ["Type de congé", row.leave_type_name],
+      ["Congé payé", row.is_paid ? "Oui" : "Non"],
+      ["Du", pdfDate(row.starts_on)],
+      ["Au (inclus)", pdfDate(row.ends_on)],
+      ["Nombre de jours", days(row.requested_days)],
+      ["Statut", statusLabels[row.status] ?? row.status],
+    ]);
+    pdf.section("Motif").paragraph(row.reason?.trim() || "Aucun motif indiqué.");
+    const history: unknown[][] = [
+      ["Demande soumise", row.requested_by_name, pdfDate(row.created_at, true), ""],
+    ];
+    if (row.decided_at)
+      history.push([
+        row.status === "rejected" ? "Refusée" : "Approuvée",
+        row.decided_by_name,
+        pdfDate(row.decided_at, true),
+        row.decision_note ?? "",
+      ]);
+    if (row.status === "cancelled")
+      history.push(["Annulée", "", pdfDate(row.updated_at, true), row.decided_at ? "" : (row.decision_note ?? "")]);
+    if (row.status === "taken") history.push(["Congé pris", "", pdfDate(row.updated_at, true), ""]);
+    if (row.status === "pending") history.push(["En attente de décision", "", "", ""]);
+    pdf.section("Historique d'approbation").table(
+      [
+        { label: "Étape", width: 1.3 },
+        { label: "Par", width: 1.3 },
+        { label: "Date", width: 1.1 },
+        { label: "Commentaire", width: 2 },
+      ],
+      history,
+    );
+    pdf.signatures(["Employé", "Responsable", "Ressources humaines"]);
+    pdf.note(
+      "Ce formulaire reprend la demande enregistrée dans LiteHubs. Une fois signé, il est conservé dans le dossier de l'employé.",
+    );
+    return { buffer: await pdf.finish(), fileName: `demande-conge-${row.employee_number}-${row.starts_on}.pdf` };
+  });
+}
+
+export async function leaveBalancePdf(
+  context: LeaveContext,
+  employeeId: string,
+  year: number,
+) {
+  return withTenantContext(context, async (c) => {
+    const e = await c.query<{
+      id: string;
+      member_id: string | null;
+      employee_number: string;
+      full_name: string;
+      job_title: string;
+      province_id: string | null;
+      province_name: string | null;
+      site_name: string | null;
+    }>(
+      `SELECT e.id,e.member_id,e.employee_number,e.full_name,e.job_title,e.province_id,p.name AS province_name,s.name AS site_name FROM employees e LEFT JOIN provinces p ON p.organization_id=e.organization_id AND p.id=e.province_id LEFT JOIN sites s ON s.organization_id=e.organization_id AND s.id=e.site_id WHERE e.organization_id=$1 AND e.id=$2`,
+      [context.organizationId, employeeId],
+    );
+    const employee = e.rows[0];
+    if (!employee) throw new NotFoundError("Employee not found");
+    /* Same visibility as the leave summary balances. */
+    const scope = await scopeOf(c, context);
+    if (scope === "self" && employee.member_id !== context.memberId)
+      throw new NotFoundError("Employee not found");
+    if (scope === "province") {
+      const allowed = employee.province_id
+        ? await c.query(
+            `SELECT 1 FROM member_provinces WHERE organization_id=$1 AND member_id=$2 AND province_id=$3`,
+            [context.organizationId, context.memberId, employee.province_id],
+          )
+        : null;
+      if (!allowed || (allowed.rowCount ?? 0) === 0)
+        throw new NotFoundError("Employee not found");
+    }
+    const balances = await c.query<{
+      type_name: string;
+      entitled: string;
+      carried: string;
+      taken: string;
+    }>(
+      `SELECT t.name AS type_name,b.entitled_days::text AS entitled,b.carried_over_days::text AS carried,b.taken_days::text AS taken FROM leave_balances b JOIN leave_types t ON t.organization_id=b.organization_id AND t.id=b.leave_type_id WHERE b.organization_id=$1 AND b.employee_id=$2 AND b.leave_year=$3 ORDER BY t.name`,
+      [context.organizationId, employeeId, year],
+    );
+    /* Requests follow the listRequests visibility rule. */
+    const params: unknown[] = [context.organizationId, employeeId, year];
+    let access = "";
+    if (scope === "self") {
+      params.push(context.memberId);
+      access = ` AND e.member_id=$${params.length}`;
+    } else if (scope === "province") {
+      params.push(context.memberId);
+      access = ` AND r.province_id IN (SELECT province_id FROM member_provinces WHERE organization_id=$1 AND member_id=$${params.length})`;
+    }
+    const requests = await c.query<RequestRow>(
+      `SELECT ${requestFields} FROM leave_requests r JOIN employees e ON e.organization_id=r.organization_id AND e.id=r.employee_id JOIN leave_types t ON t.organization_id=r.organization_id AND t.id=r.leave_type_id LEFT JOIN provinces p ON p.organization_id=r.organization_id AND p.id=r.province_id LEFT JOIN sites s ON s.organization_id=r.organization_id AND s.id=r.site_id LEFT JOIN users requester ON requester.id=r.requested_by LEFT JOIN users decider ON decider.id=r.decided_by WHERE r.organization_id=$1 AND r.employee_id=$2 AND EXTRACT(YEAR FROM r.starts_on)=$3 ${access} ORDER BY r.starts_on`,
+      params,
+    );
+    const pdf = await createPdf(c, context.organizationId, {
+      title: "Solde de congés",
+      subtitle: `${employee.full_name} · Année ${year}`,
+      reference: `SOLDE-${employee.employee_number}-${year}`,
+    });
+    pdf.section("Employé").fields([
+      ["Nom complet", employee.full_name],
+      ["Matricule", employee.employee_number],
+      ["Fonction", employee.job_title],
+      ["Affectation", [employee.site_name, employee.province_name].filter(Boolean).join(" · ") || null],
+    ]);
+    let granted = 0;
+    let taken = 0;
+    const rows = balances.rows.map((b) => {
+      const entitled = Number(b.entitled);
+      const carried = Number(b.carried);
+      const used = Number(b.taken);
+      granted += entitled + carried;
+      taken += used;
+      return [b.type_name, pdfMoney(entitled), pdfMoney(carried), pdfMoney(used), pdfMoney(entitled + carried - used)];
+    });
+    const pending = requests.rows
+      .filter((r) => r.status === "pending")
+      .reduce((sum, r) => sum + Number(r.requested_days), 0);
+    pdf.stats([
+      ["Jours accordés", pdfMoney(granted)],
+      ["Jours pris", pdfMoney(taken)],
+      ["Solde restant", pdfMoney(granted - taken)],
+      ["En attente", pdfMoney(pending)],
+    ]);
+    pdf.section(`Soldes ${year} par type de congé`).table(
+      [
+        { label: "Type de congé", width: 2.2 },
+        { label: "Droit annuel", align: "right" },
+        { label: "Report", align: "right" },
+        { label: "Pris", align: "right" },
+        { label: "Restant", align: "right" },
+      ],
+      rows,
+      {
+        totals: rows.length ? ["Total", "", "", pdfMoney(taken), pdfMoney(granted - taken)] : undefined,
+        empty: "Aucun solde enregistré pour cette année.",
+      },
+    );
+    pdf.section(`Demandes de congé ${year}`).table(
+      [
+        { label: "Type", width: 1.6 },
+        { label: "Du" },
+        { label: "Au" },
+        { label: "Jours", align: "right", width: 0.7 },
+        { label: "Statut" },
+      ],
+      requests.rows.map((r) => [
+        r.leave_type_name,
+        pdfDate(r.starts_on),
+        pdfDate(r.ends_on),
+        pdfMoney(r.requested_days),
+        statusLabels[r.status] ?? r.status,
+      ]),
+      { empty: "Aucune demande de congé pour cette année." },
+    );
+    pdf.signatures(["Employé", "Ressources humaines"]);
+    return { buffer: await pdf.finish(), fileName: `solde-conges-${employee.employee_number}-${year}.pdf` };
   });
 }
