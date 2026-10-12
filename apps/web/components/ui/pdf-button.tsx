@@ -10,7 +10,18 @@ import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 
 export async function downloadPdf(path: string, fileName: string, params?: Record<string, unknown>) {
-  const response = await api.get(path, { responseType: "blob", params, timeout: 120_000 });
+  // Errors come back as JSON inside the blob: read them so the real reason is shown.
+  const response = await api.get(path, { responseType: "blob", params, timeout: 120_000, validateStatus: () => true });
+  if (response.status >= 400) {
+    let message = "";
+    try {
+      const parsed = JSON.parse(await (response.data as Blob).text()) as { error?: { message?: string }; message?: string };
+      message = parsed.error?.message ?? parsed.message ?? "";
+    } catch {
+      message = "";
+    }
+    throw new Error(message || `Le PDF n’a pas pu être créé (erreur ${response.status}).`);
+  }
   const blob = new Blob([response.data], { type: "application/pdf" });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
