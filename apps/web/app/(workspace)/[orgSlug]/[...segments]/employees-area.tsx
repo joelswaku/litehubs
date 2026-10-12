@@ -837,7 +837,11 @@ export function EmployeesArea({ orgSlug }: { orgSlug: string }) {
             pendingInvitationsByEmployeeId.get(detailsEmployee.id) ?? null
           }
           onClose={() => setDetailsEmployeeId(null)}
-          onEdit={() => setEditor({ employee: detailsEmployee })}
+          onEdit={() => {
+            // Close the full record first: the edit form opens in its place.
+            setEditor({ employee: detailsEmployee });
+            setDetailsEmployeeId(null);
+          }}
           onInvite={() => setAccessInvite(detailsEmployee)}
         />
       ) : null}

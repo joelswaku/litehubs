@@ -418,7 +418,7 @@ export async function listContracts(
         "employeeId",
       );
       params.push(query.employeeId);
-      where.push(`c.employee_id=${params.length}`);
+      where.push(`c.employee_id=$${params.length}`);
     }
     if (query.expiringOnly)
       where.push(
