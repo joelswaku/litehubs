@@ -488,4 +488,3 @@ function EmployeeLoginCard({ text }: { text: LandingCopy }) {
     </aside>
   );
 }
-
