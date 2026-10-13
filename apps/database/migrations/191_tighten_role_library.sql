@@ -1,10 +1,6 @@
 -- 191_tighten_role_library.sql
 -- Access review of the role library (presets) and of the matching roles
 -- already copied into each company:
---  * Feed mill manager: province scope instead of the whole company. Sites,
---    warehouses, stock and production orders follow the provinces assigned to
---    the person; recipes and nutrition profiles stay shared company-wide, and a
---    project can still be linked to an order inside those provinces.
 --  * Fleet controller: province scope instead of the whole company, and no
 --    access to the company document library (drivers are still visible).
 --  * Poultry / pig / agriculture supervisors: no access to the document
@@ -16,9 +12,8 @@
 
 BEGIN;
 
-UPDATE role_presets SET data_scope = 'province' WHERE code IN ('fleet_controller', 'feed_mill_manager');
-UPDATE roles SET data_scope = 'province', updated_at = now()
- WHERE code IN ('fleet_controller', 'feed_mill_manager') AND data_scope = 'organization';
+UPDATE role_presets SET data_scope = 'province' WHERE code = 'fleet_controller';
+UPDATE roles SET data_scope = 'province', updated_at = now() WHERE code = 'fleet_controller' AND data_scope = 'organization';
 
 CREATE TEMP TABLE removed_access (role_code text, permission_code text) ON COMMIT DROP;
 INSERT INTO removed_access VALUES
