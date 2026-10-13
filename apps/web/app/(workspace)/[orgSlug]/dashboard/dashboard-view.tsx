@@ -38,6 +38,7 @@ import { useLanguage } from "@/providers/language-provider";
 import { useSessionUser } from "@/stores/session-store";
 import {
   useAgricultureOverview,
+  useAppointmentSummary,
   useApprovalQueue,
   useAttendanceRecords,
   useEmployees,
@@ -64,6 +65,7 @@ export function DashboardView({ orgSlug }: { orgSlug: string }) {
   const owner = useOwnerDashboard(orgSlug);
   const tasks = useTaskQueue(orgSlug);
   const approvals = useApprovalQueue(orgSlug);
+  const appointmentQueue = useAppointmentSummary(orgSlug);
   const attendance = useAttendanceRecords(orgSlug);
   const expenses = useManagementRecords(
     orgSlug,
@@ -161,6 +163,14 @@ export function DashboardView({ orgSlug }: { orgSlug: string }) {
           services={profile.data.operationalServices}
           fr={fr}
           onEdit={() => setServiceSetupOpen(true)}
+        />
+      ) : null}
+      {can(user, "appointments.read") ? (
+        <AppointmentQueuePanel
+          orgSlug={orgSlug}
+          fr={fr}
+          summary={appointmentQueue.data}
+          loading={appointmentQueue.isLoading}
         />
       ) : null}
       {layout !== "employee" ? <InsightsBoard orgSlug={orgSlug} fr={fr} /> : null}

@@ -277,8 +277,7 @@ export function InsightsBoard({ orgSlug, fr }: { orgSlug: string; fr: boolean })
   });
   const money = useMoney(fr);
   const number = useMemo(() => new Intl.NumberFormat(fr ? "fr-FR" : "en-US"), [fr]);
-  // Appointments have their own page: keep them off the home dashboard.
-  const data = query.data ? { ...query.data, overview: query.data.overview.filter((tile) => tile.key !== "appointments") } : undefined;
+  const data = query.data;
 
   if (query.isLoading)
     return (

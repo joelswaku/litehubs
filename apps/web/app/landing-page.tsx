@@ -4,7 +4,6 @@ import { useEffect } from "react";
 import Link from "next/link";
 import {
   Bird,
-  CalendarCheck2,
   CheckCircle2,
   PiggyBank,
   KeyRound,
@@ -276,13 +275,7 @@ export function LandingPage() {
             >
               {text.contact}
             </Link>
-            <Link
-              href="/rendezvous"
-              onClick={() => trackMarketingEvent("select_content", { content_type: "cta", item_id: "public_appointment" })}
-              className="hidden h-10 items-center rounded-md border border-border-strong px-3 text-sm font-semibold text-ink-secondary transition hover:bg-surface-2 hover:text-ink md:inline-flex"
-            >
-              {text.appointment}
-            </Link>            <a
+            <a
               href="/login"
               className="inline-flex h-10 items-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-brand-ink shadow-sm transition-colors hover:bg-brand-hover sm:px-5"
             >
@@ -313,14 +306,7 @@ export function LandingPage() {
                 {text.primary}
                 <LogIn className="size-4" aria-hidden />
               </a>
-              <Link
-                href="/rendezvous"
-                onClick={() => trackMarketingEvent("select_content", { content_type: "cta", item_id: "hero_public_appointment" })}
-                className="inline-flex h-12 items-center justify-center gap-2 rounded-md border border-brand/35 bg-brand/5 px-6 text-sm font-semibold text-brand transition-colors hover:bg-brand/10"
-              >
-                {text.appointment}
-                <CalendarCheck2 className="size-4" aria-hidden />
-              </Link>              <a
+              <a
                 href="#features"
                 onClick={() => trackMarketingEvent("select_content", { content_type: "cta", item_id: "explore_features" })}
                 className="inline-flex h-12 items-center justify-center rounded-md border border-border-strong bg-surface-1 px-6 text-sm font-semibold text-ink transition-colors hover:bg-surface-2"
@@ -502,3 +488,4 @@ function EmployeeLoginCard({ text }: { text: LandingCopy }) {
     </aside>
   );
 }
+
