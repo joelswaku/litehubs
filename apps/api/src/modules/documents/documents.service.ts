@@ -10,6 +10,10 @@ import {
   NotFoundError,
 } from "../../utils/errors";
 import { withTenantContext } from "../../utils/tenant-query";
+import {
+  hasOrganizationScope,
+  permissionScope,
+} from "../../utils/permission-scope";
 import type {
   DocumentQuery,
   DocumentUpdateInput,
@@ -24,6 +28,7 @@ export interface DocumentsContext {
   isOwner: boolean;
 }
 type DocumentDataScope = "organization" | "province" | "project" | "self";
+const DOCUMENT_FAMILIES = ["documents."];
 function map(row: Row): Row {
   return Object.fromEntries(
     Object.entries(row).map(([key, value]) => [
@@ -36,11 +41,9 @@ function map(row: Row): Row {
 }
 async function scopedProvinces(client: PoolClient, context: DocumentsContext) {
   if (context.isOwner) return null;
-  const organizationScope = await client.query<{ organization: boolean }>(
-    `SELECT EXISTS(SELECT 1 FROM member_roles mr JOIN roles r ON r.organization_id=mr.organization_id AND r.id=mr.role_id WHERE mr.organization_id=$1 AND mr.member_id=$2 AND r.data_scope='organization') AS organization`,
-    [context.organizationId, context.memberId],
-  );
-  if (organizationScope.rows[0]?.organization) return null;
+  // Only roles granting document permissions decide the reach of documents.
+  if (await hasOrganizationScope(client, context, DOCUMENT_FAMILIES))
+    return null;
   const provinces = await client.query<{ province_id: string }>(
     "SELECT province_id FROM member_provinces WHERE organization_id=$1 AND member_id=$2",
     [context.organizationId, context.memberId],
@@ -78,20 +81,7 @@ async function documentDataScope(
   client: PoolClient,
   context: DocumentsContext,
 ): Promise<DocumentDataScope> {
-  if (context.isOwner) return "organization";
-  const result = await client.query<{ data_scope: DocumentDataScope }>(
-    `SELECT DISTINCT r.data_scope
-       FROM member_roles mr
-       JOIN roles r
-         ON r.organization_id = mr.organization_id AND r.id = mr.role_id
-      WHERE mr.organization_id = $1 AND mr.member_id = $2`,
-    [context.organizationId, context.memberId],
-  );
-  const scopes = new Set(result.rows.map((row) => row.data_scope));
-  if (scopes.has("organization")) return "organization";
-  if (scopes.has("province")) return "province";
-  if (scopes.has("project")) return "project";
-  return "self";
+  return permissionScope(client, context, DOCUMENT_FAMILIES);
 }
 
 async function assertProjectDocumentScope(

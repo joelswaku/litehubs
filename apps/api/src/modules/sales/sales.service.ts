@@ -1,6 +1,7 @@
 import type { PoolClient } from "pg";
 import { sendMail, sendSms } from "../../services/notification.service";
 import { withTenantContext } from "../../utils/tenant-query";
+import { hasOrganizationScope } from "../../utils/permission-scope";
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from "../../utils/errors";
 import { createNotificationInTransaction } from "../notifications/notifications.service";
 import type { CreateOrderInput, CustomerInput, CustomerUpdateInput, DeliveryInput, OfferInput, PaymentInput, SalesListQuery } from "./sales.validation";
@@ -34,30 +35,34 @@ const nullableText = (value: string | null | undefined) => {
   return normalized || null;
 };
 
-export async function maySeeProvince(client: PoolClient, context: SalesContext, provinceId: string | null): Promise<boolean> {
+/** Sales and customer pages: scope comes only from roles granting these. */
+export const SALES_SCOPE_FAMILIES = ["sales.", "customers."];
+/** Finance pages reading sales data (finance.transactions.read). */
+export const FINANCE_SCOPE_FAMILIES = ["finance."];
+
+export async function maySeeProvince(
+  client: PoolClient,
+  context: SalesContext,
+  provinceId: string | null,
+  families: string[] = SALES_SCOPE_FAMILIES,
+): Promise<boolean> {
   if (context.isOwner || !provinceId) return true;
   if (!isUuid(context.memberId)) return false;
+  // Only the roles granting the permissions of this page decide its reach; an
+  // unrelated organisation-wide role must not widen sales visibility.
+  const organizationScope = await hasOrganizationScope(client, context, families);
   if (!isUuid(provinceId)) {
     // Some legacy rows stored a province label instead of its UUID. They have no
     // reliable province scope, but organization-wide roles may still read them.
     // Province-limited members never receive those ambiguous rows.
-    const scope = await client.query<{ organization_scope: boolean }>(
-      `SELECT EXISTS(
-         SELECT 1 FROM member_roles mr
-         JOIN roles r ON r.organization_id=mr.organization_id AND r.id=mr.role_id
-         WHERE mr.organization_id=$1 AND mr.member_id=$2 AND r.data_scope='organization'
-       ) AS organization_scope`,
-      [context.organizationId, context.memberId],
-    );
-    return Boolean(scope.rows[0]?.organization_scope);
+    return organizationScope;
   }
-  const scope = await client.query<{ organization_scope: boolean; allowed: boolean }>(
-    `SELECT
-       EXISTS(SELECT 1 FROM member_roles mr JOIN roles r ON r.organization_id=mr.organization_id AND r.id=mr.role_id WHERE mr.organization_id=$1 AND mr.member_id=$2 AND r.data_scope='organization') AS organization_scope,
-       EXISTS(SELECT 1 FROM member_provinces WHERE organization_id=$1 AND member_id=$2 AND province_id=$3) AS allowed`,
+  if (organizationScope) return true;
+  const scope = await client.query<{ allowed: boolean }>(
+    `SELECT EXISTS(SELECT 1 FROM member_provinces WHERE organization_id=$1 AND member_id=$2 AND province_id=$3) AS allowed`,
     [context.organizationId, context.memberId, provinceId],
   );
-  return Boolean(scope.rows[0]?.organization_scope || scope.rows[0]?.allowed);
+  return Boolean(scope.rows[0]?.allowed);
 }
 async function assertProvinceScope(client: PoolClient, context: SalesContext, provinceId: string | null) {
   if (!(await maySeeProvince(client, context, provinceId)))

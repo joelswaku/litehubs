@@ -9,6 +9,7 @@ import {
   NotFoundError,
 } from "../../utils/errors";
 import { withTenantContext } from "../../utils/tenant-query";
+import { permissionScope } from "../../utils/permission-scope";
 import { calculateProjectBudget } from "./project-budget";
 import {
   calculateProductionProfitability,
@@ -1689,24 +1690,81 @@ function ownerManagementDatabaseError(
   throw error;
 }
 
+/**
+ * Permission base of each generic record resource. Mirrors the route-level
+ * mapping in owner-management.routes.ts (`permissionResource`): the record
+ * routes require `<base>.<action>`, so the data scope must come only from the
+ * roles that grant those codes — never from an unrelated wide role.
+ */
+const resourcePermissionBase: Record<OwnerManagementResource, string> = {
+  projects: "projects",
+  "project-members": "projects",
+  "operational-links": "projects",
+  phases: "projects",
+  "phase-dependencies": "projects",
+  risks: "projects",
+  "quality-checks": "procurement",
+  "project-closeouts": "projects",
+  tasks: "tasks",
+  "task-dependencies": "tasks",
+  "budget-lines": "projects",
+  materials: "projects",
+  "material-movements": "projects",
+  suppliers: "suppliers",
+  "inventory-items": "inventory.items",
+  warehouses: "inventory.warehouses",
+  "stock-movements": "inventory.movements",
+  "feed-batches": "inventory.nutrition",
+  "feed-batch-inputs": "inventory.nutrition",
+  "nutrition-profiles": "inventory.nutrition",
+  "feed-recipes": "inventory.nutrition",
+  "feed-recipe-lines": "inventory.nutrition",
+  "feed-orders": "inventory.nutrition",
+  "purchase-requests": "procurement",
+  "purchase-request-lines": "procurement",
+  "purchase-orders": "procurement",
+  "purchase-order-lines": "procurement",
+  receipts: "procurement",
+  "receipt-lines": "procurement",
+  assets: "equipment",
+  "asset-assignments": "equipment",
+  "asset-movements": "equipment",
+  "asset-usage": "equipment",
+  "vehicle-profiles": "vehicles",
+  "vehicle-trips": "vehicles",
+  "maintenance-plans": "maintenance",
+  "maintenance-work-orders": "work_orders",
+  "maintenance-parts": "maintenance",
+  expenses: "finance.expenses",
+  approvals: "approvals",
+  documents: "documents",
+  incidents: "incidents",
+  "security-visitors": "security",
+  "security-asset-movements": "security",
+  "security-keys": "security",
+  "security-key-handovers": "security",
+};
+
+/**
+ * Exact permission codes whose roles define the scope of a resource. Exact
+ * codes (not a prefix) so that e.g. `vehicles.fleet_control.*` does not widen
+ * ordinary vehicle records.
+ */
+function resourceScopeFamilies(resource: OwnerManagementResource): string[] {
+  const base = resourcePermissionBase[resource];
+  const codes = ["create", "read", "update", "delete"].map(
+    (action) => base + "." + action,
+  );
+  if (base === "approvals") codes.push("approvals.approve", "approvals.reject");
+  return codes;
+}
+
 async function scopeOf(
   client: PoolClient,
   context: OwnerManagementContext,
+  resource: OwnerManagementResource,
 ): Promise<Scope> {
-  if (context.isOwner) return "organization";
-  const result = await client.query<{
-    organization_scope: boolean;
-    province_scope: boolean;
-    project_scope: boolean;
-  }>(
-    "SELECT EXISTS (SELECT 1 FROM member_roles mr JOIN roles r ON r.organization_id = mr.organization_id AND r.id = mr.role_id WHERE mr.organization_id = $1 AND mr.member_id = $2 AND r.data_scope = 'organization') AS organization_scope, EXISTS (SELECT 1 FROM member_roles mr JOIN roles r ON r.organization_id = mr.organization_id AND r.id = mr.role_id WHERE mr.organization_id = $1 AND mr.member_id = $2 AND r.data_scope = 'province') AS province_scope, EXISTS (SELECT 1 FROM member_roles mr JOIN roles r ON r.organization_id = mr.organization_id AND r.id = mr.role_id WHERE mr.organization_id = $1 AND mr.member_id = $2 AND r.data_scope = 'project') AS project_scope",
-    [context.organizationId, context.memberId],
-  );
-  const row = result.rows[0];
-  if (row?.organization_scope) return "organization";
-  if (row?.province_scope) return "province";
-  if (row?.project_scope) return "project";
-  return "self";
+  return permissionScope(client, context, resourceScopeFamilies(resource));
 }
 
 async function scopeInfo(
@@ -1750,7 +1808,7 @@ async function assertVisible(
     throw new NotFoundError("Owner Management record not found");
   }
 
-  const scope = await scopeOf(client, context);
+  const scope = await scopeOf(client, context, resource);
   // Suppliers and stock items are organization-wide catalog records. They do
   // not carry a province, so a province-scoped operator with the matching
   // permission may read the company catalogue while warehouse stock remains
@@ -1835,7 +1893,7 @@ async function assertProjectWriteScope(
   if (!projectId) {
     // A general manager can manage normal Operations records anywhere in their
     // current organization, but never outside it (tenant context still applies).
-    if ((await scopeOf(client, context)) === "organization") return;
+    if ((await scopeOf(client, context, resource)) === "organization") return;
     // Supplier and inventory item catalogues are organization-wide reference
     // data. Their own resource permissions decide whether this user may edit.
     if (["suppliers", "inventory-items"].includes(resource)) return;

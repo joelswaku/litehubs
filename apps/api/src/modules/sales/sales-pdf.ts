@@ -9,7 +9,7 @@ import { BadRequestError, NotFoundError } from "../../utils/errors";
 import { createPdf, pdfDate, pdfMoney } from "../../utils/pdf-builder";
 import { withTenantContext } from "../../utils/tenant-query";
 import { listOwnerManagementRecords } from "../owner-management/owner-management.service";
-import { customerDetail, maySeeProvince, type SalesContext } from "./sales.service";
+import { customerDetail, FINANCE_SCOPE_FAMILIES, maySeeProvince, SALES_SCOPE_FAMILIES, type SalesContext } from "./sales.service";
 
 type Row = Record<string, unknown>;
 type PdfFile = { buffer: Buffer; fileName: string };
@@ -63,11 +63,11 @@ const addressOf = (customer: Row) =>
     .join(", ");
 
 /** Caches province checks so long lists only query each province once. */
-function provinceGate(client: PoolClient, context: SalesContext) {
+function provinceGate(client: PoolClient, context: SalesContext, families: string[] = SALES_SCOPE_FAMILIES) {
   const cache = new Map<string, Promise<boolean>>();
   return (provinceId: unknown) => {
     const key = str(provinceId);
-    if (!cache.has(key)) cache.set(key, maySeeProvince(client, context, key || null).catch(() => false));
+    if (!cache.has(key)) cache.set(key, maySeeProvince(client, context, key || null, families).catch(() => false));
     return cache.get(key)!;
   };
 }
@@ -362,7 +362,8 @@ export async function salesReportPdf(context: SalesContext, period: { from?: str
   const expenses = canSeeExpenses ? await periodExpenses(context, from, to) : [];
 
   return withTenantContext(context, async (client) => {
-    const visible = provinceGate(client, context);
+    // Finance report (finance.transactions.read): reach comes from finance roles.
+    const visible = provinceGate(client, context, FINANCE_SCOPE_FAMILIES);
     const [invoiceResult, paymentResult] = await Promise.all([
       client.query<Row>(
         `SELECT i.id, i.invoice_number, i.invoice_date::text AS invoice_day, i.status, i.currency, i.total, i.paid_total, i.province_id,

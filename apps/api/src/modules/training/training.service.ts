@@ -6,6 +6,7 @@ import {
   NotFoundError,
 } from "../../utils/errors";
 import { withTenantContext } from "../../utils/tenant-query";
+import { permissionScope } from "../../utils/permission-scope";
 import {
   createNotificationInTransaction,
   notifyOrganizationOwnersInTransaction,
@@ -318,23 +319,17 @@ async function deliverTrainingAvailability(
     html: `<div style="max-width:600px;margin:0 auto;padding:28px;font-family:Arial,sans-serif;color:#101828;"><p style="margin:0 0 20px;color:#0f5132;font-size:20px;font-weight:700;">LiteHubs</p><h1 style="margin:0 0 16px;font-size:24px;">Nouvelle formation disponible</h1><p>Bonjour ${safeName},</p><p>La formation <strong>« ${safeCourse} »</strong> est maintenant disponible.${escapeTrainingEmail(due)}</p><p style="margin-top:24px;"><a href="${safeUrl}" style="display:inline-block;padding:12px 18px;background:#146c43;border-radius:8px;color:#fff;font-weight:700;text-decoration:none;">Ouvrir la formation</a></p></div>`,
   });
 }
+/**
+ * Scope from the member's roles that grant training.* permissions only: an
+ * unrelated organisation-wide role must not widen access to this module.
+ * A project scope has no meaning here and stays limited to self, as before.
+ */
 async function scopeOf(
   client: PoolClient,
   context: TrainingContext,
 ): Promise<Scope> {
-  if (context.isOwner) return "organization";
-  const result = await client.query<{
-    organization: boolean;
-    province: boolean;
-  }>(
-    `SELECT EXISTS(SELECT 1 FROM member_roles mr JOIN roles ro ON ro.organization_id=mr.organization_id AND ro.id=mr.role_id WHERE mr.organization_id=$1 AND mr.member_id=$2 AND ro.data_scope='organization') AS organization, EXISTS(SELECT 1 FROM member_roles mr JOIN roles ro ON ro.organization_id=mr.organization_id AND ro.id=mr.role_id WHERE mr.organization_id=$1 AND mr.member_id=$2 AND ro.data_scope='province') AS province`,
-    [context.organizationId, context.memberId],
-  );
-  return result.rows[0]?.organization
-    ? "organization"
-    : result.rows[0]?.province
-      ? "province"
-      : "self";
+  const scope = await permissionScope(client, context, ["training."]);
+  return scope === "organization" || scope === "province" ? scope : "self";
 }
 
 async function assertTrainingManager(

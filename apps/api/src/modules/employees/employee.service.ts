@@ -6,6 +6,7 @@ import {
   NotFoundError,
 } from "../../utils/errors";
 import { withTenantContext } from "../../utils/tenant-query";
+import { hasOrganizationScope } from "../../utils/permission-scope";
 import type {
   CreateEmployeeInput,
   EmployeeDossierDocumentInput,
@@ -333,12 +334,8 @@ async function organizationScope(
   client: PoolClient,
   context: EmployeeContext,
 ): Promise<boolean> {
-  if (context.isOwner) return true;
-  const result = await client.query<{ has_scope: boolean }>(
-    "SELECT EXISTS (SELECT 1 FROM member_roles mr JOIN roles r ON r.organization_id = mr.organization_id AND r.id = mr.role_id WHERE mr.organization_id = $1 AND mr.member_id = $2 AND r.data_scope = 'organization') AS has_scope",
-    [context.organizationId, context.memberId],
-  );
-  return result.rows[0]?.has_scope ?? false;
+  // Only the roles granting employee permissions decide the employee scope.
+  return hasOrganizationScope(client, context, ["employees."]);
 }
 
 async function requireOrganizationScope(

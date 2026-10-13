@@ -6,9 +6,12 @@
  * Security model (mirrors the module read routes it summarises):
  *   - every block is gated by the same permission code as the module's own
  *     read route; the owner sees everything;
- *   - non-owners are limited to their data scope: organization-wide roles see
- *     everything, province roles only rows in their member_provinces, and any
- *     narrower scope (project/self/site) gets the block omitted;
+ *   - non-owners are limited to their data scope FOR THAT BLOCK'S PERMISSIONS
+ *     (only the roles granting that module's permissions count — an unrelated
+ *     organisation-wide role never widens another block): organization-wide
+ *     roles see everything, province roles only rows in their
+ *     member_provinces, and any narrower scope (project/self) gets the block
+ *     omitted;
  *   - project-linked owner-management rows (expenses, tasks, approvals,
  *     purchase requests, assets) stay visible only to the project's assigned
  *     manager, exactly like owner-management's assertVisible.
@@ -19,6 +22,7 @@
 import type { PoolClient } from "pg";
 import { logger } from "../../config/logger";
 import { shiftDays, today as todayIn } from "../../utils/dates";
+import { permissionScope } from "../../utils/permission-scope";
 import { withTenantContext } from "../../utils/tenant-query";
 
 type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -104,8 +108,24 @@ class Env {
     readonly client: PoolClient,
     readonly context: InsightsContext,
     readonly today: string,
-    readonly scope: Scope,
   ) {}
+
+  private readonly scopes = new Map<string, Promise<Scope>>();
+
+  /** Scope from the member's roles that grant `families` only (cached per request). */
+  scopeFor(families: string[]): Promise<Scope> {
+    const key = families.join("|");
+    let found = this.scopes.get(key);
+    if (!found) {
+      found = permissionScope(this.client, this.context, families).then((scope) =>
+        scope === "organization" || scope === "province" ? scope : "limited",
+      );
+      // A failed lookup (e.g. inside a rolled-back savepoint) must not poison other blocks.
+      found.catch(() => this.scopes.delete(key));
+      this.scopes.set(key, found);
+    }
+    return found;
+  }
 
   can(...codes: string[]) {
     return this.context.isOwner || codes.every((code) => this.context.permissions.includes(code));
@@ -132,24 +152,26 @@ class Env {
   }
 
   /** Farm / HR / appointment modules: province roles see their provinces only. */
-  area(provinceColumn: string): string | null {
-    if (this.scope === "organization") return "TRUE";
-    if (this.scope === "province") return `(${provinceColumn} IS NOT NULL AND ${this.inMemberProvinces(provinceColumn)})`;
+  async area(families: string[], provinceColumn: string): Promise<string | null> {
+    const scope = await this.scopeFor(families);
+    if (scope === "organization") return "TRUE";
+    if (scope === "province") return `(${provinceColumn} IS NOT NULL AND ${this.inMemberProvinces(provinceColumn)})`;
     return null;
   }
 
   /** Sales rule (sales.service maySeeProvince): no province → visible, else must be in the member's provinces. */
-  salesArea(provinceColumn: string): string {
-    if (this.scope === "organization") return "TRUE";
+  async salesArea(families: string[], provinceColumn: string): Promise<string> {
+    if ((await this.scopeFor(families)) === "organization") return "TRUE";
     return `(${provinceColumn} IS NULL OR ${this.inMemberProvinces(provinceColumn)})`;
   }
 
   /** Owner-management rule (owner-management.service assertVisible). */
-  managed(projectColumn: string, provinceColumn: string): string | null {
+  async managed(families: string[], projectColumn: string, provinceColumn: string): Promise<string | null> {
     if (this.context.isOwner) return "TRUE";
+    const scope = await this.scopeFor(families);
     const manager = `EXISTS (SELECT 1 FROM management_project_members pm WHERE pm.organization_id = $1 AND pm.project_id = ${projectColumn} AND pm.member_id = $2::uuid AND pm.is_manager AND pm.assignment_start_date <= $3::date AND (pm.assignment_end_date IS NULL OR pm.assignment_end_date >= $3::date))`;
-    if (this.scope === "organization") return `(${projectColumn} IS NULL OR ${manager})`;
-    if (this.scope === "province")
+    if (scope === "organization") return `(${projectColumn} IS NULL OR ${manager})`;
+    if (scope === "province")
       return `((${projectColumn} IS NULL AND ${provinceColumn} IS NOT NULL AND ${this.inMemberProvinces(provinceColumn)}) OR (${projectColumn} IS NOT NULL AND ${manager}))`;
     return null;
   }
@@ -204,7 +226,7 @@ function sumDays(env: Env, byDay: Map<string, number>, from: number, to: number)
 /* ------------------------------------------------------------------ */
 
 async function poultry(env: Env, out: Collector) {
-  const area = env.area("s.province_id");
+  const area = await env.area(["poultry."], "s.province_id");
   if (!area || !env.can("poultry.flocks.read", "poultry.mortality.read")) return null;
   const flocks = await env.query(
     `SELECT f.id, f.code, f.name, f.status, f.initial_bird_count, f.mortality_review_threshold,
@@ -283,7 +305,7 @@ async function poultry(env: Env, out: Collector) {
 }
 
 async function pigs(env: Env, out: Collector) {
-  const area = env.area("s.province_id");
+  const area = await env.area(["pigs."], "s.province_id");
   if (!area || !env.can("pigs.pens.read", "pigs.animals.read", "pigs.farrowing.read")) return null;
   // Same pen figures and status rule as displays.service pigBoard.
   const pens = await env.query(
@@ -347,7 +369,7 @@ async function pigs(env: Env, out: Collector) {
 }
 
 async function crops(env: Env) {
-  const area = env.area("s.province_id");
+  const area = await env.area(["agriculture.", "agronomy."], "s.province_id");
   if (!area || !env.can("agriculture.plantings.read", "agriculture.harvest.read")) return null;
   const from = `agriculture_plantings pl
        JOIN agriculture_plots pt ON pt.organization_id = pl.organization_id AND pt.id = pl.plot_id
@@ -375,7 +397,7 @@ async function crops(env: Env) {
 
 async function vaccinations(env: Env, out: Collector) {
   const rows: Row[] = [];
-  const poultryArea = env.area("s.province_id");
+  const poultryArea = await env.area(["poultry."], "s.province_id");
   if (poultryArea && env.can("poultry.vaccinations.read")) {
     // The latest record of a vaccine for a flock carries the next due date.
     const result = await env.query(
@@ -395,7 +417,7 @@ async function vaccinations(env: Env, out: Collector) {
     );
     rows.push(...result.rows);
   }
-  const pigArea = env.area("s.province_id");
+  const pigArea = await env.area(["pigs."], "s.province_id");
   if (pigArea && env.can("pigs.vaccinations.read")) {
     const result = await env.query(
       `SELECT r.id, 'pig' AS species, r.vaccine_name, to_char(r.next_due_date, 'YYYY-MM-DD') AS due,
@@ -444,7 +466,7 @@ async function stock(env: Env, out: Collector, currency: string | null) {
   // Reorder levels are company-wide thresholds on the item catalogue, so
   // comparing one province's stock to them would raise false shortages:
   // the block is for organization-wide roles only.
-  if (env.scope !== "organization" || !env.can("inventory.items.read", "inventory.stock.read")) return null;
+  if ((await env.scopeFor(["inventory."])) !== "organization" || !env.can("inventory.items.read", "inventory.stock.read")) return null;
   const area = "TRUE";
   const items = await env.query(
     `SELECT i.id, i.name, i.unit, i.reorder_level, i.standard_unit_cost,
@@ -499,7 +521,7 @@ async function stock(env: Env, out: Collector, currency: string | null) {
 /* ------------------------------------------------------------------ */
 
 async function expenses(env: Env, days: number, fallbackCurrency: string) {
-  const visible = env.managed("e.project_id", "e.province_id");
+  const visible = await env.managed(["finance."], "e.project_id", "e.province_id");
   if (!visible || !env.can("finance.expenses.read")) return { spend: null, trend: null };
   const window = Math.max(days, 30);
   // Paid spend as owner-management counts it: approved/paid, reimbursements subtract.
@@ -553,7 +575,7 @@ async function sales(env: Env, fallbackCurrency: string) {
     `SELECT to_char(o.order_date, 'YYYY-MM-DD') AS day, trim(o.currency) AS currency, sum(o.total) AS amount
        FROM sales_orders o
       WHERE o.organization_id = $1 AND o.status IN ('confirmed','partially_delivered','delivered','invoiced')
-        AND o.order_date BETWEEN $3::date - 29 AND $3::date AND ${env.salesArea("o.province_id")}
+        AND o.order_date BETWEEN $3::date - 29 AND $3::date AND ${await env.salesArea(["sales."], "o.province_id")}
       GROUP BY 1, 2`,
   );
   const totals = new Map<string, number>();
@@ -572,7 +594,7 @@ async function finance(env: Env, fallbackCurrency: string) {
             COALESCE(sum(i.total - i.paid_total) FILTER (WHERE i.due_date < $3::date), 0) AS overdue_amount
        FROM sales_invoices i
       WHERE i.organization_id = $1 AND i.status IN ('issued','partially_paid','overdue') AND i.total > i.paid_total
-        AND ${env.salesArea("i.province_id")}
+        AND ${await env.salesArea(["finance."], "i.province_id")}
       GROUP BY 1`,
   );
   const totals = new Map<string, number>(result.rows.map((row) => [String(row.currency), n(row.outstanding)]));
@@ -596,7 +618,7 @@ async function overdueInvoices(env: Env, out: Collector) {
        LEFT JOIN customers c ON c.organization_id = i.organization_id AND c.id = i.customer_id
        LEFT JOIN provinces p ON p.organization_id = i.organization_id AND p.id = i.province_id
       WHERE i.organization_id = $1 AND i.status IN ('issued','partially_paid','overdue') AND i.total > i.paid_total
-        AND i.due_date < $3::date AND ${env.salesArea("i.province_id")}
+        AND i.due_date < $3::date AND ${await env.salesArea(["sales."], "i.province_id")}
       ORDER BY i.due_date LIMIT ${CRITICAL_LIMIT}`,
   );
   const count = n(result.rows[0]?.total_count);
@@ -624,7 +646,7 @@ async function overdueInvoices(env: Env, out: Collector) {
 /* ------------------------------------------------------------------ */
 
 async function maintenance(env: Env, out: Collector) {
-  const planVisible = env.managed("a.project_id", "a.province_id");
+  const planVisible = await env.managed(["maintenance."], "a.project_id", "a.province_id");
   if (planVisible && env.can("maintenance.read")) {
     const plans = await env.query(
       `SELECT mp.id, mp.name AS plan_name, a.name AS asset_name, a.asset_number, s.name AS site_name,
@@ -666,7 +688,7 @@ async function maintenance(env: Env, out: Collector) {
       out.alerts.push({ key: "maintenance-due", tone: "warning", count: soon, label: `${plural(soon, "entretien à prévoir", "entretiens à prévoir")}`, href: "/maintenance" });
   }
 
-  const orderVisible = env.managed("COALESCE(w.project_id, a.project_id)", "COALESCE(p.province_id, a.province_id)");
+  const orderVisible = await env.managed(["work_orders."], "COALESCE(w.project_id, a.project_id)", "COALESCE(p.province_id, a.province_id)");
   if (orderVisible && env.can("work_orders.read")) {
     const orders = await env.query(
       `SELECT count(*) AS count
@@ -680,7 +702,7 @@ async function maintenance(env: Env, out: Collector) {
       out.alerts.push({ key: "work-orders-overdue", tone: "warning", count, label: `${plural(count, "bon de travail en retard", "bons de travail en retard")}`, href: "/maintenance" });
   }
 
-  const vehicleVisible = env.managed("a.project_id", "a.province_id");
+  const vehicleVisible = await env.managed(["vehicles."], "a.project_id", "a.province_id");
   if (vehicleVisible && env.can("vehicles.read")) {
     const vehicles = await env.query(
       `SELECT v.id, COALESCE(v.plate_number, v.registration_number, v.vehicle_number, a.asset_number) AS plate, a.name AS asset_name, s.name AS site_name,
@@ -744,7 +766,7 @@ const REQUEST_LABEL: Record<string, string> = {
 };
 
 async function tasks(env: Env, out: Collector) {
-  const visible = env.managed("t.project_id", "COALESCE(p.province_id, t.province_id)");
+  const visible = await env.managed(["tasks."], "t.project_id", "COALESCE(p.province_id, t.province_id)");
   if (!visible || !env.can("tasks.read")) return true;
   const result = await env.query(
     `SELECT t.id, t.title, t.priority, to_char(t.due_date, 'YYYY-MM-DD') AS due, p.name AS project_name, s.name AS site_name,
@@ -777,7 +799,7 @@ async function tasks(env: Env, out: Collector) {
 }
 
 async function approvals(env: Env, out: Collector) {
-  const visible = env.managed("r.project_id", "p.province_id");
+  const visible = await env.managed(["approvals."], "r.project_id", "p.province_id");
   if (!visible || !env.can("approvals.read")) return true;
   const result = await env.query(
     `SELECT r.id, r.approval_number, r.request_type, r.requested_amount, trim(r.currency_code) AS currency,
@@ -820,7 +842,7 @@ async function socialDrafts(env: Env, out: Collector) {
 }
 
 async function leaveAlert(env: Env, out: Collector) {
-  const area = env.area("r.province_id");
+  const area = await env.area(["leave."], "r.province_id");
   if (!area || !env.can("leave.read")) return true;
   const result = await env.query(`SELECT count(*) AS count FROM leave_requests r WHERE r.organization_id = $1 AND r.status = 'pending' AND ${area}`);
   const count = n(result.rows[0]?.count);
@@ -833,7 +855,7 @@ async function leaveAlert(env: Env, out: Collector) {
 /* ------------------------------------------------------------------ */
 
 async function tiles(env: Env, out: Collector) {
-  const sitesArea = env.area("s.province_id");
+  const sitesArea = await env.area(["sites."], "s.province_id");
   if (sitesArea && env.can("sites.read")) {
     const result = await env.query(
       `SELECT count(*) AS sites, count(DISTINCT s.province_id) AS provinces FROM sites s WHERE s.organization_id = $1 AND s.is_active AND ${sitesArea}`,
@@ -842,7 +864,7 @@ async function tiles(env: Env, out: Collector) {
     out.tiles.push({ key: "sites", label: "Sites", value: n(result.rows[0]?.sites), sub: provinces ? plural(provinces, "province", "provinces") : null, href: "/settings/sites", order: 0 });
   }
 
-  const assetsVisible = env.managed("a.project_id", "a.province_id");
+  const assetsVisible = await env.managed(["equipment."], "a.project_id", "a.province_id");
   if (assetsVisible && env.can("equipment.read")) {
     const result = await env.query(
       `SELECT count(*) AS total,
@@ -856,7 +878,7 @@ async function tiles(env: Env, out: Collector) {
     out.tiles.push({ key: "equipment", label: "Véhicules / engins", value: n(row?.total), sub: parts.length ? parts.join(" · ") : null, href: "/equipment", order: 1 });
   }
 
-  const projectsVisible = env.managed("p.id", "p.province_id");
+  const projectsVisible = await env.managed(["projects."], "p.id", "p.province_id");
   if (projectsVisible && env.can("projects.read")) {
     const result = await env.query(
       `SELECT count(*) AS active,
@@ -870,7 +892,7 @@ async function tiles(env: Env, out: Collector) {
 
   // Purchase requests resolve their scope through an inner project join in
   // owner-management, so a non-owner never sees one that has no project.
-  const managedPurchases = env.managed("r.project_id", "p.province_id");
+  const managedPurchases = await env.managed(["procurement."], "r.project_id", "p.province_id");
   const purchasesVisible = managedPurchases && (env.context.isOwner ? managedPurchases : `(r.project_id IS NOT NULL AND ${managedPurchases})`);
   if (purchasesVisible && env.can("procurement.read")) {
     const result = await env.query(
@@ -890,7 +912,7 @@ async function tiles(env: Env, out: Collector) {
     });
   }
 
-  const appointmentsArea = env.area("a.province_id");
+  const appointmentsArea = await env.area(["appointments."], "a.province_id");
   if (appointmentsArea && env.can("appointments.read")) {
     const result = await env.query(
       `SELECT count(*) AS total, count(*) FILTER (WHERE a.status IN ('checked_in','waiting','called')) AS waiting
@@ -903,7 +925,7 @@ async function tiles(env: Env, out: Collector) {
     out.tiles.push({ key: "appointments", label: "Rendez-vous aujourd'hui", value: n(result.rows[0]?.total), sub: waiting ? `${waiting} en attente` : null, href: "/appointments", order: 4 });
   }
 
-  const attendanceArea = env.area("r.province_id");
+  const attendanceArea = await env.area(["attendance."], "r.province_id");
   if (attendanceArea && env.can("attendance.read")) {
     const result = await env.query(
       `SELECT count(DISTINCT r.employee_id) FILTER (WHERE r.status IN ('present','late')) AS present,
@@ -918,15 +940,16 @@ async function tiles(env: Env, out: Collector) {
 }
 
 async function people(env: Env) {
-  const employeesArea = env.area("e.province_id");
-  const attendanceArea = env.area("r.province_id");
-  if (!employeesArea || !attendanceArea || !env.can("employees.read", "attendance.read", "leave.read")) return null;
+  const employeesArea = await env.area(["employees."], "e.province_id");
+  const attendanceArea = await env.area(["attendance."], "r.province_id");
+  const leaveArea = await env.area(["leave."], "r.province_id");
+  if (!employeesArea || !attendanceArea || !leaveArea || !env.can("employees.read", "attendance.read", "leave.read")) return null;
   const result = await env.query(
     `SELECT
        (SELECT count(*) FROM employees e WHERE e.organization_id = $1 AND e.employment_status IN ('active','probation','on_leave') AND ${employeesArea}) AS active,
        (SELECT count(DISTINCT r.employee_id) FROM attendance_records r WHERE r.organization_id = $1 AND r.work_date = $3::date AND r.status IN ('present','late') AND ${attendanceArea}) AS present,
-       (SELECT count(DISTINCT r.employee_id) FROM leave_requests r WHERE r.organization_id = $1 AND r.status IN ('approved','taken') AND r.starts_on <= $3::date AND r.ends_on >= $3::date AND ${attendanceArea}) AS on_leave,
-       (SELECT count(*) FROM leave_requests r WHERE r.organization_id = $1 AND r.status = 'pending' AND ${attendanceArea}) AS pending`,
+       (SELECT count(DISTINCT r.employee_id) FROM leave_requests r WHERE r.organization_id = $1 AND r.status IN ('approved','taken') AND r.starts_on <= $3::date AND r.ends_on >= $3::date AND ${leaveArea}) AS on_leave,
+       (SELECT count(*) FROM leave_requests r WHERE r.organization_id = $1 AND r.status = 'pending' AND ${leaveArea}) AS pending`,
   );
   const row = result.rows[0];
   return { active: n(row?.active), presentToday: n(row?.present), onLeaveToday: n(row?.on_leave), pendingLeave: n(row?.pending) };
@@ -936,27 +959,13 @@ async function people(env: Env) {
 /* Entry point                                                         */
 /* ------------------------------------------------------------------ */
 
-async function resolveScope(client: PoolClient, context: InsightsContext): Promise<Scope> {
-  if (context.isOwner) return "organization";
-  const result = await client.query<{ data_scope: string }>(
-    `SELECT DISTINCT r.data_scope FROM member_roles mr
-       JOIN roles r ON r.organization_id = mr.organization_id AND r.id = mr.role_id
-      WHERE mr.organization_id = $1 AND mr.member_id = $2`,
-    [context.organizationId, context.memberId],
-  );
-  const scopes = new Set(result.rows.map((row) => row.data_scope));
-  if (scopes.has("organization")) return "organization";
-  if (scopes.has("province")) return "province";
-  return "limited";
-}
-
 export async function getInsights(context: InsightsContext, days: 7 | 30 | 90 = 30): Promise<Insights> {
   const today = todayIn(BUSINESS_TIMEZONE);
   return withTenantContext(context, async (client) => {
     const organization = await client.query<{ currency: string | null }>(`SELECT trim(currency) AS currency FROM organizations WHERE id = $1`, [context.organizationId]);
     const orgCurrency = organization.rows[0]?.currency || null;
     const fallbackCurrency = orgCurrency ?? "USD";
-    const env = new Env(client, context, today, await resolveScope(client, context));
+    const env = new Env(client, context, today);
     const sink: Collector = { alerts: [], critical: [], tiles: [] };
 
     const poultryPart = await section(env, sink, "poultry", (out) => poultry(env, out));

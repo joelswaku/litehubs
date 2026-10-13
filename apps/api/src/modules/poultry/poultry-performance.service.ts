@@ -6,6 +6,7 @@ import {
   ConflictError,
   NotFoundError,
 } from "../../utils/errors";
+import { permissionScope } from "../../utils/permission-scope";
 import { withTenantContext } from "../../utils/tenant-query";
 import type { PoultryContext } from "./poultry.service";
 import type {
@@ -33,22 +34,13 @@ const number = (value: unknown) => (value == null ? null : Number(value));
 const date = (value: unknown) =>
   value instanceof Date ? value.toISOString().slice(0, 10) : (value ?? null);
 
+/** Scope from the member's roles that grant poultry permissions only. */
 async function scopeOf(
   client: PoolClient,
   context: PoultryContext,
 ): Promise<Scope> {
-  if (context.isOwner) return "organization";
-  const result = await client.query<{
-    organization_scope: boolean;
-    province_scope: boolean;
-  }>(
-    `SELECT
-       EXISTS (SELECT 1 FROM member_roles mr JOIN roles r ON r.organization_id = mr.organization_id AND r.id = mr.role_id WHERE mr.organization_id = $1 AND mr.member_id = $2 AND r.data_scope = 'organization') AS organization_scope,
-       EXISTS (SELECT 1 FROM member_roles mr JOIN roles r ON r.organization_id = mr.organization_id AND r.id = mr.role_id WHERE mr.organization_id = $1 AND mr.member_id = $2 AND r.data_scope = 'province') AS province_scope`,
-    [context.organizationId, context.memberId],
-  );
-  if (result.rows[0]?.organization_scope) return "organization";
-  return result.rows[0]?.province_scope ? "province" : "self";
+  const scope = await permissionScope(client, context, ["poultry."]);
+  return scope === "organization" || scope === "province" ? scope : "self";
 }
 
 async function assertProvince(
@@ -258,6 +250,13 @@ async function checkWorkAssignee(
               JOIN roles r ON r.organization_id = mr.organization_id AND r.id = mr.role_id
              WHERE mr.organization_id = target.organization_id AND mr.member_id = target.id
                AND r.data_scope = 'organization'
+               AND EXISTS (
+                 SELECT 1
+                   FROM role_permissions rp
+                   JOIN permissions p ON p.id = rp.permission_id
+                  WHERE rp.organization_id = r.organization_id AND rp.role_id = r.id
+                    AND p.code LIKE 'poultry.%'
+               )
           )
           OR EXISTS (
             SELECT 1 FROM member_provinces mp

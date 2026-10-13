@@ -10,6 +10,7 @@ import {
   NotFoundError,
 } from "../../utils/errors";
 import { withTenantContext } from "../../utils/tenant-query";
+import { permissionScope } from "../../utils/permission-scope";
 import { createNotificationInTransaction } from "../notifications/notifications.service";
 import type {
   ContractQuery,
@@ -158,29 +159,17 @@ function mapForContext(row: ContractRow, context: ContractsContext) {
     ? contract
     : { ...contract, currency: null, contractValue: null, paymentTerms: null };
 }
+/**
+ * Scope from the member's roles that grant contracts.* permissions only: an
+ * unrelated organisation-wide role must not widen access to this module.
+ * A project scope has no meaning here and stays limited to self, as before.
+ */
 async function scopeOf(
   client: PoolClient,
   context: ContractsContext,
 ): Promise<Scope> {
-  if (context.isOwner) return "organization";
-  const result = await client.query<{ organization: boolean; province: boolean }>(
-    `SELECT EXISTS(
-       SELECT 1 FROM member_roles mr
-       JOIN roles ro ON ro.organization_id=mr.organization_id AND ro.id=mr.role_id
-       WHERE mr.organization_id=$1 AND mr.member_id=$2 AND ro.data_scope='organization'
-     ) AS organization,
-     EXISTS(
-       SELECT 1 FROM member_roles mr
-       JOIN roles ro ON ro.organization_id=mr.organization_id AND ro.id=mr.role_id
-       WHERE mr.organization_id=$1 AND mr.member_id=$2 AND ro.data_scope='province'
-     ) AS province`,
-    [context.organizationId, context.memberId],
-  );
-  return result.rows[0]?.organization
-    ? "organization"
-    : result.rows[0]?.province
-      ? "province"
-      : "self";
+  const scope = await permissionScope(client, context, ["contracts."]);
+  return scope === "organization" || scope === "province" ? scope : "self";
 }
 
 async function mayCountersignForEmployer(client: PoolClient, context: ContractsContext) {

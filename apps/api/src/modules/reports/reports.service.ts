@@ -3,6 +3,7 @@ import ExcelJS from "exceljs";
 import PDFDocument from "pdfkit";
 import type { PoolClient } from "pg";
 import { BadRequestError, NotFoundError } from "../../utils/errors";
+import { permissionScope } from "../../utils/permission-scope";
 import { withTenantContext } from "../../utils/tenant-query";
 import type { ReportQuery } from "./reports.validation";
 
@@ -25,21 +26,24 @@ const has = (context: ReportsContext, permission: string) => context.isOwner || 
 const today = () => new Date().toISOString().slice(0, 10);
 const defaultStart = () => { const day = new Date(); day.setUTCDate(day.getUTCDate() - 29); return day.toISOString().slice(0, 10); };
 
-async function scopeOf(client: PoolClient, context: ReportsContext): Promise<Scope> {
-  if (context.isOwner) return "organization";
-  const result = await client.query<{ organization_scope: boolean; province_scope: boolean }>(
-    `SELECT
-      EXISTS (SELECT 1 FROM member_roles mr JOIN roles r ON r.organization_id=mr.organization_id AND r.id=mr.role_id WHERE mr.organization_id=$1 AND mr.member_id=$2 AND r.data_scope='organization') AS organization_scope,
-      EXISTS (SELECT 1 FROM member_roles mr JOIN roles r ON r.organization_id=mr.organization_id AND r.id=mr.role_id WHERE mr.organization_id=$1 AND mr.member_id=$2 AND r.data_scope='province') AS province_scope`,
-    [context.organizationId, context.memberId],
-  );
-  return result.rows[0]?.organization_scope ? "organization" : result.rows[0]?.province_scope ? "province" : "self";
+const RANK: Record<Scope, number> = { organization: 2, province: 1, self: 0 };
+
+/** Scope from the member's roles that grant `families` only ("project" counts as self here). */
+async function scopeOf(client: PoolClient, context: ReportsContext, families: string[]): Promise<Scope> {
+  const scope = await permissionScope(client, context, families);
+  return scope === "organization" || scope === "province" ? scope : "self";
 }
 
+const REPORTS = ["reports."];
+
+/**
+ * Resolves the period and the requested place, validated against the member's
+ * reports scope. Province filtering per section is done by `sectionFilter`.
+ */
 async function resolveScope(client: PoolClient, context: ReportsContext, query: ReportQuery): Promise<ScopeFilter> {
   const from = query.from ?? defaultStart();
   const to = query.to ?? today();
-  const scope = await scopeOf(client, context);
+  const scope = await scopeOf(client, context, REPORTS);
   let provinceIds: string[] | null = null;
   if (scope !== "organization") {
     const result = await client.query<{ province_id: string }>(
@@ -65,6 +69,25 @@ async function resolveScope(client: PoolClient, context: ReportsContext, query: 
     throw new NotFoundError("Province not found");
   if (requestedProvince) provinceIds = [requestedProvince];
   return { from, to, provinceIds, siteId, provinceId: requestedProvince };
+}
+
+/**
+ * Filter for one report section: the narrower of the member's reports scope and
+ * the scope of the roles granting that section's own permissions, so an
+ * unrelated organisation-wide role never widens a section.
+ */
+async function sectionFilter(client: PoolClient, context: ReportsContext, base: ScopeFilter, families: string[]): Promise<ScopeFilter> {
+  const reportsScope = await scopeOf(client, context, REPORTS);
+  const familyScope = await scopeOf(client, context, families);
+  const scope = RANK[familyScope] < RANK[reportsScope] ? familyScope : reportsScope;
+  if (scope === "self") return { ...base, provinceIds: [] };
+  if (scope === "organization") return { ...base, provinceIds: base.provinceId ? [base.provinceId] : null };
+  const result = await client.query<{ province_id: string }>(
+    "SELECT province_id FROM member_provinces WHERE organization_id=$1 AND member_id=$2",
+    [context.organizationId, context.memberId],
+  );
+  const provinces = result.rows.map((row) => row.province_id);
+  return { ...base, provinceIds: base.provinceId ? provinces.filter((id) => id === base.provinceId) : provinces };
 }
 
 function place(values: unknown[], filter: ScopeFilter, provinceColumn: string, siteColumn?: string) {
@@ -111,15 +134,15 @@ export async function overview(context: ReportsContext, query: ReportQuery) {
     const organization = await metric(client, "SELECT display_name, currency FROM organizations WHERE id=$1", [context.organizationId]);
     const scopes = { from: filter.from, to: filter.to, provinceId: filter.provinceId, siteId: filter.siteId };
 
-    const poultry = allowed.poultry ? await poultryMetrics(client, context, filter) : null;
-    const pigs = allowed.pigs ? await pigMetrics(client, context, filter) : null;
-    const agriculture = allowed.agriculture ? await agricultureMetrics(client, context, filter) : null;
+    const poultry = allowed.poultry ? await poultryMetrics(client, context, await sectionFilter(client, context, filter, ["poultry."])) : null;
+    const pigs = allowed.pigs ? await pigMetrics(client, context, await sectionFilter(client, context, filter, ["pigs."])) : null;
+    const agriculture = allowed.agriculture ? await agricultureMetrics(client, context, await sectionFilter(client, context, filter, ["agriculture.", "agronomy."])) : null;
     const work = allowed.work ? await workMetrics(client, context, filter) : null;
     const governance = await governanceMetrics(client, context, filter, allowed);
-    const inventory = allowed.inventory ? await inventoryMetrics(client, context, filter) : null;
-    const procurement = allowed.procurement ? await procurementMetrics(client, context, filter) : null;
-    const finance = allowed.finance ? await financeMetrics(client, context, filter) : null;
-    const people = allowed.people ? await peopleMetrics(client, context, filter) : null;
+    const inventory = allowed.inventory ? await inventoryMetrics(client, context, await sectionFilter(client, context, filter, ["inventory."])) : null;
+    const procurement = allowed.procurement ? await procurementMetrics(client, context, await sectionFilter(client, context, filter, ["procurement."])) : null;
+    const finance = allowed.finance ? await financeMetrics(client, context, await sectionFilter(client, context, filter, ["finance."])) : null;
+    const people = allowed.people ? await peopleMetrics(client, context, await sectionFilter(client, context, filter, ["employees."])) : null;
 
     return {
       organization: { name: text(organization.display_name), currency: text(organization.currency) },
@@ -198,20 +221,24 @@ async function agricultureMetrics(client: PoolClient, context: ReportsContext, f
   return { farms: value(current, "farms"), fields: value(current, "fields"), activePlantings: value(current, "active_plantings"), operations: value(operations, "operations"), labourHours: value(operations, "labour_hours"), harvests: value(harvest, "harvests"), harvestKg: value(harvest, "harvest_kg") };
 }
 
-async function workMetrics(client: PoolClient, context: ReportsContext, filter: ScopeFilter) {
+async function workMetrics(client: PoolClient, context: ReportsContext, base: ScopeFilter) {
+  const filter = await sectionFilter(client, context, base, ["tasks."]);
+  const reportFilter = await sectionFilter(client, context, base, ["daily_operations."]);
   const values: unknown[] = [context.organizationId]; const clause = place(values, filter, "COALESCE(t.province_id,p.province_id)", "COALESCE(t.site_id,p.site_id)");
   const tasks = await metric(client, `SELECT COUNT(*) FILTER (WHERE t.status NOT IN ('completed','cancelled'))::text AS open_tasks, COUNT(*) FILTER (WHERE t.status='completed')::text AS completed_tasks, COUNT(*) FILTER (WHERE t.status NOT IN ('completed','cancelled') AND t.due_date < CURRENT_DATE)::text AS overdue_tasks
     FROM management_project_tasks t LEFT JOIN management_projects p ON p.organization_id=t.organization_id AND p.id=t.project_id WHERE t.organization_id=$1 ${clause}`, values);
-  const reportValues: unknown[] = [context.organizationId]; const reportClause = place(reportValues, filter, "r.province_id", "r.site_id"); const reportDates = period(reportValues, filter, "r.work_date");
+  const reportValues: unknown[] = [context.organizationId]; const reportClause = place(reportValues, reportFilter, "r.province_id", "r.site_id"); const reportDates = period(reportValues, reportFilter, "r.work_date");
   const reports = await metric(client, `SELECT COUNT(*)::text AS reports, COUNT(*) FILTER (WHERE r.status='submitted')::text AS awaiting_review FROM daily_reports r WHERE r.organization_id=$1 ${reportClause} ${reportDates}`, reportValues);
   return { openTasks: value(tasks, "open_tasks"), completedTasks: value(tasks, "completed_tasks"), overdueTasks: value(tasks, "overdue_tasks"), dailyReports: value(reports, "reports"), awaitingReview: value(reports, "awaiting_review") };
 }
 
-async function governanceMetrics(client: PoolClient, context: ReportsContext, filter: ScopeFilter, allowed: ReturnType<typeof access>) {
+async function governanceMetrics(client: PoolClient, context: ReportsContext, base: ScopeFilter, allowed: ReturnType<typeof access>) {
   let activeProjects = 0;
-  if (allowed.projects) { const values: unknown[] = [context.organizationId]; const clause = place(values, filter, "p.province_id", "p.site_id"); const result = await metric(client, `SELECT COUNT(*) FILTER (WHERE p.status IN ('planning','approved','in_progress','on_hold'))::text AS active_projects FROM management_projects p WHERE p.organization_id=$1 ${clause}`, values); activeProjects = value(result, "active_projects"); }
+  if (allowed.projects) { const filter = await sectionFilter(client, context, base, ["projects."]); const values: unknown[] = [context.organizationId]; const clause = place(values, filter, "p.province_id", "p.site_id"); const result = await metric(client, `SELECT COUNT(*) FILTER (WHERE p.status IN ('planning','approved','in_progress','on_hold'))::text AS active_projects FROM management_projects p WHERE p.organization_id=$1 ${clause}`, values); activeProjects = value(result, "active_projects"); }
   let openAlerts = 0, criticalAlerts = 0;
-  if (allowed.alerts) { const values: unknown[] = [context.organizationId]; const clause = place(values, filter, "a.province_id", "a.site_id"); const result = await metric(client, `SELECT COUNT(*) FILTER (WHERE a.status IN ('open','acknowledged','in_progress'))::text AS open_alerts, COUNT(*) FILTER (WHERE a.status IN ('open','acknowledged','in_progress') AND a.severity='critical')::text AS critical_alerts FROM alerts a WHERE a.organization_id=$1 ${clause}`, values); openAlerts = value(result, "open_alerts"); criticalAlerts = value(result, "critical_alerts"); }
+  if (allowed.alerts) { const filter = await sectionFilter(client, context, base, ["alerts."]); const values: unknown[] = [context.organizationId]; const clause = place(values, filter, "a.province_id", "a.site_id"); const result = await metric(client, `SELECT COUNT(*) FILTER (WHERE a.status IN ('open','acknowledged','in_progress'))::text AS open_alerts, COUNT(*) FILTER (WHERE a.status IN ('open','acknowledged','in_progress') AND a.severity='critical')::text AS critical_alerts FROM alerts a WHERE a.organization_id=$1 ${clause}`, values); openAlerts = value(result, "open_alerts"); criticalAlerts = value(result, "critical_alerts"); }
+  // Pending approvals are not gated by a module permission: reports scope only.
+  const filter = await sectionFilter(client, context, base, REPORTS);
   const values: unknown[] = [context.organizationId]; const clause = place(values, filter, "p.province_id", "p.site_id");
   const approvals = await metric(client, `SELECT COUNT(*) FILTER (WHERE a.status='pending')::text AS pending_approvals FROM management_approval_requests a LEFT JOIN management_projects p ON p.organization_id=a.organization_id AND p.id=a.project_id WHERE a.organization_id=$1 ${clause}`, values);
   return { activeProjects, openAlerts, criticalAlerts, pendingApprovals: value(approvals, "pending_approvals") };

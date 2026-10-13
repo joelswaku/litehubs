@@ -5,6 +5,7 @@ import {
   ConflictError,
   NotFoundError,
 } from "../../utils/errors";
+import { permissionScope } from "../../utils/permission-scope";
 import { withTenantContext } from "../../utils/tenant-query";
 import { createNotificationInTransaction } from "../notifications/notifications.service";
 import type {
@@ -131,20 +132,12 @@ function conflict(error: unknown, message: string): never {
   throw error;
 }
 
+/** Organisation-wide only through roles that grant alert permissions. */
 async function hasOrganizationScope(
   client: PoolClient,
   context: AlertContext,
 ): Promise<boolean> {
-  if (context.isOwner) return true;
-  const result = await client.query<{ has_scope: boolean }>(
-    `SELECT EXISTS (
-       SELECT 1 FROM member_roles mr
-       JOIN roles r ON r.organization_id = mr.organization_id AND r.id = mr.role_id
-       WHERE mr.organization_id = $1 AND mr.member_id = $2 AND r.data_scope = 'organization'
-     ) AS has_scope`,
-    [context.organizationId, context.memberId],
-  );
-  return result.rows[0]?.has_scope ?? false;
+  return (await permissionScope(client, context, ["alerts."])) === "organization";
 }
 
 async function assertProvinceAccess(

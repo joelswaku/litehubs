@@ -7,6 +7,7 @@ import {
   ForbiddenError,
   NotFoundError,
 } from "../../utils/errors";
+import { permissionScope } from "../../utils/permission-scope";
 import { withTenantContext } from "../../utils/tenant-query";
 import type {
   PoultryListQuery,
@@ -369,24 +370,13 @@ function mapRow(row: Row) {
   return mapped;
 }
 
+/** Scope from the member's roles that grant poultry permissions only. */
 export async function scopeOf(
   client: PoolClient,
   context: PoultryContext,
 ): Promise<Scope> {
-  if (context.isOwner) return "organization";
-  const result = await client.query<{
-    organization_scope: boolean;
-    province_scope: boolean;
-    site_scope: boolean;
-  }>(
-    `SELECT
-       EXISTS (SELECT 1 FROM member_roles mr JOIN roles r ON r.organization_id = mr.organization_id AND r.id = mr.role_id WHERE mr.organization_id = $1 AND mr.member_id = $2 AND r.data_scope = 'organization') AS organization_scope,
-       EXISTS (SELECT 1 FROM member_roles mr JOIN roles r ON r.organization_id = mr.organization_id AND r.id = mr.role_id WHERE mr.organization_id = $1 AND mr.member_id = $2 AND r.data_scope = 'province') AS province_scope,
-       EXISTS (SELECT 1 FROM member_roles mr JOIN roles r ON r.organization_id = mr.organization_id AND r.id = mr.role_id WHERE mr.organization_id = $1 AND mr.member_id = $2 AND r.data_scope = 'site') AS site_scope`,
-    [context.organizationId, context.memberId],
-  );
-  if (result.rows[0]?.organization_scope) return "organization";
-  return result.rows[0]?.province_scope ? "province" : "self";
+  const scope = await permissionScope(client, context, ["poultry."]);
+  return scope === "organization" || scope === "province" ? scope : "self";
 }
 
 async function assertProvince(

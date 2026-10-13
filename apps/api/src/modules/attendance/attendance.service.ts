@@ -7,6 +7,7 @@ import {
 } from "../../utils/errors";
 import { createPdf, pdfDate } from "../../utils/pdf-builder";
 import { withTenantContext } from "../../utils/tenant-query";
+import { permissionScope } from "../../utils/permission-scope";
 import type {
   AssignEmployeeInput,
   ChangeAssignmentInput,
@@ -403,40 +404,32 @@ function hasPermission(context: WorkforceContext, code: string): boolean {
   return context.permissions.includes(code);
 }
 
+/** Attendance records and clocking are governed by the attendance.* permissions. */
+const ATTENDANCE_SCOPE = ["attendance."];
+/** Schedules (shifts and their assignments) are governed by the shifts.* permissions. */
+const SHIFT_SCOPE = ["shifts."];
+
+/**
+ * Scope from the member's roles that grant `families` only, so an unrelated
+ * organisation-wide role cannot widen attendance or schedule access. A
+ * project scope has no meaning here and stays limited to self, as before.
+ */
 async function scopeOf(
   client: PoolClient,
   context: WorkforceContext,
+  families: string[] = ATTENDANCE_SCOPE,
 ): Promise<Scope> {
-  if (context.isOwner) return "organization";
-  const result = await client.query<{
-    organization_scope: boolean;
-    province_scope: boolean;
-  }>(
-    `SELECT
-       EXISTS (
-         SELECT 1 FROM member_roles mr JOIN roles r
-           ON r.organization_id = mr.organization_id AND r.id = mr.role_id
-          WHERE mr.organization_id = $1 AND mr.member_id = $2
-            AND r.data_scope = 'organization'
-       ) AS organization_scope,
-       EXISTS (
-         SELECT 1 FROM member_roles mr JOIN roles r
-           ON r.organization_id = mr.organization_id AND r.id = mr.role_id
-          WHERE mr.organization_id = $1 AND mr.member_id = $2
-            AND r.data_scope = 'province'
-       ) AS province_scope`,
-    [context.organizationId, context.memberId],
-  );
-  if (result.rows[0]?.organization_scope) return "organization";
-  return result.rows[0]?.province_scope ? "province" : "self";
+  const scope = await permissionScope(client, context, families);
+  return scope === "organization" || scope === "province" ? scope : "self";
 }
 
 async function assertProvinceAccess(
   client: PoolClient,
   context: WorkforceContext,
   provinceId: string,
+  families: string[] = ATTENDANCE_SCOPE,
 ): Promise<void> {
-  if ((await scopeOf(client, context)) === "organization") return;
+  if ((await scopeOf(client, context, families)) === "organization") return;
   const result = await client.query(
     `SELECT 1 FROM member_provinces
       WHERE organization_id = $1 AND member_id = $2 AND province_id = $3`,
@@ -473,7 +466,7 @@ async function resolveLocation(
       );
     }
   }
-  await assertProvinceAccess(client, context, provinceId);
+  await assertProvinceAccess(client, context, provinceId, SHIFT_SCOPE);
   return { provinceId, siteId, departmentId };
 }
 
@@ -501,10 +494,10 @@ async function assertShiftAccess(
 ): Promise<ShiftRow> {
   const shift = await selectShift(client, context.organizationId, shiftId);
   if (!shift) throw new NotFoundError("Shift not found");
-  const scope = await scopeOf(client, context);
+  const scope = await scopeOf(client, context, SHIFT_SCOPE);
   if (scope === "organization") return shift;
   if (scope === "self") throw new NotFoundError("Shift not found");
-  await assertProvinceAccess(client, context, shift.province_id);
+  await assertProvinceAccess(client, context, shift.province_id, SHIFT_SCOPE);
   return shift;
 }
 
@@ -532,14 +525,15 @@ async function assertEmployeeAccess(
   context: WorkforceContext,
   employee: EmployeeRow,
   allowSelf: boolean,
+  families: string[] = ATTENDANCE_SCOPE,
 ): Promise<void> {
   if (allowSelf && employee.member_id === context.memberId) return;
-  const scope = await scopeOf(client, context);
+  const scope = await scopeOf(client, context, families);
   if (scope === "organization") return;
   if (scope !== "province" || !employee.province_id) {
     throw new NotFoundError("Employee not found");
   }
-  await assertProvinceAccess(client, context, employee.province_id);
+  await assertProvinceAccess(client, context, employee.province_id, families);
 }
 
 async function attendanceRow(
@@ -602,7 +596,7 @@ function translateConflict(error: unknown): never {
 
 export async function listShifts(context: WorkforceContext) {
   return withTenantContext(context, async (client) => {
-    const scope = await scopeOf(client, context);
+    const scope = await scopeOf(client, context, SHIFT_SCOPE);
     if (scope === "self") return [];
     const result = await client.query<ShiftRow>(
       `SELECT ${shiftFields}
@@ -758,7 +752,7 @@ export async function assignEmployee(
         input.employeeId,
       );
       if (!employee) throw new NotFoundError("Employee not found");
-      await assertEmployeeAccess(client, context, employee, false);
+      await assertEmployeeAccess(client, context, employee, false, SHIFT_SCOPE);
       if (employee.province_id !== shift.province_id) {
         throw new BadRequestError(
           "An employee can only be assigned to a shift in their work province",
@@ -853,7 +847,7 @@ export async function changeAssignment(
         assignment.employee_id,
       );
       if (!employee) throw new NotFoundError("Employee not found");
-      await assertEmployeeAccess(client, context, employee, false);
+      await assertEmployeeAccess(client, context, employee, false, SHIFT_SCOPE);
       if (employee.province_id !== targetShift.province_id) {
         throw new BadRequestError(
           "An employee can only be assigned to a shift in their work province",

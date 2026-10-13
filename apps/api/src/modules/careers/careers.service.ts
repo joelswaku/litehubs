@@ -14,6 +14,7 @@ import {
   NotFoundError,
 } from "../../utils/errors";
 import { withTenantContext } from "../../utils/tenant-query";
+import { permissionScope } from "../../utils/permission-scope";
 import { candidatePortalBaseUrl, issueCandidatePortalLink } from "./candidate-portal-links";
 import type {
   ApplicationQuery,
@@ -107,25 +108,17 @@ function mapApplication(row: Row) {
   };
 }
 
+/**
+ * Scope from the member's roles that grant careers.* permissions only: an
+ * unrelated organisation-wide role must not widen access to this module.
+ * A project scope has no meaning here and stays limited to self, as before.
+ */
 async function scopeOf(
   client: PoolClient,
   context: CareersContext,
 ): Promise<Scope> {
-  if (context.isOwner) return "organization";
-  const result = await client.query<{
-    organization_scope: boolean;
-    province_scope: boolean;
-  }>(
-    `SELECT
-      EXISTS (SELECT 1 FROM member_roles mr JOIN roles r ON r.organization_id=mr.organization_id AND r.id=mr.role_id WHERE mr.organization_id=$1 AND mr.member_id=$2 AND r.data_scope='organization') AS organization_scope,
-      EXISTS (SELECT 1 FROM member_roles mr JOIN roles r ON r.organization_id=mr.organization_id AND r.id=mr.role_id WHERE mr.organization_id=$1 AND mr.member_id=$2 AND r.data_scope='province') AS province_scope`,
-    [context.organizationId, context.memberId],
-  );
-  return result.rows[0]?.organization_scope
-    ? "organization"
-    : result.rows[0]?.province_scope
-      ? "province"
-      : "self";
+  const scope = await permissionScope(client, context, ["careers."]);
+  return scope === "organization" || scope === "province" ? scope : "self";
 }
 
 export async function assertSiteAccess(

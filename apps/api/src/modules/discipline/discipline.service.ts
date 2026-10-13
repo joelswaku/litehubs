@@ -7,6 +7,7 @@ import {
 } from "../../utils/errors";
 import { createPdf, pdfDate, type PdfBuilder } from "../../utils/pdf-builder";
 import { withTenantContext } from "../../utils/tenant-query";
+import { permissionScope } from "../../utils/permission-scope";
 import type {
   ActionQuery,
   CreateActionInput,
@@ -119,23 +120,17 @@ function mapAction(row: ActionRow) {
     updatedAt: row.updated_at,
   };
 }
+/**
+ * Scope from the member's roles that grant disciplinary_actions.* permissions only: an
+ * unrelated organisation-wide role must not widen access to this module.
+ * A project scope has no meaning here and stays limited to self, as before.
+ */
 async function scopeOf(
   client: PoolClient,
   context: DisciplineContext,
 ): Promise<Scope> {
-  if (context.isOwner) return "organization";
-  const result = await client.query<{
-    organization: boolean;
-    province: boolean;
-  }>(
-    `SELECT EXISTS(SELECT 1 FROM member_roles mr JOIN roles ro ON ro.organization_id=mr.organization_id AND ro.id=mr.role_id WHERE mr.organization_id=$1 AND mr.member_id=$2 AND ro.data_scope='organization') AS organization, EXISTS(SELECT 1 FROM member_roles mr JOIN roles ro ON ro.organization_id=mr.organization_id AND ro.id=mr.role_id WHERE mr.organization_id=$1 AND mr.member_id=$2 AND ro.data_scope='province') AS province`,
-    [context.organizationId, context.memberId],
-  );
-  return result.rows[0]?.organization
-    ? "organization"
-    : result.rows[0]?.province
-      ? "province"
-      : "self";
+  const scope = await permissionScope(client, context, ["disciplinary_actions."]);
+  return scope === "organization" || scope === "province" ? scope : "self";
 }
 async function assertCanSubmitForDecision(
   client: PoolClient,

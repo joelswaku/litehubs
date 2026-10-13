@@ -13,6 +13,7 @@ import {
   NotFoundError,
 } from "../../utils/errors";
 import { withTenantContext } from "../../utils/tenant-query";
+import { hasOrganizationScope } from "../../utils/permission-scope";
 import { companyLogo } from "../contracts/contract-pdf";
 import type {
   CreateDepartmentInput,
@@ -825,34 +826,30 @@ export function hashInvitationToken(token: string): string {
   return invitationTokenHash(token);
 }
 
+/** Locations (provinces and sites) are governed by the sites.* permissions. */
+const SITE_FAMILIES = ["sites."];
+/** Departments are governed by the departments.* permissions. */
+const DEPARTMENT_FAMILIES = ["departments."];
+
+/**
+ * Company-wide reach for the given permission families. Only the roles that
+ * grant those permissions count: an unrelated organisation-wide role must not
+ * widen location or department management.
+ */
 async function organizationScope(
   client: PoolClient,
   context: SetupContext,
+  families: string[],
 ): Promise<boolean> {
-  if (context.isOwner) return true;
-
-  const result = await client.query<{ has_scope: boolean }>(
-    `SELECT EXISTS (
-       SELECT 1
-         FROM member_roles mr
-         JOIN roles r
-           ON r.organization_id = mr.organization_id
-          AND r.id = mr.role_id
-        WHERE mr.organization_id = $1
-          AND mr.member_id = $2
-          AND r.data_scope = 'organization'
-     ) AS has_scope`,
-    [context.organizationId, context.memberId],
-  );
-
-  return result.rows[0]?.has_scope ?? false;
+  return hasOrganizationScope(client, context, families);
 }
 
 async function requireOrganizationScope(
   client: PoolClient,
   context: SetupContext,
+  families: string[],
 ): Promise<void> {
-  if (!(await organizationScope(client, context))) {
+  if (!(await organizationScope(client, context, families))) {
     throw new ForbiddenError(
       "This action requires a company-wide role such as Owner or Farm Operations Manager",
     );
@@ -863,8 +860,9 @@ async function assertProvinceAccess(
   client: PoolClient,
   context: SetupContext,
   provinceId: string,
+  families: string[],
 ): Promise<void> {
-  if (await organizationScope(client, context)) return;
+  if (await organizationScope(client, context, families)) return;
 
   const result = await client.query(
     `SELECT 1
@@ -901,11 +899,13 @@ async function assertSiteAccess(
   client: PoolClient,
   context: SetupContext,
   siteId: string,
+  families: string[],
 ): Promise<void> {
   await assertProvinceAccess(
     client,
     context,
     await siteProvinceId(client, context.organizationId, siteId),
+    families,
   );
 }
 
@@ -936,10 +936,10 @@ async function assertDepartmentAccess(
     departmentId,
   );
   if (!siteId) {
-    await requireOrganizationScope(client, context);
+    await requireOrganizationScope(client, context, DEPARTMENT_FAMILIES);
     return;
   }
-  await assertSiteAccess(client, context, siteId);
+  await assertSiteAccess(client, context, siteId, DEPARTMENT_FAMILIES);
 }
 
 async function assertMemberExists(
@@ -1081,7 +1081,7 @@ async function assertProvinceIds(
 
 export async function listProvinces(context: SetupContext) {
   return withTenantContext(context, async (client) => {
-    const companyWide = await organizationScope(client, context);
+    const companyWide = await organizationScope(client, context, SITE_FAMILIES);
     const result = await client.query<ProvinceRow>(
       companyWide
         ? `SELECT id, code, name, is_active, created_at, updated_at
@@ -1110,7 +1110,7 @@ export async function createProvince(
 ) {
   try {
     return await withTenantContext(context, async (client) => {
-      await requireOrganizationScope(client, context);
+      await requireOrganizationScope(client, context, SITE_FAMILIES);
       const result = await client.query<ProvinceRow>(
         `INSERT INTO provinces (organization_id, code, name)
          VALUES ($1, $2, $3)
@@ -1133,7 +1133,7 @@ export async function updateProvince(
 ) {
   try {
     return await withTenantContext(context, async (client) => {
-      await requireOrganizationScope(client, context);
+      await requireOrganizationScope(client, context, SITE_FAMILIES);
       const current = await client.query<ProvinceRow>(
         `SELECT id, code, name, is_active, created_at, updated_at
            FROM provinces
@@ -1172,7 +1172,7 @@ export async function deleteProvince(
   provinceId: string,
 ) {
   return withTenantContext(context, async (client) => {
-    await requireOrganizationScope(client, context);
+    await requireOrganizationScope(client, context, SITE_FAMILIES);
     const result = await client.query(
       `DELETE FROM provinces
         WHERE organization_id = $1 AND id = $2`,
@@ -1190,7 +1190,7 @@ const siteFields = `s.id, s.code, s.name, s.province_id, p.code AS province_code
 
 export async function listSites(context: SetupContext) {
   return withTenantContext(context, async (client) => {
-    const companyWide = await organizationScope(client, context);
+    const companyWide = await organizationScope(client, context, SITE_FAMILIES);
     const result = await client.query<SiteRow>(
       companyWide
         ? `SELECT ${siteFields}
@@ -1221,7 +1221,7 @@ export async function createSite(
 ) {
   try {
     return await withTenantContext(context, async (client) => {
-      await assertProvinceAccess(client, context, input.provinceId);
+      await assertProvinceAccess(client, context, input.provinceId, SITE_FAMILIES);
       const result = await client.query<SiteRow>(
         `INSERT INTO sites (
            organization_id, province_id, code, name, site_type, address_line1,
@@ -1263,7 +1263,7 @@ export async function updateSite(
 ) {
   try {
     return await withTenantContext(context, async (client) => {
-      await assertSiteAccess(client, context, siteId);
+      await assertSiteAccess(client, context, siteId, SITE_FAMILIES);
       const current = await client.query<SiteRow>(
         `SELECT ${siteFields}
            FROM sites s
@@ -1276,7 +1276,7 @@ export async function updateSite(
       if (!row) throw new NotFoundError("Site not found");
 
       const provinceId = input.provinceId ?? row.province_id;
-      await assertProvinceAccess(client, context, provinceId);
+      await assertProvinceAccess(client, context, provinceId, SITE_FAMILIES);
 
       const result = await client.query<SiteRow>(
         `UPDATE sites
@@ -1322,7 +1322,7 @@ export async function updateSite(
 
 export async function deleteSite(context: SetupContext, siteId: string) {
   return withTenantContext(context, async (client) => {
-    await assertSiteAccess(client, context, siteId);
+    await assertSiteAccess(client, context, siteId, SITE_FAMILIES);
     const result = await client.query(
       `DELETE FROM sites
         WHERE organization_id = $1 AND id = $2`,
@@ -1344,8 +1344,9 @@ async function assertDepartmentReferences(
   siteId: string | null | undefined,
   managerMemberId: string | null | undefined,
 ): Promise<void> {
-  if (siteId) await assertSiteAccess(client, context, siteId);
-  if (siteId === null) await requireOrganizationScope(client, context);
+  if (siteId) await assertSiteAccess(client, context, siteId, DEPARTMENT_FAMILIES);
+  if (siteId === null)
+    await requireOrganizationScope(client, context, DEPARTMENT_FAMILIES);
   if (managerMemberId) {
     await assertMemberExists(client, context.organizationId, managerMemberId);
   }
@@ -1353,7 +1354,7 @@ async function assertDepartmentReferences(
 
 export async function listDepartments(context: SetupContext) {
   return withTenantContext(context, async (client) => {
-    const companyWide = await organizationScope(client, context);
+    const companyWide = await organizationScope(client, context, DEPARTMENT_FAMILIES);
     const result = await client.query<DepartmentRow>(
       companyWide
         ? `SELECT ${departmentFields}
@@ -1392,7 +1393,7 @@ export async function createDepartment(
 ) {
   try {
     return await withTenantContext(context, async (client) => {
-      if (!input.siteId) await requireOrganizationScope(client, context);
+      if (!input.siteId) await requireOrganizationScope(client, context, DEPARTMENT_FAMILIES);
       await assertDepartmentReferences(
         client,
         context,
