@@ -3,7 +3,7 @@ import type { PoolClient } from "pg";
 import { BadRequestError, ForbiddenError, NotFoundError } from "../../utils/errors";
 import { withTenantContext } from "../../utils/tenant-query";
 import type { OwnerManagementContext } from "./owner-management.service";
-import { writeStockLedger } from "./owner-management.service";
+import { assertOwnerManagementRecordVisible, writeStockLedger } from "./owner-management.service";
 import { createNotificationInTransaction } from "../notifications/notifications.service";
 import { env } from "../../config/env";
 import { sendMail, sendSms } from "../../services/notification.service";
@@ -185,6 +185,8 @@ export async function feedNutritionOverview(context: OwnerManagementContext) {
   });
 }
 async function lockedOrder(client: PoolClient, context: OwnerManagementContext, orderId: string) {
+  // Only orders of the member's own provinces (or assigned projects) can be confirmed or cancelled.
+  await assertOwnerManagementRecordVisible(client, context, "feed-orders", orderId);
   const result = await client.query<Row>(`SELECT order_row.*,recipe.name AS recipe_name,recipe.code AS recipe_code,recipe.target_species,recipe.output_item_id AS recipe_output_item_id,recipe.overhead_per_kg FROM nutrition_feed_orders order_row JOIN nutrition_feed_recipes recipe ON recipe.organization_id=order_row.organization_id AND recipe.id=order_row.recipe_id WHERE order_row.organization_id=$1 AND order_row.id=$2 FOR UPDATE`, [context.organizationId, orderId]);
   if (!result.rows[0]) throw new NotFoundError("Ordre de fabrication introuvable");
   return result.rows[0];

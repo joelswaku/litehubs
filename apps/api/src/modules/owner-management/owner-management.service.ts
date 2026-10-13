@@ -1787,6 +1787,28 @@ async function scopeInfo(
   return row;
 }
 
+// Company-wide reference data with no province of its own: supplier and item
+// catalogues, plus the feed-mill nutrition profiles and recipes. A province-
+// scoped operator with the matching permission reads them; the orders,
+// batches and stock built from them stay limited to the operator's provinces.
+const COMPANY_CATALOGUES = new Set<OwnerManagementResource>([
+  "suppliers",
+  "inventory-items",
+  "nutrition-profiles",
+  "feed-recipes",
+  "feed-recipe-lines",
+]);
+
+/** Throws NotFoundError when the record is outside the member's scope. */
+export async function assertOwnerManagementRecordVisible(
+  client: PoolClient,
+  context: OwnerManagementContext,
+  resource: OwnerManagementResource,
+  recordId: string,
+): Promise<void> {
+  await assertVisible(client, context, resource, recordId);
+}
+
 async function assertVisible(
   client: PoolClient,
   context: OwnerManagementContext,
@@ -1813,7 +1835,7 @@ async function assertVisible(
   // not carry a province, so a province-scoped operator with the matching
   // permission may read the company catalogue while warehouse stock remains
   // limited by the warehouse's province/site.
-  if (resource === "suppliers" || resource === "inventory-items") return;
+  if (COMPANY_CATALOGUES.has(resource)) return;
   if (scope === "organization") return;
   if (scope === "self") {
     if (String(info.assigned_member_id ?? "") === context.memberId) return;
@@ -1896,7 +1918,7 @@ async function assertProjectWriteScope(
     if ((await scopeOf(client, context, resource)) === "organization") return;
     // Supplier and inventory item catalogues are organization-wide reference
     // data. Their own resource permissions decide whether this user may edit.
-    if (["suppliers", "inventory-items"].includes(resource)) return;
+    if (COMPANY_CATALOGUES.has(resource)) return;
 
     const inAssignedProvince = async (provinceId: unknown) => {
       if (typeof provinceId !== "string" || !provinceId.trim()) return false;
