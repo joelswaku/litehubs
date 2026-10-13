@@ -1494,12 +1494,31 @@ function MemberList({
         ) : (
           <ul className="grid gap-4 bg-surface-2/70 p-3 sm:grid-cols-2 sm:p-4 xl:grid-cols-3">
             {filteredRows.map((member) => {
+              // With no province ticked, province-limited roles see nothing:
+              // say so instead of suggesting the whole company is visible.
+              const memberScopes = (roles.data ?? [])
+                .filter((role) => member.roleCodes.includes(role.code))
+                .map((role) => role.dataScope ?? "organization");
               const accessScope =
-                member.provinces.length === 0
-                  ? t("members.allProvinces")
-                  : member.provinces
+                member.provinces.length > 0
+                  ? member.provinces
                       .map((province) => province.name)
-                      .join(", ");
+                      .join(", ")
+                  : memberScopes.includes("province")
+                    ? fr
+                      ? "Aucune province — cochez sa province dans « Gérer l’accès »"
+                      : "No province — tick one in “Manage access”"
+                    : memberScopes.includes("organization")
+                      ? fr
+                        ? "Toute l’entreprise"
+                        : "Whole company"
+                      : !roles.data
+                        ? fr
+                          ? "Aucune province"
+                          : "No province"
+                        : fr
+                          ? "Son espace personnel"
+                          : "Own workspace";
 
               return (
                 <li
@@ -1935,8 +1954,8 @@ function CreationAllowanceEditor({
           </h3>
           <p className="mt-1 max-w-2xl text-xs leading-5 text-ink-secondary">
             {fr
-              ? "Le propriétaire fixe ici le nombre maximum de fiches employés qu’un responsable RH ou manager peut créer dans chaque province."
-              : "The Owner sets the maximum number of employee profiles this HR Officer or Manager may create in each province."}
+              ? "Optionnel. Seul le propriétaire crée librement des fiches employés. Pour qu’un responsable RH ou manager puisse en créer, choisissez une de ses provinces et le nombre maximum de nouvelles fiches, puis cliquez « Accorder ». Sans autorisation, il ne peut pas créer d’employés."
+              : "Optional. Only the Owner creates employee profiles freely. To let this HR Officer or Manager create some, choose one of their provinces and the maximum number of new profiles, then click “Grant”. Without it, they cannot create employees."}
           </p>
         </div>
         <Badge variant={eligible ? "good" : "warning"}>

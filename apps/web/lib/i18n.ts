@@ -510,7 +510,7 @@ const fr = {
     "La liste enregistrée remplace entièrement les rôles actuels.",
   "members.provinces": "Provinces",
   "members.provincesHint":
-    "Sans province sélectionnée, aucune restriction de province n’est enregistrée.",
+    "Cochez les provinces que cette personne peut voir. Sans province, les rôles limités à une province (provenderie, flotte, site…) ne voient aucune donnée.",
   "members.noRolesLoaded": "Rôles indisponibles.",
   "members.noProvincesYet": "Aucune province créée.",
   "members.atLeastOneRole": "Sélectionnez au moins un rôle.",
@@ -1129,7 +1129,7 @@ const en: Record<TranslationKey, string> = {
   "members.rolesHint": "The list you save replaces the current roles entirely.",
   "members.provinces": "Provinces",
   "members.provincesHint":
-    "With none selected, no province restriction is recorded.",
+    "Tick the provinces this person can see. With none, province-limited roles (feed mill, fleet, site…) see no data.",
   "members.noRolesLoaded": "Roles unavailable.",
   "members.noProvincesYet": "No provinces created yet.",
   "members.atLeastOneRole": "Select at least one role.",
