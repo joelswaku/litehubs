@@ -1814,25 +1814,11 @@ export async function replaceMemberRoles(
       );
     }
 
-    // A person with an employee profile always keeps the Employee role as their
-    // self-service base. Management roles add responsibility; they do not take
-    // away personal schedule, leave, attendance and payslip access.
-    const linkedEmployee = await client.query<{ id: string }>(
-      `SELECT id FROM employees
-        WHERE organization_id = $1 AND member_id = $2
-        LIMIT 1`,
-      [context.organizationId, memberId],
-    );
-    const employeeRole = await client.query<{ id: string }>(
-      `SELECT id FROM roles
-        WHERE organization_id = $1 AND code = 'employee'
-        LIMIT 1`,
-      [context.organizationId],
-    );
-    const effectiveRoleCodes =
-      linkedEmployee.rowCount && employeeRole.rowCount
-        ? [...new Set([...input.roleCodes, "employee"])]
-        : input.roleCodes;
+    // The Employee role is pre-selected in the access dialog for people with an
+    // employee profile, but the owner may remove it (for example a test or
+    // external account that must only see customer messages). The saved list is
+    // applied exactly as chosen.
+    const effectiveRoleCodes = input.roleCodes;
     const roles = await roleIds(
       client,
       context.organizationId,

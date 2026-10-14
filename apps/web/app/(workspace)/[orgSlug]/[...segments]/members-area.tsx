@@ -724,12 +724,12 @@ const systemRoleCopy: Record<
     fr: {
       name: "Service client et réseaux sociaux",
       description:
-        "Répond aux clients dans Chat → Clients (site, Messenger, Instagram) et dans les boîtes e-mail qui lui sont confiées, publie sur Facebook et Instagram et répond aux commentaires. Ne peut pas connecter de compte ni voir le reste de l’entreprise.",
+        "Répond aux clients dans Chat → Clients (site, Messenger, Instagram), publie sur Facebook et Instagram et répond aux commentaires. N’a pas accès aux boîtes e-mail, ne peut pas connecter de compte ni voir le reste de l’entreprise.",
     },
     en: {
       name: "Customer service & social media",
       description:
-        "Answers customers in Chat → Customers (website, Messenger, Instagram) and in the mailboxes assigned to them, posts on Facebook and Instagram and answers comments. Cannot connect accounts or see the rest of the company.",
+        "Answers customers in Chat → Customers (website, Messenger, Instagram), posts on Facebook and Instagram and answers comments. No mailbox access; cannot connect accounts or see the rest of the company.",
     },
   },
   website_manager: {
@@ -2294,16 +2294,13 @@ function AccessEditor({
   const remainingRoles = assignableRoles.filter(
     (role) => !productionWorkerCodes.has(role.code),
   );
+  // People with an employee profile normally keep the Employee role (their
+  // personal space). It is pre-selected but the owner may remove it.
   const mustKeepEmployeeRole =
     Boolean(member.employee) &&
     assignableRoles.some((role) => role.code === "employee");
-  const keepEmployeeRole = (codes: string[]) =>
-    mustKeepEmployeeRole && !codes.includes("employee")
-      ? [...codes, "employee"]
-      : codes;
-  const [roleCodes, setRoleCodes] = useState<string[]>(() =>
-    keepEmployeeRole(member.roleCodes),
-  );
+  const keepEmployeeRole = (codes: string[]) => codes;
+  const [roleCodes, setRoleCodes] = useState<string[]>(() => member.roleCodes);
   const [provinceIds, setProvinceIds] = useState<string[]>(
     member.provinces.map((province) => province.id),
   );
@@ -2366,7 +2363,7 @@ function AccessEditor({
   // Re-seed when the underlying member changes (a refetch after saving), so the
   // form reflects what the server stored rather than what was typed.
   useEffect(() => {
-    setRoleCodes(keepEmployeeRole(member.roleCodes));
+    setRoleCodes(member.roleCodes);
     setProvinceIds(member.provinces.map((province) => province.id));
   }, [member, mustKeepEmployeeRole]);
 
@@ -2589,8 +2586,7 @@ function AccessEditor({
               ) : (
                 remainingRoles.map((role) => {
                   const selected = roleCodes.includes(role.code);
-                  const locked =
-                    mustKeepEmployeeRole && role.code === "employee";
+                  const locked = false;
                   return (
                     <label
                       key={role.code}
@@ -2628,11 +2624,19 @@ function AccessEditor({
             </div>
           </section>
           {mustKeepEmployeeRole ? (
-            <p className="mt-2 rounded-lg bg-brand/5 px-2.5 py-2 text-xs leading-5 text-ink-secondary">
-              {fr
-                ? "Cette personne reste employée : le rôle Employé conserve son espace personnel (horaire, congés, présence, documents et paie autorisée) en plus de ses responsabilités de supervision ou de gestion."
-                : "This person remains an employee: the Employee role keeps their personal space (schedule, leave, attendance, permitted documents and payroll) alongside any supervisor or management responsibilities."}
-            </p>
+            roleCodes.includes("employee") ? (
+              <p className="mt-2 rounded-lg bg-brand/5 px-2.5 py-2 text-xs leading-5 text-ink-secondary">
+                {fr
+                  ? "Cette personne a une fiche employé : le rôle Employé lui donne son espace personnel (horaire, congés, présence, documents et paie autorisée) en plus de ses autres responsabilités."
+                  : "This person has an employee profile: the Employee role gives them their personal space (schedule, leave, attendance, permitted documents and payroll) alongside their other responsibilities."}
+              </p>
+            ) : (
+              <p className="mt-2 rounded-lg bg-warning/10 px-2.5 py-2 text-xs leading-5 text-ink-secondary">
+                {fr
+                  ? "Rôle Employé retiré : cette personne garde sa fiche employé mais ne verra plus son espace personnel (horaire, congés, présence, fiches de paie). Utile pour un compte de test ou externe."
+                  : "Employee role removed: this person keeps their employee profile but will no longer see their personal space (schedule, leave, attendance, payslips). Useful for a test or external account."}
+              </p>
+            )
           ) : null}
           {roleCodes.length === 0 ? (
             <p className="mt-1.5 text-xs text-critical">
