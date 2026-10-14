@@ -154,7 +154,9 @@ export const staffLogin: RequestHandler = async (req, res) => {
   const result = await authService.login(email, password, contextOf(req));
 
   if (result.user.platformRoles.length === 0) {
-    await authService.logout(result.refreshToken);
+    await authService.logout(result.refreshToken, contextOf(req), {
+      audit: false,
+    });
     throw new ForbiddenError(
       "This is a company account. Use the company sign-in page.",
       {
@@ -234,14 +236,17 @@ export const logout: RequestHandler = async (req, res) => {
   const fromBody = (req.body as { refreshToken?: string } | undefined)
     ?.refreshToken;
 
-  await authService.logout(fromCookie ?? fromBody);
+  await authService.logout(fromCookie ?? fromBody, contextOf(req));
   clearAuthCookies(res);
   res.status(204).send();
 };
 
 export const logoutEverywhere: RequestHandler = async (req, res) => {
   // `authenticate` guarantees req.user on this route.
-  const revoked = await authService.logoutEverywhere(req.user!.id);
+  const revoked = await authService.logoutEverywhere(
+    req.user!.id,
+    contextOf(req),
+  );
   clearAuthCookies(res);
   res.json({ revokedSessions: revoked });
 };
@@ -273,7 +278,7 @@ export const forgotPassword: RequestHandler = async (req, res) => {
 
 export const resetPassword: RequestHandler = async (req, res) => {
   const { token, password } = req.body as { token: string; password: string };
-  await authService.resetPassword(token, password);
+  await authService.resetPassword(token, password, contextOf(req));
 
   clearAuthCookies(res);
   res.json({ message: "Password updated. Please sign in again." });
@@ -285,7 +290,12 @@ export const changePassword: RequestHandler = async (req, res) => {
     newPassword: string;
   };
 
-  await authService.changePassword(req.user!.id, currentPassword, newPassword);
+  await authService.changePassword(
+    req.user!.id,
+    currentPassword,
+    newPassword,
+    contextOf(req),
+  );
 
   clearAuthCookies(res);
   res.json({ message: "Password changed. Please sign in again." });

@@ -1,4 +1,5 @@
 export type AuditArea =
+  | "authentication"
   | "access"
   | "people"
   | "projects"
@@ -132,4 +133,25 @@ export function auditAreaForTable(table: string): AuditArea {
   )
     return "daily_work";
   return "other";
+}
+
+/** Sign-up, sign-in, sign-out and password events of LiteHubs accounts. */
+export const AUTHENTICATION_ACTIONS = [
+  "signup",
+  "account_activation",
+  "login",
+  "login_failed",
+  "logout",
+  "password_reset_request",
+  "password_change",
+] as const;
+
+/** Area of one audit entry: account events first, then the table. */
+export function auditAreaForEntry(entry: {
+  action: string;
+  entity: { table: string };
+}): AuditArea {
+  if ((AUTHENTICATION_ACTIONS as readonly string[]).includes(entry.action))
+    return "authentication";
+  return auditAreaForTable(entry.entity.table);
 }

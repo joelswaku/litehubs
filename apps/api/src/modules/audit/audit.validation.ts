@@ -3,6 +3,7 @@ import { organizationSlugSchema } from "../organization/organization.validation"
 const date = z.string().date("Use YYYY-MM-DD");
 export const organizationParams = z.object({ orgSlug: organizationSlugSchema });
 export const auditAreas = [
+  "authentication",
   "access",
   "people",
   "projects",
@@ -45,6 +46,9 @@ export const auditQuery = z
         "post",
         "reverse",
         "cancel",
+        "signup",
+        "account_activation",
+        "password_reset_request",
       ])
       .optional(),
     severity: z.enum(["info", "notice", "warning", "critical"]).optional(),

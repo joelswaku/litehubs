@@ -2,7 +2,7 @@ import type { Request, RequestHandler } from "express";
 import * as service from "./audit.service";
 import * as reports from "./audit-report.service";
 import type { AuditQuery } from "./audit.validation";
-import { auditAreaForTable } from "./audit-area";
+import { auditAreaForEntry } from "./audit-area";
 function context(req: Request): service.AuditContext {
   return {
     organizationId: req.organization!.id,
@@ -17,7 +17,7 @@ export const list: RequestHandler = async (req, res) => {
   res.json({
     entries: query.area
       ? entries.filter(
-          (entry) => auditAreaForTable(entry.entity.table) === query.area,
+          (entry) => auditAreaForEntry(entry) === query.area,
         )
       : entries,
   });

@@ -3,7 +3,7 @@ import PDFDocument from "pdfkit";
 import { withTenantContext } from "../../utils/tenant-query";
 import type { AuditQuery } from "./audit.validation";
 import { list, type AuditContext } from "./audit.service";
-import { auditAreaForTable } from "./audit-area";
+import { auditAreaForEntry } from "./audit-area";
 
 type OrganizationRow = { name: string };
 
@@ -68,7 +68,7 @@ export async function exportAuditPdf(
   ]);
   const entries = query.area
     ? listedEntries.filter(
-        (entry) => auditAreaForTable(entry.entity.table) === query.area,
+        (entry) => auditAreaForEntry(entry) === query.area,
       )
     : listedEntries;
   const reportTitle = french ? "Journal d’audit" : "Audit log";

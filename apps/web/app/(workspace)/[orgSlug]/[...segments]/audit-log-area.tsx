@@ -29,6 +29,7 @@ import { useLanguage } from "@/providers/language-provider";
 import { useSessionUser } from "@/stores/session-store";
 
 type AuditArea =
+  | "authentication"
   | "access"
   | "people"
   | "projects"
@@ -54,6 +55,8 @@ type Entry = {
   action: string;
   entity: { table: string; id: string | null; label: string | null };
   changes: Record<string, unknown> | null;
+  ipAddress?: string | null;
+  userAgent?: string | null;
   route: string | null;
   severity: "info" | "notice" | "warning" | "critical";
 };
@@ -63,6 +66,7 @@ type Metrics = {
 };
 
 const areas: AuditArea[] = [
+  "authentication",
   "access",
   "people",
   "projects",
@@ -250,9 +254,92 @@ const areaOf = (table: string): AuditArea => {
   return "other";
 };
 
+const AUTHENTICATION_ACTIONS = [
+  "signup",
+  "account_activation",
+  "login",
+  "login_failed",
+  "logout",
+  "password_reset_request",
+  "password_change",
+];
+
+/** Account events (sign-up, sign-in, password…) have their own area. */
+const areaOfEntry = (entry: Pick<Entry, "action" | "entity">): AuditArea =>
+  AUTHENTICATION_ACTIONS.includes(entry.action)
+    ? "authentication"
+    : areaOf(entry.entity.table);
+
+/** Short, readable device description from a browser user agent. */
+const deviceText = (agent: string | null | undefined) => {
+  if (!agent) return null;
+  const os = /iPhone|iPad/.test(agent)
+    ? "iOS"
+    : /Android/.test(agent)
+      ? "Android"
+      : /Windows/.test(agent)
+        ? "Windows"
+        : /Mac OS X/.test(agent)
+          ? "macOS"
+          : /Linux/.test(agent)
+            ? "Linux"
+            : null;
+  const browser = /Edg\//.test(agent)
+    ? "Edge"
+    : /OPR\//.test(agent)
+      ? "Opera"
+      : /Chrome\//.test(agent)
+        ? "Chrome"
+        : /Firefox\//.test(agent)
+          ? "Firefox"
+          : /Safari\//.test(agent)
+            ? "Safari"
+            : null;
+  return [browser, os].filter(Boolean).join(" · ") || agent.slice(0, 60);
+};
+
+const authenticationDetail = (
+  changes: Record<string, unknown>,
+  fr: boolean,
+): string | null => {
+  const outcome = String(changes.outcome ?? "");
+  const method = String(changes.method ?? "");
+  const scope = String(changes.scope ?? "");
+  const delivery = String(changes.deliveryMethod ?? "");
+  const parts: string[] = [];
+  if (outcome === "invalid_password")
+    parts.push(fr ? "Mot de passe incorrect" : "Wrong password");
+  if (outcome === "account_locked")
+    parts.push(fr ? "Compte bloqué temporairement" : "Account temporarily locked");
+  if (outcome === "company_created")
+    parts.push(fr ? "Entreprise créée" : "Company created");
+  if (typeof changes.attempts === "number")
+    parts.push(
+      fr
+        ? `${changes.attempts} tentative(s) échouée(s)`
+        : `${changes.attempts} failed attempt(s)`,
+    );
+  if (method === "reset_link")
+    parts.push(fr ? "Par lien « mot de passe oublié »" : "Via forgot-password link");
+  if (method === "authenticated_change")
+    parts.push(fr ? "Depuis Mon compte" : "From My account");
+  if (method === "new_account")
+    parts.push(fr ? "Nouveau compte créé" : "New account created");
+  if (method === "existing_account")
+    parts.push(fr ? "Compte existant ajouté" : "Existing account added");
+  if (scope === "all_devices")
+    parts.push(fr ? "Déconnecté de tous les appareils" : "Signed out on all devices");
+  if (scope === "this_device")
+    parts.push(fr ? "Cet appareil" : "This device");
+  if (delivery === "email") parts.push(fr ? "Envoyé par e-mail" : "Sent by email");
+  if (delivery === "sms") parts.push(fr ? "Envoyé par SMS" : "Sent by SMS");
+  return parts.length ? parts.join(" · ") : null;
+};
+
 const localized = (pair: [string, string], fr: boolean) =>
   fr ? pair[0] : pair[1];
 const areaLabels: Record<AuditArea, [string, string]> = {
+  authentication: ["Connexions & comptes", "Sign-ins & accounts"],
   access: ["Accès & configuration", "Access & setup"],
   people: ["Équipe & RH", "People & HR"],
   projects: ["Projets & achats", "Projects & procurement"],
@@ -284,9 +371,15 @@ const actionLabel = (action: string, fr: boolean) => {
     reject: ["Refus", "Rejected"],
     cancel: ["Annulation", "Cancelled"],
     reverse: ["Contrepassation", "Reversed"],
+    signup: ["Création de compte", "Account created"],
+    account_activation: ["Activation de l’accès", "Access activated"],
     login: ["Connexion", "Signed in"],
     login_failed: ["Connexion refusée", "Sign-in failed"],
     logout: ["Déconnexion", "Signed out"],
+    password_reset_request: [
+      "Mot de passe oublié (lien demandé)",
+      "Forgot password (link requested)",
+    ],
     export: ["Export", "Exported"],
     import: ["Import", "Imported"],
     invite: ["Invitation", "Invitation"],
@@ -405,7 +498,7 @@ export function AuditArea({ orgSlug }: { orgSlug: string }) {
   const visibleEntries = useMemo(
     () =>
       (entries.data?.entries ?? []).filter(
-        (entry) => area === "all" || areaOf(entry.entity.table) === area,
+        (entry) => area === "all" || areaOfEntry(entry) === area,
       ),
     [area, entries.data?.entries],
   );
@@ -579,21 +672,32 @@ export function AuditArea({ orgSlug }: { orgSlug: string }) {
             <option value="all">
               {fr ? "Toutes les actions" : "All actions"}
             </option>
-            {[
-              "create",
-              "update",
-              "approve",
-              "reject",
-              "cancel",
-              "reverse",
-              "delete",
-              "login",
-              "export",
-            ].map((item) => (
-              <option key={item} value={item}>
-                {actionLabel(item, fr)}
-              </option>
-            ))}
+            <optgroup label={fr ? "Connexions & comptes" : "Sign-ins & accounts"}>
+              {AUTHENTICATION_ACTIONS.map((item) => (
+                <option key={item} value={item}>
+                  {actionLabel(item, fr)}
+                </option>
+              ))}
+            </optgroup>
+            <optgroup label={fr ? "Activité" : "Activity"}>
+              {[
+                "create",
+                "update",
+                "approve",
+                "reject",
+                "cancel",
+                "reverse",
+                "delete",
+                "export",
+                "invite",
+                "role_change",
+                "permission_change",
+              ].map((item) => (
+                <option key={item} value={item}>
+                  {actionLabel(item, fr)}
+                </option>
+              ))}
+            </optgroup>
           </Select>
           <Select
             value={severity}
@@ -691,7 +795,12 @@ function AuditEntry({ entry, fr }: { entry: Entry; fr: boolean }) {
   const fields = asFields(record.fields);
   const before = asRecord(record.before);
   const after = asRecord(record.after);
-  const area = areaOf(entry.entity.table);
+  const area = areaOfEntry(entry);
+  const isAuthentication = area === "authentication";
+  const authDetail = isAuthentication
+    ? authenticationDetail(record, fr)
+    : null;
+  const device = deviceText(entry.userAgent);
   return (
     <details className="group py-3">
       <summary className="cursor-pointer list-none rounded-xl p-2 transition hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30">
@@ -699,8 +808,9 @@ function AuditEntry({ entry, fr }: { entry: Entry; fr: boolean }) {
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="font-semibold text-ink">
-                {actionLabel(entry.action, fr)} ·{" "}
-                {tableLabel(entry.entity.table, fr)}
+                {isAuthentication
+                  ? actionLabel(entry.action, fr)
+                  : `${actionLabel(entry.action, fr)} · ${tableLabel(entry.entity.table, fr)}`}
               </h3>
               <Badge variant={tone(entry.severity)}>
                 {entry.severity === "notice"
@@ -729,7 +839,11 @@ function AuditEntry({ entry, fr }: { entry: Entry; fr: boolean }) {
                 entry.actor.email ??
                 (fr ? "Système" : "System")}{" "}
               · {date(entry.occurredAt, fr)}
+              {isAuthentication && device ? ` · ${device}` : ""}
             </p>
+            {authDetail ? (
+              <p className="mt-1 text-xs text-ink-secondary">{authDetail}</p>
+            ) : null}
           </div>
           <ChevronDown className="mt-1 size-4 shrink-0 text-ink-muted transition group-open:rotate-180" />
         </div>
@@ -756,8 +870,39 @@ function AuditEntry({ entry, fr }: { entry: Entry; fr: boolean }) {
               · {entry.route}
             </span>
           ) : null}
+          {entry.ipAddress ? (
+            <span>
+              <strong className="font-medium text-ink">
+                {fr ? "Adresse IP" : "IP address"}
+              </strong>{" "}
+              · {entry.ipAddress}
+            </span>
+          ) : null}
+          {device ? (
+            <span>
+              <strong className="font-medium text-ink">
+                {fr ? "Appareil" : "Device"}
+              </strong>{" "}
+              · {device}
+            </span>
+          ) : null}
+          {entry.actor.email ? (
+            <span>
+              <strong className="font-medium text-ink">
+                {fr ? "Compte" : "Account"}
+              </strong>{" "}
+              · {entry.actor.email}
+            </span>
+          ) : null}
         </div>
-        {fields.length ? (
+        {isAuthentication ? (
+          <p className="mt-3 text-sm text-ink-secondary">
+            {authDetail ??
+              (fr
+                ? "Événement de compte enregistré comme preuve."
+                : "Account event retained as evidence.")}
+          </p>
+        ) : fields.length ? (
           <div className="mt-4">
             <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
               {fr ? "Champs concernés" : "Fields affected"}

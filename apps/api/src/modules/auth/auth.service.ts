@@ -72,14 +72,36 @@ function generateOpaqueToken(): string {
  * tenant copy for each active workspace instead. Audit delivery must never
  * lock a legitimate person out when a database is temporarily unavailable.
  */
+type AuthenticationAuditAction =
+  | "signup"
+  | "account_activation"
+  | "login"
+  | "login_failed"
+  | "logout"
+  | "password_reset_request"
+  | "password_change";
+
+const AUTHENTICATION_AUDIT_ROUTES: Record<AuthenticationAuditAction, string> = {
+  signup: "/auth/register",
+  account_activation: "/auth/accept-invitation",
+  login: "/auth/login",
+  login_failed: "/auth/login",
+  logout: "/auth/logout",
+  password_reset_request: "/auth/forgot-password",
+  password_change: "/auth/password",
+};
+
 async function auditAuthenticationEvent(
   user: AuthenticatedUser,
-  action: "login" | "login_failed" | "password_change",
+  action: AuthenticationAuditAction,
   context: RequestContext,
   details: Record<string, unknown> = {},
+  onlyOrganizationId?: string,
 ): Promise<void> {
   const memberships = user.memberships.filter(
-    (membership) => membership.status === "active",
+    (membership) =>
+      membership.status === "active" &&
+      (!onlyOrganizationId || membership.organizationId === onlyOrganizationId),
   );
   await Promise.all(
     memberships.map(async (membership) => {
@@ -105,7 +127,7 @@ async function auditAuthenticationEvent(
                 JSON.stringify({ event: "authentication", ...details }),
                 context.ipAddress,
                 context.userAgent,
-                action === "password_change" ? "/auth/password" : "/auth/login",
+                AUTHENTICATION_AUDIT_ROUTES[action],
                 action === "login_failed" ? "warning" : "notice",
               ],
             );
@@ -127,7 +149,7 @@ async function auditAuthenticationEvent(
 
 async function auditAuthenticationByUserId(
   userId: string,
-  action: "login_failed" | "password_change",
+  action: AuthenticationAuditAction,
   context: RequestContext,
   details?: Record<string, unknown>,
 ): Promise<void> {
@@ -376,6 +398,9 @@ export async function register(
 
   await activateDefaultOrganization(user);
   const tokens = await mintTokens(user, context);
+  await auditAuthenticationEvent(user, "signup", context, {
+    outcome: "company_created",
+  });
 
   logger.info(
     {
@@ -574,18 +599,34 @@ export async function switchOrganization(
   };
 }
 
-export async function logout(rawToken: string | undefined): Promise<void> {
+export async function logout(
+  rawToken: string | undefined,
+  context: RequestContext = { ipAddress: null, userAgent: null },
+  options: { audit?: boolean } = {},
+): Promise<void> {
   if (!rawToken) return;
   const existing = await repository.findRefreshTokenByHash(
     fingerprint(rawToken),
   );
   if (existing && existing.revoked_at === null) {
     await repository.revokeRefreshToken(existing.id, null);
+    if (options.audit !== false)
+      await auditAuthenticationByUserId(existing.user_id, "logout", context, {
+        scope: "this_device",
+      });
   }
 }
 
-export async function logoutEverywhere(userId: string): Promise<number> {
-  return repository.revokeAllRefreshTokensForUser(userId);
+export async function logoutEverywhere(
+  userId: string,
+  context: RequestContext = { ipAddress: null, userAgent: null },
+): Promise<number> {
+  const revoked = await repository.revokeAllRefreshTokensForUser(userId);
+  await auditAuthenticationByUserId(userId, "logout", context, {
+    scope: "all_devices",
+    revokedSessions: revoked,
+  });
+  return revoked;
 }
 
 export async function getCurrentUser(
@@ -645,6 +686,10 @@ export async function requestPasswordReset(
     return;
   }
 
+  await auditAuthenticationByUserId(userId, "password_reset_request", context, {
+    deliveryMethod,
+  });
+
   const rawToken = generateOpaqueToken();
   await repository.insertPasswordResetToken({
     userId,
@@ -684,6 +729,7 @@ export async function requestPasswordReset(
 export async function resetPassword(
   rawToken: string,
   newPassword: string,
+  context: RequestContext = { ipAddress: null, userAgent: null },
 ): Promise<void> {
   const tokenHash = fingerprint(rawToken);
   const passwordHash = await hashPassword(newPassword);
@@ -709,12 +755,9 @@ export async function resetPassword(
     // Confirmation goes out only once the reset is committed.
     const email = await repository.findUserEmail(userId);
     if (email) await sendPasswordChangedEmail(email);
-    await auditAuthenticationByUserId(
-      userId,
-      "password_change",
-      { ipAddress: null, userAgent: null },
-      { method: "reset_link" },
-    );
+    await auditAuthenticationByUserId(userId, "password_change", context, {
+      method: "reset_link",
+    });
   });
 }
 
@@ -722,6 +765,7 @@ export async function changePassword(
   userId: string,
   currentPassword: string,
   newPassword: string,
+  context: RequestContext = { ipAddress: null, userAgent: null },
 ): Promise<void> {
   const credentials = await verifyCurrentPassword(userId, currentPassword);
 
@@ -733,12 +777,9 @@ export async function changePassword(
   });
 
   logger.info({ userId }, "Password changed");
-  await auditAuthenticationByUserId(
-    userId,
-    "password_change",
-    { ipAddress: null, userAgent: null },
-    { method: "authenticated_change" },
-  );
+  await auditAuthenticationByUserId(userId, "password_change", context, {
+    method: "authenticated_change",
+  });
 
   // Notify after the change is committed; a mail failure must not undo it.
   await sendPasswordChangedEmail(credentials.email);
@@ -912,6 +953,13 @@ export async function acceptInvitation(
 
   await activateDefaultOrganization(user);
   const tokens = await mintTokens(user, context);
+  await auditAuthenticationEvent(
+    user,
+    "account_activation",
+    context,
+    { method: "new_account" },
+    user.activeMembership?.organizationId,
+  );
 
   logger.info(
     { userId, organizationId: user.activeMembership?.organizationId },
@@ -1009,6 +1057,13 @@ export async function acceptExistingInvitation(
     );
   await activateOrganization(user, acceptedOrganizationId);
   const tokens = await mintTokens(user, context);
+  await auditAuthenticationEvent(
+    user,
+    "account_activation",
+    context,
+    { method: "existing_account" },
+    acceptedOrganizationId,
+  );
   logger.info(
     { userId: user.id, organizationId: acceptedOrganizationId },
     "Existing LiteHubs account joined an organization",
