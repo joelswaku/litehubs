@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  CalendarClock,
   Check,
   Eye,
   FileDown,
@@ -94,6 +95,10 @@ export function CandidateDocumentsPanel({
   const [composerOpen, setComposerOpen] = useState(false);
   const [rejecting, setRejecting] = useState<string | null>(null);
   const [rejectNote, setRejectNote] = useState("");
+  const [deadlineFor, setDeadlineFor] = useState<string | null>(null);
+  const [newDueDate, setNewDueDate] = useState("");
+  const [deadlineNotify, setDeadlineNotify] = useState(true);
+  const today = new Date().toISOString().slice(0, 10);
 
   const sendLink = useMutation({
     mutationFn: () => post<PanelData>(orgUrl(orgSlug, `${base}/tracking-link`), {}),
@@ -138,6 +143,26 @@ export function CandidateDocumentsPanel({
           : input.decision === "rejected"
             ? tr(fr, "Le candidat a été invité à renvoyer le document.", "The candidate was asked to send the document again.")
             : tr(fr, "Demande annulée.", "Request cancelled."),
+      );
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const deadline = useMutation({
+    mutationFn: (input: { requestId: string; dueDate: string | null }) =>
+      patch<PanelData>(orgUrl(orgSlug, `${base}/documents/${input.requestId}/deadline`), {
+        dueDate: input.dueDate,
+        notifyCandidate: deadlineNotify,
+      }),
+    onSuccess: (next, input) => {
+      refresh(next);
+      setDeadlineFor(null);
+      toast.success(
+        input.dueDate
+          ? deadlineNotify
+            ? tr(fr, "Nouveau délai enregistré et envoyé au candidat.", "New deadline saved and sent to the candidate.")
+            : tr(fr, "Nouveau délai enregistré.", "New deadline saved.")
+          : tr(fr, "Date limite retirée.", "Deadline removed."),
       );
     },
     onError: (error: Error) => toast.error(error.message),
@@ -306,6 +331,14 @@ export function CandidateDocumentsPanel({
                       {item.requestedBy ? ` · ${item.requestedBy}` : ""}
                       {item.dueDate ? ` · ${tr(fr, "échéance", "due")} ${new Date(`${item.dueDate}T12:00:00`).toLocaleDateString(fr ? "fr-FR" : "en-GB")}` : ""}
                     </p>
+                    {item.dueDate &&
+                    item.dueDate < today &&
+                    (item.status === "requested" || item.status === "rejected") ? (
+                      <p className="mt-1 inline-flex items-center gap-1 rounded-full bg-critical/10 px-2 py-0.5 text-[11px] font-semibold text-critical">
+                        <CalendarClock className="size-3" />
+                        {tr(fr, "Délai dépassé — vous pouvez le prolonger", "Deadline passed — you can extend it")}
+                      </p>
+                    ) : null}
                   </div>
                   <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${tone}`}>{fr ? french : english}</span>
                 </div>
@@ -350,6 +383,68 @@ export function CandidateDocumentsPanel({
                       </Button>
                     </div>
                   </div>
+                ) : editable && deadlineFor === item.id ? (
+                  <div className="mt-3 space-y-2 rounded-lg border border-brand/20 bg-brand/[.03] p-3">
+                    <div className="flex flex-wrap items-end gap-2">
+                      <Field label={tr(fr, "Nouvelle date limite", "New deadline")}>
+                        <Input
+                          type="date"
+                          min={today}
+                          value={newDueDate}
+                          onChange={(event) => setNewDueDate(event.target.value)}
+                        />
+                      </Field>
+                      <div className="flex flex-wrap gap-1.5 pb-0.5">
+                        {[3, 7, 14].map((days) => (
+                          <button
+                            key={days}
+                            type="button"
+                            onClick={() => {
+                              const next = new Date();
+                              next.setDate(next.getDate() + days);
+                              setNewDueDate(next.toISOString().slice(0, 10));
+                            }}
+                            className="rounded-full border border-border bg-surface-1 px-2.5 py-1 text-xs font-medium text-ink hover:border-brand/40"
+                          >
+                            +{days} {tr(fr, "jours", "days")}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <label className="flex items-center gap-2 text-xs text-ink-secondary">
+                      <input
+                        type="checkbox"
+                        checked={deadlineNotify}
+                        onChange={(event) => setDeadlineNotify(event.target.checked)}
+                        className="size-4 accent-[var(--brand)]"
+                      />
+                      {tr(fr, "Prévenir le candidat par e-mail et SMS", "Notify the candidate by e-mail and SMS")}
+                    </label>
+                    <div className="flex flex-wrap justify-end gap-2">
+                      {item.dueDate ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          loading={deadline.isPending}
+                          onClick={() => deadline.mutate({ requestId: item.id, dueDate: null })}
+                        >
+                          {tr(fr, "Retirer la date limite", "Remove deadline")}
+                        </Button>
+                      ) : null}
+                      <Button size="sm" variant="ghost" onClick={() => setDeadlineFor(null)}>
+                        {tr(fr, "Annuler", "Cancel")}
+                      </Button>
+                      <Button
+                        size="sm"
+                        loading={deadline.isPending}
+                        disabled={!newDueDate || newDueDate < today}
+                        onClick={() => deadline.mutate({ requestId: item.id, dueDate: newDueDate })}
+                      >
+                        <CalendarClock className="size-3.5" />
+                        {tr(fr, "Enregistrer le délai", "Save deadline")}
+                      </Button>
+                    </div>
+                  </div>
                 ) : editable ? (
                   <div className="mt-2 flex flex-wrap justify-end gap-2">
                     {item.status === "submitted" ? (
@@ -363,9 +458,27 @@ export function CandidateDocumentsPanel({
                       </>
                     ) : null}
                     {item.status === "requested" || item.status === "rejected" ? (
-                      <Button size="sm" variant="ghost" onClick={() => review.mutate({ requestId: item.id, decision: "cancelled" })}>
-                        {tr(fr, "Annuler la demande", "Cancel request")}
-                      </Button>
+                      <>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => {
+                            const base = item.dueDate && item.dueDate >= today ? new Date(`${item.dueDate}T12:00:00`) : new Date();
+                            base.setDate(base.getDate() + 7);
+                            setNewDueDate(base.toISOString().slice(0, 10));
+                            setDeadlineNotify(true);
+                            setDeadlineFor(item.id);
+                          }}
+                        >
+                          <CalendarClock className="size-3.5" />
+                          {item.dueDate
+                            ? tr(fr, "Prolonger le délai", "Extend deadline")
+                            : tr(fr, "Fixer une date limite", "Set a deadline")}
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => review.mutate({ requestId: item.id, decision: "cancelled" })}>
+                          {tr(fr, "Annuler la demande", "Cancel request")}
+                        </Button>
+                      </>
                     ) : null}
                   </div>
                 ) : null}

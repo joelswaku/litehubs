@@ -11,6 +11,7 @@ import type {
   PublicApplicationInput,
   PublicOnboardingInput,
   DocumentRequestInput,
+  DocumentDeadlineInput,
   DocumentReviewInput,
 } from "./careers.validation";
 
@@ -188,6 +189,16 @@ export const reviewDocumentRequest: RequestHandler = async (req, res) =>
       param(req, "applicationId"),
       param(req, "requestId"),
       req.body as DocumentReviewInput,
+    ),
+  );
+
+export const changeDocumentDeadline: RequestHandler = async (req, res) =>
+  res.json(
+    await portal.changeDocumentDeadline(
+      context(req),
+      param(req, "applicationId"),
+      param(req, "requestId"),
+      req.body as DocumentDeadlineInput,
     ),
   );
 

@@ -1070,3 +1070,39 @@ export async function acceptExistingInvitation(
   );
   return { user, ...tokens };
 }
+
+export type InvitationLinkStatus = {
+  status: "valid" | "used" | "revoked" | "expired" | "invalid";
+  organizationName: string | null;
+  emailHint: string | null;
+  existingAccount: boolean;
+};
+
+/**
+ * Tells the activation page whether a link can still be used, so an already
+ * used or expired link shows "sign in" instead of a password form that fails.
+ * Only the workspace name and a masked e-mail are revealed.
+ */
+export async function invitationStatus(
+  rawToken: string,
+): Promise<InvitationLinkStatus> {
+  const result = await db.query<{
+    link_status: InvitationLinkStatus["status"];
+    organization_name: string | null;
+    email_hint: string | null;
+    existing_account: boolean;
+  }>(
+    `SELECT link_status,organization_name,email_hint,existing_account
+       FROM public_invitation_status($1)`,
+    [fingerprint(rawToken)],
+  );
+  const row = result.rows[0];
+  if (!row) return { status: "invalid", organizationName: null, emailHint: null, existingAccount: false };
+  const known = row.link_status !== "invalid";
+  return {
+    status: row.link_status,
+    organizationName: known ? row.organization_name : null,
+    emailHint: known ? row.email_hint : null,
+    existingAccount: known && row.link_status === "valid" ? row.existing_account : false,
+  };
+}

@@ -10,6 +10,7 @@ import { validate } from "../../middleware/validation.middleware";
 import * as controller from "./auth.controller";
 import {
   acceptInvitationSchema,
+  invitationStatusSchema,
   acceptExistingInvitationSchema,
   changePasswordSchema,
   forgotPasswordSchema,
@@ -36,6 +37,13 @@ authRoutes.post(
   authOnboardingRateLimiter,
   validate({ body: acceptInvitationSchema }),
   controller.acceptInvitation,
+);
+
+authRoutes.post(
+  "/invitation-status",
+  authOnboardingRateLimiter,
+  validate({ body: invitationStatusSchema }),
+  controller.invitationStatus,
 );
 
 authRoutes.post(

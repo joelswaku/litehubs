@@ -134,3 +134,8 @@ export type AcceptInvitationInput = z.infer<typeof acceptInvitationSchema>;
 export type AcceptExistingInvitationInput = z.infer<
   typeof acceptExistingInvitationSchema
 >;
+
+/** The opaque token from an access e-mail, checked before showing the form. */
+export const invitationStatusSchema = z.object({
+  token: z.string().trim().min(20).max(200),
+});

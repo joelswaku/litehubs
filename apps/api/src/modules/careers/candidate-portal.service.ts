@@ -29,6 +29,7 @@ import {
 } from "./candidate-portal-links";
 import type {
   DocumentRequestInput,
+  DocumentDeadlineInput,
   DocumentReviewInput,
 } from "./careers.validation";
 
@@ -583,6 +584,98 @@ export async function reviewDocumentRequest(
     });
     await withTenantContext(context, (client) =>
       event(client, context.organizationId, applicationId, "document_review_dispatched", context.userId, result),
+    );
+  }
+  return listDocumentRequests(context, applicationId);
+}
+
+/**
+ * Changes (usually extends) the deadline of an open document request. The
+ * deadline is informative — the portal still accepts a late upload — so the
+ * candidate is told the new date by e-mail and SMS when asked.
+ */
+export async function changeDocumentDeadline(
+  context: CareersContext,
+  applicationId: string,
+  requestId: string,
+  input: DocumentDeadlineInput,
+) {
+  const prepared = await withTenantContext(context, async (client) => {
+    const application = await hrApplication(client, context, applicationId);
+    if (["rejected", "withdrawn", "hired"].includes(String(application.status)))
+      throw new BadRequestError("This application is closed");
+    const current = await client.query<Row>(
+      `SELECT id,label,status,due_date::text AS due_date FROM career_application_document_requests
+        WHERE organization_id=$1 AND application_id=$2 AND id=$3 FOR UPDATE`,
+      [context.organizationId, applicationId, requestId],
+    );
+    const request = current.rows[0];
+    if (!request) throw new NotFoundError("Document request not found");
+    if (!["requested", "rejected"].includes(String(request.status)))
+      throw new BadRequestError("Only a document still awaited from the candidate can get a new deadline");
+    await client.query(
+      `UPDATE career_application_document_requests SET due_date=$4
+        WHERE organization_id=$1 AND application_id=$2 AND id=$3`,
+      [context.organizationId, applicationId, requestId, input.dueDate],
+    );
+    await event(client, context.organizationId, applicationId, "document_deadline_changed", context.userId, {
+      requestId,
+      label: request.label,
+      previousDueDate: request.due_date ?? null,
+      dueDate: input.dueDate,
+    });
+    const url = input.notifyCandidate
+      ? await issueCandidatePortalLink(client, context.organizationId, context.organizationSlug, applicationId)
+      : null;
+    if (url)
+      await client.query(
+        `UPDATE career_applications SET tracking_link_sent_at=now() WHERE organization_id=$1 AND id=$2`,
+        [context.organizationId, applicationId],
+      );
+    return { application, request, url };
+  });
+  if (prepared.url) {
+    const basics = candidateBasics(prepared.application);
+    const label = String(prepared.request.label);
+    const due = input.dueDate
+      ? new Date(`${input.dueDate}T12:00:00Z`).toLocaleDateString(basics.french ? "fr-FR" : "en-GB", {
+          day: "numeric",
+          month: "long",
+          year: "numeric",
+        })
+      : null;
+    const result = await deliverPortalMail({
+      ...basics,
+      subject: basics.french ? `Nouveau délai · ${label}` : `New deadline · ${label}`,
+      heading: basics.french ? "Le délai a été modifié" : "The deadline has changed",
+      paragraphs: [
+        due
+          ? basics.french
+            ? `Vous avez jusqu’au ${due} pour envoyer le document « ${label} » demandé pour votre candidature « ${basics.jobTitle} ».`
+            : `You now have until ${due} to send the document “${label}” requested for your application ${basics.jobTitle}.`
+          : basics.french
+            ? `Le document « ${label} » demandé pour votre candidature « ${basics.jobTitle} » n’a plus de date limite. Envoyez-le dès que possible.`
+            : `The document “${label}” requested for your application ${basics.jobTitle} no longer has a deadline. Please send it as soon as you can.`,
+        ...(input.message ? [input.message] : []),
+        basics.french
+          ? "Envoyez-le directement depuis votre Espace candidat (PDF, photo ou document Word)."
+          : "Upload it directly from your candidate space (PDF, photo or Word document).",
+      ],
+      url: prepared.url,
+      sms: smsLine(
+        basics.organizationName,
+        due
+          ? basics.french
+            ? `nouveau délai : envoyez « ${label} » avant le ${due} ici :`
+            : `new deadline: send “${label}” before ${due} here:`
+          : basics.french
+            ? `le délai pour « ${label} » a été retiré. Envoyez-le ici :`
+            : `the deadline for “${label}” was removed. Send it here:`,
+        prepared.url,
+      ),
+    });
+    await withTenantContext(context, (client) =>
+      event(client, context.organizationId, applicationId, "document_deadline_dispatched", context.userId, result),
     );
   }
   return listDocumentRequests(context, applicationId);

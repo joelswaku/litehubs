@@ -186,12 +186,18 @@ export const documentRequestInput = z.object({
   dueDate: z.string().date("Use YYYY-MM-DD").optional(),
   notifyCandidate: z.boolean().optional().default(true),
 });
+export const documentDeadlineInput = z.object({
+  dueDate: z.string().date("Use YYYY-MM-DD").nullable(),
+  message: optionalText(800),
+  notifyCandidate: z.boolean().optional().default(true),
+});
 export const documentReviewInput = z.object({
   decision: z.enum(["accepted", "rejected", "cancelled"]),
   note: optionalText(600),
   notifyCandidate: z.boolean().optional().default(true),
 });
 
+export type DocumentDeadlineInput = z.infer<typeof documentDeadlineInput>;
 export type CareerSiteSettingsInput = z.infer<typeof careerSiteSettingsInput>;
 export type JobPostInput = z.infer<typeof jobPostInput>;
 export type JobQuery = z.infer<typeof jobQuery>;

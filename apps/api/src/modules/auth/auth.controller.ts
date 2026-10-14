@@ -323,3 +323,8 @@ export const acceptInvitation: RequestHandler = async (req, res) => {
     expiresAt: result.accessTokenExpiresAt.toISOString(),
   });
 };
+
+export const invitationStatus: RequestHandler = async (req, res) => {
+  const { token } = req.body as { token: string };
+  res.json(await authService.invitationStatus(token));
+};

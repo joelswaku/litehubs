@@ -1,12 +1,12 @@
 "use client";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMemo, useState } from "react";
-import { Eye, EyeOff } from "lucide-react";
+import { CircleAlert, Eye, EyeOff, LogIn, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/input";
 import { ApiError, post, setActiveOrganizationSlug } from "@/lib/api";
@@ -15,9 +15,25 @@ import { sessionKey } from "@/hooks/useAuth";
 import { useLanguage } from "@/providers/language-provider";
 import { useSessionStore } from "@/stores/session-store";
 type Values = { fullName: string; email: string; password: string };
+type LinkStatus = {
+  status: "valid" | "used" | "revoked" | "expired" | "invalid";
+  organizationName: string | null;
+  emailHint: string | null;
+  existingAccount: boolean;
+};
 export function AcceptInvitationForm() {
-  const { t } = useLanguage();
+  const { t, locale } = useLanguage();
+  const fr = locale === "fr";
   const token = useSearchParams().get("token");
+  // Check the link first: a used, revoked or expired link must say so instead
+  // of showing a password form that can only fail.
+  const linkStatus = useQuery({
+    queryKey: ["invitation-status", token],
+    enabled: Boolean(token),
+    retry: false,
+    staleTime: 60_000,
+    queryFn: () => post<LinkStatus>("/auth/invitation-status", { token: token ?? "" }),
+  });
   const router = useRouter();
   const queryClient = useQueryClient();
   const setUser = useSessionStore((state) => state.setUser);
@@ -67,6 +83,84 @@ export function AcceptInvitationForm() {
         {t("invite.incomplete")}
       </p>
     );
+  if (linkStatus.isLoading)
+    return (
+      <div className="space-y-3" aria-busy>
+        <div className="h-10 animate-pulse rounded-lg bg-surface-2" />
+        <div className="h-10 animate-pulse rounded-lg bg-surface-2" />
+        <div className="h-10 animate-pulse rounded-lg bg-surface-2" />
+      </div>
+    );
+  const status = linkStatus.data?.status;
+  if (status && status !== "valid") {
+    const copy: Record<Exclude<LinkStatus["status"], "valid">, [string, string, string, string]> = {
+      used: [
+        "Ce lien a déjà été utilisé",
+        "This link has already been used",
+        "Votre accès est déjà activé et votre mot de passe est déjà créé. Connectez-vous avec votre e-mail et votre mot de passe. Si vous l’avez oublié, utilisez « Mot de passe oublié ».",
+        "Your access is already active and your password is already set. Sign in with your e-mail and password. If you forgot it, use “Forgot password”.",
+      ],
+      expired: [
+        "Ce lien a expiré",
+        "This link has expired",
+        "Pour des raisons de sécurité, le lien n’est valable que 7 jours. Demandez à votre responsable de vous renvoyer un nouvel accès.",
+        "For security the link is only valid for 7 days. Ask your manager to send you a new access link.",
+      ],
+      revoked: [
+        "Ce lien n’est plus valable",
+        "This link is no longer valid",
+        "L’accès lié à ce lien a été annulé ou remplacé par un lien plus récent. Utilisez le dernier e-mail reçu ou contactez votre responsable.",
+        "The access for this link was cancelled or replaced by a newer link. Use the latest e-mail you received or contact your manager.",
+      ],
+      invalid: [
+        "Lien invalide",
+        "Invalid link",
+        "Ce lien est incomplet ou incorrect. Ouvrez le bouton directement depuis l’e-mail reçu, ou demandez un nouvel accès.",
+        "This link is incomplete or incorrect. Open the button directly from the e-mail, or ask for a new access link.",
+      ],
+    };
+    const [titleFr, titleEn, bodyFr, bodyEn] = copy[status];
+    const used = status === "used";
+    return (
+      <section
+        className={`space-y-4 rounded-2xl border p-5 ${used ? "border-brand/25 bg-brand/[.05]" : "border-warning/40 bg-warning/10"}`}
+        role="status"
+      >
+        <div className="flex items-start gap-3">
+          <span className={`grid size-10 shrink-0 place-items-center rounded-xl ${used ? "bg-brand/15 text-brand" : "bg-warning/20 text-warning"}`}>
+            {used ? <ShieldCheck className="size-5" aria-hidden /> : <CircleAlert className="size-5" aria-hidden />}
+          </span>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-ink">{fr ? titleFr : titleEn}</p>
+            {linkStatus.data?.organizationName ? (
+              <p className="mt-0.5 text-xs text-ink-muted">
+                {linkStatus.data.organizationName}
+                {linkStatus.data.emailHint ? ` · ${linkStatus.data.emailHint}` : ""}
+              </p>
+            ) : null}
+            <p className="mt-2 text-sm leading-6 text-ink-secondary">{fr ? bodyFr : bodyEn}</p>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href="/login"
+            className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-lg bg-brand px-4 text-sm font-semibold text-brand-ink transition hover:bg-brand-hover"
+          >
+            <LogIn className="size-4" aria-hidden />
+            {fr ? "Se connecter" : "Sign in"}
+          </Link>
+          {used ? (
+            <Link
+              href="/forgot-password"
+              className="inline-flex h-10 flex-1 items-center justify-center rounded-lg border border-border bg-surface-1 px-4 text-sm font-semibold text-ink transition hover:bg-surface-2"
+            >
+              {fr ? "Mot de passe oublié" : "Forgot password"}
+            </Link>
+          ) : null}
+        </div>
+      </section>
+    );
+  }
   const message =
     accept.error instanceof ApiError
       ? accept.error.message
