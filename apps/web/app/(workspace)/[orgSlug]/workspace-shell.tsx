@@ -78,23 +78,31 @@ function WorkspaceChrome({ orgSlug, children }: { orgSlug: string; children: Rea
     enabled: Boolean(user),
     retry: false,
   });
-  const groups = useMemo(
-    () =>
-      WORKSPACE_NAV.map((group) => ({
+  const groups = useMemo(() => {
+    const hasEmployeeProfile = Boolean(employeeProfile.data?.employee);
+    // The personal space (schedule, leave, payslips…) belongs to the Employee
+    // role. A person whose Employee role was removed keeps "My account" only.
+    const selfService =
+      hasEmployeeProfile && (isOwner(user) || Boolean(user?.roles?.includes("employee")));
+    const personalItemVisible = (path: string) =>
+      path === "/my-account" ? hasEmployeeProfile : selfService;
+    const fleetVisible =
+      selfService || isOwner(user) || Boolean(user?.permissions?.some((code) => code.startsWith("vehicles.")));
+    return WORKSPACE_NAV.map((group) => ({
         ...group,
         items: group.items.filter(
           (item) =>
-            (!item.employeeProfileOnly || Boolean(employeeProfile.data?.employee)) &&
-            (!item.hideForEmployeeProfile || !Boolean(employeeProfile.data?.employee)) &&
+            (!item.employeeProfileOnly || personalItemVisible(item.path)) &&
+            (item.path !== "/my-fleet" || fleetVisible) &&
+            (!item.hideForEmployeeProfile || !selfService) &&
             isSelectedOperationalNavigation(
               item.path,
               profile.data?.operationalServices,
               isOwner(user),
             ),
         ),
-      })),
-    [employeeProfile.data?.employee, profile.data?.operationalServices, user],
-  );
+      }));
+  }, [employeeProfile.data?.employee, profile.data?.operationalServices, user]);
   return <div className="flex h-dvh overflow-hidden bg-page">
     <WorkspaceLanguagePreferenceSync orgSlug={orgSlug} />
     <div className="hidden shrink-0 lg:block"><Sidebar groups={groups} basePath={basePath} counts={counts} /></div>
