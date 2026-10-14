@@ -59,7 +59,7 @@ export function PlatformShell({ children }: { children: React.ReactNode }) {
       >
         <Drawer.Portal>
           <Drawer.Overlay className="fixed inset-0 z-40 bg-black/40" />
-          <Drawer.Content className="fixed inset-y-0 left-0 z-50 w-60 outline-none lg:hidden">
+          <Drawer.Content className="fixed inset-y-0 left-0 z-50 w-[16.5rem] outline-none lg:hidden">
             <Drawer.Title className="sr-only">
               {t("header.mainNavigation")}
             </Drawer.Title>

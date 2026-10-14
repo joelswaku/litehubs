@@ -16,15 +16,20 @@ export function OrgSwitcher() {
   if (!active) return null;
   if (organizations.length <= 1)
     return (
-      <div className="flex min-w-0 items-center gap-2">
+      <div className="flex min-w-0 items-center gap-2.5">
         <span
-          className="grid size-7 shrink-0 place-items-center rounded-md bg-surface-3 text-[11px] font-semibold text-ink-secondary"
+          className="grid size-8 shrink-0 place-items-center rounded-lg border border-border bg-surface-2 text-[11px] font-semibold text-ink-secondary dark:bg-white/[0.05]"
           aria-hidden
         >
           {initialsOf(active.displayName)}
         </span>
-        <span className="truncate text-sm font-medium text-ink">
-          {active.displayName}
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-semibold leading-tight tracking-[-0.01em] text-ink">
+            {active.displayName}
+          </span>
+          <span className="hidden truncate text-[11px] leading-tight text-ink-muted sm:block">
+            {t("sidebar.workspaceCaption")}
+          </span>
         </span>
       </div>
     );
@@ -33,19 +38,24 @@ export function OrgSwitcher() {
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="flex min-w-0 max-w-64 items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-surface-2"
+        className="flex h-10 min-w-0 max-w-72 items-center gap-2.5 rounded-xl border border-transparent px-1.5 text-sm outline-none transition-all duration-200 hover:border-border hover:bg-surface-1 hover:shadow-[0_1px_2px_rgba(15,23,42,.06)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring dark:hover:bg-white/[0.06]"
         aria-haspopup="listbox"
         aria-expanded={open}
         disabled={switchOrg.isPending}
       >
         <span
-          className="grid size-7 shrink-0 place-items-center rounded-md bg-surface-3 text-[11px] font-semibold text-ink-secondary"
+          className="grid size-8 shrink-0 place-items-center rounded-lg border border-border bg-surface-2 text-[11px] font-semibold text-ink-secondary dark:bg-white/[0.05]"
           aria-hidden
         >
           {initialsOf(active.displayName)}
         </span>
-        <span className="truncate font-medium text-ink">
-          {active.displayName}
+        <span className="min-w-0 text-left">
+          <span className="block truncate font-semibold leading-tight tracking-[-0.01em] text-ink">
+            {active.displayName}
+          </span>
+          <span className="hidden truncate text-[11px] leading-tight text-ink-muted sm:block">
+            {t("sidebar.workspaceCaption")}
+          </span>
         </span>
         {switchOrg.isPending ? (
           <Loader2
@@ -67,7 +77,7 @@ export function OrgSwitcher() {
             aria-hidden
           />
           <ul
-            className="absolute left-0 z-50 mt-1 w-72 overflow-hidden rounded-lg border border-border bg-surface-1 py-1 shadow-lg"
+            className="absolute left-0 z-50 mt-2 w-80 origin-top-left animate-[menu-in_160ms_ease-out] overflow-hidden rounded-2xl border border-border bg-surface-1 p-1.5 shadow-[0_24px_48px_-20px_rgba(15,23,42,.45),0_2px_6px_rgba(15,23,42,.06)] dark:shadow-[0_24px_48px_-16px_rgba(0,0,0,.7)]"
             role="listbox"
             aria-label={t("org.workspaces")}
           >
@@ -86,14 +96,14 @@ export function OrgSwitcher() {
                       if (!isActive) switchOrg.mutate(organization.slug);
                     }}
                     className={cn(
-                      "flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm",
+                      "flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-sm transition",
                       isActive
-                        ? "bg-surface-2 font-medium text-ink"
-                        : "text-ink-secondary hover:bg-surface-2 hover:text-ink",
+                        ? "bg-brand/10 font-medium text-ink dark:bg-brand/20"
+                        : "text-ink-secondary hover:bg-surface-2 hover:text-ink dark:hover:bg-white/[0.06]",
                     )}
                   >
                     <span
-                      className="grid size-6 shrink-0 place-items-center rounded bg-surface-3 text-[10px] font-semibold"
+                      className="grid size-8 shrink-0 place-items-center rounded-lg border border-border bg-surface-2 text-[10px] font-semibold dark:bg-white/[0.05]"
                       aria-hidden
                     >
                       {initialsOf(organization.displayName)}
@@ -119,11 +129,11 @@ export function OrgSwitcher() {
                 </li>
               );
             })}
-            <li className="mt-1 border-t border-border pt-1">
+            <li className="mt-1.5 border-t border-border pt-1.5">
               <Link
                 href="/select-organization"
                 onClick={() => setOpen(false)}
-                className="flex items-center gap-2.5 px-3 py-2 text-sm text-ink-secondary hover:bg-surface-2 hover:text-ink"
+                className="flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-sm text-ink-secondary transition hover:bg-surface-2 hover:text-ink dark:hover:bg-white/[0.06]"
               >
                 <Plus className="size-4" aria-hidden />
                 {t("org.allWorkspaces")}

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, PanelLeft } from "lucide-react";
+import { ChevronDown, ChevronsLeft, ChevronsRight } from "lucide-react";
 import { Fragment, useState } from "react";
 import { BrandMark } from "@/components/brand/brand-mark";
 import { cn, initialsOf } from "@/lib/utils";
@@ -15,6 +15,7 @@ import { useSessionUser } from "@/stores/session-store";
 import { useUiStore } from "@/stores/ui-store";
 import { APP_NAME } from "@/lib/constants";
 import { get, orgUrl } from "@/lib/api";
+import { roleCaption } from "@/lib/role-labels";
 
 /**
  * The workspace and platform sidebar.
@@ -59,7 +60,7 @@ export function Sidebar({
   counts?: Partial<Record<"alerts" | "approvals" | "notifications" | "chat", number>>;
   plane?: "workspace" | "platform";
 }) {
-  const { t } = useLanguage();
+  const { t, locale } = useLanguage();
   const pathname = usePathname();
   const user = useSessionUser();
 
@@ -108,15 +109,23 @@ export function Sidebar({
       className={cn(
         // `select-none` because dragging across chrome and highlighting the
         // labels is never what someone meant to do in a nav panel.
-        "flex h-full select-none flex-col border-r border-border bg-surface-1",
-        collapsed ? "w-16" : "w-64",
+        "relative flex h-full select-none flex-col border-r border-border",
+        // A quiet vertical wash and a faint brand glow at the top give the
+        // panel depth without competing with the page.
+        "bg-[linear-gradient(180deg,var(--surface-1)_0%,color-mix(in_oklab,var(--surface-1)_94%,var(--brand))_100%)]",
+        "dark:bg-[linear-gradient(180deg,color-mix(in_oklab,var(--surface-1)_92%,black)_0%,var(--page)_100%)]",
+        collapsed ? "w-[4.5rem]" : "w-[16.5rem]",
         "transition-[width] duration-300 ease-out",
       )}
     >
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-[radial-gradient(120%_70%_at_0%_0%,color-mix(in_oklab,var(--brand)_14%,transparent),transparent_70%)] dark:bg-[radial-gradient(120%_70%_at_0%_0%,color-mix(in_oklab,var(--brand)_22%,transparent),transparent_70%)]"
+      />
       {/* ------------------------------------------------------- identity -- */}
       <div
         className={cn(
-          "flex h-16 shrink-0 items-center border-b border-border",
+          "relative flex h-16 shrink-0 items-center",
           collapsed ? "justify-center px-2" : "px-4",
         )}
       >
@@ -138,19 +147,24 @@ export function Sidebar({
                 <img
                   src={workspaceLogo}
                   alt=""
-                  className="size-7 shrink-0 rounded-md border border-border bg-white object-contain p-0.5"
+                  className="size-9 shrink-0 rounded-xl bg-white object-contain p-1 shadow-[0_1px_2px_rgba(15,23,42,.08),0_6px_16px_-8px_rgba(15,23,42,.35)] ring-1 ring-black/5 dark:ring-white/10"
                 />
               ) : (
                 <span
-                  className="grid size-7 shrink-0 place-items-center rounded-md bg-brand text-[10px] font-semibold tracking-tight text-brand-ink"
+                  className="grid size-9 shrink-0 place-items-center rounded-xl bg-[linear-gradient(135deg,var(--brand),var(--brand-active))] text-[11px] font-bold tracking-tight text-white shadow-[0_6px_16px_-6px_color-mix(in_oklab,var(--brand)_70%,transparent)] ring-1 ring-white/20"
                   aria-hidden
                 >
                   {initialsOf(workspaceName).slice(0, 2)}
                 </span>
               )}
               {!collapsed ? (
-                <span className="truncate text-sm font-semibold tracking-[-0.011em] text-ink">
-                  {workspaceName}
+                <span className="min-w-0">
+                  <span className="block truncate text-[0.9rem] font-semibold leading-tight tracking-[-0.015em] text-ink">
+                    {workspaceName}
+                  </span>
+                  <span className="mt-0.5 block truncate text-[11px] font-medium leading-tight text-ink-muted">
+                    {t("sidebar.workspaceCaption")}
+                  </span>
                 </span>
               ) : null}
             </>
@@ -167,13 +181,20 @@ export function Sidebar({
         </Link>
       </div>
 
+      <div
+        aria-hidden
+        className={cn(
+          "h-px shrink-0 bg-[linear-gradient(90deg,transparent,var(--border)_20%,var(--border)_80%,transparent)]",
+          collapsed ? "mx-3" : "mx-4",
+        )}
+      />
       {/* ------------------------------------------------------------ nav -- */}
       {/* No search box here: the header's ⌘K trigger is always visible, and a
           second one duplicated it while costing the rows their space. */}
       <div
         className={cn(
-          "scrollbar-thin flex-1 overflow-y-auto overscroll-contain py-3",
-          collapsed ? "px-2" : "px-3",
+          "scrollbar-thin relative flex-1 overflow-y-auto overscroll-contain py-4",
+          collapsed ? "px-2.5" : "px-3",
         )}
       >
         {visibleGroups.map((group, groupIndex) => {
@@ -181,17 +202,21 @@ export function Sidebar({
           const holdsActive = group.items.some((item) => item.path === active);
 
           return (
-            <div key={group.id} className={groupIndex === 0 ? "" : "mt-5"}>
+            <div key={group.id} className={groupIndex === 0 ? "" : "mt-6"}>
               {!collapsed ? (
                 <button
                   type="button"
                   onClick={() => toggleGroup(group.id)}
                   aria-expanded={!isFolded}
-                  className="group/heading mb-1.5 flex w-full items-center gap-1.5 rounded-lg px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-muted transition-colors hover:text-ink-secondary"
+                  className="group/heading mb-2 flex w-full items-center gap-2 rounded-lg px-3 py-0.5 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-ink-muted/90 transition-colors hover:text-ink-secondary"
                 >
                   <span className="truncate">
                     {t(navTranslationKey(group.label))}
                   </span>
+                  <span
+                    aria-hidden
+                    className="h-px min-w-3 flex-1 bg-[linear-gradient(90deg,var(--border),transparent)]"
+                  />
                   {/* A folded group holding the current page must still say so,
                       or the user loses their place. */}
                   {isFolded && holdsActive ? (
@@ -204,7 +229,7 @@ export function Sidebar({
                       rows already give the eye plenty to do. */}
                   <ChevronDown
                     className={cn(
-                      "ml-auto size-3 shrink-0 opacity-0 transition-all duration-200",
+                      "size-3 shrink-0 opacity-0 transition-all duration-200",
                       "group-hover/heading:opacity-100 group-focus-visible/heading:opacity-100",
                       isFolded && "-rotate-90 opacity-100",
                     )}
@@ -218,7 +243,7 @@ export function Sidebar({
               ) : null}
 
               {!isFolded || collapsed ? (
-                <ul className="space-y-1">
+                <ul className="space-y-0.5">
                   {group.items
                     .filter((item) => !item.parentPath)
                     .map((item) => {
@@ -257,8 +282,8 @@ export function Sidebar({
                             }
                           />
                           {children.length && expanded && !collapsed ? (
-                            <li className="ml-5 border-l border-border pl-2">
-                              <ul className="space-y-1 py-1">
+                            <li className="ml-[1.4rem] border-l border-border/80 pl-2.5">
+                              <ul className="space-y-0.5 py-1">
                                 {children.map((child) => (
                                   <NavRow
                                     key={child.path}
@@ -295,20 +320,28 @@ export function Sidebar({
           the moment it was clicked. */}
       <div
         className={cn(
-          "flex shrink-0 items-center border-t border-border",
-          collapsed ? "flex-col gap-1 px-2 py-3" : "gap-2 p-3",
+          "relative shrink-0",
+          collapsed ? "flex flex-col items-center gap-2 px-2 py-3" : "p-3",
         )}
       >
+        <div
+          className={cn(
+            "flex items-center",
+            collapsed
+              ? "flex-col gap-2"
+              : "gap-2.5 rounded-2xl border border-border bg-surface-1/80 p-2 shadow-[0_1px_2px_rgba(15,23,42,.04),0_8px_24px_-16px_rgba(15,23,42,.35)] backdrop-blur dark:bg-white/[0.03] dark:shadow-none",
+          )}
+        >
         {!collapsed ? (
           <div className="flex min-w-0 flex-1 items-center gap-2.5">
-            <span
-              className="grid size-7 shrink-0 place-items-center rounded-full border border-border bg-surface-2 text-[10px] font-semibold text-ink-secondary"
-              aria-hidden
-            >
-              {initialsOf(user?.fullName)}
+            <span className="relative shrink-0" aria-hidden>
+              <span className="grid size-9 place-items-center rounded-full bg-[linear-gradient(135deg,color-mix(in_oklab,var(--brand)_85%,white),var(--brand-active))] text-[11px] font-semibold text-white ring-2 ring-surface-1 dark:ring-surface-2">
+                {initialsOf(user?.fullName)}
+              </span>
+              <span className="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full bg-good ring-2 ring-surface-1" />
             </span>
             <span className="min-w-0">
-              <span className="block truncate text-xs font-medium leading-snug text-ink">
+              <span className="block truncate text-[13px] font-semibold leading-snug text-ink">
                 {user?.fullName ?? "—"}
               </span>
               {/* Capitalised because the role arrives as a snake_case code —
@@ -318,11 +351,11 @@ export function Sidebar({
                   like a typo rather than a tidier address. */}
               <span
                 className={cn(
-                  "block truncate text-[10px] leading-snug text-ink-muted",
+                  "block truncate text-[11px] leading-snug text-ink-muted",
                   user?.roles?.[0] && "capitalize",
                 )}
               >
-                {user?.roles?.[0]?.replace(/_/g, " ") ?? user?.email ?? ""}
+                {roleCaption(user?.roles ?? [], locale) ?? user?.email ?? ""}
               </span>
             </span>
           </div>
@@ -334,16 +367,18 @@ export function Sidebar({
           aria-label={
             collapsed ? t("header.expandSidebar") : t("header.collapseSidebar")
           }
-          className="grid size-8 shrink-0 place-items-center rounded-lg text-ink-muted outline-none transition-colors hover:bg-surface-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+          title={
+            collapsed ? t("header.expandSidebar") : t("header.collapseSidebar")
+          }
+          className="grid size-8 shrink-0 place-items-center rounded-xl border border-transparent text-ink-muted outline-none transition-all hover:border-border hover:bg-surface-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
         >
-          <PanelLeft
-            className={cn(
-              "size-4 transition-transform duration-200",
-              collapsed && "rotate-180",
-            )}
-            aria-hidden
-          />
+          {collapsed ? (
+            <ChevronsRight className="size-4" aria-hidden />
+          ) : (
+            <ChevronsLeft className="size-4" aria-hidden />
+          )}
         </button>
+        </div>
       </div>
     </nav>
   );
@@ -401,41 +436,40 @@ function NavRow({
           // happened to be positioned and landed in the wrong place.
           // The border sits on every row, transparent when inactive, so the
           // label does not jump three pixels as the active row changes.
-          "group relative flex items-center rounded-xl border-l-[3px] text-sm font-medium outline-none transition-all duration-200",
+          "group relative flex items-center rounded-xl text-[13.5px] font-medium outline-none transition-all duration-200",
           "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
-          collapsed ? "h-9 justify-center" : "h-9 gap-3 px-3",
+          collapsed ? "mx-auto h-10 w-10 justify-center" : "h-10 gap-3 pl-2 pr-2.5",
           active
-            ? // A brand tint rather than `surface-2`, which hover already owns.
-              // Dark carries a heavier tint: `/10` over a near-black surface is
-              // effectively invisible, where over a near-white one it is plenty.
-              //
-              // Dark uses `brand-active`, the lighter step, rather than `brand`.
-              // The label has to stay blue, and `brand` (#3987e5) on this tinted
-              // row measures 3.69:1 — under the 4.5:1 that 14px text needs, so it
-              // reads as slightly smudged rather than crisp. `brand-active`
-              // (#6da7ec) is the same hue at 5.37:1.
-              "border-brand bg-brand/10 text-brand dark:bg-brand/20 dark:text-brand-active"
-            : "border-transparent text-ink-secondary hover:bg-surface-2 hover:text-ink",
+            ? // A soft brand wash with a hairline ring and a lifted shadow in
+              // light; a heavier wash in dark, where /10 would vanish. Dark keeps
+              // `brand-active` for the label so 14px text clears 4.5:1.
+              "bg-[linear-gradient(90deg,color-mix(in_oklab,var(--brand)_14%,var(--surface-1)),color-mix(in_oklab,var(--brand)_6%,var(--surface-1)))] text-brand shadow-[0_1px_2px_rgba(15,23,42,.06),inset_0_0_0_1px_color-mix(in_oklab,var(--brand)_22%,transparent)] dark:bg-[linear-gradient(90deg,color-mix(in_oklab,var(--brand)_26%,transparent),color-mix(in_oklab,var(--brand)_10%,transparent))] dark:text-brand-active dark:shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--brand)_35%,transparent)]"
+            : "text-ink-secondary hover:bg-surface-2/80 hover:text-ink dark:hover:bg-white/[0.05]",
         )}
       >
-        <span className="relative shrink-0">
-          <Icon
-            className={cn(
-              "size-4 transition-colors",
-              // Active inherits the row colour instead of pinning `text-brand`,
-              // so it follows the row's dark-mode override rather than staying
-              // blue against a near-white label.
-              active
-                ? "text-current"
-                : "text-ink-muted group-hover:text-ink-secondary",
-            )}
+        {active && !collapsed ? (
+          // A rounded indicator pill rather than a border, so it never shifts
+          // the label and reads as a deliberate mark.
+          <span
             aria-hidden
+            className="absolute -left-3 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-brand shadow-[0_0_10px_color-mix(in_oklab,var(--brand)_70%,transparent)] dark:bg-brand-active"
           />
+        ) : null}
+        <span
+          className={cn(
+            "relative grid shrink-0 place-items-center rounded-lg transition-all duration-200",
+            collapsed ? "size-9" : "size-7",
+            active
+              ? "bg-[linear-gradient(135deg,var(--brand),var(--brand-active))] text-white shadow-[0_4px_12px_-4px_color-mix(in_oklab,var(--brand)_80%,transparent)] dark:bg-[linear-gradient(135deg,var(--brand),color-mix(in_oklab,var(--brand)_70%,black))]"
+              : "text-ink-muted group-hover:bg-surface-1 group-hover:text-ink-secondary group-hover:shadow-[0_1px_2px_rgba(15,23,42,.08)] dark:group-hover:bg-white/[0.06]",
+          )}
+        >
+          <Icon className="size-[15px]" aria-hidden />
           {collapsed && hasCount ? (
             // Collapsed has no room for a number: the dot carries "something is
             // here" and the accessible name carries how many.
             <span
-              className="absolute -right-1 -top-0.5 size-2 rounded-full bg-critical ring-2 ring-surface-1"
+              className="absolute -right-0.5 -top-0.5 size-2.5 rounded-full bg-critical ring-2 ring-surface-1"
               aria-label={translate("header.unread" as never, { count })}
             />
           ) : null}
@@ -445,7 +479,7 @@ function NavRow({
           <>
             <span className="truncate">{label}</span>
             {hasCount ? (
-              <span className="ml-auto min-w-4.5 shrink-0 rounded-full bg-critical px-1.5 py-0.5 text-center text-[10px] font-semibold leading-none text-white tabular">
+              <span className="ml-auto min-w-5 shrink-0 rounded-full bg-critical px-1.5 py-[3px] text-center text-[10px] font-semibold leading-none text-white shadow-[0_2px_6px_-1px_color-mix(in_oklab,var(--critical)_60%,transparent)] tabular">
                 {count > 99 ? "99+" : count}
               </span>
             ) : null}
@@ -455,3 +489,4 @@ function NavRow({
     </li>
   );
 }
+

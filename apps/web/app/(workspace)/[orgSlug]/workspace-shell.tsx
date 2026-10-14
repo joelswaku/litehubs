@@ -107,7 +107,7 @@ function WorkspaceChrome({ orgSlug, children }: { orgSlug: string; children: Rea
     <WorkspaceLanguagePreferenceSync orgSlug={orgSlug} />
     <div className="hidden shrink-0 lg:block"><Sidebar groups={groups} basePath={basePath} counts={counts} /></div>
     <Drawer.Root open={mobileNavOpen} onOpenChange={setMobileNavOpen} direction="left">
-      <Drawer.Portal><Drawer.Overlay className="fixed inset-0 z-40 bg-black/40" /><Drawer.Content className="fixed inset-y-0 left-0 z-50 w-60 outline-none lg:hidden"><Drawer.Title className="sr-only">{t("header.mainNavigation")}</Drawer.Title><Sidebar groups={groups} basePath={basePath} counts={counts} /></Drawer.Content></Drawer.Portal>
+      <Drawer.Portal><Drawer.Overlay className="fixed inset-0 z-40 bg-black/40" /><Drawer.Content className="fixed inset-y-0 left-0 z-50 w-[16.5rem] outline-none lg:hidden"><Drawer.Title className="sr-only">{t("header.mainNavigation")}</Drawer.Title><Sidebar groups={groups} basePath={basePath} counts={counts} /></Drawer.Content></Drawer.Portal>
     </Drawer.Root>
     <div className="flex min-w-0 flex-1 flex-col"><Header notificationHref={`${basePath}/notifications`} accountHref={`${basePath}/my-account`} /><main className="scrollbar-thin flex-1 overflow-y-auto">{children}</main></div>
     <GlobalSearchPalette orgSlug={orgSlug} groups={groups} />
