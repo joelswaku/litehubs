@@ -164,6 +164,17 @@ export const publicSubmitDocument: RequestHandler = async (req, res) => {
   );
 };
 
+export const publicDeleteDocumentFile: RequestHandler = async (req, res) => {
+  res.json(
+    await portal.publicDeleteDocumentFile(
+      param(req, "orgSlug"),
+      param(req, "token"),
+      param(req, "requestId"),
+      param(req, "fileId"),
+    ),
+  );
+};
+
 export const publicRecoverTracking: RequestHandler = async (req, res) => {
   res.setHeader("Cache-Control", "no-store, max-age=0");
   res.json(
@@ -218,6 +229,7 @@ export const downloadDocumentRequestFile: RequestHandler = async (req, res) => {
     context(req),
     param(req, "applicationId"),
     param(req, "requestId"),
+    typeof req.query.fileId === "string" && /^[0-9a-f-]{36}$/i.test(req.query.fileId) ? req.query.fileId : undefined,
   );
   const safeName = file.fileName.replace(/[\\/:*?"<>|\r\n]/g, "_");
   // Header values must be ASCII; keep the real name in filename*.

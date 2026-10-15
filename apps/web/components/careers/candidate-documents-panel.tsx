@@ -26,6 +26,9 @@ type DocumentRequest = {
   status: "requested" | "submitted" | "accepted" | "rejected" | "cancelled";
   dueDate: string | null;
   file: { fileName: string; mimeType: string; sizeBytes: number } | null;
+  files?: { id: string; fileName: string; mimeType: string; sizeBytes: number; uploadedAt: string }[];
+  overdue?: boolean;
+  uploadsClosed?: boolean;
   submittedAt: string | null;
   reviewedAt: string | null;
   reviewNote: string | null;
@@ -168,12 +171,13 @@ export function CandidateDocumentsPanel({
     onError: (error: Error) => toast.error(error.message),
   });
 
-  const openFile = async (item: DocumentRequest, download: boolean) => {
-    const preview = !download && item.file && (item.file.mimeType === "application/pdf" || item.file.mimeType.startsWith("image/"));
+  type StoredFile = { id: string; fileName: string; mimeType: string };
+  const openFile = async (item: DocumentRequest, file: StoredFile, download: boolean) => {
+    const preview = !download && (file.mimeType === "application/pdf" || file.mimeType.startsWith("image/"));
     const target = preview ? window.open("", "_blank") : null;
     try {
       const response = await api.get<Blob>(orgUrl(orgSlug, `${base}/documents/${item.id}/file`), {
-        params: preview ? { view: "inline" } : undefined,
+        params: { ...(preview ? { view: "inline" } : {}), ...(file.id ? { fileId: file.id } : {}) },
         responseType: "blob",
       });
       const url = URL.createObjectURL(response.data);
@@ -181,7 +185,7 @@ export function CandidateDocumentsPanel({
       else {
         const link = document.createElement("a");
         link.href = url;
-        link.download = item.file?.fileName ?? "document";
+        link.download = file.fileName || "document";
         link.click();
       }
       window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
@@ -331,29 +335,47 @@ export function CandidateDocumentsPanel({
                       {item.requestedBy ? ` · ${item.requestedBy}` : ""}
                       {item.dueDate ? ` · ${tr(fr, "échéance", "due")} ${new Date(`${item.dueDate}T12:00:00`).toLocaleDateString(fr ? "fr-FR" : "en-GB")}` : ""}
                     </p>
-                    {item.dueDate &&
-                    item.dueDate < today &&
-                    (item.status === "requested" || item.status === "rejected") ? (
+                    {item.uploadsClosed ||
+                    (item.dueDate && item.dueDate < today && (item.status === "requested" || item.status === "rejected")) ? (
                       <p className="mt-1 inline-flex items-center gap-1 rounded-full bg-critical/10 px-2 py-0.5 text-[11px] font-semibold text-critical">
                         <CalendarClock className="size-3" />
-                        {tr(fr, "Délai dépassé — vous pouvez le prolonger", "Deadline passed — you can extend it")}
+                        {tr(
+                          fr,
+                          "Délai dépassé — le candidat ne peut plus envoyer. Prolongez le délai pour rouvrir l’envoi.",
+                          "Deadline passed — the candidate can no longer upload. Extend it to reopen uploads.",
+                        )}
                       </p>
                     ) : null}
                   </div>
                   <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${tone}`}>{fr ? french : english}</span>
                 </div>
-                {item.file ? (
-                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-ink-secondary">
-                    <span className="truncate font-medium text-ink">{item.file.fileName}</span>
-                    {item.submittedAt ? <span>· {when(item.submittedAt, fr)}</span> : null}
-                    <button type="button" onClick={() => void openFile(item, false)} className="inline-flex items-center gap-1 font-semibold text-brand hover:underline">
-                      <Eye className="size-3.5" /> {tr(fr, "Voir", "View")}
-                    </button>
-                    <button type="button" onClick={() => void openFile(item, true)} className="inline-flex items-center gap-1 font-semibold text-brand hover:underline">
-                      <FileDown className="size-3.5" /> {tr(fr, "Télécharger", "Download")}
-                    </button>
-                  </div>
-                ) : null}
+                {(() => {
+                  const files =
+                    item.files ??
+                    (item.file ? [{ id: "", ...item.file, uploadedAt: item.submittedAt ?? item.createdAt }] : []);
+                  if (!files.length) return null;
+                  return (
+                    <ul className="mt-2 space-y-1">
+                      {files.length > 1 ? (
+                        <li className="text-[11px] font-semibold text-ink-secondary">
+                          {tr(fr, `${files.length} fichiers envoyés`, `${files.length} files sent`)}
+                        </li>
+                      ) : null}
+                      {files.map((file, index) => (
+                        <li key={file.id || index} className="flex flex-wrap items-center gap-2 text-xs text-ink-secondary">
+                          <span className="max-w-full truncate font-medium text-ink">{file.fileName}</span>
+                          <span>· {when(file.uploadedAt, fr)}</span>
+                          <button type="button" onClick={() => void openFile(item, file, false)} className="inline-flex items-center gap-1 font-semibold text-brand hover:underline">
+                            <Eye className="size-3.5" /> {tr(fr, "Voir", "View")}
+                          </button>
+                          <button type="button" onClick={() => void openFile(item, file, true)} className="inline-flex items-center gap-1 font-semibold text-brand hover:underline">
+                            <FileDown className="size-3.5" /> {tr(fr, "Télécharger", "Download")}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  );
+                })()}
                 {item.reviewNote ? (
                   <p className="mt-2 text-xs text-ink-secondary">
                     {tr(fr, "Note :", "Note:")} {item.reviewNote}
@@ -457,7 +479,7 @@ export function CandidateDocumentsPanel({
                         </Button>
                       </>
                     ) : null}
-                    {item.status === "requested" || item.status === "rejected" ? (
+                    {item.status === "requested" || item.status === "rejected" || item.uploadsClosed ? (
                       <>
                         <Button
                           size="sm"

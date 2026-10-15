@@ -15,6 +15,8 @@ import {
   FileUp,
   FileX2,
   LockKeyhole,
+  Plus,
+  Trash2,
   Mail,
   MapPin,
   MessageSquareText,
@@ -41,6 +43,9 @@ type DocumentRequest = {
   status: "requested" | "submitted" | "accepted" | "rejected";
   dueDate: string | null;
   file: { fileName: string; mimeType: string; sizeBytes: number } | null;
+  files?: { id: string; fileName: string; mimeType: string; sizeBytes: number; uploadedAt: string }[];
+  overdue?: boolean;
+  uploadsClosed?: boolean;
   submittedAt: string | null;
   reviewedAt: string | null;
   reviewNote: string | null;
@@ -73,6 +78,7 @@ type Candidate = {
   contactEmail: string;
 };
 
+const MAX_FILES = 5;
 const ACCEPT =
   "application/pdf,image/jpeg,image/png,image/webp,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
@@ -256,7 +262,9 @@ export function CandidatePortalPage({ orgSlug, token }: { orgSlug: string; token
     );
 
   const status = STATUS[candidate.status];
-  const open = candidate.documentRequests.filter((item) => item.status === "requested" || item.status === "rejected");
+  const open = candidate.documentRequests.filter(
+    (item) => (item.status === "requested" || item.status === "rejected") && !item.uploadsClosed,
+  );
 
   return (
     <PortalShell orgSlug={orgSlug} fr={fr} setFr={setFr} organizationName={candidate.organizationName} branding={tracking.data?.branding}>
@@ -332,6 +340,7 @@ export function CandidatePortalPage({ orgSlug, token }: { orgSlug: string; token
                     canUpload={!candidate.closed && candidate.status !== "hired"}
                     orgSlug={orgSlug}
                     token={token}
+                    contactEmail={candidate.contactEmail}
                     onUploaded={() => void tracking.refetch()}
                   />
                 ))}
@@ -419,6 +428,7 @@ function DocumentRequestCard({
   canUpload,
   orgSlug,
   token,
+  contactEmail,
   onUploaded,
 }: {
   request: DocumentRequest;
@@ -426,6 +436,7 @@ function DocumentRequestCard({
   canUpload: boolean;
   orgSlug: string;
   token: string;
+  contactEmail: string;
   onUploaded: () => void;
 }) {
   const [file, setFile] = useState<File | null>(null);
@@ -453,8 +464,30 @@ function DocumentRequestCard({
     },
     onError: (error: Error) => toast.error(error.message),
   });
+  const remove = useMutation({
+    mutationFn: async (fileId: string) => {
+      const response = await fetch(
+        `/api/v1${trackEndpoint(orgSlug, token)}/documents/${request.id}/files/${fileId}`,
+        { method: "DELETE", credentials: "same-origin" },
+      );
+      const body = await response.json().catch(() => null);
+      if (!response.ok)
+        throw new Error(body?.error?.message ?? t(fr, "Impossible de retirer le fichier.", "Could not remove the file."));
+      return body;
+    },
+    onSuccess: () => {
+      toast.success(t(fr, "Fichier retiré.", "File removed."));
+      onUploaded();
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
   const meta = DOCUMENT_STATUS[request.status];
-  const uploadable = canUpload && request.status !== "accepted";
+  const files =
+    request.files ??
+    (request.file ? [{ id: "", ...request.file, uploadedAt: request.submittedAt ?? request.createdAt }] : []);
+  const closed = Boolean(request.uploadsClosed);
+  const editable = canUpload && request.status !== "accepted" && !closed;
+  const full = request.status !== "rejected" && files.length >= MAX_FILES;
   const Icon = request.status === "accepted" ? FileCheck2 : request.status === "rejected" ? FileX2 : FileText;
   return (
     <article className="rounded-2xl border border-border bg-surface-1 p-4 shadow-sm">
@@ -469,8 +502,11 @@ function DocumentRequestCard({
               <p className="mt-0.5 text-sm leading-6 text-ink-secondary">{request.description}</p>
             ) : null}
             {request.dueDate ? (
-              <p className="mt-1 text-xs text-ink-secondary">
-                {t(fr, "À envoyer avant le", "Due by")} {formatDate(request.dueDate, fr)}
+              <p className={`mt-1 text-xs ${request.overdue && request.status !== "accepted" ? "font-semibold text-critical" : "text-ink-secondary"}`}>
+                {request.overdue && request.status !== "accepted"
+                  ? t(fr, "Délai dépassé le", "Deadline passed on")
+                  : t(fr, "À envoyer avant le", "Due by")}{" "}
+                {formatDate(request.dueDate, fr)}
               </p>
             ) : null}
           </div>
@@ -483,33 +519,88 @@ function DocumentRequestCard({
           {request.reviewNote}
         </p>
       ) : null}
-      {request.file ? (
-        <p className="mt-3 text-xs text-ink-secondary">
-          {t(fr, "Fichier envoyé :", "File sent:")} <span className="font-medium text-ink">{request.file.fileName}</span> ·{" "}
-          {formatSize(request.file.sizeBytes)}
-          {request.submittedAt ? ` · ${formatDate(request.submittedAt, fr, true)}` : ""}
-        </p>
+      {files.length ? (
+        <ul className="mt-3 space-y-1.5">
+          {files.map((item, index) => (
+            <li
+              key={item.id || index}
+              className="flex items-center gap-2 rounded-xl border border-border/80 bg-surface-2/35 px-3 py-2 text-xs text-ink-secondary"
+            >
+              <FileText className="size-3.5 shrink-0 text-brand" />
+              <span className="min-w-0 flex-1 truncate">
+                <span className="font-medium text-ink">{item.fileName}</span> · {formatSize(item.sizeBytes)} ·{" "}
+                {formatDate(item.uploadedAt, fr, true)}
+              </span>
+              {editable && item.id && request.status !== "rejected" ? (
+                <button
+                  type="button"
+                  disabled={remove.isPending}
+                  onClick={() => remove.mutate(item.id)}
+                  className="grid size-7 shrink-0 place-items-center rounded-lg text-ink-muted transition hover:bg-critical/10 hover:text-critical"
+                  title={t(fr, "Retirer ce fichier", "Remove this file")}
+                  aria-label={t(fr, "Retirer ce fichier", "Remove this file")}
+                >
+                  <Trash2 className="size-3.5" />
+                </button>
+              ) : null}
+            </li>
+          ))}
+        </ul>
       ) : null}
-      {uploadable ? (
+      {canUpload && closed ? (
+        <div className="mt-4 flex gap-3 rounded-xl border border-critical/25 bg-critical/[.05] p-3 text-sm leading-6 text-ink">
+          <Clock3 className="mt-0.5 size-4 shrink-0 text-critical" />
+          <p>
+            <strong>{t(fr, "Le délai d’envoi est dépassé.", "The deadline has passed.")}</strong>{" "}
+            {t(
+              fr,
+              "Vous ne pouvez plus envoyer ce document en ligne. Contactez l’équipe de recrutement pour obtenir un nouveau délai : ",
+              "You can no longer upload this document online. Contact the recruitment team to get a new deadline: ",
+            )}
+            <a className="font-semibold text-brand underline underline-offset-2" href={`mailto:${contactEmail}`}>
+              {contactEmail}
+            </a>
+          </p>
+        </div>
+      ) : null}
+      {editable && !full ? (
         <form
-          className="mt-4 flex flex-col gap-2 border-t border-border pt-4 sm:flex-row sm:items-center"
+          className="mt-4 border-t border-border pt-4"
           onSubmit={(event) => {
             event.preventDefault();
             upload.mutate();
           }}
         >
-          <Input
-            ref={input}
-            type="file"
-            accept={ACCEPT}
-            className="sm:flex-1"
-            onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-          />
-          <Button loading={upload.isPending} disabled={!file} className="h-10 shrink-0">
-            <Send className="size-4" />
-            {request.status === "submitted" ? t(fr, "Remplacer", "Replace") : t(fr, "Envoyer", "Send")}
-          </Button>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <Input
+              ref={input}
+              type="file"
+              accept={ACCEPT}
+              className="sm:flex-1"
+              onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+            />
+            <Button loading={upload.isPending} disabled={!file} className="h-10 shrink-0">
+              {files.length && request.status !== "rejected" ? <Plus className="size-4" /> : <Send className="size-4" />}
+              {files.length && request.status !== "rejected"
+                ? t(fr, "Ajouter ce fichier", "Add this file")
+                : t(fr, "Envoyer", "Send")}
+            </Button>
+          </div>
+          <p className="mt-2 text-[11px] leading-5 text-ink-muted">
+            {request.status === "rejected" && files.length
+              ? t(fr, "Le nouvel envoi remplacera les fichiers refusés.", "Your new upload replaces the refused files.")
+              : t(
+                  fr,
+                  `Plusieurs pages ? Envoyez-les une par une (jusqu’à ${MAX_FILES} fichiers, ex. recto et verso).`,
+                  `Several pages? Send them one by one (up to ${MAX_FILES} files, e.g. front and back).`,
+                )}
+          </p>
         </form>
+      ) : null}
+      {editable && full ? (
+        <p className="mt-3 text-[11px] text-ink-muted">
+          {t(fr, `Maximum ${MAX_FILES} fichiers atteint. Retirez-en un pour en ajouter un autre.`, `Maximum of ${MAX_FILES} files reached. Remove one to add another.`)}
+        </p>
       ) : null}
     </article>
   );
@@ -542,6 +633,8 @@ function TimelineRow({ item, fr, last }: { item: TimelineItem; fr: boolean; last
       document_accepted: ["Document accepté", "Document accepted"],
       document_rejected: ["Document à renvoyer", "Document to send again"],
       document_cancelled: ["Demande de document annulée", "Document request cancelled"],
+      document_file_removed: ["Fichier retiré", "File removed"],
+      document_deadline_changed: ["Nouveau délai", "New deadline"],
     };
     const pair = labels[item.type] ?? ["Document", "Document"];
     title = `${fr ? pair[0] : pair[1]} · ${item.label ?? ""}`;
@@ -599,8 +692,8 @@ export function CandidatePortalRecoverPage({ orgSlug }: { orgSlug: string }) {
       setSent(
         t(
           fr,
-          "Si une candidature correspond à cette adresse, un nouveau lien de suivi vient de vous être envoyé par e-mail. Pensez à vérifier vos courriers indésirables.",
-          "If an application matches this address, a new tracking link has just been sent by e-mail. Remember to check your spam folder.",
+          "Si une candidature correspond à cette adresse, un lien de suivi vous a été envoyé par e-mail. Pensez à vérifier vos courriers indésirables. Un nouveau lien ne peut être demandé qu’une fois toutes les 48 heures : utilisez celui déjà reçu.",
+          "If an application matches this address, a tracking link has been sent by e-mail. Remember to check your spam folder. A new link can only be requested once every 48 hours: use the one you already received.",
         ),
       ),
     onError: (error: Error) => toast.error(error.message),
@@ -652,6 +745,13 @@ export function CandidatePortalRecoverPage({ orgSlug }: { orgSlug: string }) {
                 <Mail className="size-4" />
                 {t(fr, "Recevoir mon lien de suivi", "Send my tracking link")}
               </Button>
+              <p className="text-center text-xs leading-5 text-ink-muted">
+                {t(
+                  fr,
+                  "Le lien reste valable : un nouveau lien ne peut être demandé qu’une fois toutes les 48 heures.",
+                  "The link stays valid: a new link can only be requested once every 48 hours.",
+                )}
+              </p>
             </form>
           )}
         </div>

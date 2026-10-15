@@ -172,6 +172,8 @@ export const publicTrackingRecoverInput = z.object({
   email: z.string().trim().toLowerCase().email("Use a valid email address").max(255),
 });
 export const documentRequestParams = applicationParams.extend({ requestId: id });
+export const publicTrackingDocumentFileParams = publicTrackingDocumentParams.extend({ fileId: id });
+
 export const documentRequestInput = z.object({
   documents: z
     .array(

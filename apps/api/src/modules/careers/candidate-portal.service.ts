@@ -53,6 +53,12 @@ export const CANDIDATE_DOCUMENT_MIME_TYPES = new Set([
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ]);
 
+/** Files one requested document may hold (ID front and back, several pages…). */
+export const MAX_FILES_PER_DOCUMENT = 5;
+/** Deadlines are calendar days in Kinshasa: the day itself is still open. */
+const OVERDUE_SQL = `(r.due_date IS NOT NULL AND r.due_date < (now() AT TIME ZONE 'Africa/Kinshasa')::date)`;
+const DEADLINE_PASSED_MESSAGE = `Le délai pour envoyer ce document est dépassé. Contactez l’équipe de recrutement (${CANDIDATE_CONTACT_EMAIL}) pour obtenir un nouveau délai.`;
+
 const STATUS_STEPS = ["received", "reviewing", "shortlisted", "interview", "offered", "hired"] as const;
 
 type TrackingLookup = {
@@ -69,6 +75,18 @@ function mapDocumentRequest(row: Row, includeInternal: boolean) {
     description: (row.description as string | null) ?? null,
     status: row.status as string,
     dueDate: (row.due_date as string | null) ?? null,
+    overdue: Boolean(row.overdue),
+    // The candidate can no longer add or remove files once the deadline has
+    // passed: the team extends it ("Prolonger le délai") to reopen uploads.
+    uploadsClosed:
+      Boolean(row.overdue) && ["requested", "rejected", "submitted"].includes(String(row.status)),
+    files: ((row.files as Row[] | null) ?? []).map((file) => ({
+      id: String(file.id),
+      fileName: String(file.file_name),
+      mimeType: String(file.mime_type),
+      sizeBytes: Number(file.size_bytes ?? 0),
+      uploadedAt: file.created_at,
+    })),
     file: row.file_name
       ? {
           fileName: row.file_name as string,
@@ -95,7 +113,13 @@ async function documentRequests(
   applicationId: string,
 ) {
   const result = await client.query<Row>(
-    `SELECT r.*,r.due_date::text AS due_date,rq.full_name AS requested_by_name,rv.full_name AS reviewed_by_name
+    `SELECT r.*,r.due_date::text AS due_date,${OVERDUE_SQL} AS overdue,
+            rq.full_name AS requested_by_name,rv.full_name AS reviewed_by_name,
+            COALESCE((SELECT json_agg(json_build_object('id',f.id,'file_name',f.file_name,'mime_type',f.mime_type,
+                                                        'size_bytes',f.size_bytes,'created_at',f.created_at)
+                                      ORDER BY f.created_at)
+                        FROM career_application_document_files f
+                       WHERE f.organization_id=r.organization_id AND f.request_id=r.id),'[]'::json) AS files
        FROM career_application_document_requests r
        LEFT JOIN users rq ON rq.id=r.requested_by
        LEFT JOIN users rv ON rv.id=r.reviewed_by
@@ -322,8 +346,8 @@ export async function publicSubmitDocument(
         if (["rejected", "withdrawn", "hired"].includes(String(application.status)))
           throw new BadRequestError("Cette candidature n’accepte plus de documents.");
         const current = await client.query<Row>(
-          `SELECT * FROM career_application_document_requests
-            WHERE organization_id=$1 AND application_id=$2 AND id=$3
+          `SELECT r.*,${OVERDUE_SQL} AS overdue FROM career_application_document_requests r
+            WHERE r.organization_id=$1 AND r.application_id=$2 AND r.id=$3
             FOR UPDATE`,
           [found.organizationId, found.applicationId, requestId],
         );
@@ -332,6 +356,33 @@ export async function publicSubmitDocument(
           throw new NotFoundError("Document request not found");
         if (!["requested", "rejected", "submitted"].includes(String(request.status)))
           throw new BadRequestError("Ce document a déjà été validé par l’équipe de recrutement.");
+        if (request.overdue) throw new BadRequestError(DEADLINE_PASSED_MESSAGE);
+        // A rejected document starts a new round: the refused files go away.
+        const removed: string[] = [];
+        if (request.status === "rejected") {
+          const old = await client.query<{ storage_path: string }>(
+            `DELETE FROM career_application_document_files WHERE organization_id=$1 AND request_id=$2
+             RETURNING storage_path`,
+            [found.organizationId, requestId],
+          );
+          removed.push(...old.rows.map((row) => row.storage_path));
+        } else {
+          const count = await client.query<{ n: number }>(
+            `SELECT count(*)::int AS n FROM career_application_document_files WHERE organization_id=$1 AND request_id=$2`,
+            [found.organizationId, requestId],
+          );
+          if ((count.rows[0]?.n ?? 0) >= MAX_FILES_PER_DOCUMENT)
+            throw new BadRequestError(
+              `Ce document contient déjà ${MAX_FILES_PER_DOCUMENT} fichiers. Retirez-en un avant d’en ajouter un autre.`,
+            );
+        }
+        const name = uploadedName(file.originalname);
+        await client.query(
+          `INSERT INTO career_application_document_files
+             (organization_id,request_id,storage_path,file_name,mime_type,size_bytes,checksum_sha256)
+           VALUES($1,$2,$3,$4,$5,$6,$7)`,
+          [found.organizationId, requestId, stored.storagePath, name, stored.mimeType, stored.bytes, stored.checksumSha256],
+        );
         await client.query(
           `UPDATE career_application_document_requests
               SET status='submitted',storage_path=$4,file_name=$5,mime_type=$6,size_bytes=$7,checksum_sha256=$8,
@@ -342,7 +393,7 @@ export async function publicSubmitDocument(
             found.applicationId,
             requestId,
             stored.storagePath,
-            uploadedName(file.originalname),
+            name,
             stored.mimeType,
             stored.bytes,
             stored.checksumSha256,
@@ -371,16 +422,78 @@ export async function publicSubmitDocument(
             }),
           ),
         );
-        return { previousPath: request.storage_path as string | null };
+        return { removed };
       },
     );
-    if (result.previousPath && result.previousPath !== stored.storagePath)
-      await deletePrivateDocument(result.previousPath).catch(() => undefined);
+    for (const path of result.removed)
+      if (path !== stored.storagePath) await deletePrivateDocument(path).catch(() => undefined);
     return { submitted: true };
   } catch (error) {
     await deletePrivateDocument(stored.storagePath).catch(() => undefined);
     throw error;
   }
+}
+
+/** The candidate removes one of their files before the team has validated it. */
+export async function publicDeleteDocumentFile(
+  orgSlug: string,
+  token: string,
+  requestId: string,
+  fileId: string,
+) {
+  const found = await lookup(orgSlug, token);
+  const removed = await withTenantContext(
+    { organizationId: found.organizationId, userId: null },
+    async (client) => {
+      const current = await client.query<Row>(
+        `SELECT r.*,${OVERDUE_SQL} AS overdue FROM career_application_document_requests r
+          WHERE r.organization_id=$1 AND r.application_id=$2 AND r.id=$3 FOR UPDATE`,
+        [found.organizationId, found.applicationId, requestId],
+      );
+      const request = current.rows[0];
+      if (!request || request.status === "cancelled") throw new NotFoundError("Document request not found");
+      if (!["submitted", "rejected", "requested"].includes(String(request.status)))
+        throw new BadRequestError("Ce document a déjà été validé par l’équipe de recrutement.");
+      if (request.overdue) throw new BadRequestError(DEADLINE_PASSED_MESSAGE);
+      const deleted = await client.query<{ storage_path: string; file_name: string }>(
+        `DELETE FROM career_application_document_files WHERE organization_id=$1 AND request_id=$2 AND id=$3
+         RETURNING storage_path,file_name`,
+        [found.organizationId, requestId, fileId],
+      );
+      const file = deleted.rows[0];
+      if (!file) throw new NotFoundError("File not found");
+      const latest = await client.query<Row>(
+        `SELECT * FROM career_application_document_files WHERE organization_id=$1 AND request_id=$2
+          ORDER BY created_at DESC LIMIT 1`,
+        [found.organizationId, requestId],
+      );
+      const next = latest.rows[0];
+      if (next)
+        await client.query(
+          `UPDATE career_application_document_requests
+              SET storage_path=$4,file_name=$5,mime_type=$6,size_bytes=$7,checksum_sha256=$8
+            WHERE organization_id=$1 AND application_id=$2 AND id=$3`,
+          [found.organizationId, found.applicationId, requestId, next.storage_path, next.file_name,
+           next.mime_type, next.size_bytes, next.checksum_sha256],
+        );
+      else
+        await client.query(
+          `UPDATE career_application_document_requests
+              SET status=CASE WHEN status='submitted' THEN 'requested' ELSE status END,
+                  storage_path=NULL,file_name=NULL,mime_type=NULL,size_bytes=NULL,checksum_sha256=NULL,submitted_at=NULL
+            WHERE organization_id=$1 AND application_id=$2 AND id=$3`,
+          [found.organizationId, found.applicationId, requestId],
+        );
+      await event(client, found.organizationId, found.applicationId, "document_file_removed", null, {
+        requestId,
+        label: request.label,
+        fileName: file.file_name,
+      });
+      return file.storage_path;
+    },
+  );
+  await deletePrivateDocument(removed).catch(() => undefined);
+  return { removed: true };
 }
 
 /** Always answers the same way so the form cannot reveal who applied. */
@@ -396,11 +509,12 @@ export async function publicRecoverTracking(orgSlug: string, email: string) {
         const prepared = await withTenantContext(
           { organizationId: payload.organizationId, userId: null },
           async (client) => {
-            // Throttle per application: one recovery e-mail every 10 minutes.
+            // One recovery e-mail per application every 48 hours: the previous
+            // link stays valid, so repeated requests send nothing new.
             const recent = await client.query(
               `SELECT 1 FROM career_application_events
                 WHERE organization_id=$1 AND application_id=$2 AND event_type='tracking_link_recovered'
-                  AND created_at > now() - interval '10 minutes' LIMIT 1`,
+                  AND created_at > now() - interval '48 hours' LIMIT 1`,
               [payload.organizationId, applicationId],
             );
             if (recent.rowCount) return null;
@@ -436,7 +550,7 @@ export async function publicRecoverTracking(orgSlug: string, email: string) {
   }
   return {
     message:
-      "Si une candidature correspond à cette adresse, un nouveau lien de suivi vient d’être envoyé par e-mail.",
+      "Si une candidature correspond à cette adresse, un lien de suivi vient d’être envoyé par e-mail. Un nouveau lien ne peut être demandé qu’une fois toutes les 48 heures : utilisez celui déjà reçu.",
   };
 }
 
@@ -635,9 +749,9 @@ export async function reviewDocumentRequest(
 }
 
 /**
- * Changes (usually extends) the deadline of an open document request. The
- * deadline is informative — the portal still accepts a late upload — so the
- * candidate is told the new date by e-mail and SMS when asked.
+ * Changes (usually extends) the deadline of an open document request. Once a
+ * deadline has passed the portal refuses uploads, so extending it is how the
+ * team reopens them; the candidate is told the new date when asked.
  */
 export async function changeDocumentDeadline(
   context: CareersContext,
@@ -656,7 +770,7 @@ export async function changeDocumentDeadline(
     );
     const request = current.rows[0];
     if (!request) throw new NotFoundError("Document request not found");
-    if (!["requested", "rejected"].includes(String(request.status)))
+    if (!["requested", "rejected", "submitted"].includes(String(request.status)))
       throw new BadRequestError("Only a document still awaited from the candidate can get a new deadline");
     await client.query(
       `UPDATE career_application_document_requests SET due_date=$4
@@ -786,18 +900,24 @@ export async function documentRequestFile(
   context: CareersContext,
   applicationId: string,
   requestId: string,
+  fileId?: string,
 ) {
   return withTenantContext(context, async (client) => {
     await hrApplication(client, context, applicationId);
+    // One file of the request, or the most recent one when none is named.
     const current = await client.query<Row>(
-      `SELECT label,storage_path,file_name,mime_type FROM career_application_document_requests
-        WHERE organization_id=$1 AND application_id=$2 AND id=$3`,
-      [context.organizationId, applicationId, requestId],
+      `SELECT r.label,f.storage_path,f.file_name,f.mime_type
+         FROM career_application_document_requests r
+         JOIN career_application_document_files f ON f.organization_id=r.organization_id AND f.request_id=r.id
+        WHERE r.organization_id=$1 AND r.application_id=$2 AND r.id=$3 AND ($4::uuid IS NULL OR f.id=$4::uuid)
+        ORDER BY f.created_at DESC LIMIT 1`,
+      [context.organizationId, applicationId, requestId, fileId ?? null],
     );
     const request = current.rows[0];
     if (!request?.storage_path) throw new NotFoundError("No file has been sent for this request");
     await event(client, context.organizationId, applicationId, "document_downloaded", context.userId, {
       requestId,
+      ...(fileId ? { fileId } : {}),
     });
     return {
       buffer: await readPrivateDocument(String(request.storage_path)),

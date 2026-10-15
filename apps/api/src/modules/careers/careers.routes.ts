@@ -8,7 +8,7 @@ import { validate } from "../../middleware/validation.middleware";
 import { BadRequestError } from "../../utils/errors";
 import { storage } from "../../config/storage";
 import * as controller from "./careers.controller";
-import { candidateMessageInput, documentDeadlineInput, documentRequestInput, documentRequestParams, documentReviewInput, publicTrackingDocumentParams, publicTrackingParams, publicTrackingRecoverInput } from "./careers.validation";
+import { candidateMessageInput, documentDeadlineInput, documentRequestInput, documentRequestParams, documentReviewInput, publicTrackingDocumentFileParams, publicTrackingDocumentParams, publicTrackingParams, publicTrackingRecoverInput } from "./careers.validation";
 import { CANDIDATE_DOCUMENT_MIME_TYPES } from "./candidate-portal.service";
 import { applicationParams, applicationQuery, applicationUpdateInput, careerSiteSettingsInput, jobParams, jobPostInput, jobQuery, organizationParams, publicJobParams, publicApplicationInput, publicOnboardingInput, publicOnboardingParams } from "./careers.validation";
 
@@ -102,6 +102,7 @@ const candidateDocumentUpload: RequestHandler = (req, res, next) => {
 careersRoutes.post("/public/organizations/:orgSlug/careers/track/recover", recoverLimiter, validate({ params: organizationParams, body: publicTrackingRecoverInput }), controller.publicRecoverTracking);
 careersRoutes.get("/public/organizations/:orgSlug/careers/track/:token", trackingReadLimiter, validate({ params: publicTrackingParams }), controller.publicTracking);
 careersRoutes.post("/public/organizations/:orgSlug/careers/track/:token/documents/:requestId", trackingWriteLimiter, candidateDocumentUpload, validate({ params: publicTrackingDocumentParams }), controller.publicSubmitDocument);
+careersRoutes.delete("/public/organizations/:orgSlug/careers/track/:token/documents/:requestId/files/:fileId", trackingWriteLimiter, validate({ params: publicTrackingDocumentFileParams }), controller.publicDeleteDocumentFile);
 
 careersRoutes.get("/public/organizations/:orgSlug/careers/jobs", validate({ params: organizationParams }), controller.publicJobs);
 careersRoutes.get("/public/organizations/:orgSlug/careers/jobs/:jobCode", validate({ params: publicJobParams }), controller.publicJob);
