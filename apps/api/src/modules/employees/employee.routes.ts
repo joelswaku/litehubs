@@ -5,6 +5,7 @@ import { requireActiveEmployeeProfile, requirePermission } from "../../middlewar
 import { validate } from "../../middleware/validation.middleware";
 import * as controller from "./employee.controller";
 import {
+  employeeMessageSchema,
   createEmployeeSchema,
   employeeDossierDocumentSchema,
   employeeCreationAllowanceProvinceParams,
@@ -122,6 +123,23 @@ employeeRoutes.post(
   requireOrganization,
   requirePermission("employees.update"),
   controller.linkEmployeeDossierDocument,
+);
+
+employeeRoutes.get(
+  "/organizations/:orgSlug/employees/:employeeId/messages",
+  authenticate,
+  validate({ params: employeeParams }),
+  requireOrganization,
+  requirePermission("employees.read"),
+  controller.listEmployeeMessages,
+);
+employeeRoutes.post(
+  "/organizations/:orgSlug/employees/:employeeId/messages",
+  authenticate,
+  validate({ params: employeeParams, body: employeeMessageSchema }),
+  requireOrganization,
+  requirePermission("employees.update"),
+  controller.sendEmployeeMessage,
 );
 
 employeeRoutes.patch(

@@ -166,3 +166,9 @@ export type UpdateEmployeeInput = z.infer<typeof updateEmployeeSchema>;
 export type EmployeeDossierDocumentInput = z.infer<
   typeof employeeDossierDocumentSchema
 >;
+
+export const employeeMessageSchema = z.object({
+  subject: z.string().trim().max(160).optional(),
+  body: z.string().trim().min(1, "Write a message").max(2000),
+  channels: z.array(z.enum(["email", "sms", "app"])).min(1, "Choose at least one channel").max(3),
+});

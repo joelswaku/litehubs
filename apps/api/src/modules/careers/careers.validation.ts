@@ -186,6 +186,11 @@ export const documentRequestInput = z.object({
   dueDate: z.string().date("Use YYYY-MM-DD").optional(),
   notifyCandidate: z.boolean().optional().default(true),
 });
+export const candidateMessageInput = z.object({
+  subject: optionalText(160),
+  body: requiredText(2000),
+  channels: z.array(z.enum(["email", "sms"])).min(1, "Choose at least one channel").max(2),
+});
 export const documentDeadlineInput = z.object({
   dueDate: z.string().date("Use YYYY-MM-DD").nullable(),
   message: optionalText(800),
@@ -197,6 +202,7 @@ export const documentReviewInput = z.object({
   notifyCandidate: z.boolean().optional().default(true),
 });
 
+export type CandidateMessageInput = z.infer<typeof candidateMessageInput>;
 export type DocumentDeadlineInput = z.infer<typeof documentDeadlineInput>;
 export type CareerSiteSettingsInput = z.infer<typeof careerSiteSettingsInput>;
 export type JobPostInput = z.infer<typeof jobPostInput>;

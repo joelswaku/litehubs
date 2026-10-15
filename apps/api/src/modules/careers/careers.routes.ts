@@ -8,7 +8,7 @@ import { validate } from "../../middleware/validation.middleware";
 import { BadRequestError } from "../../utils/errors";
 import { storage } from "../../config/storage";
 import * as controller from "./careers.controller";
-import { documentDeadlineInput, documentRequestInput, documentRequestParams, documentReviewInput, publicTrackingDocumentParams, publicTrackingParams, publicTrackingRecoverInput } from "./careers.validation";
+import { candidateMessageInput, documentDeadlineInput, documentRequestInput, documentRequestParams, documentReviewInput, publicTrackingDocumentParams, publicTrackingParams, publicTrackingRecoverInput } from "./careers.validation";
 import { CANDIDATE_DOCUMENT_MIME_TYPES } from "./candidate-portal.service";
 import { applicationParams, applicationQuery, applicationUpdateInput, careerSiteSettingsInput, jobParams, jobPostInput, jobQuery, organizationParams, publicJobParams, publicApplicationInput, publicOnboardingInput, publicOnboardingParams } from "./careers.validation";
 
@@ -121,6 +121,7 @@ careersRoutes.get("/organizations/:orgSlug/careers/applications/:applicationId/r
 careersRoutes.get("/organizations/:orgSlug/careers/applications/:applicationId/documents", authenticate, validate({ params: applicationParams }), requireOrganization, requirePermission("careers.read"), controller.documentRequests);
 careersRoutes.post("/organizations/:orgSlug/careers/applications/:applicationId/documents", authenticate, validate({ params: applicationParams, body: documentRequestInput }), requireOrganization, requirePermission("careers.update"), controller.createDocumentRequest);
 careersRoutes.patch("/organizations/:orgSlug/careers/applications/:applicationId/documents/:requestId", authenticate, validate({ params: documentRequestParams, body: documentReviewInput }), requireOrganization, requirePermission("careers.update"), controller.reviewDocumentRequest);
+careersRoutes.post("/organizations/:orgSlug/careers/applications/:applicationId/messages", authenticate, validate({ params: applicationParams, body: candidateMessageInput }), requireOrganization, requirePermission("careers.update"), controller.sendCandidateMessage);
 careersRoutes.patch("/organizations/:orgSlug/careers/applications/:applicationId/documents/:requestId/deadline", authenticate, validate({ params: documentRequestParams, body: documentDeadlineInput }), requireOrganization, requirePermission("careers.update"), controller.changeDocumentDeadline);
 careersRoutes.get("/organizations/:orgSlug/careers/applications/:applicationId/documents/:requestId/file", authenticate, validate({ params: documentRequestParams }), requireOrganization, requirePermission("careers.read"), controller.downloadDocumentRequestFile);
 careersRoutes.post("/organizations/:orgSlug/careers/applications/:applicationId/tracking-link", authenticate, validate({ params: applicationParams }), requireOrganization, requirePermission("careers.update"), controller.sendTrackingLink);

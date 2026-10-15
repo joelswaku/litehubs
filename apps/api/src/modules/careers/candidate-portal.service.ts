@@ -29,6 +29,7 @@ import {
 } from "./candidate-portal-links";
 import type {
   DocumentRequestInput,
+  CandidateMessageInput,
   DocumentDeadlineInput,
   DocumentReviewInput,
 } from "./careers.validation";
@@ -212,7 +213,10 @@ function candidateTimeline(events: Row[]) {
       const status = type.slice("status_".length);
       const last = [...timeline].reverse().find((item) => item.type === "status");
       if (last?.status !== status) timeline.push({ type: "status", status, at: row.created_at });
-    } else if (type === "candidate_notification_queued" && typeof metadata.candidateMessage === "string") {
+    } else if (
+      (type === "candidate_notification_queued" || type === "candidate_message") &&
+      typeof metadata.candidateMessage === "string"
+    ) {
       timeline.push({ type: "message", message: metadata.candidateMessage, at: row.created_at });
     } else if (type.startsWith("document_") && typeof metadata.label === "string") {
       timeline.push({ type, label: metadata.label, at: row.created_at });
@@ -433,8 +437,27 @@ export async function listDocumentRequests(context: CareersContext, applicationI
          FROM career_application_access_tokens WHERE organization_id=$1 AND application_id=$2`,
       [context.organizationId, applicationId],
     );
+    const sent = await client.query<Row>(
+      `SELECT e.created_at,e.metadata,u.full_name AS sent_by
+         FROM career_application_events e LEFT JOIN users u ON u.id=e.actor_user_id
+        WHERE e.organization_id=$1 AND e.application_id=$2 AND e.event_type='candidate_message'
+        ORDER BY e.created_at DESC LIMIT 30`,
+      [context.organizationId, applicationId],
+    );
     return {
       requests: rows.map((row) => mapDocumentRequest(row, true)),
+      messages: sent.rows.map((row) => {
+        const metadata = (row.metadata ?? {}) as Record<string, unknown>;
+        return {
+          subject: (metadata.subject as string | null) ?? null,
+          body: String(metadata.candidateMessage ?? ""),
+          channels: (metadata.channels as string[]) ?? [],
+          delivery: (metadata.delivery as Record<string, unknown>) ?? {},
+          sentBy: (row.sent_by as string | null) ?? null,
+          createdAt: row.created_at,
+        };
+      }),
+      contact: { email: application.email ?? null, phone: application.phone ?? null },
       tracking: {
         linkSentAt: application.tracking_link_sent_at ?? null,
         lastIssuedAt: link.rows[0]?.last_issued_at ?? null,
@@ -679,6 +702,62 @@ export async function changeDocumentDeadline(
     );
   }
   return listDocumentRequests(context, applicationId);
+}
+
+/**
+ * A free message from the recruitment team. It goes out by e-mail and/or SMS
+ * with the link to the candidate space, and also appears in that space's
+ * timeline so the candidate can read it again later.
+ */
+export async function sendCandidateMessage(
+  context: CareersContext,
+  applicationId: string,
+  input: CandidateMessageInput,
+) {
+  const body = input.body.trim();
+  const channels = [...new Set(input.channels)];
+  const prepared = await withTenantContext(context, async (client) => {
+    const application = await hrApplication(client, context, applicationId);
+    if (channels.includes("email") && !application.email)
+      throw new BadRequestError("This candidate has no e-mail address", { field: "channels" });
+    if (channels.includes("sms") && !application.phone)
+      throw new BadRequestError("This candidate has no phone number", { field: "channels" });
+    const url = await issueCandidatePortalLink(client, context.organizationId, context.organizationSlug, applicationId);
+    await client.query(
+      `UPDATE career_applications SET tracking_link_sent_at=now() WHERE organization_id=$1 AND id=$2`,
+      [context.organizationId, applicationId],
+    );
+    return { application, url };
+  });
+  const basics = candidateBasics(prepared.application);
+  const subject =
+    input.subject?.trim() ||
+    (basics.french
+      ? `Message de l’équipe de recrutement · ${basics.jobTitle}`
+      : `Message from the recruitment team · ${basics.jobTitle}`);
+  const result = await deliverPortalMail({
+    ...basics,
+    to: channels.includes("email") ? basics.to : "",
+    phone: channels.includes("sms") ? basics.phone : "",
+    subject,
+    heading: input.subject?.trim() || (basics.french ? "Un message pour vous" : "A message for you"),
+    paragraphs: body.split(/\n{2,}/).map((part) => part.trim()).filter(Boolean),
+    url: prepared.url,
+    sms: smsLine(basics.organizationName, body, prepared.url),
+  });
+  const delivery = {
+    ...(channels.includes("email") ? { email: { sent: result.emailSent, reason: result.emailReason } } : {}),
+    ...(channels.includes("sms") ? { sms: { sent: result.smsSent, reason: result.smsReason } } : {}),
+  };
+  await withTenantContext(context, (client) =>
+    event(client, context.organizationId, applicationId, "candidate_message", context.userId, {
+      candidateMessage: body,
+      subject: input.subject?.trim() || null,
+      channels,
+      delivery,
+    }),
+  );
+  return { delivery, ...(await listDocumentRequests(context, applicationId)) };
 }
 
 export async function documentRequestFile(

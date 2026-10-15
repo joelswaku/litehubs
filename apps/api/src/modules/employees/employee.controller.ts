@@ -2,6 +2,7 @@ import type { Request, RequestHandler } from "express";
 import * as service from "./employee.service";
 import * as reports from "./hr-report.service";
 import * as employeePdf from "./employee-pdf";
+import * as messages from "./employee-messages.service";
 import { sendPdf } from "../../utils/pdf-builder";
 import * as authService from "../auth/auth.service";
 import type {
@@ -178,3 +179,15 @@ export const downloadMyWorkCertificatePdf: RequestHandler = async (req, res) => 
   const { buffer, fileName } = await employeePdf.myEmployeePdf(contextOf(req), "certificate");
   sendPdf(res, buffer, fileName);
 };
+
+export const listEmployeeMessages: RequestHandler = async (req, res) =>
+  res.json(await messages.listEmployeeMessages(contextOf(req), String(req.params.employeeId)));
+
+export const sendEmployeeMessage: RequestHandler = async (req, res) =>
+  res.status(201).json(
+    await messages.sendEmployeeMessage(
+      contextOf(req),
+      String(req.params.employeeId),
+      req.body as messages.EmployeeMessageInput,
+    ),
+  );

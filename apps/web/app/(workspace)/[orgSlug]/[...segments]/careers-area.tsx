@@ -1,6 +1,7 @@
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+import { PersonMessagePanel } from "@/components/messages/person-message-panel";
 import { useEffect, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -1327,6 +1328,15 @@ function CandidateDetail({
             </div>
           ) : null}
         </section>
+
+        <PersonMessagePanel
+          kind="candidate"
+          orgSlug={orgSlug}
+          personId={application.id}
+          personName={application.fullName}
+          fr={fr}
+          editable={editable}
+        />
 
         <CandidateDocumentsPanel
           application={application}

@@ -28,6 +28,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { HrPdfButton } from "@/components/hr/hr-pdf-button";
 import { PdfButton } from "@/components/ui/pdf-button";
+import { PersonMessagePanel } from "@/components/messages/person-message-panel";
 import { Field, Input, Textarea } from "@/components/ui/input";
 import { PhoneInput } from "@/components/ui/phone-input";
 import {
@@ -1783,6 +1784,15 @@ function EmployeeProfile({
             {label(fr, "Edit employee", "Modifier l’employé")}
           </Button>
         ) : null}
+        <PersonMessagePanel
+          kind="employee"
+          orgSlug={orgSlug}
+          personId={employee.id}
+          personName={employee.fullName}
+          fr={fr}
+          editable={canUpdate}
+          className="mt-1"
+        />
       </div>
       {dossierUpload ? (
         <EmployeeDossierUploadDialog

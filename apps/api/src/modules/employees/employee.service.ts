@@ -627,7 +627,7 @@ async function selectEmployee(
   return result.rows[0];
 }
 
-async function assertEmployeeAccess(
+export async function assertEmployeeAccess(
   client: PoolClient,
   context: EmployeeContext,
   employeeId: string,
