@@ -1,6 +1,7 @@
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+import { ContactChannelChoice, resolvedChannel, type ContactChannel } from "@/components/appointments/contact-channel-choice";
 import { useEffect, useState } from "react";
 import { ArrowLeft, CalendarCheck2, CheckCircle2, Clock3, MailCheck, MapPin } from "lucide-react";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -38,7 +39,7 @@ export function PublicAppointmentDirectory() {
   const [siteKey, setSiteKey] = useState("");
   const [requestedOrganizationSlug, setRequestedOrganizationSlug] = useState("");
   const [requestedSiteKey, setRequestedSiteKey] = useState("");
-  const [form, setForm] = useState({ serviceId: "", date: new Date().toISOString().slice(0, 10), visitorName: "", visitorEmail: "", visitorPhone: "", reason: "", scheduledAt: "" });
+  const [form, setForm] = useState({ serviceId: "", date: new Date().toISOString().slice(0, 10), visitorName: "", visitorEmail: "", visitorPhone: "", contactPreference: "email" as ContactChannel, reason: "", scheduledAt: "" });
   const label = (french: string, english: string) => fr ? french : english;
 
   const sites = useQuery({
@@ -91,6 +92,7 @@ export function PublicAppointmentDirectory() {
         siteCode: site!.code,
         visitorEmail: form.visitorEmail || null,
         visitorPhone: form.visitorPhone || null,
+        contactPreference: resolvedChannel(form.contactPreference, form.visitorEmail, form.visitorPhone),
       });
     },
     onError: (error: Error) => toast.error(error.message),
@@ -120,7 +122,7 @@ export function PublicAppointmentDirectory() {
             <div className="grid gap-4 sm:grid-cols-2"><Field label={label("Date", "Date")} required><Input className="h-11" required type="date" min={new Date().toISOString().slice(0, 10)} value={form.date} onChange={(event) => setForm((value) => ({ ...value, date: event.target.value, scheduledAt: "" }))} /></Field><Field label={label("Heure disponible", "Available time")} required><select className="control h-11" required disabled={!form.serviceId || slots.isLoading || !(slots.data?.slots.length)} value={form.scheduledAt} onChange={(event) => setForm((value) => ({ ...value, scheduledAt: event.target.value }))}><option value="" disabled>{!form.serviceId ? label("Choisissez un service", "Choose a service") : slots.isLoading ? label("Recherche des créneaux…", "Finding available times…") : !slots.data?.slots.length ? label("Aucun créneau disponible", "No time available") : label("Choisissez une heure", "Choose a time")}</option>{slots.data?.slots.map((slot) => <option key={slot.value} value={slot.value}>{slot.localTime}</option>)}</select></Field></div>
             {slots.isError ? <p className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-100">{label("Les créneaux ne peuvent pas être chargés. Réessayez dans un instant.", "Available times could not be loaded. Please try again.")}</p> : <p className="text-xs text-ink-muted">{label("Seuls les créneaux futurs et encore libres sont proposés.", "Only future, still-available time slots are shown.")}</p>}
             <div className="grid gap-4 sm:grid-cols-2"><Field label={label("Nom complet", "Full name")} required><Input className="h-11" required autoComplete="name" value={form.visitorName} onChange={(event) => setForm((value) => ({ ...value, visitorName: event.target.value }))} /></Field><div className="hidden sm:block" /></div>
-            <div className="grid gap-4 sm:grid-cols-2"><Field label="E-mail" required hint={label("Confirmation envoyée à cette adresse.", "Confirmation sent to this address.")}><Input className="h-11" required type="email" autoComplete="email" value={form.visitorEmail} onChange={(event) => setForm((value) => ({ ...value, visitorEmail: event.target.value }))} /></Field><Field label={label("Téléphone", "Phone")} hint={label("Ajoutez un numéro pour recevoir aussi le SMS de confirmation.", "Add a number to also receive the confirmation by SMS.")}><PhoneInput className="h-11" fr={false} value={form.visitorPhone} onChange={(event) => setForm((value) => ({ ...value, visitorPhone: event.target.value }))} onNormalizedChange={(visitorPhone) => setForm((value) => ({ ...value, visitorPhone }))} /></Field></div>
+            <div className="grid gap-4 sm:grid-cols-2"><Field label="E-mail" required hint={label("Confirmation envoyée à cette adresse.", "Confirmation sent to this address.")}><Input className="h-11" required type="email" autoComplete="email" value={form.visitorEmail} onChange={(event) => setForm((value) => ({ ...value, visitorEmail: event.target.value }))} /></Field><Field label={label("Téléphone", "Phone")} hint={label("Facultatif : pour recevoir les messages par SMS.", "Optional: to receive messages by SMS.")}><PhoneInput className="h-11" fr={false} value={form.visitorPhone} onChange={(event) => setForm((value) => ({ ...value, visitorPhone: event.target.value }))} onNormalizedChange={(visitorPhone) => setForm((value) => ({ ...value, visitorPhone }))} /></Field><ContactChannelChoice className="sm:col-span-2" fr={fr} value={form.contactPreference} onChange={(contactPreference) => setForm((value) => ({ ...value, contactPreference }))} hasEmail={Boolean(form.visitorEmail.trim())} hasPhone={Boolean(form.visitorPhone.trim())} /></div>
             <Field label={label("Motif de la visite", "Visit reason")}><Input className="h-11" value={form.reason} placeholder={label("Facultatif", "Optional")} onChange={(event) => setForm((value) => ({ ...value, reason: event.target.value }))} /></Field>
             {detail.data?.settings.welcomeMessage ? <p className="rounded-xl bg-brand/5 px-3 py-2 text-sm text-ink-secondary">{detail.data.settings.welcomeMessage}</p> : null}
             <div className="flex flex-col gap-3 border-t border-border pt-5 sm:flex-row sm:items-center sm:justify-between"><p className="flex max-w-md items-start gap-2 text-xs leading-5 text-ink-muted"><MailCheck className="mt-0.5 size-4 shrink-0 text-brand" />{label("Votre e-mail sert uniquement à confirmer ce rendez-vous et vous informer si votre tour approche.", "Your email is used only to confirm this appointment and notify you when your turn approaches.")}</p><Button className="h-11 shrink-0" loading={booking.isPending} disabled={!site || !form.serviceId || !form.scheduledAt}><CalendarCheck2 />{label("Confirmer le rendez-vous", "Confirm appointment")}</Button></div>

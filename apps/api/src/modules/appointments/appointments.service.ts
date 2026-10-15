@@ -30,7 +30,7 @@ const appointmentFields = `
   a.queue_date::text,a.queue_number,a.source,a.visitor_name,a.visitor_email::text,
   a.visitor_phone,a.reason,a.scheduled_at,a.expected_duration_minutes,a.status,
   a.checked_in_at,a.waiting_since,a.called_at,a.started_at,a.completed_at,a.cancelled_at,
-  a.no_show_at,a.queue_call_message,a.notification_channel,a.last_notified_at,a.created_at,a.updated_at,
+  a.no_show_at,a.queue_call_message,a.notification_channel,a.contact_preference,a.last_notified_at,a.created_at,a.updated_at,
   s.code AS site_code,s.name AS site_name,p.code AS province_code,p.name AS province_name,
   svc.code AS service_code,svc.name AS service_name,assignee_user.full_name AS assigned_member_name,
   desk.code AS desk_code,desk.name AS desk_name
@@ -50,7 +50,7 @@ function mapAppointment(row: Row) {
     desk: row.desk_id ? { id: row.desk_id, code: row.desk_code, name: row.desk_name } : null,
     checkedInAt: row.checked_in_at, waitingSince: row.waiting_since, calledAt: row.called_at,
     startedAt: row.started_at, completedAt: row.completed_at, cancelledAt: row.cancelled_at,
-    noShowAt: row.no_show_at, queueCallMessage: row.queue_call_message ?? null, notificationChannel: row.notification_channel,
+    noShowAt: row.no_show_at, queueCallMessage: row.queue_call_message ?? null, notificationChannel: row.notification_channel, contactPreference: row.contact_preference ?? null,
     lastNotifiedAt: row.last_notified_at, createdAt: row.created_at, updatedAt: row.updated_at,
   };
 }
@@ -166,6 +166,19 @@ async function appointmentById(client: PoolClient, organizationId: string, appoi
   return result.rows[0]!;
 }
 
+/** The visitor's channel choice; with only one contact, that one. */
+function contactPreferenceFor(input: {
+  contactPreference?: "email" | "sms" | null;
+  visitorEmail?: string | null;
+  visitorPhone?: string | null;
+}): "email" | "sms" | null {
+  if (input.contactPreference === "sms" && input.visitorPhone) return "sms";
+  if (input.contactPreference === "email" && input.visitorEmail) return "email";
+  if (input.visitorEmail && !input.visitorPhone) return "email";
+  if (input.visitorPhone && !input.visitorEmail) return "sms";
+  return input.visitorEmail ? "email" : null;
+}
+
 type VisitorDelivery = {
   primary: "email" | "brevo_sms" | "manual_sms" | "none";
   channels: Array<"email" | "sms" | "manual_sms">;
@@ -182,10 +195,21 @@ async function sendVisitorMessage(
   const email = appointment.visitor_email as string | null;
   const phone = appointment.visitor_phone as string | null;
   const escaped = message.replace(/[&<>"']/g, (value) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[value]!);
-  const emailResult = email
-    ? await sendMail({ to: email, subject, text: message, html: `<div style="max-width:620px;margin:0 auto;padding:24px;font:16px Arial,sans-serif;line-height:1.6;color:#1f2937"><p style="margin:0;white-space:pre-line">${escaped}</p></div>` })
-    : null;
-  const smsResult = phone ? await sendSms({ to: phone, content: smsContent }) : null;
+  const sendEmail = () =>
+    sendMail({ to: email!, subject, text: message, html: `<div style="max-width:620px;margin:0 auto;padding:24px;font:16px Arial,sans-serif;line-height:1.6;color:#1f2937"><p style="margin:0;white-space:pre-line">${escaped}</p></div>` });
+  // One message per update, on the channel the visitor chose. The other
+  // channel is used only when the chosen one is missing or fails, so a visitor
+  // never pays attention (and the company never pays) twice for one update.
+  const preferSms = appointment.contact_preference === "sms" && Boolean(phone);
+  let emailResult: Awaited<ReturnType<typeof sendMail>> | null = null;
+  let smsResult: Awaited<ReturnType<typeof sendSms>> | null = null;
+  if (preferSms) {
+    smsResult = await sendSms({ to: phone!, content: smsContent });
+    if (!smsResult.sent && email) emailResult = await sendEmail();
+  } else {
+    if (email) emailResult = await sendEmail();
+    if (!emailResult?.sent && phone) smsResult = await sendSms({ to: phone, content: smsContent });
+  }
   const manualSmsRequired = Boolean(phone && smsResult?.reason === "sms_not_configured");
   const primary: VisitorDelivery["primary"] = emailResult?.sent
     ? "email"
@@ -713,13 +737,13 @@ export async function createStaffAppointment(context: AppointmentContext, input:
         throw new BadRequestError("Choose an active team member", { field: "assignedMemberId" });
     }
     const result = await client.query<Row>(
-      `INSERT INTO appointments(organization_id,province_id,site_id,service_id,assigned_member_id,source,visitor_name,visitor_email,visitor_phone,reason,scheduled_at,expected_duration_minutes,status,created_by)
-       VALUES($1,$2,$3,$4,$5,'staff',$6,$7,$8,$9,$10,$11,'scheduled',$12) RETURNING id`,
+      `INSERT INTO appointments(organization_id,province_id,site_id,service_id,assigned_member_id,source,visitor_name,visitor_email,visitor_phone,reason,scheduled_at,expected_duration_minutes,status,created_by,contact_preference)
+       VALUES($1,$2,$3,$4,$5,'staff',$6,$7,$8,$9,$10,$11,'scheduled',$12,$13) RETURNING id`,
       [
         context.organizationId, site.province_id, input.siteId, input.serviceId ?? null,
         input.assignedMemberId ?? null, input.visitorName, input.visitorEmail ?? null,
         input.visitorPhone ?? null, input.reason ?? null, input.scheduledAt ?? null,
-        Number(service?.duration_minutes ?? 20), context.userId,
+        Number(service?.duration_minutes ?? 20), context.userId, contactPreferenceFor(input),
       ],
     );
     await event(client, context.organizationId, result.rows[0]!.id, "created_by_staff", context.userId);
@@ -996,7 +1020,7 @@ export async function publicBook(orgSlug: string, input: PublicBookingInput) {
       [site.organization_id, site.site_id, input.serviceId, input.scheduledAt, durationMinutes],
     );
     if (clash.rowCount) throw new ConflictError("That time is no longer available. Choose another slot.");
-    const insert = await client.query<Row>(`INSERT INTO appointments(organization_id,province_id,site_id,service_id,source,visitor_name,visitor_email,visitor_phone,reason,scheduled_at,expected_duration_minutes,status) VALUES($1,$2,$3,$4,'online',$5,$6,$7,$8,$9,$10,'scheduled') RETURNING id`,[site.organization_id,site.province_id,site.site_id,input.serviceId,input.visitorName,input.visitorEmail ?? null,input.visitorPhone ?? null,input.reason ?? null,input.scheduledAt,Number(service.duration_minutes)]);
+    const insert = await client.query<Row>(`INSERT INTO appointments(organization_id,province_id,site_id,service_id,source,visitor_name,visitor_email,visitor_phone,reason,scheduled_at,expected_duration_minutes,status,contact_preference) VALUES($1,$2,$3,$4,'online',$5,$6,$7,$8,$9,$10,'scheduled',$11) RETURNING id`,[site.organization_id,site.province_id,site.site_id,input.serviceId,input.visitorName,input.visitorEmail ?? null,input.visitorPhone ?? null,input.reason ?? null,input.scheduledAt,Number(service.duration_minutes),contactPreferenceFor(input)]);
     const appointmentId = insert.rows[0]!.id; await event(client,site.organization_id,appointmentId,"booked_online",null);
     await notifyOrganizationOwnersInTransaction(client,{ organizationId: site.organization_id, provinceId: site.province_id, siteId: site.site_id, type:"appointment_booked",category:"general",priority:"normal",title:"New online appointment",message:`${input.visitorName} booked ${service.name} at ${site.site_name}.`,actionUrl:"/appointments",entityType:"appointment",entityId:appointmentId,deduplicationKey:`appointment-booked:${appointmentId}` });
     return { appointment: mapAppointment(await appointmentById(client,site.organization_id,appointmentId)), confirmation: "Your appointment has been booked." };
@@ -1022,7 +1046,7 @@ export async function publicCheckIn(orgSlug: string, siteCode: string, input: Pu
     const service = await serviceFor(client,site.organization_id,site.site_id,input.serviceId);
     if (!service?.allows_qr_checkin) throw new BadRequestError("This service is not available at QR check-in", { field: "serviceId" });
     const ticket = await allocateQueue(client,site.organization_id,site.site_id);
-    const result = await client.query<Row>(`INSERT INTO appointments(organization_id,province_id,site_id,service_id,queue_date,queue_number,source,visitor_name,visitor_email,visitor_phone,reason,expected_duration_minutes,status,checked_in_at,waiting_since) VALUES($1,$2,$3,$4,$5::date,$6,'qr',$7,$8,$9,$10,$11,'waiting',now(),now()) RETURNING id`,[site.organization_id,site.province_id,site.site_id,input.serviceId,ticket.date,ticket.number,input.visitorName,input.visitorEmail ?? null,input.visitorPhone ?? null,input.reason,Number(service.duration_minutes)]);
+    const result = await client.query<Row>(`INSERT INTO appointments(organization_id,province_id,site_id,service_id,queue_date,queue_number,source,visitor_name,visitor_email,visitor_phone,reason,expected_duration_minutes,status,checked_in_at,waiting_since,contact_preference) VALUES($1,$2,$3,$4,$5::date,$6,'qr',$7,$8,$9,$10,$11,'waiting',now(),now(),$12) RETURNING id`,[site.organization_id,site.province_id,site.site_id,input.serviceId,ticket.date,ticket.number,input.visitorName,input.visitorEmail ?? null,input.visitorPhone ?? null,input.reason,Number(service.duration_minutes),contactPreferenceFor(input)]);
     const appointmentId = result.rows[0]!.id; await event(client,site.organization_id,appointmentId,"checked_in_by_qr",null,{ ticket:ticket.number });
     await notifyOrganizationOwnersInTransaction(client,{ organizationId: site.organization_id,provinceId:site.province_id,siteId:site.site_id,type:"appointment_waiting",category:"general",priority:"normal",title:"Visitor joined the queue",message:`Ticket #${ticket.number} is waiting for ${service.name} at ${site.site_name}.`,actionUrl:"/appointments",entityType:"appointment",entityId:appointmentId,deduplicationKey:`appointment-waiting:${appointmentId}` });
     return { appointmentId, ticket, serviceName: service.name, siteName: site.site_name, welcomeMessage: site.welcome_message ?? null };

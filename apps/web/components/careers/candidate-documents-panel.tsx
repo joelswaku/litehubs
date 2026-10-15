@@ -122,7 +122,7 @@ export function CandidateDocumentsPanel({
       setMessage("");
       setDueDate("");
       setComposerOpen(false);
-      toast.success(tr(fr, "Demande envoyée au candidat par e-mail et SMS.", "Request sent to the candidate by e-mail and SMS."));
+      toast.success(tr(fr, "Demande envoyée au candidat (e-mail, ou SMS s’il n’a pas d’e-mail).", "Request sent to the candidate (e-mail, or SMS when there is no e-mail)."));
     },
     onError: (error: Error) => toast.error(error.message),
   });
@@ -418,7 +418,7 @@ export function CandidateDocumentsPanel({
                         onChange={(event) => setDeadlineNotify(event.target.checked)}
                         className="size-4 accent-[var(--brand)]"
                       />
-                      {tr(fr, "Prévenir le candidat par e-mail et SMS", "Notify the candidate by e-mail and SMS")}
+                      {tr(fr, "Prévenir le candidat (e-mail, ou SMS s’il n’a pas d’e-mail)", "Notify the candidate (e-mail, or SMS when there is no e-mail)")}
                     </label>
                     <div className="flex flex-wrap justify-end gap-2">
                       {item.dueDate ? (

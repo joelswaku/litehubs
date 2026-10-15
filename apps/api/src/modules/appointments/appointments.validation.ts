@@ -119,6 +119,7 @@ export const createStaffAppointmentInput = z.object({
   visitorName: text(180),
   visitorEmail: optionalEmail.nullable().optional(),
   visitorPhone: optionalPhone.nullable().optional(),
+  contactPreference: z.enum(["email", "sms"]).nullable().optional(),
   reason: optionalText(2000),
   scheduledAt: z.string().datetime({ offset: true }),
   assignedMemberId: id.nullable().optional(),
@@ -145,6 +146,7 @@ export const publicBookingInput = z.object({
   visitorName: text(180),
   visitorEmail: optionalEmail.nullable().optional(),
   visitorPhone: optionalPhone.nullable().optional(),
+  contactPreference: z.enum(["email", "sms"]).nullable().optional(),
   reason: optionalText(2000),
   scheduledAt: z.string().datetime({ offset: true }),
   preferredLanguage,
@@ -159,6 +161,7 @@ export const publicCheckInInput = z.object({
   visitorName: text(180),
   visitorEmail: z.string().trim().email("Use a valid email address").max(255),
   visitorPhone: optionalPhone.nullable().optional(),
+  contactPreference: z.enum(["email", "sms"]).nullable().optional(),
   reason: text(1000),
   preferredLanguage,
 });

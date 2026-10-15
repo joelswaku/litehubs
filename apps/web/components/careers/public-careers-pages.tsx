@@ -528,8 +528,8 @@ function ApplicationReceived({ fr, trackingUrl }: { fr: boolean; trackingUrl: st
       <p className="mx-auto mt-3 max-w-lg text-sm leading-6 text-ink-secondary">
         {label(
           fr,
-          "Une confirmation a été envoyée par e-mail et par SMS. L’équipe de recrutement examinera votre candidature de manière confidentielle et vous contactera si votre profil correspond au poste ou si des documents complémentaires sont nécessaires.",
-          "A confirmation has been sent by email and SMS. The recruitment team will review your application confidentially and contact you if your profile fits the role or if further documents are needed.",
+          "Une confirmation vous a été envoyée par e-mail (ou par SMS si l’e-mail n’a pas pu être remis). L’équipe de recrutement examinera votre candidature de manière confidentielle et vous contactera si votre profil correspond au poste ou si des documents complémentaires sont nécessaires.",
+          "A confirmation has been sent by e-mail (or by SMS if the e-mail could not be delivered). The recruitment team will review your application confidentially and contact you if your profile fits the role or if further documents are needed.",
         )}
       </p>
       {trackingUrl ? (
@@ -540,8 +540,8 @@ function ApplicationReceived({ fr, trackingUrl }: { fr: boolean; trackingUrl: st
           <p className="mt-1 text-xs leading-5 text-ink-secondary">
             {label(
               fr,
-              "Suivez l’avancement, lisez les messages de l’équipe et envoyez les documents demandés. Le lien vous a aussi été envoyé par e-mail et SMS.",
-              "Follow progress, read messages from the team and send requested documents. The link was also sent by email and SMS.",
+              "Suivez l’avancement, lisez les messages de l’équipe et envoyez les documents demandés. Le lien vous a aussi été envoyé par e-mail (ou par SMS).",
+              "Follow progress, read messages from the team and send requested documents. The link was also sent to you by e-mail (or SMS).",
             )}
           </p>
           <a

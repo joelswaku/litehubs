@@ -223,19 +223,18 @@ const optionalDate = (v: string | null | undefined) => v ?? null;
 
 /**
  * External payroll messages deliberately contain no salary amount, payslip
- * reference, employee name, or other private payroll detail. SMS is the
- * preferred channel in Congo; email is used only when the SMS is not accepted.
+ * reference, employee name, or other private payroll detail. E-mail first;
+ * the SMS is sent only when there is no e-mail or it was not delivered.
  */
 async function deliverPayrollPayment(
   delivery: PayrollPaymentDelivery,
 ): Promise<void> {
   const sms =
     "LiteHubs : votre paie a été marquée payée. Connectez-vous à LiteHubs pour consulter votre fiche en toute sécurité.";
-  const smsResult = delivery.phone
-    ? await sendSms({ to: delivery.phone, content: sms })
-    : { sent: false };
-
-  if (smsResult.sent || !delivery.email) return;
+  const sendSmsFallback = async () => {
+    if (delivery.phone) await sendSms({ to: delivery.phone, content: sms });
+  };
+  if (!delivery.email) return sendSmsFallback();
 
   const safeUrl = delivery.payslipsUrl.replace(
     /[&<>"']/g,
@@ -248,7 +247,7 @@ async function deliverPayrollPayment(
         "'": "&#39;",
       })[character]!,
   );
-  await sendMail({
+  const emailResult = await sendMail({
     to: delivery.email,
     subject: "Paie versée · LiteHubs",
     text: [
@@ -258,6 +257,7 @@ async function deliverPayrollPayment(
     ].join("\n"),
     html: `<div style="max-width:600px;margin:0 auto;padding:28px;font-family:Arial,sans-serif;color:#101828;"><p style="margin:0 0 20px;color:#0f5132;font-size:20px;font-weight:700;">LiteHubs</p><h1 style="margin:0 0 16px;font-size:24px;">Paie versée</h1><p>Votre paie a été marquée payée.</p><p>Connectez-vous à LiteHubs pour consulter votre fiche en toute sécurité.</p><p style="margin-top:24px;"><a href="${safeUrl}" style="display:inline-block;padding:12px 18px;background:#146c43;border-radius:8px;color:#fff;font-weight:700;text-decoration:none;">Consulter ma fiche de paie</a></p></div>`,
   });
+  if (!emailResult.sent) await sendSmsFallback();
 }
 
 function mapRunExclusion(row: RunExclusionRow) {

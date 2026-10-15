@@ -411,8 +411,8 @@ export function CareersArea({ orgSlug }: { orgSlug: string }) {
             <CardDescription className="mt-1">
               {tr(
                 fr,
-                "Ouvrez un candidat, choisissez son étape puis adaptez son message e-mail et SMS avant l’envoi. Seuls les utilisateurs autorisés dans le périmètre du site peuvent consulter les candidats et leur CV.",
-                "Open a candidate, select their stage, then tailor their email and SMS before sending. Only users authorized in the site scope can view applicants and their résumés.",
+                "Ouvrez un candidat, choisissez son étape puis adaptez son message avant l’envoi (e-mail, ou SMS seulement s’il n’a pas d’e-mail). Seuls les utilisateurs autorisés dans le périmètre du site peuvent consulter les candidats et leur CV.",
+                "Open a candidate, select their stage, then tailor their message before sending (e-mail, or SMS only when there is no e-mail). Only users authorized in the site scope can view applicants and their résumés.",
               )}
             </CardDescription>
           </div>
@@ -1395,8 +1395,8 @@ function CandidateDetail({
                 <span>
                   {tr(
                     fr,
-                    "Prévenir le candidat par e-mail et SMS",
-                    "Notify the candidate by email and SMS",
+                    "Prévenir le candidat (e-mail, ou SMS s’il n’a pas d’e-mail)",
+                    "Notify the candidate (e-mail, or SMS when there is no e-mail)",
                   )}
                   <span className="mt-1 block text-xs font-normal leading-5 text-ink-secondary">
                     {tr(

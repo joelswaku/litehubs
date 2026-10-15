@@ -271,6 +271,7 @@ type NutritionRecipient = {
   phone: string | null;
   email: string | null;
   sms_enabled: boolean;
+  email_enabled: boolean;
 };
 type NutritionSignal = {
   type: string;
@@ -292,7 +293,8 @@ async function nutritionAudience(
 ): Promise<NutritionRecipient[]> {
   const result = await client.query<NutritionRecipient>(
     `SELECT DISTINCT member.id AS member_id,employee.phone,user_account.email::text AS email,
-            COALESCE(preferences.sms_enabled,false) AS sms_enabled
+            COALESCE(preferences.sms_enabled,false) AS sms_enabled,
+            COALESCE(preferences.email_enabled,false) AS email_enabled
        FROM organization_members member
        JOIN users user_account ON user_account.id=member.user_id
        LEFT JOIN member_roles assignment ON assignment.organization_id=member.organization_id AND assignment.member_id=member.id
@@ -348,7 +350,7 @@ async function notifyNutritionAudience(
       deduplicationKey: `${signal.deduplicationKey}:${recipient.member_id}`,
       metadata: { feedNutrition: true },
       actorUserId: null,
-      // Vaccination reminders choose their own SMS-first, email-fallback
+      // Vaccination reminders choose their own e-mail-first, SMS-fallback
       // delivery. Do not queue a second generic notification e-mail.
       skipEmailDelivery: signal.type === "prophylaxis_due",
     });
@@ -356,10 +358,17 @@ async function notifyNutritionAudience(
   return recipients;
 }
 
+/** SMS only for people who will not get the same alert by e-mail: e-mail
+ * first, SMS only as the channel of someone without e-mail delivery. */
 async function sendNutritionSms(recipients: NutritionRecipient[], content: string) {
   await Promise.all(
     recipients
-      .filter((recipient) => recipient.sms_enabled && Boolean(recipient.phone))
+      .filter(
+        (recipient) =>
+          recipient.sms_enabled &&
+          Boolean(recipient.phone) &&
+          !(recipient.email && recipient.email_enabled),
+      )
       .map((recipient) => sendSms({ to: String(recipient.phone), content })),
   );
 }
@@ -378,26 +387,26 @@ function escapeNutritionEmail(value: string): string {
   );
 }
 
-/** Vaccination reminders use SMS first. An email is sent only if SMS was not
- * accepted, unavailable, or disabled for that recipient. */
+/** Vaccination reminders are e-mail first. The SMS (if the person enabled
+ * SMS) is sent only when there is no e-mail or it was not delivered. */
 async function deliverVaccinationReminder(
   recipient: NutritionRecipient,
   content: string,
   actionUrl: string,
 ): Promise<void> {
-  const smsResult =
-    recipient.sms_enabled && recipient.phone
-      ? await sendSms({ to: recipient.phone, content })
-      : { sent: false };
-  if (smsResult.sent || !recipient.email) return;
+  const sendSmsFallback = async () => {
+    if (recipient.sms_enabled && recipient.phone) await sendSms({ to: recipient.phone, content });
+  };
+  if (!recipient.email) return sendSmsFallback();
 
   const safeContent = escapeNutritionEmail(content);
-  await sendMail({
+  const emailResult = await sendMail({
     to: recipient.email,
     subject: "Rappel vaccinal · LiteHubs",
     text: `${content}\n\nOuvrez LiteHubs pour consulter et enregistrer l’intervention : ${actionUrl}`,
     html: `<div style="max-width:600px;margin:0 auto;padding:28px;font-family:Arial,sans-serif;color:#101828;"><p style="margin:0 0 20px;color:#0f5132;font-size:20px;font-weight:700;">LiteHubs</p><h1 style="margin:0 0 16px;font-size:24px;">Rappel vaccinal</h1><p>${safeContent}</p><p style="margin-top:24px;"><a href="${escapeNutritionEmail(actionUrl)}" style="display:inline-block;padding:12px 18px;background:#146c43;border-radius:8px;color:#fff;font-weight:700;text-decoration:none;">Ouvrir la santé animale</a></p></div>`,
   });
+  if (!emailResult.sent) await sendSmsFallback();
 }
 
 /** Runs at 06:00 Africa/Kinshasa. Notifications are deduplicated per recipient and day. */

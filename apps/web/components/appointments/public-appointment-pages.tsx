@@ -1,6 +1,7 @@
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+import { ContactChannelChoice, resolvedChannel, type ContactChannel } from "@/components/appointments/contact-channel-choice";
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
@@ -75,6 +76,7 @@ export function PublicBookingPage({ orgSlug }: { orgSlug: string }) {
     visitorName: "",
     visitorEmail: "",
     visitorPhone: "",
+    contactPreference: "email" as ContactChannel,
     reason: "",
     scheduledAt: "",
   });
@@ -116,6 +118,7 @@ export function PublicBookingPage({ orgSlug }: { orgSlug: string }) {
         preferredLanguage: fr ? "fr" : "en",
         visitorEmail: form.visitorEmail || null,
         visitorPhone: form.visitorPhone || null,
+        contactPreference: resolvedChannel(form.contactPreference, form.visitorEmail, form.visitorPhone),
         scheduledAt: form.scheduledAt,
       }),
     onError: (error: Error) => toast.error(error.message),
@@ -183,6 +186,7 @@ export function PublicBookingPage({ orgSlug }: { orgSlug: string }) {
                     visitorName: "",
                     visitorEmail: "",
                     visitorPhone: "",
+                    contactPreference: "email" as ContactChannel,
                     reason: "",
                     scheduledAt: "",
                   });
@@ -391,6 +395,16 @@ export function PublicBookingPage({ orgSlug }: { orgSlug: string }) {
                   }
                 />
               </Field>
+              <ContactChannelChoice
+                className="sm:col-span-2"
+                fr={fr}
+                value={form.contactPreference}
+                onChange={(contactPreference) =>
+                  setForm((state) => ({ ...state, contactPreference }))
+                }
+                hasEmail={Boolean(form.visitorEmail.trim())}
+                hasPhone={Boolean(form.visitorPhone.trim())}
+              />
               <Field
                 className="sm:col-span-2"
                 label={label(
@@ -442,6 +456,7 @@ export function PublicCheckInPage({
     visitorName: "",
     visitorEmail: "",
     visitorPhone: "",
+    contactPreference: "email" as ContactChannel,
     reason: "",
   });
   useEffect(
@@ -463,6 +478,7 @@ export function PublicCheckInPage({
         preferredLanguage: fr ? "fr" : "en",
         visitorEmail: form.visitorEmail || null,
         visitorPhone: form.visitorPhone || null,
+        contactPreference: resolvedChannel(form.contactPreference, form.visitorEmail, form.visitorPhone),
       }),
     onError: (error: Error) => toast.error(error.message),
   });
@@ -629,6 +645,16 @@ export function PublicCheckInPage({
                   }
                 />
               </Field>
+              <ContactChannelChoice
+                className="sm:col-span-2"
+                fr={fr}
+                value={form.contactPreference}
+                onChange={(contactPreference) =>
+                  setForm((state) => ({ ...state, contactPreference }))
+                }
+                hasEmail={Boolean(form.visitorEmail.trim())}
+                hasPhone={Boolean(form.visitorPhone.trim())}
+              />
               <Field
                 label={label(
                   fr,

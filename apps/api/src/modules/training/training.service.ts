@@ -288,25 +288,24 @@ function escapeTrainingEmail(value: string): string {
 }
 
 /**
- * Training availability is intentionally SMS-first for Congo. Email is a
- * fallback channel only: the same lesson notification must never reach a
- * learner twice when Brevo has accepted the SMS.
+ * Training availability is e-mail first. The SMS is a fallback only (no
+ * e-mail, or the e-mail was not delivered), so one notice never costs two
+ * messages.
  */
 async function deliverTrainingAvailability(
   delivery: TrainingAvailabilityDelivery,
 ): Promise<void> {
   const due = delivery.dueOn ? ` À terminer avant le ${delivery.dueOn}.` : "";
   const sms = `LiteHubs : une nouvelle formation « ${delivery.courseName} » est disponible.${due} Ouvrez LiteHubs pour commencer.`;
-  const smsResult = delivery.phone
-    ? await sendSms({ to: delivery.phone, content: sms })
-    : { sent: false };
-
-  if (smsResult.sent || !delivery.email) return;
+  const sendSmsFallback = async () => {
+    if (delivery.phone) await sendSms({ to: delivery.phone, content: sms });
+  };
+  if (!delivery.email) return sendSmsFallback();
 
   const safeName = escapeTrainingEmail(delivery.employeeName || "");
   const safeCourse = escapeTrainingEmail(delivery.courseName);
   const safeUrl = escapeTrainingEmail(delivery.courseUrl);
-  await sendMail({
+  const emailResult = await sendMail({
     to: delivery.email,
     subject: `Nouvelle formation disponible · ${delivery.courseName}`,
     text: [
@@ -318,6 +317,7 @@ async function deliverTrainingAvailability(
     ].join("\n"),
     html: `<div style="max-width:600px;margin:0 auto;padding:28px;font-family:Arial,sans-serif;color:#101828;"><p style="margin:0 0 20px;color:#0f5132;font-size:20px;font-weight:700;">LiteHubs</p><h1 style="margin:0 0 16px;font-size:24px;">Nouvelle formation disponible</h1><p>Bonjour ${safeName},</p><p>La formation <strong>« ${safeCourse} »</strong> est maintenant disponible.${escapeTrainingEmail(due)}</p><p style="margin-top:24px;"><a href="${safeUrl}" style="display:inline-block;padding:12px 18px;background:#146c43;border-radius:8px;color:#fff;font-weight:700;text-decoration:none;">Ouvrir la formation</a></p></div>`,
   });
+  if (!emailResult.sent) await sendSmsFallback();
 }
 /**
  * Scope from the member's roles that grant training.* permissions only: an

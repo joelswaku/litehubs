@@ -1,6 +1,7 @@
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+import { ContactChannelChoice, resolvedChannel, type ContactChannel } from "@/components/appointments/contact-channel-choice";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -48,6 +49,7 @@ const blankVisit = () => ({
   visitorName: "",
   visitorEmail: "",
   visitorPhone: "",
+  contactPreference: "email" as ContactChannel,
   reason: "",
   scheduledAt: "",
 });
@@ -794,6 +796,7 @@ export function AppointmentsArea({ orgSlug }: { orgSlug: string }) {
                   createAppointment.mutate({
                     ...visit,
                     serviceId: visit.serviceId || null,
+                    contactPreference: resolvedChannel(visit.contactPreference, visit.visitorEmail, visit.visitorPhone),
                     scheduledAt: new Date(visit.scheduledAt).toISOString(),
                   });
                 }}
@@ -880,6 +883,16 @@ export function AppointmentsArea({ orgSlug }: { orgSlug: string }) {
                     }
                   />
                 </FormField>
+                <ContactChannelChoice
+                  className="md:col-span-3"
+                  fr={fr}
+                  value={visit.contactPreference}
+                  onChange={(contactPreference) =>
+                    setVisit((previous) => ({ ...previous, contactPreference }))
+                  }
+                  hasEmail={Boolean(visit.visitorEmail.trim())}
+                  hasPhone={Boolean(visit.visitorPhone.trim())}
+                />
                 <FormField
                   className="md:col-span-3"
                   label={tr(fr, "Motif", "Reason")}

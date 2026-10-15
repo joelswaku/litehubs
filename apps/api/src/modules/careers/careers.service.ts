@@ -616,14 +616,15 @@ export async function updateApplication(
 
   if (updated.notification) {
     const notification = updated.notification;
-    const [email, sms] = await Promise.all([
-      notification.email
-        ? sendMail(buildCandidateStatusEmail(notification))
-        : Promise.resolve({ sent: false, reason: "email_missing" }),
-      notification.phone
-        ? sendSms(buildCandidateStatusSms(notification))
-        : Promise.resolve({ sent: false, reason: "phone_missing" }),
-    ]);
+    // E-mail first; SMS only when there is no e-mail or it was not delivered.
+    const email = notification.email
+      ? await sendMail(buildCandidateStatusEmail(notification))
+      : { sent: false, reason: "email_missing" };
+    const sms = email.sent
+      ? { sent: false, reason: "email_delivered" }
+      : notification.phone
+        ? await sendSms(buildCandidateStatusSms(notification))
+        : { sent: false, reason: "phone_missing" };
     await withTenantContext(context, async (client) =>
       event(
         client,
@@ -950,11 +951,13 @@ export async function publicApply(
           html: `<p><strong>${escapeHtml(input.fullName)}</strong> applied for <strong>${escapeHtml(job.title)}</strong> at ${escapeHtml(job.site_name)}.</p><p>Open LiteHubs to review the private application and résumé.</p>`,
         }),
       ),
-      sendMail(buildApplicantConfirmationEmail(input, job, created.trackingUrl)),
-      // Candidates provide a phone number in the public form.  The SMS is an
-      // acknowledgement only: never include the CV, application details or
-      // any hiring decision in a message that can be seen on a lock screen.
-      sendSms(buildApplicantConfirmationSms(input, job, created.trackingUrl)),
+      // E-mail first. The SMS acknowledgement (never with CV details or a
+      // decision, since it can be read on a lock screen) is sent only if the
+      // confirmation e-mail could not be delivered.
+      (async () => {
+        const email = await sendMail(buildApplicantConfirmationEmail(input, job, created.trackingUrl));
+        if (!email.sent) await sendSms(buildApplicantConfirmationSms(input, job, created.trackingUrl));
+      })(),
     ]);
     return {
       applicationId: created.applicationId,

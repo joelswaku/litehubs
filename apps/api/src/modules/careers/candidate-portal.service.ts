@@ -151,15 +151,37 @@ function buildPortalEmail(mail: PortalMail) {
   };
 }
 
-async function deliverPortalMail(mail: PortalMail) {
-  const [email, sms] = await Promise.all([
-    mail.to
-      ? sendMail(buildPortalEmail(mail))
-      : Promise.resolve({ sent: false, reason: "email_missing" }),
-    mail.phone
-      ? sendSms({ to: mail.phone, content: mail.sms })
-      : Promise.resolve({ sent: false, reason: "phone_missing" }),
-  ]);
+/**
+ * E-mail first. The SMS is sent only when the candidate has no e-mail or the
+ * e-mail could not be delivered, so one update never costs two messages.
+ * `explicit` is for a message where the recruiter ticked the channels
+ * themselves: then every chosen channel is used.
+ */
+async function deliverPortalMail(mail: PortalMail, mode: "email_first" | "explicit" = "email_first") {
+  if (mode === "explicit") {
+    const [email, sms] = await Promise.all([
+      mail.to
+        ? sendMail(buildPortalEmail(mail))
+        : Promise.resolve({ sent: false, reason: "email_not_selected" }),
+      mail.phone
+        ? sendSms({ to: mail.phone, content: mail.sms })
+        : Promise.resolve({ sent: false, reason: "sms_not_selected" }),
+    ]);
+    return {
+      emailSent: email.sent,
+      emailReason: email.sent ? undefined : email.reason,
+      smsSent: sms.sent,
+      smsReason: sms.sent ? undefined : sms.reason,
+    };
+  }
+  const email = mail.to
+    ? await sendMail(buildPortalEmail(mail))
+    : { sent: false, reason: "email_missing" };
+  const sms = email.sent
+    ? { sent: false, reason: "email_delivered" }
+    : mail.phone
+      ? await sendSms({ to: mail.phone, content: mail.sms })
+      : { sent: false, reason: "phone_missing" };
   return {
     emailSent: email.sent,
     emailReason: email.sent ? undefined : email.reason,
@@ -744,7 +766,7 @@ export async function sendCandidateMessage(
     paragraphs: body.split(/\n{2,}/).map((part) => part.trim()).filter(Boolean),
     url: prepared.url,
     sms: smsLine(basics.organizationName, body, prepared.url),
-  });
+  }, "explicit");
   const delivery = {
     ...(channels.includes("email") ? { email: { sent: result.emailSent, reason: result.emailReason } } : {}),
     ...(channels.includes("sms") ? { sms: { sent: result.smsSent, reason: result.smsReason } } : {}),
