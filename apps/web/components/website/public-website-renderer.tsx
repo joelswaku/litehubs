@@ -2,13 +2,22 @@
 
 import { WebsiteChatWidget } from "./website-chat-widget";
 import { WebsiteShop } from "./website-shop";
-import { PRIVACY_PATH, legalOwnerForHost, type LegalContent } from "./privacy-policy";
+import {
+  PRIVACY_PATH,
+  companyForPrivacy,
+  isPrivacySlug,
+  legalOwnerForHost,
+  privacyPolicyContent,
+  type LegalContent,
+} from "./privacy-policy";
 import Link from "next/link";
 import {
   ArrowRight,
   ArrowUpRight,
   BriefcaseBusiness,
+  CheckCircle2,
   ChevronDown,
+  Clock3,
   Globe2,
   Languages,
   Mail,
@@ -16,6 +25,7 @@ import {
   Menu,
   Phone,
   Send,
+  ShieldCheck,
   Sparkles,
   Sprout,
   UserRound,
@@ -98,7 +108,14 @@ export type PublicWebsite = {
    * header, footer). Without it the site keeps its original header/footer. */
   design?: Record<string, unknown>;
   /** Every published page; `in_menu: false` pages are kept out of menus. */
-  navigation: Array<{ slug: string; label_fr: string; label_en: string; in_menu?: boolean }>;
+  navigation: Array<{
+    slug: string;
+    label_fr: string;
+    label_en: string;
+    in_menu?: boolean;
+    /** Menus showing the link (top bar, header, footer); absent = all. */
+    zones?: string[];
+  }>;
 };
 
 export type PublicWebsitePage = {
@@ -1710,37 +1727,138 @@ function PublicSection({
         </section>
       );
     case "legal": {
-      const legal = section.content as unknown as LegalContent;
-      const fr = language === "fr";
-      return (
-        <section className="mx-auto max-w-3xl px-5 py-16 sm:px-8 sm:py-24">
-          <h1 className="text-3xl font-semibold tracking-[-.03em] text-slate-950 sm:text-4xl">
-            {fr ? legal.title_fr : legal.title_en}
-          </h1>
-          <p className="mt-3 text-sm text-slate-500">{fr ? legal.updated_fr : legal.updated_en}</p>
-          <p className="mt-8 text-base leading-7 text-slate-700">{fr ? legal.intro_fr : legal.intro_en}</p>
-          {(legal.blocks ?? []).map((block) => {
-            const items = (fr ? block.items_fr : block.items_en) ?? [];
-            return (
-              <div key={block.id} id={block.id} className="mt-10 scroll-mt-24">
-                <h2 className="text-xl font-semibold tracking-[-.02em] text-slate-950">
-                  {fr ? block.title_fr : block.title_en}
-                </h2>
-                {(fr ? block.paragraphs_fr : block.paragraphs_en).map((paragraph, index) => (
-                  <p key={index} className="mt-3 text-[15px] leading-7 text-slate-700">
-                    {paragraph}
-                  </p>
-                ))}
-                {items.length ? (
-                  <ul className="mt-3 list-disc space-y-2 pl-5 text-[15px] leading-7 text-slate-700">
-                    {items.map((item, index) => (
-                      <li key={index}>{item}</li>
-                    ))}
-                  </ul>
-                ) : null}
-              </div>
+      // An empty legal block shows the policy written from the company's
+      // details; once the owner customises it, their text is shown instead.
+      const own = section.content as unknown as Partial<LegalContent>;
+      const legal: LegalContent =
+        Array.isArray(own.blocks) && own.blocks.length
+          ? (own as LegalContent)
+          : privacyPolicyContent(
+              companyForPrivacy({
+                host: contactDomain,
+                displayName: website.display_name,
+                contactEmail: website.contact_email,
+                contactPhone: website.contact_phone,
+                addressText: website.address,
+              }),
             );
-          })}
+      const fr = language === "fr";
+      const blocks = legal.blocks ?? [];
+      const contactHref = website.navigation.some((item) => item.slug === "contact") ? pageLink("contact") : "#contact";
+      return (
+        <section className="wb-legal mx-auto max-w-[1240px] px-5 py-10 sm:px-8 sm:py-16">
+          <div
+            data-el="panel"
+            className="relative overflow-hidden rounded-[2rem] bg-[#f1f7f1] px-6 py-10 sm:px-12 sm:py-14"
+          >
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute -right-24 -top-24 size-72 rounded-full opacity-[.14] blur-2xl"
+              style={{ background: "var(--website-primary)" }}
+            />
+            <p
+              data-el="eyebrow"
+              className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-bold uppercase tracking-[.16em]"
+              style={{ color: "var(--website-primary)", borderColor: "color-mix(in srgb,var(--website-primary) 30%,transparent)" }}
+            >
+              <ShieldCheck className="size-3.5" />
+              {fr ? "Confidentialité" : "Privacy"}
+            </p>
+            <h1 data-el="title" className="mt-5 max-w-3xl text-3xl font-semibold leading-tight tracking-[-.035em] text-slate-950 sm:text-5xl">
+              {fr ? legal.title_fr : legal.title_en}
+            </h1>
+            <p data-el="body" className="mt-5 max-w-3xl text-base leading-7 text-slate-600 sm:text-lg sm:leading-8">
+              {fr ? legal.intro_fr : legal.intro_en}
+            </p>
+            <p className="mt-6 inline-flex items-center gap-2 rounded-full bg-white/70 px-3 py-1.5 text-xs font-medium text-slate-600">
+              <Clock3 className="size-3.5" />
+              {fr ? legal.updated_fr : legal.updated_en}
+            </p>
+          </div>
+
+          <div className="mt-10 grid gap-8 lg:grid-cols-[260px_minmax(0,1fr)] lg:gap-12">
+            <nav aria-label={fr ? "Sommaire" : "Contents"} className="hidden lg:block">
+              <div className="sticky top-28">
+                <p className="text-[11px] font-bold uppercase tracking-[.16em] text-slate-500">
+                  {fr ? "Sommaire" : "Contents"}
+                </p>
+                <ol className="mt-4 space-y-1 border-l border-slate-200 pl-0">
+                  {blocks.map((block) => (
+                    <li key={block.id}>
+                      <a
+                        href={`#${block.id}`}
+                        className="-ml-px block border-l-2 border-transparent py-1.5 pl-4 text-sm leading-5 text-slate-600 transition hover:border-current hover:text-slate-950"
+                      >
+                        {fr ? block.title_fr : block.title_en}
+                      </a>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            </nav>
+            <div className="space-y-5">
+              {blocks.map((block, index) => {
+                const items = (fr ? block.items_fr : block.items_en) ?? [];
+                const title = (fr ? block.title_fr : block.title_en) ?? "";
+                // Titles are numbered by the design: "3. Title" shows as a badge.
+                const numbered = title.match(/^(\d+)\.\s*(.*)$/);
+                return (
+                  <article
+                    key={block.id}
+                    id={block.id}
+                    data-el-shared="card"
+                    className="scroll-mt-28 rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_18px_45px_-38px_rgba(15,23,42,.55)] sm:p-8"
+                  >
+                    <h2 className="flex items-start gap-3 text-xl font-semibold tracking-[-.02em] text-slate-950 sm:text-2xl">
+                      <span
+                        className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-xl text-sm font-bold text-white"
+                        style={{ background: "var(--website-primary)" }}
+                      >
+                        {numbered ? numbered[1] : index + 1}
+                      </span>
+                      <span>{numbered ? numbered[2] : title}</span>
+                    </h2>
+                    {((fr ? block.paragraphs_fr : block.paragraphs_en) ?? []).map((paragraph, key) => (
+                      <p key={key} className="mt-4 text-[15px] leading-7 text-slate-600">
+                        {paragraph}
+                      </p>
+                    ))}
+                    {items.length ? (
+                      <ul className="mt-4 grid gap-2.5">
+                        {items.map((item, key) => (
+                          <li key={key} className="flex gap-3 text-[15px] leading-7 text-slate-700">
+                            <CheckCircle2 className="mt-1.5 size-4 shrink-0" style={{ color: "var(--website-primary)" }} />
+                            <span>{item}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </article>
+                );
+              })}
+              <div
+                data-el="sideCard"
+                className="flex flex-col gap-4 rounded-3xl p-6 text-white sm:flex-row sm:items-center sm:justify-between sm:p-8"
+                style={{ background: "var(--t-dark,#0b1f1a)" }}
+              >
+                <div>
+                  <p className="text-lg font-semibold">{fr ? "Une question sur vos données ?" : "A question about your data?"}</p>
+                  <p className="mt-1 text-sm text-white/70">
+                    {fr
+                      ? "Écrivez-nous : nous répondons à toute demande d’accès, de correction ou de suppression."
+                      : "Write to us: we answer every request to access, correct or delete your data."}
+                  </p>
+                </div>
+                <a
+                  href={contactHref}
+                  className="wb-btn inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full bg-white px-5 text-sm font-semibold text-slate-950"
+                >
+                  {fr ? "Nous contacter" : "Contact us"}
+                  <ArrowRight className="size-4" />
+                </a>
+              </div>
+            </div>
+          </div>
         </section>
       );
     }
@@ -2197,6 +2315,17 @@ function PublicContactForm({
   );
 }
 
+/** Whether a zone contains an element of this type (in any container). */
+function zoneHasElement(zone: ZoneData, type: string): boolean {
+  const walk = (items: unknown): boolean =>
+    Array.isArray(items) &&
+    items.some((item) => {
+      const entry = item as { type?: string; children?: unknown };
+      return entry.type === type || walk(entry.children);
+    });
+  return walk(zone.content.extras);
+}
+
 /** Builder-only labels of the global zones. */
 export const ZONE_LABELS: Record<ZoneName, [string, string]> = {
   topbar: ["Barre supérieure (top bar)", "Top bar"],
@@ -2274,6 +2403,7 @@ function SiteZoneView({
   return (
     <Tag
       data-zone={name}
+      data-template={zone.template}
       data-look={look}
       data-links={links}
       data-sticky={sticky ? "" : undefined}
@@ -2444,13 +2574,21 @@ export function PublicWebsiteRenderer({
     "accueil";
   // Built-in privacy policy (and legal owner) on the company's own domain.
   const legalOwner = legalOwnerForHost(contactDomain);
-  const privacyHref = contactDomain && !editor ? PRIVACY_PATH : null;
+  // The company's own privacy page when it has one, else the built-in policy
+  // served at /confidentialite on its domain.
+  const privacyPage = website.navigation.find((item) => isPrivacySlug(item.slug));
   const pageLink = (slug: string) =>
     slug === homeSlug || slug === "accueil"
       ? siteBase || "/"
       : `${siteBase}/${slug}`;
+  const privacyHref = privacyPage
+    ? pageLink(privacyPage.slug)
+    : contactDomain && !editor
+      ? PRIVACY_PATH
+      : null;
   // Pages shown in menus (a page can be published but kept out of them).
   const menuPages = website.navigation.filter((item) => item.in_menu !== false);
+  const inZone = (zone: ZoneName) => (item: { zones?: string[] }) => !item.zones || item.zones.includes(zone);
   const projectsHref = website.navigation.some(
     (item) => item.slug === "projets",
   )
@@ -2510,6 +2648,8 @@ export function PublicWebsiteRenderer({
     contactEmail: website.contact_email,
     navigation: menuPages,
     pageLink,
+    privacyHref,
+    legalOwner,
     resolveHref: (value) => safeHref(resolveWebsiteHref(value.trim(), website, pageLink)),
     homeHref: pageLink(homeSlug),
     currentSlug: page.slug,
@@ -2667,7 +2807,7 @@ export function PublicWebsiteRenderer({
               </span>
             </WebsiteLink>
             <nav className="hidden items-center gap-1 xl:flex">
-              {menuPages.map((item) => (
+              {menuPages.filter(inZone("header")).map((item) => (
                 <WebsiteLink
                   key={item.slug}
                   href={pageLink(item.slug)}
@@ -2767,7 +2907,7 @@ export function PublicWebsiteRenderer({
                 : "Discover our activities, projects and opportunities to join our teams.")}
           </p>
           <nav className="mt-7 grid gap-2">
-            {menuPages.map((item) => (
+            {menuPages.filter(inZone("header")).map((item) => (
               <WebsiteLink
                 key={item.slug}
                 onClick={() => setMenuOpen(false)}
@@ -2939,9 +3079,10 @@ export function PublicWebsiteRenderer({
       {useZones ? (
         <>
           {zones.footer && !zones.footer.hidden && footerVariant !== "hidden" ? zoneView("footer") : null}
-          {privacyHref ? (
+          {privacyHref && !(zones.footer && !zones.footer.hidden && footerVariant !== "hidden" && zoneHasElement(zones.footer, "copyright")) ? (
             // Custom footers are designed in the editor; keep the legal
-            // owner and the privacy policy reachable on every page.
+            // owner and the privacy policy reachable on every page (the
+            // footer's copyright line carries them when it has one).
             <div className="wb-legal-bar border-t border-slate-200 bg-white px-5 py-4 text-center text-xs text-slate-500 sm:px-8">
               © {new Date().getFullYear()} {website.display_name}
               {legalOwner ? (language === "fr" ? ` — une marque de ${legalOwner}` : ` — a brand of ${legalOwner}`) : ""}
@@ -2997,7 +3138,7 @@ export function PublicWebsiteRenderer({
               {language === "fr" ? "Explorer" : "Explore"}
             </p>
             <nav className="mt-5 grid grid-cols-2 gap-x-5 gap-y-3 text-sm sm:grid-cols-1">
-              {menuPages.map((item) => (
+              {menuPages.filter(inZone("footer")).map((item) => (
                 <WebsiteLink
                   key={item.slug}
                   href={pageLink(item.slug)}

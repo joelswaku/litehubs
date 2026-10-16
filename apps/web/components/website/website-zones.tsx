@@ -13,6 +13,7 @@ import * as React from "react";
 import { Clock, Mail, MapPin, Menu as MenuIcon, Phone, X } from "lucide-react";
 import { ApiError, post } from "@/lib/api";
 import { BREAKPOINTS, WEBSITE_FONTS, type StyleValues } from "./website-element-style";
+import { SOCIAL_ICON_PATHS } from "./social-icons";
 
 export type ZoneName = "topbar" | "header" | "footer";
 export const ZONE_NAMES: ZoneName[] = ["topbar", "header", "footer"];
@@ -210,7 +211,7 @@ export const SITE_THEMES: Record<string, SiteTheme> = {
   },
   minimal: {
     label: ["Minimal", "Minimal"],
-    description: ["Noir et blanc, sans ombre, menu ☰ et footer en une ligne.", "Black and white, no shadows, ☰ menu and one-line footer."],
+    description: ["Noir et blanc, sans ombre, menu ☰ et footer épuré.", "Black and white, no shadows, ☰ menu and clean footer."],
     primary: "#111111",
     accent: "#6b7280",
     background: "#ffffff",
@@ -230,7 +231,7 @@ export const SITE_THEMES: Record<string, SiteTheme> = {
     cardShadow: "none",
     looks: { topbar: "line", header: "bordered", footer: "minimal" },
     links: "plain",
-    templates: { topbar: "announcement", header: "minimal", footer: "minimal-bar" },
+    templates: { topbar: "announcement", header: "minimal", footer: "logo-contact" },
     hideTopbar: true,
   },
   soleil: {
@@ -456,10 +457,67 @@ export const ZONE_CSS = [
   // Tablets and phones: the header keeps one row — logo, actions, then the
   // menu button at the end (the menu itself opens in a side panel).
   `@media (max-width:${BREAKPOINTS.tablet}px){[data-zone="header"] .wb-menu-list{display:none}[data-zone="header"] .wb-menu:not([data-part="start"]) .wb-menu-toggle{display:inline-grid}[data-zone="header"] .wb-menu[data-part="start"]{display:none}[data-zone="header"] [data-el="canvas"]{flex-wrap:nowrap!important}[data-zone="header"] [data-el="canvas"]>*{min-width:0}[data-zone="header"] .wb-menu{order:99!important}}`,
+  // Every header layout keeps one tidy row on tablets and phones: logo first,
+  // actions and the menu button at the end.
+  `@media (max-width:${BREAKPOINTS.tablet}px){[data-zone="header"] [data-el="canvas"] [data-el-kind="group"]{flex-direction:row!important;flex-wrap:nowrap!important;align-items:center!important;justify-content:flex-end!important;gap:10px!important}[data-zone="header"] [data-el="canvas"]{align-items:center!important}[data-zone="header"] [data-el="canvas"] [data-el-kind="group"]:has(.wb-z-logo){justify-content:space-between!important}[data-zone="header"] [data-el="canvas"]>:has(.wb-z-logo){order:-1}[data-zone="header"] [data-el="canvas"]>.wb-z-logo{order:-1;margin-right:auto}[data-zone="header"][data-template="split"] [data-el="canvas"]>[data-el-kind="group"]{flex-grow:0!important;flex-basis:auto!important}[data-zone="header"][data-template="centered"] [data-el="canvas"]{flex-direction:row!important;justify-content:space-between!important}[data-zone="header"][data-template="two-rows"] [data-el="canvas"]{flex-direction:row!important;flex-wrap:nowrap!important}[data-zone="header"][data-template="two-rows"] [data-el="canvas"]>[data-el-kind="group"]{flex:1 1 auto!important;width:auto!important}[data-zone="header"][data-template="two-rows"] [data-el="canvas"]>.wb-menu{width:auto!important;padding-top:0!important;border-top:0!important;flex:0 0 auto}}`,
+  // Phones: only what fits — the main button, no secondary button or phone.
+  `@media (max-width:${BREAKPOINTS.mobile}px){[data-zone="header"] .wb-btn-secondary,[data-zone="header"] .wb-z-contact,[data-zone="topbar"] .wb-z-menu{display:none!important}}`,
   `@media (max-width:${BREAKPOINTS.mobile}px){[data-zone="header"] .wb-lang{display:none!important}[data-zone="header"] .wb-btn{min-height:36px!important;padding:0 12px!important;font-size:12px!important;white-space:nowrap!important;flex-shrink:0}[data-zone="header"] [data-el="canvas"]{gap:10px!important}[data-zone="header"] .wb-btn svg{display:none}[data-zone="header"] .wb-zone-inner{padding-top:10px;padding-bottom:10px}}`,
   `@media (max-width:${BREAKPOINTS.mobile}px){[data-zone="topbar"] [data-el="canvas"]{justify-content:center;text-align:center;gap:6px!important}[data-zone="topbar"] [data-el-kind="group"]{gap:4px 14px!important;justify-content:center}[data-zone="footer"] .wb-zone-inner{padding-top:40px}}`,
-  ".wb-social a{display:inline-grid;place-items:center;width:32px;height:32px;border-radius:999px;border:1px solid color-mix(in srgb,currentColor 30%,transparent);font-size:11px;font-weight:700;color:inherit;text-decoration:none}",
-  ".wb-social a:hover{background:color-mix(in srgb,currentColor 12%,transparent)}",
+  ".wb-social a{display:inline-grid;place-items:center;width:36px;height:36px;border-radius:999px;border:1px solid color-mix(in srgb,currentColor 22%,transparent);font-size:11px;font-weight:700;color:inherit;text-decoration:none;transition:background-color .2s,color .2s,border-color .2s,transform .2s}",
+  ".wb-social a:hover{background:var(--website-primary);border-color:var(--website-primary);color:#fff;transform:translateY(-2px)}",
+  '[data-zone="topbar"] .wb-social a{width:28px;height:28px}',
+  '[data-zone="topbar"] .wb-social svg{width:12px;height:12px}',
+  // ── Footer: a calm, structured design for every template and look ──
+  // (no weight: the owner's own element settings always win).
+  '[data-zone="footer"] :where(h3[data-el]){font-size:12px;line-height:1.4;font-weight:700;letter-spacing:.14em;text-transform:uppercase;opacity:.6;margin-bottom:6px}',
+  '[data-zone="footer"] :where(p[data-el]:not(.wb-z-copyright)){font-size:14px;line-height:1.7;opacity:.72;max-width:34ch}',
+  '[data-zone="footer"] :where(.wb-menu-list.flex-col){gap:11px}',
+  // A long footer menu reads better in two short columns.
+  `@media (min-width:${BREAKPOINTS.mobile + 1}px){[data-zone="footer"] .wb-menu-list.flex-col:has(>li:nth-child(7)){display:grid;grid-template-columns:repeat(2,minmax(0,max-content));column-gap:28px}}`,
+  // Footer columns are lists, not tabs: pill and caps link styles stay flat.
+  '[data-zone="footer"] .wb-menu-list.flex-col a{padding-left:0!important;padding-right:0!important}',
+  '[data-zone="footer"][data-links="pill"] .wb-menu-list.flex-col a{padding-top:0;padding-bottom:0;background:none!important;color:inherit!important}',
+  '[data-zone="footer"][data-links="pill"] .wb-menu-list.flex-col a[aria-current=page]{font-weight:700}',
+  // Newsletter: the field takes the line, the button wraps under it when narrow.
+  '.wb-z-newsletter input{flex:1 1 170px}',
+  '.wb-z-newsletter button{flex:0 0 auto}',
+  '[data-zone][data-look="accent"] .wb-z-logo>span.grid{background:#fff!important;color:var(--website-primary)!important}',
+  '[data-zone][data-look="accent"] .wb-z-newsletter button,[data-zone][data-look="dark"] .wb-z-newsletter button{background:#fff!important;color:var(--t-text,#0f172a)!important}',
+  '[data-zone="footer"] :where(.wb-menu-list a){font-size:14px;transition:opacity .2s,transform .2s,color .2s}',
+  '[data-zone="footer"] :where(.wb-menu-list.flex-col a:hover){transform:translateX(3px)}',
+  '[data-zone="footer"] :where(.wb-z-contact){font-size:14px;line-height:1.4;gap:10px;opacity:.85}',
+  '[data-zone="footer"] .wb-z-contact>svg{box-sizing:content-box;padding:7px;border-radius:10px;background:color-mix(in srgb,currentColor 9%,transparent);opacity:1}',
+  '[data-zone="footer"] :where(.wb-z-copyright){font-size:13px;opacity:.62}',
+  '[data-zone="footer"] .wb-z-copyright a{color:inherit}',
+  '[data-zone="footer"] :where(.wb-z-logo span span:first-child){font-size:18px;letter-spacing:-.01em}',
+  '[data-zone="footer"][data-look="dark"]{background-image:linear-gradient(180deg,color-mix(in srgb,var(--website-primary) 14%,transparent),transparent 220px)}',
+  '[data-zone="footer"][data-look="accent"]{background-image:radial-gradient(circle at 85% -20%,rgba(255,255,255,.18),transparent 45%)}',
+  // Tablets: two even columns, the brand column across the top.
+  `@media (max-width:${BREAKPOINTS.tablet}px) and (min-width:${BREAKPOINTS.mobile + 1}px){[data-zone="footer"] .wb-zone-inner>[data-el="canvas"]>:has(.wb-z-logo):not(:has(.wb-z-menu)){grid-column:1/-1}}`,
+  // Phones: links side by side in two columns, everything else full width,
+  // and a centred bottom line — no long single column of items.
+  `@media (max-width:${BREAKPOINTS.mobile}px){` +
+    '[data-zone="footer"] .wb-zone-inner{padding-top:44px;padding-bottom:22px}' +
+    // One clear column of sections separated by hairlines; links in two columns.
+    '[data-zone="footer"] .wb-zone-inner>[data-el="canvas"]{grid-template-columns:minmax(0,1fr)!important;row-gap:0!important}' +
+    '[data-zone="footer"]:not([data-template="simple"],[data-template="minimal-bar"],[data-template="centered"]) .wb-zone-inner>[data-el="canvas"]>*{grid-column:1/-1!important;padding-top:22px;padding-bottom:22px}' +
+    '[data-zone="footer"]:not([data-template="simple"],[data-template="minimal-bar"],[data-template="centered"]) .wb-zone-inner>[data-el="canvas"]>*+*{border-top:1px solid color-mix(in srgb,currentColor 12%,transparent)}' +
+    '[data-zone="footer"]:not([data-template="simple"],[data-template="minimal-bar"],[data-template="centered"]) .wb-zone-inner>[data-el="canvas"]>:first-child{padding-top:0}' +
+    '[data-zone="footer"] .wb-menu-list.flex-col{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:20px;row-gap:12px}' +
+    '[data-zone="footer"] .wb-zone-inner>[data-el="canvas"]>:has(.wb-z-copyright){flex-direction:column!important;align-items:center!important;justify-content:center!important;text-align:center;gap:12px!important;padding-bottom:0}' +
+    '[data-zone="footer"] .wb-z-copyright{text-align:center}' +
+    '[data-zone="footer"] .wb-z-newsletter{max-width:none}' +
+    // Single-line and centred footers: everything centred, links wrapped.
+    '[data-zone="footer"]:is([data-template="simple"],[data-template="minimal-bar"],[data-template="centered"]) [data-el="canvas"]{align-items:center!important;text-align:center;gap:18px!important}' +
+    '[data-zone="footer"]:is([data-template="simple"],[data-template="minimal-bar"],[data-template="centered"]) .wb-menu-list{justify-content:center;column-gap:18px!important;row-gap:10px!important}' +
+    '[data-zone="footer"]:is([data-template="simple"],[data-template="minimal-bar"],[data-template="centered"]) .wb-social{justify-content:center}' +
+    '[data-zone="footer"]:is([data-template="simple"],[data-template="minimal-bar"]) [data-el="canvas"]>:first-child{order:9}' +
+    // The top bar stays one short line on phones.
+    '[data-zone="topbar"] .wb-z-contact[data-kind="hours"],[data-zone="topbar"] .wb-z-contact[data-kind="address"],[data-zone="topbar"] .wb-social{display:none!important}' +
+    '[data-zone="topbar"] [data-el="canvas"],[data-zone="topbar"] [data-el-kind="group"]{flex-direction:row!important;flex-wrap:wrap;justify-content:center!important;column-gap:16px!important;row-gap:2px!important}' +
+    '[data-zone="topbar"] .wb-z-contact{font-size:12px!important}' +
+    '}',
 ].join("");
 
 /* ── Element factories and zone templates ─────────────────────────────── */
@@ -779,10 +837,20 @@ export const ZONE_TEMPLATES: Record<ZoneName, Record<string, { label: [string, s
             column(12),
             styles,
           ),
-          group([zoneElement("heading", facts, { textFr: "Réseaux sociaux", textEn: "Social" }), zoneElement("social"), zoneElement("menu", facts, { variant: "column" })], column(12), styles),
+          group([zoneElement("heading", facts, { textFr: "Navigation", textEn: "Navigation" }), zoneElement("menu", facts, { variant: "column" })], column(), styles),
+          group(
+            [
+              zoneElement("heading", facts, { textFr: "Réseaux sociaux", textEn: "Social" }),
+              zoneElement("social"),
+              zoneElement("contact", facts, { contactKind: "email", value: facts.email ?? "contact@exemple.com" }),
+              zoneElement("contact", facts, { contactKind: "phone", value: facts.phone ?? "+243 000 000 000" }),
+            ],
+            column(12),
+            styles,
+          ),
         ];
-        const bottom = group([zoneElement("copyright")], { ...row("between"), spanAll: true, dividerTop: true, paddingTop: 20 }, styles);
-        return { extras: [...columns, bottom], styles, canvas: { display: "grid", gridColumns: 2, gap: 40, alignItems: "start" } };
+        const bottom = group([zoneElement("logo"), zoneElement("copyright")], { ...row("between"), spanAll: true, dividerTop: true, paddingTop: 20 }, styles);
+        return { extras: [...columns, bottom], styles, canvas: { display: "grid", gridColumns: 3, gap: 40, alignItems: "start" } };
       },
     },
     centered: {
@@ -1031,8 +1099,12 @@ export type SiteRenderInfo = {
   tagline: string | null;
   logoUrl: string | null;
   contactEmail: string | null;
-  navigation: Array<{ slug: string; label_fr: string; label_en: string }>;
+  /** `zones`: menus where the page's link appears (absent = every menu). */
+  navigation: Array<{ slug: string; label_fr: string; label_en: string; zones?: string[] }>;
   pageLink: (slug: string) => string;
+  /** Privacy policy page and legal owner, shown with the copyright line. */
+  privacyHref?: string | null;
+  legalOwner?: string | null;
   resolveHref: (value: string) => string | null;
   homeHref: string;
   currentSlug: string;
@@ -1084,7 +1156,7 @@ export function ZoneElement({ item, el, space }: { item: Extra; el: string; spac
         .toUpperCase();
       const href = site.homeHref;
       return (
-        <a data-el={el} href={href} className={`${space}inline-flex min-w-0 items-center gap-3 text-inherit no-underline`} aria-label={site.displayName}>
+        <a data-el={el} href={href} className={`${space}wb-z-logo inline-flex min-w-0 items-center gap-3 text-inherit no-underline`} aria-label={site.displayName}>
           {item.imageUrl || site.logoUrl ? (
             <img src={item.imageUrl || site.logoUrl || ""} alt="" className="h-10 w-auto max-w-[180px] object-contain" />
           ) : (
@@ -1128,7 +1200,10 @@ export function ZoneElement({ item, el, space }: { item: Extra; el: string; spac
       const all: MenuLink[] = (
         item.menuSource === "custom"
           ? (item.items ?? []).map((entry, index) => customLink(entry, `custom-${index}`))
-          : site.navigation.map((entry) => ({
+          : site.navigation
+              // Each page chooses the menus that show its link.
+              .filter((entry) => !zone || !entry.zones || entry.zones.includes(zone))
+              .map((entry) => ({
               key: entry.slug,
               label: fr ? entry.label_fr : entry.label_en,
               href: site.pageLink(entry.slug),
@@ -1174,7 +1249,7 @@ export function ZoneElement({ item, el, space }: { item: Extra; el: string; spac
           data-part={item.part}
           data-variant={item.variant === "drawer" ? "drawer" : undefined}
           aria-label={fr ? "Menu" : "Menu"}
-          className={`${space}wb-menu`}
+          className={`${space}wb-menu wb-z-menu`}
         >
           {list}
           {zone === "header" && item.part !== "start" ? (
@@ -1252,13 +1327,20 @@ export function ZoneElement({ item, el, space }: { item: Extra; el: string; spac
       );
     case "social":
       return (
-        <div data-el={el} className={`${space}wb-social flex flex-wrap items-center gap-2`}>
+        <div data-el={el} className={`${space}wb-social wb-z-social flex flex-wrap items-center gap-2`}>
           {(item.items ?? []).map((entry, index) => {
             const network = SOCIAL_NETWORKS[String(entry.network)] ?? { label: String(entry.network ?? "Lien"), glyph: "•" };
             const href = safeExternal(entry.url);
+            const path = SOCIAL_ICON_PATHS[String(entry.network)];
             return href ? (
-              <a key={index} href={href} target="_blank" rel="noopener noreferrer" aria-label={`${network.label} (${fr ? "nouvel onglet" : "new tab"})`}>
-                {network.glyph}
+              <a key={index} href={href} target="_blank" rel="noopener noreferrer" aria-label={`${network.label} (${fr ? "nouvel onglet" : "new tab"})`} title={network.label}>
+                {path ? (
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true">
+                    <path d={path} />
+                  </svg>
+                ) : (
+                  network.glyph
+                )}
               </a>
             ) : null;
           })}
@@ -1281,19 +1363,28 @@ export function ZoneElement({ item, el, space }: { item: Extra; el: string; spac
         </>
       );
       return href ? (
-        <a data-el={el} href={href} className={`${space}inline-flex items-center gap-2 text-inherit no-underline hover:underline`}>
+        <a data-el={el} data-kind={item.contactKind} href={href} className={`${space}wb-z-contact inline-flex items-center gap-2 text-inherit no-underline hover:underline`}>
           {inner}
         </a>
       ) : (
-        <span data-el={el} className={`${space}inline-flex items-center gap-2`}>
+        <span data-el={el} data-kind={item.contactKind} className={`${space}wb-z-contact inline-flex items-center gap-2`}>
           {inner}
         </span>
       );
     }
     case "copyright":
       return (
-        <p data-el={el} className={`${space}m-0 text-sm opacity-75`}>
-          © {new Date().getFullYear()} {site.displayName}. {words}
+        <p data-el={el} className={`${space}wb-z-copyright m-0 text-sm opacity-75`}>
+          © {new Date().getFullYear()} {site.displayName}
+          {site.legalOwner ? (fr ? ` — une marque de ${site.legalOwner}` : ` — a brand of ${site.legalOwner}`) : ""}. {words}
+          {site.privacyHref ? (
+            <>
+              <span className="wb-z-sep" aria-hidden="true"> · </span>
+              <a href={site.privacyHref} className="wb-z-legal text-inherit underline-offset-2 hover:underline">
+                {fr ? "Politique de confidentialité" : "Privacy policy"}
+              </a>
+            </>
+          ) : null}
         </p>
       );
     case "newsletter": {
@@ -1324,7 +1415,7 @@ export function ZoneElement({ item, el, space }: { item: Extra; el: string; spac
         }
       };
       return (
-        <form data-el={el} onSubmit={submit} className={`${space}flex w-full max-w-sm flex-col gap-2`}>
+        <form data-el={el} onSubmit={submit} className={`${space}wb-z-newsletter flex w-full max-w-sm flex-col gap-2`}>
           <label className="text-sm font-medium">{words}</label>
           <div className="flex flex-wrap gap-2">
             <input

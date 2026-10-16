@@ -216,6 +216,7 @@ const websiteTemplateSchema = z.enum([
   "contact",
   "careers",
   "shop",
+  "legal",
 ]);
 
 const websitePageFields = {
@@ -270,6 +271,7 @@ const websiteSectionTypeSchema = z.enum([
   "contact",
   "container",
   "shop",
+  "legal",
 ]);
 
 const websiteSectionContentSchema = z

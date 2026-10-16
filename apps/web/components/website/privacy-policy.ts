@@ -91,13 +91,13 @@ export function privacyPolicyContent(company: Company): LegalContent {
     email ? `par e-mail : ${email}` : null,
     phone ? `par téléphone : ${phone}` : null,
     address ? `par courrier : ${legalName ?? brand}, ${address}` : null,
-    "ou par le formulaire de contact du site",
+    email || phone || address ? "ou par le formulaire de contact du site" : "par le formulaire de contact du site",
   ].filter(Boolean) as string[];
   const contactEn = [
     email ? `by e-mail: ${email}` : null,
     phone ? `by phone: ${phone}` : null,
     address ? `by mail: ${legalName ?? brand}, ${address}` : null,
-    "or through the contact form on the website",
+    email || phone || address ? "or through the contact form on the website" : "through the contact form on the website",
   ].filter(Boolean) as string[];
   const writeFr = email ? `écrivez-nous à ${email}` : "écrivez-nous via le formulaire de contact du site";
   const writeEn = email ? `write to us at ${email}` : "write to us through the website contact form";
@@ -107,7 +107,7 @@ export function privacyPolicyContent(company: Company): LegalContent {
     title_en: "Privacy Policy",
     updated_fr: UPDATED_FR,
     updated_en: UPDATED_EN,
-    intro_fr: `Cette politique explique quelles données personnelles ${brand} collecte, pourquoi, comment elles sont protégées et quels sont vos droits. Elle s'applique au site ${site}, à notre chat en ligne, à nos pages Facebook et Instagram, à nos échanges par e-mail et à notre boutique en ligne.`,
+    intro_fr: `Cette politique explique quelles données personnelles ${brand} collecte, pourquoi, comment elles sont protégées et quels sont vos droits. Elle s'applique ${domain ? `au site ${site}` : "à notre site web"}, à notre chat en ligne, à nos pages Facebook et Instagram, à nos échanges par e-mail et à notre boutique en ligne.`,
     intro_en: `This policy explains what personal data ${brand} collects, why, how it is protected and what your rights are. It applies to ${siteEn}, our online chat, our Facebook and Instagram pages, our e-mail exchanges and our online shop.`,
     blocks: [
       {

@@ -10,6 +10,7 @@ import {
   AlignRight,
   Archive,
   Bold,
+  Check,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
@@ -128,6 +129,20 @@ import {
   SITE_TEMPLATES,
   isBlockType,
 } from "@/components/website/website-templates";
+import {
+  companyForPrivacy,
+  privacyPolicyContent,
+  type LegalBlock,
+  type LegalContent,
+} from "@/components/website/privacy-policy";
+import {
+  MENU_ZONES,
+  MENU_ZONE_LABELS,
+  pageMenuZones,
+  pageMenuZonesValue,
+  settingsWithMenuZones,
+  type MenuZone,
+} from "@/components/website/menu-zones";
 
 type BuilderPage = {
   id: string;
@@ -182,6 +197,7 @@ type BuilderData = {
 };
 type SectionType = WebsiteSection["section_type"];
 type TemplateCode =
+  | "legal"
   | "blank"
   | "company"
   | "operations"
@@ -579,6 +595,16 @@ export function WebsiteArea({ orgSlug }: { orgSlug: string }) {
     },
     onError: (error: Error) => toast.error(error.message),
   });
+  // Menus showing a page's link, changed from a zone (header / footer…).
+  const savePageMenus = useMutation({
+    mutationFn: ({ page, zones }: { page: BuilderPage; zones: MenuZone[] }) =>
+      patch(orgUrl(orgSlug, `website/pages/${page.id}`), {
+        ...pageFieldsPayload(page),
+        settings: settingsWithMenuZones(page.settings, zones),
+      }),
+    onSuccess: () => refresh(),
+    onError: (error: Error) => toast.error(error.message),
+  });
   const saveSections = useMutation({
     mutationFn: ({
       id,
@@ -820,6 +846,7 @@ export function WebsiteArea({ orgSlug }: { orgSlug: string }) {
               savingPage={savePage.isPending}
               publishing={publishPage.isPending}
               onCreatePage={(payload) => createPage.mutateAsync(payload)}
+              onSavePageMenus={(page, zones) => savePageMenus.mutateAsync({ page, zones })}
               creatingPage={createPage.isPending}
               fr={fr}
             />
@@ -2761,6 +2788,7 @@ function builderPreviewWebsite(
         in_menu:
           candidate.isHome ||
           (candidate.status === "published" && candidate.settings?.hideFromMenu !== true),
+        zones: pageMenuZonesValue(candidate.settings),
       })),
   };
 }
@@ -2899,6 +2927,7 @@ function VisualBuilderTab({
   savingPage,
   publishing,
   onCreatePage,
+  onSavePageMenus,
   creatingPage = false,
   fr,
 }: {
@@ -2907,6 +2936,7 @@ function VisualBuilderTab({
   pages: BuilderPage[];
   page: BuilderPage | null;
   onCreatePage?: (payload: Record<string, unknown>) => Promise<unknown>;
+  onSavePageMenus?: (page: BuilderPage, zones: MenuZone[]) => Promise<unknown>;
   creatingPage?: boolean;
   onSelectPage: (pageId: string) => void;
   onSaveSections: (sections: WebsiteSection[]) => Promise<unknown>;
@@ -4593,6 +4623,19 @@ function VisualBuilderTab({
                     theme={design.theme}
                     pages={linkPages}
                     menuPages={menuLinkPages}
+                    linkPages={visiblePages.filter((candidate) => candidate.isHome || candidate.status === "published")}
+                    currentPageId={page?.id ?? null}
+                    currentSettings={pageSettings}
+                    onPageZones={(target, zones) => {
+                      // The open page keeps its unsaved layout settings.
+                      if (target.id === page?.id) {
+                        const next = settingsWithMenuZones(pageSettings, zones);
+                        setPageSettings(next);
+                        void onSavePage({ ...pageFieldsPayload(target), settings: next }).catch(() => undefined);
+                        return;
+                      }
+                      void onSavePageMenus?.(target, zones).catch(() => undefined);
+                    }}
                     onChange={(next) => setZone(selectedZone, () => next)}
                     onSelectElement={setSelectedElement}
                     orgSlug={orgSlug}
@@ -4630,6 +4673,15 @@ function VisualBuilderTab({
                     </div>
                   </div>
                 ) : null}
+                {selectedBlock.section_type === "legal" ? (
+                  <LegalBlockEditor
+                    key={`${selectedBlock.id}-legal`}
+                    block={selectedBlock}
+                    website={website}
+                    onChange={(value) => updateSelected(value)}
+                    fr={fr}
+                  />
+                ) : (
                 <BlockEditor
                   key={selectedBlock.id}
                   orgSlug={orgSlug}
@@ -4668,6 +4720,7 @@ function VisualBuilderTab({
                     />
                   }
                 />
+                )}
                 </>
                 )}
               </div>
@@ -8443,24 +8496,13 @@ function PageLayoutFields({
           )}
         </p>
       </div>
-      <label className="flex items-start justify-between gap-3 rounded-lg bg-surface-2 px-3 py-2 text-sm text-ink">
-        <span>
-          <span className="block font-medium">{tr(fr, "Afficher dans les menus du site", "Show in the site menus")}</span>
-          <span className="block text-[11px] text-ink-muted">
-            {tr(
-              fr,
-              "Header, top bar et footer. Décochée, la page reste accessible par son adresse et vos liens.",
-              "Header, top bar and footer. Unticked, the page stays reachable by its address and your links.",
-            )}
-          </span>
-        </span>
-        <input
-          type="checkbox"
-          className="mt-1 size-4 accent-violet-600"
-          checked={value.hideFromMenu !== true}
-          onChange={(event) => set("hideFromMenu", event.target.checked ? undefined : true)}
+      <div className="rounded-lg bg-surface-2 px-3 py-2.5">
+        <MenuZonePicker
+          fr={fr}
+          zones={pageMenuZones(value)}
+          onChange={(zones) => onChange(settingsWithMenuZones(value, zones))}
         />
-      </label>
+      </div>
       <BlockColorField
         label={tr(fr, "Fond général de la page", "Page background")}
         value={value.background}
@@ -8758,7 +8800,7 @@ function NewPageForm({
   const [seoTitleEn, setSeoTitleEn] = useState("");
   const [seoDescriptionFr, setSeoDescriptionFr] = useState("");
   const [seoDescriptionEn, setSeoDescriptionEn] = useState("");
-  const [inMenu, setInMenu] = useState(false);
+  const [menuZones, setMenuZones] = useState<MenuZone[]>([]);
   const [template, setTemplate] = useState("blank");
   const slugify = (value: string) =>
     value
@@ -8788,6 +8830,7 @@ function NewPageForm({
               aria-pressed={template === key}
               onClick={() => {
                 setTemplate(key);
+                if (entry.menuZones) setMenuZones(entry.menuZones);
                 if (!nameFr.trim() && entry.nameFr) setNameFr(entry.nameFr);
                 if (!nameEn.trim() && entry.nameEn) setNameEn(entry.nameEn);
               }}
@@ -8844,10 +8887,7 @@ function NewPageForm({
           </Field>
         </div>
       </details>
-      <label className="flex items-center justify-between gap-2 text-xs text-ink">
-        {tr(fr, "Afficher dans les menus du site (header, footer)", "Show in the site menus (header, footer)")}
-        <input type="checkbox" className="size-4 accent-violet-600" checked={inMenu} onChange={(event) => setInMenu(event.target.checked)} />
-      </label>
+      <MenuZonePicker fr={fr} zones={menuZones} onChange={setMenuZones} />
       <p className="text-[11px] text-ink-muted">
         {tr(
           fr,
@@ -8873,7 +8913,7 @@ function NewPageForm({
               seoTitleEn: optional(seoTitleEn),
               seoDescriptionFr: optional(seoDescriptionFr),
               seoDescriptionEn: optional(seoDescriptionEn),
-              settings: inMenu ? {} : { hideFromMenu: true },
+              settings: settingsWithMenuZones({}, menuZones),
               templateCode: "blank",
               isHome: false,
               __sections: PAGE_TEMPLATES[template]?.build() ?? [],
@@ -8887,6 +8927,237 @@ function NewPageForm({
           {tr(fr, "Annuler", "Cancel")}
         </Button>
       </div>
+    </div>
+  );
+}
+
+/** Text of the privacy-policy block: written automatically, or customised. */
+function LegalBlockEditor({
+  block,
+  website,
+  onChange,
+  fr,
+}: {
+  block: WebsiteSection;
+  website: BuilderWebsite;
+  onChange: (block: WebsiteSection) => void;
+  fr: boolean;
+}) {
+  const [lang, setLang] = useState<"fr" | "en">(fr ? "fr" : "en");
+  const content = block.content as Partial<LegalContent>;
+  const custom = Array.isArray(content.blocks) && content.blocks.length > 0;
+  const generated = () =>
+    privacyPolicyContent(
+      companyForPrivacy({
+        host: website.customDomain,
+        displayName: website.displayName,
+        contactEmail: website.contactEmail,
+        contactPhone: website.contactPhone,
+        addressText: website.addressText,
+      }),
+    );
+  const write = (next: LegalContent | Record<string, never>) =>
+    onChange({ ...block, content: { ...(next as Record<string, unknown>) } });
+  if (!custom)
+    return (
+      <section className="mb-4 space-y-3 rounded-xl border border-violet-500/30 bg-violet-500/[.04] p-3">
+        <p className="text-sm font-semibold text-ink">{tr(fr, "Politique de confidentialité", "Privacy policy")}</p>
+        <p className="text-xs leading-5 text-ink-secondary">
+          {tr(
+            fr,
+            "Le texte est rédigé automatiquement à partir du nom et des coordonnées de l’entreprise, et se met à jour s’ils changent. Il couvre le formulaire de contact, le chat, Facebook / Instagram, les candidatures et la boutique.",
+            "The text is written automatically from the company’s name and contact details, and updates when they change. It covers the contact form, chat, Facebook / Instagram, job applications and the shop.",
+          )}
+        </p>
+        <Button size="sm" variant="secondary" onClick={() => write(generated())}>
+          <PencilLine />
+          {tr(fr, "Personnaliser le texte", "Customise the text")}
+        </Button>
+      </section>
+    );
+  const legal = content as LegalContent;
+  const key = <T extends string>(base: T) => `${base}_${lang}` as `${T}_fr` | `${T}_en`;
+  const set = (patch: Partial<LegalContent>) => write({ ...legal, ...patch });
+  const setBlock = (index: number, patch: Partial<LegalBlock>) =>
+    set({ blocks: legal.blocks.map((item, position) => (position === index ? { ...item, ...patch } : item)) });
+  const lines = (value: string, separator: RegExp) =>
+    value
+      .split(separator)
+      .map((part) => part.trim())
+      .filter(Boolean);
+  const moveBlock = (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (target < 0 || target >= legal.blocks.length) return;
+    const next = [...legal.blocks];
+    [next[index], next[target]] = [next[target]!, next[index]!];
+    set({ blocks: next });
+  };
+  return (
+    <section className="mb-4 space-y-3 rounded-xl border border-violet-500/30 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm font-semibold text-ink">{tr(fr, "Texte de la politique", "Policy text")}</p>
+        <Segmented
+          value={lang}
+          onChange={(value) => setLang(value === "en" ? "en" : "fr")}
+          options={[
+            ["fr", "FR"],
+            ["en", "EN"],
+          ]}
+        />
+      </div>
+      <Field label={tr(fr, "Titre", "Title")}>
+        <Input
+          value={String(legal[key("title")] ?? "")}
+          onChange={(event) => set({ [key("title")]: event.target.value } as Partial<LegalContent>)}
+        />
+      </Field>
+      <Field label={tr(fr, "Introduction", "Introduction")}>
+        <Textarea
+          rows={4}
+          value={String(legal[key("intro")] ?? "")}
+          onChange={(event) => set({ [key("intro")]: event.target.value } as Partial<LegalContent>)}
+        />
+      </Field>
+      <Field label={tr(fr, "Date de mise à jour", "Last updated line")}>
+        <Input
+          value={String(legal[key("updated")] ?? "")}
+          onChange={(event) => set({ [key("updated")]: event.target.value } as Partial<LegalContent>)}
+        />
+      </Field>
+      <div className="space-y-2">
+        {legal.blocks.map((item, index) => (
+          <details key={item.id} className="group rounded-lg border border-border bg-surface-1">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-xs font-semibold text-ink">
+              <span className="min-w-0 truncate">{(lang === "fr" ? item.title_fr : item.title_en) || tr(fr, "Section", "Section")}</span>
+              <ChevronDown className="size-3.5 shrink-0 transition group-open:rotate-180" />
+            </summary>
+            <div className="space-y-2 border-t border-border p-3">
+              <Field label={tr(fr, "Titre de la section", "Section title")}>
+                <Input
+                  value={(lang === "fr" ? item.title_fr : item.title_en) ?? ""}
+                  onChange={(event) => setBlock(index, { [key("title")]: event.target.value } as Partial<LegalBlock>)}
+                />
+              </Field>
+              <Field label={tr(fr, "Paragraphes (séparés par une ligne vide)", "Paragraphs (separated by a blank line)")}>
+                <Textarea
+                  key={`p-${item.id}-${lang}`}
+                  rows={5}
+                  defaultValue={((lang === "fr" ? item.paragraphs_fr : item.paragraphs_en) ?? []).join("\n\n")}
+                  onBlur={(event) => setBlock(index, { [key("paragraphs")]: lines(event.target.value, /\n\s*\n/) } as Partial<LegalBlock>)}
+                />
+              </Field>
+              <Field label={tr(fr, "Liste à puces (une ligne par point)", "Bullet list (one line per point)")}>
+                <Textarea
+                  key={`i-${item.id}-${lang}`}
+                  rows={4}
+                  defaultValue={((lang === "fr" ? item.items_fr : item.items_en) ?? []).join("\n")}
+                  onBlur={(event) => setBlock(index, { [key("items")]: lines(event.target.value, /\n/) } as Partial<LegalBlock>)}
+                />
+              </Field>
+              <div className="flex flex-wrap gap-1.5">
+                <Button size="sm" variant="ghost" onClick={() => moveBlock(index, -1)} disabled={index === 0}>
+                  <ChevronUp />
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => moveBlock(index, 1)} disabled={index === legal.blocks.length - 1}>
+                  <ChevronDown />
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => set({ blocks: legal.blocks.filter((_entry, position) => position !== index) })}
+                  disabled={legal.blocks.length <= 1}
+                >
+                  <Trash2 />
+                  {tr(fr, "Supprimer", "Delete")}
+                </Button>
+              </div>
+            </div>
+          </details>
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={() =>
+            set({
+              blocks: [
+                ...legal.blocks,
+                {
+                  id: `section-${Date.now().toString(36)}`,
+                  title_fr: `${legal.blocks.length + 1}. Nouvelle section`,
+                  title_en: `${legal.blocks.length + 1}. New section`,
+                  paragraphs_fr: ["Votre texte."],
+                  paragraphs_en: ["Your text."],
+                },
+              ],
+            })
+          }
+        >
+          <Plus />
+          {tr(fr, "Ajouter une section", "Add a section")}
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={async () => {
+            if (
+              await ask(
+                tr(
+                  fr,
+                  "Revenir au texte automatique ? Vos modifications de ce texte seront retirées.",
+                  "Go back to the automatic text? Your changes to this text will be removed.",
+                ),
+              )
+            )
+              write({});
+          }}
+        >
+          <Undo2 />
+          {tr(fr, "Texte automatique", "Automatic text")}
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+/** Menus that show a page's link: top bar, header and/or footer. */
+function MenuZonePicker({
+  zones,
+  onChange,
+  fr,
+}: {
+  zones: MenuZone[];
+  onChange: (zones: MenuZone[]) => void;
+  fr: boolean;
+}) {
+  return (
+    <div>
+      <p className="text-sm font-medium text-ink">{tr(fr, "Lien de la page affiché dans", "Page link shown in")}</p>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {MENU_ZONES.map((zone) => {
+          const active = zones.includes(zone);
+          return (
+            <button
+              key={zone}
+              type="button"
+              aria-pressed={active}
+              onClick={() => onChange(active ? zones.filter((item) => item !== zone) : [...zones, zone])}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition ${
+                active ? "border-violet-600 bg-violet-600 text-white" : "border-border bg-surface-1 text-ink-secondary hover:border-violet-400"
+              }`}
+            >
+              {active ? <Check className="size-3" /> : null}
+              {MENU_ZONE_LABELS[zone][fr ? 0 : 1]}
+            </button>
+          );
+        })}
+      </div>
+      <p className="mt-1.5 text-[11px] leading-4 text-ink-muted">
+        {zones.length === 0
+          ? tr(fr, "Dans aucun menu : la page reste accessible par son adresse et vos liens.", "In no menu: the page stays reachable by its address and your links.")
+          : tr(fr, "Ex. : une page légale seulement dans le footer.", "E.g. a legal page only in the footer.")}
+      </p>
     </div>
   );
 }
@@ -9232,6 +9503,29 @@ function ZoneTemplatePreview({ name, template }: { name: ZoneName; template: str
           <span className="flex w-full gap-1 border-t border-slate-200 pt-1">{bar("15%")}{bar("15%")}{bar("15%")}{bar("15%")}</span>
         </span>
       );
+    if (template === "split")
+      return (
+        <span className={`${shell} justify-between`}>
+          <span className="flex w-1/3 gap-1">{bar("30%")}{bar("30%")}</span>
+          {logo}
+          <span className="flex w-1/3 items-center justify-end gap-1">{bar("30%")}{button}</span>
+        </span>
+      );
+    if (template === "cta")
+      return (
+        <span className={`${shell} justify-between`}>
+          {logo}
+          <span className="flex w-2/5 justify-center gap-1">{bar("25%")}{bar("25%")}{bar("25%")}</span>
+          <span className="flex gap-1"><span className="block h-2.5 w-6 rounded-full border border-amber-400" />{button}</span>
+        </span>
+      );
+    if (template === "minimal")
+      return (
+        <span className={`${shell} justify-between`}>
+          {logo}
+          <span className="flex flex-col gap-0.5">{bar("0.9rem", true)}{bar("0.9rem", true)}{bar("0.9rem", true)}</span>
+        </span>
+      );
     return (
       <span className={`${shell} justify-between`}>
         {logo}
@@ -9240,25 +9534,60 @@ function ZoneTemplatePreview({ name, template }: { name: ZoneName; template: str
       </span>
     );
   }
-  const shell = "flex h-16 w-full flex-col justify-between rounded-md bg-slate-950 p-2 text-slate-300";
-  const bottom = <span className="flex w-full justify-between border-t border-white/15 pt-1">{bar("30%")}</span>;
-  if (template === "simple")
-    return <span className={`${shell} justify-center`}><span className="flex w-full justify-between">{bar("35%")}{bar("30%")}</span></span>;
-  const columns = template === "columns" ? 4 : 2;
-  return (
-    <span className={shell}>
-      <span className="grid w-full gap-2" style={{ gridTemplateColumns: `repeat(${columns},1fr)` }}>
-        {Array.from({ length: columns }, (_value, index) => (
-          <span key={index} className="space-y-1">
-            {index === 0 && template !== "newsletter" ? logo : bar("70%", true)}
-            {bar("90%")}
-            {template === "newsletter" && index === 0 ? <span className="block h-2 w-full rounded bg-white/80" /> : bar("60%")}
-          </span>
-        ))}
-      </span>
-      {bottom}
+  const shell = "flex h-16 w-full flex-col justify-between gap-1 rounded-md bg-slate-950 p-2 text-slate-300";
+  const bottom = <span className="flex w-full items-center justify-between border-t border-white/15 pt-1">{bar("30%")}{bar("12%")}</span>;
+  const col = (key: number, first: ReactNode, lines = 3) => (
+    <span key={key} className="space-y-1">
+      {first}
+      {Array.from({ length: lines }, (_line, index) => (
+        <span key={index} className="block">{bar(`${80 - index * 15}%`)}</span>
+      ))}
     </span>
   );
+  const grid = (count: number, children: ReactNode[]) => (
+    <span className="grid w-full gap-1.5" style={{ gridTemplateColumns: `repeat(${count},1fr)` }}>{children}</span>
+  );
+  if (template === "simple" || template === "minimal-bar")
+    return (
+      <span className={`${shell} justify-center`}>
+        <span className="flex w-full items-center justify-between gap-1">
+          {bar("28%")}
+          <span className="flex w-2/5 justify-center gap-1">{bar("25%")}{bar("25%")}{bar("25%")}</span>
+          {template === "minimal-bar" ? dots : bar("12%")}
+        </span>
+      </span>
+    );
+  if (template === "centered")
+    return (
+      <span className={`${shell} items-center justify-center`}>
+        {logo}
+        <span className="flex w-2/3 justify-center gap-1">{bar("18%")}{bar("18%")}{bar("18%")}{bar("18%")}</span>
+        {dots}
+      </span>
+    );
+  if (template === "logo-contact")
+    return <span className={shell}>{grid(2, [col(0, logo, 1), col(1, bar("60%", true), 3)])}{bottom}</span>;
+  if (template === "newsletter")
+    return (
+      <span className={shell}>
+        {grid(3, [
+          <span key={0} className="space-y-1">{bar("70%", true)}<span className="block h-2 w-full rounded bg-white/80" /></span>,
+          col(1, bar("60%", true), 2),
+          <span key={2} className="space-y-1">{bar("60%", true)}{dots}</span>,
+        ])}
+        {bottom}
+      </span>
+    );
+  if (template === "cta")
+    return (
+      <span className={shell}>
+        <span className="flex w-full items-center justify-between">{bar("45%", true)}{button}</span>
+        {grid(3, [col(0, logo, 1), col(1, bar("60%", true), 2), col(2, bar("60%", true), 2)])}
+      </span>
+    );
+  if (template === "mega")
+    return <span className={shell}>{grid(5, [col(0, logo, 2), col(1, bar("70%", true)), col(2, bar("70%", true)), col(3, bar("70%", true)), col(4, bar("70%", true), 1)])}{bottom}</span>;
+  return <span className={shell}>{grid(4, [col(0, logo, 1), col(1, bar("70%", true)), col(2, bar("70%", true)), col(3, bar("70%", true), 1)])}{bottom}</span>;
 }
 
 /**
@@ -9272,6 +9601,10 @@ function ZonePanel({
   theme,
   pages,
   menuPages,
+  linkPages,
+  currentPageId,
+  currentSettings,
+  onPageZones,
   onChange,
   onSelectElement,
   orgSlug,
@@ -9284,6 +9617,11 @@ function ZonePanel({
   theme: string | undefined;
   pages: LinkPage[];
   menuPages: LinkPage[];
+  /** Published pages, with the menus that show their link. */
+  linkPages?: BuilderPage[];
+  currentPageId?: string | null;
+  currentSettings?: Record<string, unknown>;
+  onPageZones?: (page: BuilderPage, zones: MenuZone[]) => void;
   onChange: (zone: ZoneData) => void;
   onSelectElement: (element: string | null) => void;
   orgSlug: string;
@@ -9410,6 +9748,51 @@ function ZonePanel({
           ))}
         </div>
       </section>
+
+      {linkPages?.length && onPageZones ? (
+        <section className="space-y-2 rounded-xl border border-border p-3">
+          <div>
+            <p className="text-sm font-semibold text-ink">
+              {tr(fr, `Liens des pages dans ${name === "footer" ? "le footer" : name === "header" ? "le header" : "la top bar"}`, `Page links in the ${name === "footer" ? "footer" : name === "header" ? "header" : "top bar"}`)}
+            </p>
+            <p className="text-[11px] leading-4 text-ink-muted">
+              {tr(
+                fr,
+                "Cochez les pages dont le lien apparaît dans le menu de cette zone (menus « Pages publiées »). Enregistré tout de suite.",
+                "Tick the pages whose link appears in this zone’s menu (“Published pages” menus). Saved right away.",
+              )}
+            </p>
+          </div>
+          <ul className="space-y-1">
+            {linkPages.map((candidate) => {
+              const settings = candidate.id === currentPageId ? currentSettings : candidate.settings;
+              const zones = pageMenuZones(settings);
+              const shown = zones.includes(name as MenuZone);
+              return (
+                <li key={candidate.id}>
+                  <label className="flex cursor-pointer items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-xs text-ink hover:bg-surface-2">
+                    <span className="min-w-0 truncate">
+                      {(fr ? candidate.navigationLabelFr : candidate.navigationLabelEn) || candidate.titleFr}
+                      <span className="ml-1 text-ink-muted">/{candidate.slug}</span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      className="size-4 shrink-0 accent-violet-600"
+                      checked={shown}
+                      onChange={(event) =>
+                        onPageZones(
+                          { ...candidate, settings },
+                          event.target.checked ? [...zones, name as MenuZone] : zones.filter((item) => item !== name),
+                        )
+                      }
+                    />
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ) : null}
 
       <section className="space-y-3 rounded-xl border border-border p-3">
         <p className="text-sm font-semibold text-ink">{tr(fr, "Style de la zone", "Zone style")}</p>
@@ -10339,7 +10722,15 @@ const IMG = {
 /** Pages with their blocks already designed and filled in (FR + EN). */
 const PAGE_TEMPLATES: Record<
   string,
-  { label: [string, string]; hint: [string, string]; nameFr?: string; nameEn?: string; build: () => WebsiteSection[] }
+  {
+    label: [string, string];
+    hint: [string, string];
+    nameFr?: string;
+    nameEn?: string;
+    /** Menus that show the new page's link by default. */
+    menuZones?: MenuZone[];
+    build: () => WebsiteSection[];
+  }
 > = {
   blank: { label: ["Page vide", "Blank page"], hint: ["À construire vous-même", "Build it yourself"], build: () => [] },
   home: {
@@ -10421,6 +10812,15 @@ const PAGE_TEMPLATES: Record<
       templateBlock("contact", {}),
       templateBlock("faq", { items: [question("Sous quel délai répondez-vous ?", "How fast do you reply?", "En général sous 48 heures ouvrées.", "Usually within two working days."), question("Peut-on vous rendre visite ?", "Can we visit you?", "Oui, sur rendez-vous.", "Yes, by appointment.")] }),
     ],
+  },
+  privacy: {
+    label: ["Confidentialité", "Privacy"],
+    hint: ["Politique de confidentialité prête", "Ready privacy policy"],
+    nameFr: "Confidentialité",
+    nameEn: "Privacy",
+    menuZones: ["footer"],
+    // Written from the company's details; editable in the block's panel.
+    build: () => [{ id: `local-${Date.now()}-${(pageTemplateSeed++).toString(36)}-legal`, section_type: "legal", content: {}, sort_order: 0 }],
   },
 };
 

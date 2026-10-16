@@ -73,7 +73,8 @@ interface WebsitePageRow {
     | "impact"
     | "contact"
     | "careers"
-    | "shop";
+    | "shop"
+    | "legal";
   status: PageStatus;
   is_home: boolean;
   sort_order: number;
@@ -765,6 +766,10 @@ const defaultSections = (
           },
         },
       ];
+    case "legal":
+      // An empty legal block shows the privacy policy written from the
+      // company's details; the owner can customise its text in the builder.
+      return [{ type: "legal", content: {} }];
     case "blank":
     default:
       return [];
@@ -784,6 +789,7 @@ const starterPageDefinitions: Array<{
   descriptionEn: string;
   templateCode: WebsitePageCreateInput["templateCode"];
   isHome: boolean;
+  settings?: Record<string, unknown>;
 }> = [
   {
     slug: "accueil",
@@ -862,6 +868,19 @@ const starterPageDefinitions: Array<{
     templateCode: "contact",
     isHome: false,
   },
+  {
+    slug: "confidentialite",
+    navigationLabelFr: "Confidentialité",
+    navigationLabelEn: "Privacy",
+    titleFr: "Politique de confidentialité",
+    titleEn: "Privacy policy",
+    descriptionFr: "Comment nous collectons, utilisons et protégeons vos données personnelles.",
+    descriptionEn: "How we collect, use and protect your personal data.",
+    templateCode: "legal",
+    isHome: false,
+    // A legal page belongs in the footer, not in the main menu.
+    settings: { menuZones: ["footer"] },
+  },
 ];
 
 /** Older websites could contain the initial empty block shells. They are safe
@@ -900,8 +919,8 @@ async function addMissingStarterPages(
       `INSERT INTO organization_website_pages (
         organization_id,website_id,slug,navigation_label_fr,navigation_label_en,
         title_fr,title_en,description_fr,description_en,template_code,is_home,
-        status,sort_order,created_by_member_id,updated_by_member_id
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'draft',$12,$13,$13)
+        status,sort_order,created_by_member_id,updated_by_member_id,settings
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'draft',$12,$13,$13,$14::jsonb)
       RETURNING *`,
       [
         organizationId,
@@ -917,6 +936,7 @@ async function addMissingStarterPages(
         definition.isHome,
         order++,
         memberId,
+        JSON.stringify(definition.settings ?? {}),
       ],
     );
     const inserted = page.rows[0]!;

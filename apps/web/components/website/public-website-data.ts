@@ -21,7 +21,7 @@ export type PublicWebsiteResponse = {
     addressText: string | null;
     footerText: string | null;
     design?: Record<string, unknown>;
-    pages: Array<{ slug: string; labelFr: string; labelEn: string; inMenu?: boolean }>;
+    pages: Array<{ slug: string; labelFr: string; labelEn: string; inMenu?: boolean; menuZones?: string[] | null }>;
   };
   page: {
     settings?: Record<string, unknown>;
@@ -62,6 +62,7 @@ type PublicWebsiteRendererSource = {
       labelFr?: string;
       labelEn?: string;
       inMenu?: boolean;
+      menuZones?: string[] | null;
     }>;
   };
   page?: {
@@ -124,6 +125,10 @@ export function publicWebsiteRendererData(data: PublicWebsiteRendererSource): {
         label_fr: navigation.labelFr ?? navigation.slug ?? "Page",
         label_en: navigation.labelEn ?? navigation.slug ?? "Page",
         in_menu: navigation.inMenu !== false,
+        // Menus that show this page's link (top bar, header, footer).
+        zones: Array.isArray(navigation.menuZones)
+          ? navigation.menuZones.filter((zone): zone is string => typeof zone === "string")
+          : undefined,
       })),
     },
     page: {
