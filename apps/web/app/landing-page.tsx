@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import Link from "next/link";
 import {
+  ArrowRight,
   Bird,
   CheckCircle2,
   PiggyBank,
@@ -11,7 +12,7 @@ import {
   ShieldCheck,
   Sprout,
 } from "lucide-react";
-import { BrandMark } from "@/components/brand/brand-mark";
+import { SiteFooter, SiteHeader } from "@/components/marketing/site-chrome";
 import { PublicMarketingAnalytics, trackMarketingEvent } from "@/components/analytics/public-marketing-analytics";
 import { useLanguage } from "@/providers/language-provider";
 
@@ -200,9 +201,21 @@ const featureIcons = [Bird, PiggyBank, Sprout] as const;
 /** Product pages behind the three feature cards, in card order. */
 const FEATURE_PAGES = ["gestion-avicole", "elevage-porcin", "gestion-agricole"];
 
+/** Free Unsplash photos, served by Unsplash's CDN at the size we need. */
+const photo = (id: string, width = 1200) =>
+  `https://images.unsplash.com/photo-${id}?w=${width}&q=75&auto=format&fit=crop`;
+const PHOTOS = {
+  hero: "1741874299706-2b8e16839aaa",
+  heroSide: "1569466593977-94ee7ed02ec9",
+  features: ["1548550023-2bdb3c5beed7", "1580682777666-24a7b3024e24", "1723645013435-c3c8948faf59"],
+  teams: "1791395183274-6391ccbd134e",
+  field: "1761634373241-5abcfcaa0c39",
+};
+
 export function LandingPage() {
-  const { locale, setLocale } = useLanguage();
-  const text = locale === "fr" ? french : english;
+  const { locale } = useLanguage();
+  const fr = locale === "fr";
+  const text = fr ? french : english;
 
   useEffect(() => {
     trackMarketingEvent("view_item_list", {
@@ -211,251 +224,275 @@ export function LandingPage() {
     });
   }, []);
 
+  const teamPoints = fr
+    ? ["Dossiers, rôles et accès par site", "Recrutement et Espace candidat", "Formations, présences et congés", "Paie et bulletins en PDF", "Messages par e-mail, SMS ou notification"]
+    : ["Records, roles and site access", "Recruitment and candidate space", "Training, attendance and leave", "Payroll and PDF payslips", "Messages by e-mail, SMS or notification"];
+  const securityPoints = fr
+    ? [
+        { title: "Accès par rôle", text: "Chaque personne ne voit que son site, ses équipes et ses tâches." },
+        { title: "Données séparées", text: "Les données de chaque entreprise sont isolées dans la base." },
+        { title: "Journal d’audit", text: "Connexions et actions importantes sont tracées." },
+      ]
+    : [
+        { title: "Role-based access", text: "Everyone only sees their own site, teams and tasks." },
+        { title: "Separated data", text: "Each company’s data is isolated in the database." },
+        { title: "Audit log", text: "Sign-ins and important actions are recorded." },
+      ];
+
   return (
-    <main className="min-h-dvh overflow-x-hidden bg-page text-ink">
+    <div className="min-h-dvh overflow-x-hidden bg-page text-ink">
       <PublicMarketingAnalytics />
-      <section className="relative isolate overflow-hidden border-b border-border">
-        <div
-          className="pointer-events-none absolute inset-0 -z-10 overflow-hidden"
-          aria-hidden
-        >
-          <div className="absolute left-1/2 top-[-22rem] size-[48rem] -translate-x-1/2 rounded-full bg-brand/10 blur-3xl" />
-          <div className="absolute right-[-10rem] top-52 size-[30rem] rounded-full bg-chart-3/10 blur-3xl" />
-          <div className="absolute inset-x-0 bottom-0 h-44 bg-[linear-gradient(to_bottom,transparent,var(--page))]" />
-        </div>
-
-        <nav
-          className="mx-auto flex max-w-7xl items-center justify-between px-5 py-5 sm:px-8 lg:px-10"
-          aria-label="Main navigation"
-        >
-          <Link
-            href="/"
-            className="flex items-center gap-3 rounded-md"
-            aria-label="LiteHubs home"
-          >
-            <BrandMark size={34} className="rounded-lg shadow-sm" />
-            <span className="text-lg font-semibold tracking-[-0.04em] text-ink">
-              LiteHubs
-            </span>
-          </Link>
-          <div className="hidden items-center gap-7 text-sm font-medium text-ink-secondary lg:flex">
-            {text.nav.map((item, index) => (
-              <a
-                key={item}
-                href={
-                  index === 0
-                    ? "#features"
-                    : index === 1
-                      ? "#teams"
-                      : "#security"
-                }
-                className="transition-colors hover:text-ink"
-              >
-                {item}
-              </a>
-            ))}
+      <SiteHeader />
+      <main>
+        {/* Hero */}
+        <section className="relative isolate overflow-hidden pt-16">
+          <div className="pointer-events-none absolute inset-0 -z-10" aria-hidden>
+            <div className="absolute left-[-10rem] top-[-12rem] size-[38rem] rounded-full bg-brand/12 blur-3xl" />
+            <div className="absolute right-[-12rem] top-40 size-[34rem] rounded-full bg-chart-3/12 blur-3xl" />
           </div>
-          <div className="flex items-center gap-2 sm:gap-3">
-            <div
-              className="hidden rounded-md border border-border bg-surface-1 p-0.5 sm:flex"
-              aria-label="Language"
-            >
-              {(["fr", "en"] as const).map((nextLocale) => (
-                <button
-                  key={nextLocale}
-                  type="button"
-                  onClick={() => setLocale(nextLocale)}
-                  className={`rounded px-2 py-1 text-[11px] font-bold uppercase tracking-[0.12em] transition-colors ${locale === nextLocale ? "bg-surface-3 text-ink" : "text-ink-muted hover:text-ink"}`}
+          <div className="mx-auto grid max-w-7xl gap-12 px-5 pb-16 pt-12 sm:px-8 sm:pt-16 lg:grid-cols-[1fr_1.05fr] lg:items-center lg:gap-14 lg:px-10 lg:pb-24 lg:pt-20">
+            <div className="max-w-2xl">
+              <p className="mb-5 inline-flex items-center gap-2 rounded-full border border-brand/20 bg-brand/10 px-3 py-1.5 text-xs font-bold tracking-[0.13em] text-brand">
+                <span className="size-1.5 rounded-full bg-brand" />
+                {text.eyebrow}
+              </p>
+              <h1 className="text-4xl font-semibold leading-[1.06] tracking-[-0.055em] text-ink sm:text-5xl lg:text-[3.5rem]">
+                {text.title}
+              </h1>
+              <p className="mt-6 max-w-xl text-base leading-7 text-ink-secondary sm:text-lg sm:leading-8">
+                {text.description}
+              </p>
+              <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+                <Link
+                  href="/rendezvous"
+                  onClick={() => trackMarketingEvent("select_content", { content_type: "cta", item_id: "hero_demo" })}
+                  className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-brand px-6 text-sm font-semibold text-brand-ink shadow-lg shadow-brand/20 transition hover:bg-brand-hover"
                 >
-                  {nextLocale}
-                </button>
-              ))}
-            </div>
-            <Link
-              href="/contact"
-              onClick={() => trackMarketingEvent("select_content", { content_type: "cta", item_id: "contact" })}
-              className="hidden h-10 items-center rounded-md px-3 text-sm font-semibold text-ink-secondary transition hover:bg-surface-2 hover:text-ink sm:inline-flex"
-            >
-              {text.contact}
-            </Link>
-            <a
-              href="/login"
-              className="inline-flex h-10 items-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-brand-ink shadow-sm transition-colors hover:bg-brand-hover sm:px-5"
-            >
-              {text.signIn}
-              <LogIn className="size-4" aria-hidden />
-            </a>
-          </div>
-        </nav>
-
-        <div className="mx-auto grid max-w-7xl gap-12 px-5 pb-16 pt-14 sm:px-8 sm:pb-24 sm:pt-20 lg:grid-cols-[1.02fr_.98fr] lg:items-center lg:gap-16 lg:px-10 lg:py-28">
-          <div className="max-w-2xl">
-            <p className="mb-5 inline-flex items-center gap-2 rounded-full border border-brand/20 bg-brand/10 px-3 py-1.5 text-xs font-bold tracking-[0.13em] text-brand">
-              <span className="size-1.5 rounded-full bg-brand" />
-              {text.eyebrow}
-            </p>
-            <h1 className="max-w-xl text-4xl font-semibold leading-[1.05] tracking-[-0.06em] text-ink sm:text-5xl lg:text-[3.6rem]">
-              {text.title}
-            </h1>
-            <p className="mt-6 max-w-xl text-base leading-7 text-ink-secondary sm:text-lg sm:leading-8">
-              {text.description}
-            </p>
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <a
-                href="/login"
-                onClick={() => trackMarketingEvent("select_content", { content_type: "cta", item_id: "hero_sign_in" })}
-                className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-brand px-6 text-sm font-semibold text-brand-ink shadow-sm transition-colors hover:bg-brand-hover"
-              >
-                {text.primary}
-                <LogIn className="size-4" aria-hidden />
-              </a>
-              <a
-                href="#features"
-                onClick={() => trackMarketingEvent("select_content", { content_type: "cta", item_id: "explore_features" })}
-                className="inline-flex h-12 items-center justify-center rounded-md border border-border-strong bg-surface-1 px-6 text-sm font-semibold text-ink transition-colors hover:bg-surface-2"
-              >
-                {text.secondary}
-              </a>
-            </div>
-            <ul
-              className="mt-9 flex flex-wrap gap-x-5 gap-y-3"
-              aria-label="LiteHubs benefits"
-            >
-              {text.proof.map((item) => (
-                <li
-                  key={item}
-                  className="flex items-center gap-2 text-sm text-ink-secondary"
+                  {fr ? "Demander une démonstration" : "Book a demo"}
+                  <ArrowRight className="size-4" aria-hidden />
+                </Link>
+                <a
+                  href="/login"
+                  onClick={() => trackMarketingEvent("select_content", { content_type: "cta", item_id: "hero_sign_in" })}
+                  className="inline-flex h-12 items-center justify-center gap-2 rounded-xl border border-border-strong bg-surface-1 px-6 text-sm font-semibold text-ink transition hover:bg-surface-2"
                 >
-                  <CheckCircle2 className="size-4 text-good" aria-hidden />
-                  {item}
-                </li>
-              ))}
-            </ul>
-          </div>
-          <EmployeeLoginCard text={text} />
-        </div>
-      </section>
+                  {text.primary}
+                  <LogIn className="size-4" aria-hidden />
+                </a>
+              </div>
+              <ul className="mt-9 flex flex-wrap gap-x-5 gap-y-3" aria-label="LiteHubs benefits">
+                {text.proof.map((item) => (
+                  <li key={item} className="flex items-center gap-2 text-sm text-ink-secondary">
+                    <CheckCircle2 className="size-4 text-good" aria-hidden />
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
 
-      <section
-        id="features"
-        className="mx-auto max-w-7xl px-5 py-20 sm:px-8 lg:px-10 lg:py-28"
-      >
-        <div className="max-w-2xl">
-          <p className="text-xs font-bold tracking-[0.14em] text-brand">
-            {text.featureEyebrow}
-          </p>
-          <h2 className="mt-4 text-3xl font-semibold tracking-[-0.045em] text-ink sm:text-4xl">
-            {text.featureTitle}
-          </h2>
-          <p className="mt-4 text-base leading-7 text-ink-secondary">
-            {text.featureDescription}
-          </p>
-        </div>
-        <div className="mt-10 grid gap-4 lg:grid-cols-3">
-          {text.features.map((feature, index) => {
-            const Icon = featureIcons[index] ?? Sprout;
-            return (
-              <Link
-                key={feature.title}
-                href={`/logiciel/${FEATURE_PAGES[index] ?? "gestion-agricole"}`}
-                className="block rounded-xl border border-border bg-surface-1 p-6 shadow-[0_1px_0_rgba(0,0,0,0.02)] transition-all hover:-translate-y-0.5 hover:border-border-strong hover:shadow-lg"
-              >
-                <div className="grid size-11 place-items-center rounded-lg bg-brand/10 text-brand">
-                  <Icon className="size-5" aria-hidden />
+            <div className="relative mx-auto w-full max-w-xl lg:max-w-none">
+              <div className="grid grid-cols-[1.35fr_1fr] gap-3 sm:gap-4">
+                <img
+                  src={photo(PHOTOS.hero, 1100)}
+                  alt={fr ? "Agriculteur dans son champ" : "Farmer in his field"}
+                  className="h-72 w-full rounded-3xl bg-surface-2 object-cover shadow-2xl sm:h-[26rem]"
+                  loading="eager"
+                />
+                <div className="grid gap-3 sm:gap-4">
+                  <img
+                    src={photo(PHOTOS.heroSide, 700)}
+                    alt={fr ? "Poules dans un élevage" : "Hens on a farm"}
+                    className="h-[8.6rem] w-full rounded-3xl bg-surface-2 object-cover shadow-xl sm:h-[12.6rem]"
+                    loading="eager"
+                  />
+                  <div className="flex flex-col justify-between rounded-3xl bg-ink p-4 text-page shadow-xl sm:p-5">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.14em] opacity-70">{text.today}</p>
+                    <div>
+                      <p className="text-3xl font-semibold tracking-[-0.04em] sm:text-4xl">98,4 %</p>
+                      <p className="mt-1 text-xs opacity-70">{fr ? "Taux de survie du lot" : "Flock survival rate"}</p>
+                    </div>
+                  </div>
                 </div>
-                <h3 className="mt-6 text-lg font-semibold tracking-[-0.025em] text-ink">
-                  {feature.title}
-                </h3>
-                <p className="mt-2 text-sm leading-6 text-ink-secondary">
-                  {feature.description}
-                </p>
-                <span className="mt-4 inline-flex items-center text-sm font-semibold text-brand">
-                  {locale === "fr" ? "En savoir plus →" : "Learn more →"}
+              </div>
+              <div className="absolute -bottom-5 left-4 hidden items-center gap-3 rounded-2xl border border-border bg-surface-1/95 px-4 py-3 shadow-xl backdrop-blur sm:left-8 sm:flex">
+                <span className="grid size-9 place-items-center rounded-xl bg-good/15 text-good">
+                  <CheckCircle2 className="size-5" aria-hidden />
                 </span>
-              </Link>
-            );
-          })}
-        </div>
-      </section>
-
-      <section id="teams" className="border-y border-border bg-surface-2/70">
-        <div className="mx-auto grid max-w-7xl gap-12 px-5 py-20 sm:px-8 lg:grid-cols-[.8fr_1.2fr] lg:items-center lg:px-10 lg:py-28">
-          <div>
-            <p className="text-xs font-bold tracking-[0.14em] text-brand">
-              {text.processEyebrow}
-            </p>
-            <h2 className="mt-4 text-3xl font-semibold tracking-[-0.045em] text-ink sm:text-4xl">
-              {text.processTitle}
-            </h2>
-            <p className="mt-5 max-w-md text-base leading-7 text-ink-secondary">
-              {text.processDescription}
-            </p>
+                <div>
+                  <p className="text-sm font-semibold text-ink">{text.onTrack}</p>
+                  <p className="text-xs text-ink-secondary">
+                    {text.metrics.map((metric) => `${metric.label} ${metric.value}`).slice(0, 2).join(" · ")}
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
-          <ol className="grid gap-3 sm:grid-cols-3">
+        </section>
+
+        {/* Modules */}
+        <section id="features" className="mx-auto max-w-7xl px-5 py-20 sm:px-8 lg:px-10 lg:py-28">
+          <div className="mx-auto max-w-2xl text-center">
+            <p className="text-xs font-bold tracking-[0.14em] text-brand">{text.featureEyebrow}</p>
+            <h2 className="mt-4 text-3xl font-semibold tracking-[-0.045em] text-ink sm:text-4xl">{text.featureTitle}</h2>
+            <p className="mt-4 text-base leading-7 text-ink-secondary">{text.featureDescription}</p>
+          </div>
+          <div className="mt-12 grid gap-5 md:grid-cols-3">
+            {text.features.map((feature, index) => {
+              const Icon = featureIcons[index] ?? Sprout;
+              return (
+                <Link
+                  key={feature.title}
+                  href={`/logiciel/${FEATURE_PAGES[index] ?? "gestion-agricole"}`}
+                  className="group overflow-hidden rounded-2xl border border-border bg-surface-1 shadow-sm transition-all hover:-translate-y-1 hover:shadow-xl"
+                >
+                  <div className="relative h-52 overflow-hidden">
+                    <img
+                      src={photo(PHOTOS.features[index] ?? PHOTOS.field, 800)}
+                      alt={feature.title}
+                      loading="lazy"
+                      className="size-full bg-surface-2 object-cover transition-transform duration-500 group-hover:scale-105"
+                    />
+                    <span className="absolute left-4 top-4 grid size-10 place-items-center rounded-xl bg-white/90 text-brand shadow-sm backdrop-blur">
+                      <Icon className="size-5" aria-hidden />
+                    </span>
+                  </div>
+                  <div className="p-6">
+                    <h3 className="text-lg font-semibold tracking-[-0.025em] text-ink">{feature.title}</h3>
+                    <p className="mt-2 text-sm leading-6 text-ink-secondary">{feature.description}</p>
+                    <span className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-brand">
+                      {fr ? "En savoir plus" : "Learn more"}
+                      <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" aria-hidden />
+                    </span>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* Teams */}
+        <section id="teams" className="border-y border-border bg-surface-2/60">
+          <div className="mx-auto grid max-w-7xl gap-12 px-5 py-20 sm:px-8 lg:grid-cols-2 lg:items-center lg:px-10 lg:py-28">
+            <img
+              src={photo(PHOTOS.teams, 1000)}
+              alt={fr ? "Deux personnes consultent un téléphone dans une ferme" : "Two people checking a phone on a farm"}
+              loading="lazy"
+              className="h-80 w-full rounded-3xl bg-surface-2 object-cover shadow-xl sm:h-[30rem]"
+            />
+            <div>
+              <p className="text-xs font-bold tracking-[0.14em] text-brand">{fr ? "ÉQUIPES ET RH" : "TEAMS AND HR"}</p>
+              <h2 className="mt-4 text-3xl font-semibold tracking-[-0.045em] text-ink sm:text-4xl">
+                {fr ? "Vos équipes, sur le terrain et au bureau, dans le même outil." : "Your field and office teams in the same tool."}
+              </h2>
+              <p className="mt-4 text-base leading-7 text-ink-secondary">
+                {fr
+                  ? "Les employés saisissent leur travail depuis leur téléphone. Les responsables gèrent les dossiers, les accès, le recrutement et la paie."
+                  : "Employees record their work from their phone. Managers handle records, access, recruitment and payroll."}
+              </p>
+              <ul className="mt-6 grid gap-3 sm:grid-cols-2">
+                {teamPoints.map((point) => (
+                  <li key={point} className="flex gap-2 text-sm leading-6 text-ink">
+                    <CheckCircle2 className="mt-1 size-4 shrink-0 text-brand" aria-hidden />
+                    {point}
+                  </li>
+                ))}
+              </ul>
+              <Link href="/logiciel/equipes-rh" className="mt-7 inline-flex items-center gap-1 text-sm font-semibold text-brand">
+                {fr ? "Découvrir la gestion des équipes" : "Explore team management"}
+                <ArrowRight className="size-4" aria-hidden />
+              </Link>
+            </div>
+          </div>
+        </section>
+
+        {/* How it works */}
+        <section className="mx-auto max-w-7xl px-5 py-20 sm:px-8 lg:px-10 lg:py-28">
+          <div className="max-w-2xl">
+            <p className="text-xs font-bold tracking-[0.14em] text-brand">{text.processEyebrow}</p>
+            <h2 className="mt-4 text-3xl font-semibold tracking-[-0.045em] text-ink sm:text-4xl">{text.processTitle}</h2>
+            <p className="mt-4 text-base leading-7 text-ink-secondary">{text.processDescription}</p>
+          </div>
+          <ol className="mt-10 grid gap-4 md:grid-cols-3">
             {text.steps.map((step, index) => (
-              <li
-                key={step.title}
-                className="rounded-xl border border-border bg-surface-1 p-5"
-              >
-                <span className="grid size-8 place-items-center rounded-full bg-brand text-sm font-bold text-brand-ink">
-                  {index + 1}
-                </span>
-                <h3 className="mt-5 font-semibold text-ink">{step.title}</h3>
-                <p className="mt-2 text-sm leading-6 text-ink-secondary">
-                  {step.description}
-                </p>
+              <li key={step.title} className="relative rounded-2xl border border-border bg-surface-1 p-6">
+                <span className="text-5xl font-semibold tracking-[-0.06em] text-brand/25">0{index + 1}</span>
+                <h3 className="mt-3 text-lg font-semibold text-ink">{step.title}</h3>
+                <p className="mt-2 text-sm leading-6 text-ink-secondary">{step.description}</p>
               </li>
             ))}
           </ol>
-        </div>
-      </section>
+        </section>
 
-      <section
-        id="security"
-        className="mx-auto max-w-7xl px-5 py-20 sm:px-8 lg:px-10 lg:py-28"
-      >
-        <div className="rounded-2xl border border-border bg-[linear-gradient(135deg,var(--surface-1),var(--surface-2))] p-7 shadow-sm sm:p-10 lg:p-14">
-          <div className="max-w-2xl">
-            <div className="grid size-11 place-items-center rounded-lg bg-brand/10 text-brand">
-              <ShieldCheck className="size-5" aria-hidden />
+        {/* Security + team access */}
+        <section id="security" className="mx-auto max-w-7xl px-5 pb-20 sm:px-8 lg:px-10 lg:pb-28">
+          <div className="grid gap-8 rounded-3xl border border-border bg-[linear-gradient(135deg,var(--surface-1),var(--surface-2))] p-6 shadow-sm sm:p-10 lg:grid-cols-[1fr_.9fr] lg:items-center lg:p-14">
+            <div>
+              <div className="grid size-11 place-items-center rounded-xl bg-brand/10 text-brand">
+                <ShieldCheck className="size-5" aria-hidden />
+              </div>
+              <h2 className="mt-6 text-3xl font-semibold tracking-[-0.05em] text-ink sm:text-4xl">
+                {fr ? "Sécurisé par conception" : "Secure by design"}
+              </h2>
+              <div className="mt-6 grid gap-4">
+                {securityPoints.map((point) => (
+                  <div key={point.title} className="flex gap-3">
+                    <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-good" aria-hidden />
+                    <div>
+                      <p className="font-semibold text-ink">{point.title}</p>
+                      <p className="text-sm leading-6 text-ink-secondary">{point.text}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
-            <h2 className="mt-6 text-3xl font-semibold tracking-[-0.05em] text-ink sm:text-4xl">
-              {text.nav[2]}
-            </h2>
-            <p className="mt-4 text-base leading-7 text-ink-secondary">
-              {text.proof.join(" · ")}
-            </p>
+            <EmployeeLoginCard text={text} />
           </div>
-        </div>
-      </section>
+        </section>
 
-      <footer className="border-t border-border">
-        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-5 py-8 text-sm text-ink-secondary sm:flex-row sm:items-center sm:justify-between sm:px-8 lg:px-10">
-          <div className="flex items-center gap-2">
-            <BrandMark size={22} />
-            <span className="font-semibold text-ink">LiteHubs</span>
+        {/* Call to action */}
+        <section className="relative isolate overflow-hidden">
+          <img
+            src={photo(PHOTOS.field, 1800)}
+            alt=""
+            loading="lazy"
+            className="absolute inset-0 -z-20 size-full object-cover"
+          />
+          <div className="absolute inset-0 -z-10 bg-[linear-gradient(110deg,rgba(11,18,32,.92),rgba(11,18,32,.65))]" aria-hidden />
+          <div className="mx-auto max-w-7xl px-5 py-20 text-white sm:px-8 lg:px-10 lg:py-28">
+            <h2 className="max-w-2xl text-3xl font-semibold tracking-[-0.045em] sm:text-4xl">
+              {fr ? "Prêt à piloter votre exploitation avec des chiffres fiables ?" : "Ready to run your operation on reliable numbers?"}
+            </h2>
+            <p className="mt-4 max-w-xl text-base leading-7 text-white/80">
+              {fr
+                ? "Présentez-nous votre activité : nous vous montrons LiteHubs avec vos propres sites et équipes."
+                : "Tell us about your operation: we will show you LiteHubs with your own sites and teams."}
+            </p>
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <Link
+                href="/rendezvous"
+                className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-white px-6 text-sm font-semibold text-[#0b1220] transition hover:bg-white/90"
+              >
+                {text.appointment}
+                <ArrowRight className="size-4" aria-hidden />
+              </Link>
+              <Link
+                href="/contact"
+                className="inline-flex h-12 items-center justify-center rounded-xl border border-white/30 px-6 text-sm font-semibold text-white transition hover:bg-white/10"
+              >
+                {text.contact}
+              </Link>
+            </div>
           </div>
-          <p>{text.footer}</p>
-        </div>
-        <nav
-          aria-label={locale === "fr" ? "Logiciels LiteHubs" : "LiteHubs software"}
-          className="mx-auto flex max-w-7xl flex-wrap gap-x-6 gap-y-2 px-5 pb-8 text-sm text-ink-secondary sm:px-8 lg:px-10"
-        >
-          <Link href="/logiciel/gestion-avicole" className="hover:text-ink">Logiciel de gestion avicole</Link>
-          <Link href="/logiciel/elevage-porcin" className="hover:text-ink">Logiciel d’élevage porcin</Link>
-          <Link href="/logiciel/gestion-agricole" className="hover:text-ink">Logiciel de gestion agricole</Link>
-          <Link href="/logiciel/equipes-rh" className="hover:text-ink">Équipes, RH et paie</Link>
-          <Link href="/rendezvous" className="hover:text-ink">{text.appointment}</Link>
-          <Link href="/contact" className="hover:text-ink">{text.contact}</Link>
-        </nav>
-      </footer>
-    </main>
+        </section>
+      </main>
+      <SiteFooter />
+    </div>
   );
 }
 
 function EmployeeLoginCard({ text }: { text: LandingCopy }) {
   return (
-    <aside className="relative mx-auto w-full max-w-xl">
+    <aside id="acces" className="relative mx-auto w-full max-w-xl">
       <div
         className="absolute -inset-5 -z-10 rounded-[2rem] bg-brand/10 blur-2xl"
         aria-hidden

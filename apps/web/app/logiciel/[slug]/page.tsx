@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowRight, CheckCircle2 } from "lucide-react";
-import { BrandMark } from "@/components/brand/brand-mark";
+import { SiteFooter, SiteHeader } from "@/components/marketing/site-chrome";
 import { APP_NAME } from "@/lib/constants";
 import { MARKETING_PAGES, marketingPage } from "@/lib/marketing-pages";
 import { INDEXABLE, publicUrl, serializeJsonLd } from "@/lib/seo";
@@ -85,24 +85,9 @@ export default async function SoftwarePage({ params }: { params: Promise<Params>
   };
 
   return (
-    <main className="min-h-dvh bg-page text-ink">
+    <main className="min-h-dvh bg-page pt-16 text-ink">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializeJsonLd(structuredData) }} />
-      <header className="border-b border-border">
-        <nav className="mx-auto flex max-w-6xl items-center justify-between px-5 py-5 sm:px-8" aria-label="Navigation principale">
-          <Link href="/" className="flex items-center gap-3" aria-label="Accueil LiteHubs">
-            <BrandMark size={32} className="rounded-lg" />
-            <span className="text-lg font-semibold tracking-[-0.04em]">LiteHubs</span>
-          </Link>
-          <div className="flex items-center gap-2">
-            <Link href="/contact" className="hidden h-10 items-center rounded-md px-3 text-sm font-semibold text-ink-secondary hover:bg-surface-2 hover:text-ink sm:inline-flex">
-              Contact
-            </Link>
-            <Link href="/login" className="inline-flex h-10 items-center rounded-md bg-brand px-4 text-sm font-semibold text-brand-ink hover:bg-brand-hover">
-              Se connecter
-            </Link>
-          </div>
-        </nav>
-      </header>
+      <SiteHeader />
 
       <article>
         <section className="mx-auto max-w-6xl px-5 pb-12 pt-10 sm:px-8 sm:pt-16">
@@ -189,12 +174,7 @@ export default async function SoftwarePage({ params }: { params: Promise<Params>
         </section>
       </article>
 
-      <footer className="border-t border-border">
-        <div className="mx-auto flex max-w-6xl flex-col gap-3 px-5 py-8 text-sm text-ink-secondary sm:flex-row sm:items-center sm:justify-between sm:px-8">
-          <span className="font-semibold text-ink">LiteHubs</span>
-          <span>Logiciel de gestion avicole, porcine et agricole.</span>
-        </div>
-      </footer>
+      <SiteFooter />
     </main>
   );
 }

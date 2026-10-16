@@ -41,6 +41,7 @@ export const PUBLIC_PATHS = [
   "/opengraph-image",
   "/contact",
   "/logiciel",
+  "/confidentialite",
   "/2feb79627b652d325fd354d864e0fffd.txt",
   "/rendezvous",
   "/rendez-vous",
