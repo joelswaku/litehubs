@@ -14,7 +14,7 @@ export const createContactRequestBody = z.object({
   phone: compactOptional(40),
   companyName: compactOptional(180),
   category: z
-    .enum(["general", "access", "technical", "billing", "demo", "other"])
+    .enum(["general", "access", "technical", "billing", "demo", "privacy", "other"])
     .default("general"),
   subject: z.string().trim().min(3).max(180),
   message: z.string().trim().min(20).max(4_000),

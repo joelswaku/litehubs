@@ -84,7 +84,7 @@ export function SiteHeader() {
               ))}
             </div>
             <Link
-              href="/rendezvous"
+              href="/contact?sujet=demo"
               className="inline-flex h-10 items-center gap-2 rounded-lg px-3 text-sm font-semibold text-ink-secondary transition hover:bg-surface-2 hover:text-ink"
             >
               <CalendarDays className="size-4" aria-hidden />
@@ -125,7 +125,7 @@ export function SiteHeader() {
           ))}
           <div className="mt-4 grid gap-2">
             <Link
-              href="/rendezvous"
+              href="/contact?sujet=demo"
               onClick={() => setOpen(false)}
               className="rounded-lg border border-border py-2.5 text-center text-sm font-semibold text-ink"
             >
@@ -166,7 +166,7 @@ export function SiteFooter() {
       title: tr(fr, "Entreprise", "Company"),
       links: [
         { href: "/contact", label: "Contact" },
-        { href: "/rendezvous", label: tr(fr, "Prendre rendez-vous", "Book an appointment") },
+        { href: "/contact?sujet=demo", label: tr(fr, "Demander une démo", "Request a demo") },
         { href: "/confidentialite", label: tr(fr, "Confidentialité", "Privacy") },
       ],
     },

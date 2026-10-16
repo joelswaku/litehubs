@@ -54,7 +54,7 @@ const french: LandingCopy = {
   nav: ["Fonctionnalités", "Pour les équipes", "Sécurité"],
   signIn: "Se connecter",
   contact: "Contact",
-  appointment: "Prendre rendez-vous",
+  appointment: "Demander une démonstration",
   eyebrow: "LOGICIEL DE GESTION AGRICOLE",
   title: "LiteHubs, le logiciel de gestion de vos élevages et de vos fermes.",
   description:
@@ -128,7 +128,7 @@ const english: LandingCopy = {
   nav: ["Features", "For teams", "Security"],
   signIn: "Sign in",
   contact: "Contact",
-  appointment: "Book an appointment",
+  appointment: "Request a demo",
   eyebrow: "FARM MANAGEMENT SOFTWARE",
   title: "LiteHubs, the management software for your livestock and farms.",
   description:
@@ -264,7 +264,7 @@ export function LandingPage() {
               </p>
               <div className="mt-8 flex flex-col gap-3 sm:flex-row">
                 <Link
-                  href="/rendezvous"
+                  href="/contact?sujet=demo"
                   onClick={() => trackMarketingEvent("select_content", { content_type: "cta", item_id: "hero_demo" })}
                   className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-brand px-6 text-sm font-semibold text-brand-ink shadow-lg shadow-brand/20 transition hover:bg-brand-hover"
                 >
@@ -469,7 +469,7 @@ export function LandingPage() {
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <Link
-                href="/rendezvous"
+                href="/contact?sujet=demo"
                 className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-white px-6 text-sm font-semibold text-[#0b1220] transition hover:bg-white/90"
               >
                 {text.appointment}

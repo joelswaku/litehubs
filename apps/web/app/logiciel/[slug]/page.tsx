@@ -102,7 +102,7 @@ export default async function SoftwarePage({ params }: { params: Promise<Params>
           </h1>
           <p className="mt-5 max-w-3xl text-base leading-7 text-ink-secondary sm:text-lg sm:leading-8">{page.intro}</p>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-            <Link href="/rendezvous" className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-brand px-5 text-sm font-semibold text-brand-ink hover:bg-brand-hover">
+            <Link href="/contact?sujet=demo" className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-brand px-5 text-sm font-semibold text-brand-ink hover:bg-brand-hover">
               Demander une démonstration <ArrowRight className="size-4" aria-hidden />
             </Link>
             <Link href="/contact" className="inline-flex h-11 items-center justify-center rounded-md border border-border bg-surface-1 px-5 text-sm font-semibold hover:bg-surface-2">

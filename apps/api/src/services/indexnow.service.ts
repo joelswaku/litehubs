@@ -15,7 +15,6 @@ const PATHS = [
   "/logiciel/gestion-agricole",
   "/logiciel/equipes-rh",
   "/contact",
-  "/rendezvous",
 ];
 
 export function scheduleIndexNowPing(delayMs = 5 * 60_000) {

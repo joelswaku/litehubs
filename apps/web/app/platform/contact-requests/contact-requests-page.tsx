@@ -31,6 +31,7 @@ type ContactRequestCopy = {
   technical: string;
   billing: string;
   demo: string;
+  privacy: string;
   other: string;
   received: string;
   reply: string;
@@ -82,6 +83,7 @@ const copy = {
     technical: "Technique",
     billing: "Facturation",
     demo: "Démonstration",
+    privacy: "Confidentialité et données",
     general: "Général",
     other: "Autre",
     permission:
@@ -112,6 +114,7 @@ const copy = {
     technical: "Technical",
     billing: "Billing",
     demo: "Demonstration",
+    privacy: "Privacy and data",
     general: "General",
     other: "Other",
     permission: "Your role cannot view contact requests.",

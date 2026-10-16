@@ -11,7 +11,8 @@ import { INDEXABLE, publicUrl } from "@/lib/seo";
 
 const UPDATED_FR = "16 octobre 2026";
 const UPDATED_EN = "October 16, 2026";
-const CONTACT_EMAIL = "contact@congoomega.com";
+const CONTACT_FORM = "litehubs.com/contact";
+const PRIVACY_FORM = "/contact?sujet=privacy";
 const COMPANY = "Lakenah LLC";
 const ADDRESS = "17200 E Iliff Ave, Ste A12 PMB 1011, Aurora, CO 80013, États-Unis";
 const ADDRESS_EN = "17200 E Iliff Ave, Ste A12 PMB 1011, Aurora, CO 80013, United States";
@@ -30,7 +31,7 @@ export const metadata: Metadata = {
   robots: INDEXABLE,
 };
 
-type Section = { id: string; title: string; paragraphs?: string[]; items?: string[] };
+type Section = { id: string; title: string; paragraphs?: string[]; items?: string[]; link?: { href: string; label: string } };
 
 const FRENCH: Section[] = [
   {
@@ -109,8 +110,9 @@ const FRENCH: Section[] = [
   {
     id: "suppression",
     title: "8. Suppression des données (y compris Facebook et Instagram)",
+    link: { href: PRIVACY_FORM, label: "Demander la suppression de mes données" },
     paragraphs: [
-      `Pour faire supprimer vos données, y compris les messages échangés via Messenger ou Instagram, écrivez à ${CONTACT_EMAIL} avec l’objet « Suppression de données », en indiquant votre nom, votre adresse e-mail ou votre identifiant Facebook / Instagram et l’entreprise concernée. Nous confirmons la suppression sous 30 jours.`,
+      `Pour faire supprimer vos données, y compris les messages échangés via Messenger ou Instagram, utilisez le formulaire ${CONTACT_FORM} avec le sujet « Confidentialité et suppression de données », en indiquant votre nom, votre adresse e-mail ou votre identifiant Facebook / Instagram et l’entreprise concernée. Nous confirmons la suppression sous 30 jours.`,
       "Une organisation peut aussi déconnecter à tout moment sa Page Facebook ou son compte Instagram depuis LiteHubs ; LiteHubs cesse alors de recevoir ses messages.",
     ],
   },
@@ -125,7 +127,7 @@ const FRENCH: Section[] = [
     id: "contact",
     title: "10. Contact et modifications",
     paragraphs: [
-      `Pour toute question sur cette politique : ${CONTACT_EMAIL} — ${COMPANY}, ${ADDRESS}.`,
+      `Pour toute question sur cette politique : formulaire ${CONTACT_FORM} (sujet « Confidentialité ») — ${COMPANY}, ${ADDRESS}.`,
       "Nous pouvons mettre à jour cette politique ; la date de dernière mise à jour figure en haut de la page. En cas de changement important, les organisations clientes sont prévenues.",
     ],
   },
@@ -197,15 +199,16 @@ const ENGLISH: Section[] = [
   {
     id: "en-deletion",
     title: "7. Data deletion (including Facebook and Instagram)",
+    link: { href: PRIVACY_FORM, label: "Request deletion of my data" },
     paragraphs: [
-      `To delete your data, including Messenger or Instagram conversations, e-mail ${CONTACT_EMAIL} with the subject “Data deletion”, giving your name, your e-mail or Facebook / Instagram ID and the business concerned. We confirm deletion within 30 days. An organization can also disconnect its Facebook Page or Instagram account from LiteHubs at any time; LiteHubs then stops receiving its messages.`,
+      `To delete your data, including Messenger or Instagram conversations, use the form at ${CONTACT_FORM} with the topic “Privacy and data deletion”, giving your name, your e-mail or Facebook / Instagram ID and the business concerned. We confirm deletion within 30 days. An organization can also disconnect its Facebook Page or Instagram account from LiteHubs at any time; LiteHubs then stops receiving its messages.`,
     ],
   },
   {
     id: "en-contact",
     title: "8. Contact",
     paragraphs: [
-      `Questions about this policy: ${CONTACT_EMAIL} — ${COMPANY}, ${ADDRESS_EN}. We may update this policy; the date above shows the latest version.`,
+      `Questions about this policy: contact form at ${CONTACT_FORM} (topic “Privacy”) — ${COMPANY}, ${ADDRESS_EN}. We may update this policy; the date above shows the latest version.`,
     ],
   },
 ];
@@ -227,6 +230,14 @@ function Sections({ sections }: { sections: Section[] }) {
                 <li key={item.slice(0, 40)}>{item}</li>
               ))}
             </ul>
+          ) : null}
+          {section.link ? (
+            <Link
+              href={section.link.href}
+              className="mt-4 inline-flex h-10 items-center rounded-lg bg-brand px-4 text-sm font-semibold text-brand-ink hover:bg-brand-hover"
+            >
+              {section.link.label}
+            </Link>
           ) : null}
         </section>
       ))}

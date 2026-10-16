@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { INDEXABLE, publicUrl } from "@/lib/seo";
 import { ContactPage } from "./contact-page";
 
@@ -29,5 +30,10 @@ export const metadata: Metadata = {
 };
 
 export default function ContactRoute() {
-  return <ContactPage />;
+  // useSearchParams (topic preselection) needs a Suspense boundary.
+  return (
+    <Suspense fallback={null}>
+      <ContactPage />
+    </Suspense>
+  );
 }

@@ -1,17 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { type FormEvent, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { type FormEvent, useEffect, useState } from "react";
 import {
-  ArrowLeft,
+  CalendarDays,
   CheckCircle2,
+  KeyRound,
   Clock3,
   Headphones,
   Mail,
   MessageCircleMore,
   ShieldCheck,
 } from "lucide-react";
-import { BrandMark } from "@/components/brand/brand-mark";
+import { SiteFooter, SiteHeader } from "@/components/marketing/site-chrome";
 import { PublicMarketingAnalytics, trackMarketingEvent } from "@/components/analytics/public-marketing-analytics";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/input";
@@ -20,14 +22,14 @@ import { ApiError, post } from "@/lib/api";
 import { useLanguage } from "@/providers/language-provider";
 
 type Category =
-  "general" | "access" | "technical" | "billing" | "demo" | "other";
+  "general" | "access" | "technical" | "billing" | "demo" | "privacy" | "other";
 
 const copy = {
   fr: {
-    eyebrow: "ASSISTANCE LITEHUBS",
-    title: "Parlez à l’administrateur LiteHubs.",
+    eyebrow: "CONTACT LITEHUBS",
+    title: "Parlons de votre exploitation.",
     description:
-      "Expliquez ce dont vous avez besoin. Votre demande est enregistrée dans le centre d’assistance sécurisé afin qu’un administrateur puisse la traiter.",
+      "Une question, une démonstration, un problème d’accès ou une demande sur vos données : écrivez-nous. Votre demande arrive directement à l’équipe LiteHubs et vous recevez une confirmation par e-mail.",
     back: "Retour à la connexion",
     name: "Nom complet",
     email: "E-mail de réponse",
@@ -40,10 +42,10 @@ const copy = {
     sending: "Envoi…",
     successTitle: "Votre demande a bien été envoyée.",
     successText:
-      "Un administrateur LiteHubs la verra dans le centre d’assistance et vous répondra à l’adresse indiquée.",
+      "L’équipe LiteHubs l’a reçue et vous répondra à l’adresse indiquée. Un e-mail de confirmation vient de vous être envoyé (pensez à vérifier les courriers indésirables).",
     newRequest: "Envoyer une autre demande",
     privacy:
-      "Votre message est transmis uniquement aux administrateurs LiteHubs autorisés.",
+      "Votre message est transmis uniquement à l’équipe LiteHubs.",
     response: "Traitement suivi",
     responseText:
       "Chaque demande reçoit un statut : nouvelle, en cours ou résolue.",
@@ -60,14 +62,15 @@ const copy = {
       technical: "Problème technique",
       billing: "Facturation",
       demo: "Demander une démonstration",
+      privacy: "Confidentialité et suppression de données",
       other: "Autre demande",
     },
   },
   en: {
-    eyebrow: "LITEHUBS SUPPORT",
-    title: "Contact a LiteHubs administrator.",
+    eyebrow: "CONTACT LITEHUBS",
+    title: "Let’s talk about your operation.",
     description:
-      "Tell us what you need. Your request is saved in the secure support centre so an administrator can handle it.",
+      "A question, a demo, an access issue or a request about your data: write to us. Your request goes straight to the LiteHubs team and you receive a confirmation by e-mail.",
     back: "Back to sign in",
     name: "Full name",
     email: "Reply email",
@@ -80,10 +83,10 @@ const copy = {
     sending: "Sending…",
     successTitle: "Your request was sent.",
     successText:
-      "A LiteHubs administrator will see it in the support centre and respond to the email address you provided.",
+      "The LiteHubs team received it and will reply to the address you provided. A confirmation e-mail has just been sent (check your spam folder).",
     newRequest: "Send another request",
     privacy:
-      "Your message is shared only with authorized LiteHubs administrators.",
+      "Your message is shared only with the LiteHubs team.",
     response: "Tracked handling",
     responseText: "Every request has a status: new, in progress, or resolved.",
     secure: "Protected information",
@@ -97,6 +100,7 @@ const copy = {
       technical: "Technical issue",
       billing: "Billing",
       demo: "Request a demonstration",
+      privacy: "Privacy and data deletion",
       other: "Other request",
     },
   },
@@ -108,6 +112,15 @@ export function ContactPage() {
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  const [category, setCategory] = useState<Category>("general");
+  const fr = locale === "fr";
+
+  // /contact?sujet=privacy (or demo, access…) opens the form on that topic,
+  // also when the header's "Démo" link is clicked while already on this page.
+  const wanted = useSearchParams().get("sujet");
+  useEffect(() => {
+    if (wanted && wanted in copy.fr.categories) setCategory(wanted as Category);
+  }, [wanted]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -149,28 +162,15 @@ export function ContactPage() {
   }
 
   return (
-    <main className="min-h-dvh bg-page text-ink">
+    <div className="min-h-dvh bg-page text-ink">
       <PublicMarketingAnalytics />
-      <div className="mx-auto max-w-6xl px-5 py-5 sm:px-8 sm:py-7 lg:px-10">
-        <nav
-          className="flex items-center justify-between"
-          aria-label="LiteHubs"
-        >
-          <Link href="/" className="flex items-center gap-2.5 rounded-md">
-            <BrandMark size={32} className="rounded-lg shadow-sm" />
-            <span className="text-lg font-semibold tracking-[-0.04em]">
-              LiteHubs
-            </span>
-          </Link>
-          <Link
-            href="/login"
-            className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-ink-secondary transition hover:bg-surface-2 hover:text-ink"
-          >
-            <ArrowLeft className="size-4" aria-hidden />
-            {text.back}
-          </Link>
-        </nav>
-
+      <SiteHeader />
+      <main id="contact-form" className="relative isolate overflow-hidden pt-16">
+        <div className="pointer-events-none absolute inset-0 -z-10" aria-hidden>
+          <div className="absolute left-[-12rem] top-[-10rem] size-[34rem] rounded-full bg-brand/10 blur-3xl" />
+          <div className="absolute right-[-10rem] top-64 size-[28rem] rounded-full bg-chart-3/10 blur-3xl" />
+        </div>
+      <div className="mx-auto max-w-7xl px-5 sm:px-8 lg:px-10">
         <div className="grid gap-8 py-10 lg:grid-cols-[0.82fr_1.18fr] lg:gap-14 lg:py-16">
           <section className="pt-2 lg:pt-8">
             <p className="inline-flex items-center gap-2 rounded-full border border-brand/20 bg-brand/10 px-3 py-1.5 text-xs font-bold tracking-[0.13em] text-brand">
@@ -184,20 +184,33 @@ export function ContactPage() {
               {text.description}
             </p>
             <div className="mt-9 grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-              <InfoCard
-                icon={Clock3}
-                title={text.response}
-                description={text.responseText}
-              />
-              <InfoCard
-                icon={ShieldCheck}
-                title={text.secure}
-                description={text.secureText}
-              />
+              <button
+                type="button"
+                onClick={() => {
+                  setCategory("demo");
+                  document.getElementById("contact-full-name")?.focus();
+                }}
+                className="block rounded-xl text-left transition hover:-translate-y-0.5"
+              >
+                <InfoCard
+                  icon={CalendarDays}
+                  title={fr ? "Demander une démonstration" : "Request a demo"}
+                  description={fr ? "Choisissez le sujet « Démonstration » : nous vous proposons un créneau par e-mail." : "Pick the “Demo” topic: we will suggest a time by e-mail."}
+                />
+              </button>
+              <Link href="/forgot-password" className="block rounded-xl transition hover:-translate-y-0.5">
+                <InfoCard
+                  icon={KeyRound}
+                  title={fr ? "Mot de passe oublié ?" : "Forgot your password?"}
+                  description={fr ? "Réinitialisez-le vous-même en quelques secondes, sans attendre de réponse." : "Reset it yourself in seconds, no need to wait for a reply."}
+                />
+              </Link>
+              <InfoCard icon={Clock3} title={text.response} description={text.responseText} />
+              <InfoCard icon={ShieldCheck} title={text.secure} description={text.secureText} />
             </div>
           </section>
 
-          <section className="overflow-hidden rounded-2xl border border-border-strong bg-surface-1 shadow-[0_24px_70px_-42px_rgba(11,11,11,0.45)]">
+          <section className="self-start overflow-hidden rounded-2xl border border-border-strong bg-surface-1 shadow-[0_24px_70px_-42px_rgba(11,11,11,0.45)]">
             <div className="border-b border-border bg-[linear-gradient(135deg,var(--surface-1),var(--surface-2))] px-5 py-5 sm:px-7">
               <div className="flex items-center gap-3">
                 <span className="grid size-10 place-items-center rounded-xl bg-brand/10 text-brand">
@@ -288,7 +301,8 @@ export function ContactPage() {
                   <select
                     id="contact-category"
                     name="category"
-                    defaultValue="general"
+                    value={category}
+                    onChange={(event) => setCategory(event.target.value as Category)}
                     className="h-10 w-full rounded-md border border-border-strong bg-surface-1 px-3 text-sm text-ink shadow-sm outline-none transition focus:border-brand focus:ring-4 focus:ring-brand/10"
                   >
                     {(Object.keys(text.categories) as Category[]).map(
@@ -355,7 +369,9 @@ export function ContactPage() {
           </section>
         </div>
       </div>
-    </main>
+      </main>
+      <SiteFooter />
+    </div>
   );
 }
 

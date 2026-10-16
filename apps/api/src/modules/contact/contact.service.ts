@@ -1,5 +1,7 @@
 import { query } from "../../config/database";
+import { env } from "../../config/env";
 import { logger } from "../../config/logger";
+import { sendMail } from "../../services/notification.service";
 import { NotFoundError } from "../../utils/errors";
 import type {
   CreateContactRequestInput,
@@ -103,6 +105,10 @@ export async function createContactRequest(
     { contactRequestId: id, category: input.category },
     "Public contact request created",
   );
+  // E-mails are best effort: the request is already saved for the platform team.
+  void notifyContactRequest(id, input).catch((error) =>
+    logger.error({ err: error, contactRequestId: id }, "Contact request e-mails failed"),
+  );
   return { id };
 }
 
@@ -170,4 +176,98 @@ export async function updateContactRequest(
     "Contact request triaged",
   );
   return toContact(row);
+}
+
+const CATEGORY_LABELS: Record<string, string> = {
+  general: "Question générale",
+  access: "Accès ou connexion",
+  technical: "Problème technique",
+  billing: "Facturation",
+  demo: "Démonstration",
+  privacy: "Confidentialité et données",
+  other: "Autre demande",
+};
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/** Sends the request to the LiteHubs inbox and a receipt to the sender. */
+async function notifyContactRequest(id: string, input: CreateContactRequestInput) {
+  const inbox = env.mail.contactInbox;
+  const topic = CATEGORY_LABELS[input.category] ?? input.category;
+  const rows: [string, string][] = [
+    ["Nom", input.fullName],
+    ["E-mail", input.email],
+    ["Téléphone", input.phone ?? "—"],
+    ["Entreprise", input.companyName ?? "—"],
+    ["Sujet", topic],
+    ["Langue", input.preferredLanguage === "en" ? "Anglais" : "Français"],
+  ];
+  const tasks: Promise<unknown>[] = [];
+  if (inbox) {
+    tasks.push(
+      sendMail({
+        to: inbox,
+        replyTo: input.email,
+        subject: `[Contact LiteHubs] ${topic} — ${input.subject}`,
+        text: [
+          ...rows.map(([label, value]) => `${label} : ${value}`),
+          "",
+          input.message,
+          "",
+          `Référence : ${id}`,
+          "Répondez directement à cet e-mail pour écrire à la personne.",
+        ].join("\n"),
+        html: `<div style="font-family:Arial,sans-serif;color:#14233a;font-size:14px;line-height:1.6"><h2 style="margin:0 0 12px">Nouvelle demande de contact</h2><table cellpadding="4" style="border-collapse:collapse">${rows
+          .map(([label, value]) => `<tr><td style="color:#5b6b80;padding-right:12px">${label}</td><td><strong>${escapeHtml(value)}</strong></td></tr>`)
+          .join("")}</table><h3 style="margin:18px 0 6px">${escapeHtml(input.subject)}</h3><p style="white-space:pre-line;margin:0">${escapeHtml(input.message)}</p><p style="color:#6b7a8f;font-size:12px;margin-top:18px">Référence ${id}. Répondez directement à cet e-mail pour écrire à la personne.</p></div>`,
+      }),
+    );
+  } else {
+    logger.warn({ contactRequestId: id }, "No contact inbox configured (CONTACT_INBOX_EMAIL / MAIL_FROM_EMAIL)");
+  }
+  const french = input.preferredLanguage !== "en";
+  const receiptSubject = french
+    ? `Nous avons bien reçu votre demande — ${input.subject}`
+    : `We received your request — ${input.subject}`;
+  const receiptLines = french
+    ? [
+        `Bonjour ${input.fullName},`,
+        "",
+        "Merci pour votre message. L’équipe LiteHubs l’a bien reçu et vous répondra à cette adresse.",
+        "",
+        `Votre demande : ${input.subject}`,
+        "",
+        "Pour des raisons de sécurité, n’envoyez jamais votre mot de passe ou un code de connexion.",
+        "",
+        "L’équipe LiteHubs — un produit de Lakenah LLC",
+      ]
+    : [
+        `Hello ${input.fullName},`,
+        "",
+        "Thank you for your message. The LiteHubs team received it and will reply to this address.",
+        "",
+        `Your request: ${input.subject}`,
+        "",
+        "For your security, never send your password or a sign-in code.",
+        "",
+        "The LiteHubs team — a Lakenah LLC product",
+      ];
+  tasks.push(
+    sendMail({
+      to: input.email,
+      ...(inbox ? { replyTo: inbox } : {}),
+      subject: receiptSubject,
+      text: receiptLines.join("\n"),
+      html: `<div style="font-family:Arial,sans-serif;color:#14233a;font-size:14px;line-height:1.65">${receiptLines
+        .map((line) => (line ? `<p style="margin:0 0 4px">${escapeHtml(line)}</p>` : "<br />"))
+        .join("")}</div>`,
+    }),
+  );
+  await Promise.all(tasks);
 }
