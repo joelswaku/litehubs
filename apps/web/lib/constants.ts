@@ -40,6 +40,8 @@ export const PUBLIC_PATHS = [
   "/sitemap.xml",
   "/opengraph-image",
   "/contact",
+  "/logiciel",
+  "/2feb79627b652d325fd354d864e0fffd.txt",
   "/rendezvous",
   "/rendez-vous",
   "/book",

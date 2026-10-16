@@ -54,8 +54,8 @@ const french: LandingCopy = {
   signIn: "Se connecter",
   contact: "Contact",
   appointment: "Prendre rendez-vous",
-  eyebrow: "LE PILOTAGE, EN UNE VUE",
-  title: "Faites avancer votre entreprise avec une vision nette.",
+  eyebrow: "LOGICIEL DE GESTION AGRICOLE",
+  title: "LiteHubs, le logiciel de gestion de vos élevages et de vos fermes.",
   description:
     "LiteHubs relie le terrain, les équipes, les projets et les décisions pour que chaque responsable sache quoi faire ensuite.",
   primary: "Se connecter à LiteHubs",
@@ -128,8 +128,8 @@ const english: LandingCopy = {
   signIn: "Sign in",
   contact: "Contact",
   appointment: "Book an appointment",
-  eyebrow: "OPERATIONS, IN ONE VIEW",
-  title: "Move your business forward with a clear view.",
+  eyebrow: "FARM MANAGEMENT SOFTWARE",
+  title: "LiteHubs, the management software for your livestock and farms.",
   description:
     "LiteHubs connects field work, teams, projects and decisions so every leader knows what to do next.",
   primary: "Sign in to LiteHubs",
@@ -196,6 +196,9 @@ const english: LandingCopy = {
 };
 
 const featureIcons = [Bird, PiggyBank, Sprout] as const;
+
+/** Product pages behind the three feature cards, in card order. */
+const FEATURE_PAGES = ["gestion-avicole", "elevage-porcin", "gestion-agricole"];
 
 export function LandingPage() {
   const { locale, setLocale } = useLanguage();
@@ -291,7 +294,7 @@ export function LandingPage() {
               <span className="size-1.5 rounded-full bg-brand" />
               {text.eyebrow}
             </p>
-            <h1 className="max-w-xl text-4xl font-semibold leading-[1.05] tracking-[-0.06em] text-ink sm:text-5xl lg:text-[4.25rem]">
+            <h1 className="max-w-xl text-4xl font-semibold leading-[1.05] tracking-[-0.06em] text-ink sm:text-5xl lg:text-[3.6rem]">
               {text.title}
             </h1>
             <p className="mt-6 max-w-xl text-base leading-7 text-ink-secondary sm:text-lg sm:leading-8">
@@ -352,9 +355,10 @@ export function LandingPage() {
           {text.features.map((feature, index) => {
             const Icon = featureIcons[index] ?? Sprout;
             return (
-              <article
+              <Link
                 key={feature.title}
-                className="rounded-xl border border-border bg-surface-1 p-6 shadow-[0_1px_0_rgba(0,0,0,0.02)] transition-all hover:-translate-y-0.5 hover:border-border-strong hover:shadow-lg"
+                href={`/logiciel/${FEATURE_PAGES[index] ?? "gestion-agricole"}`}
+                className="block rounded-xl border border-border bg-surface-1 p-6 shadow-[0_1px_0_rgba(0,0,0,0.02)] transition-all hover:-translate-y-0.5 hover:border-border-strong hover:shadow-lg"
               >
                 <div className="grid size-11 place-items-center rounded-lg bg-brand/10 text-brand">
                   <Icon className="size-5" aria-hidden />
@@ -365,7 +369,10 @@ export function LandingPage() {
                 <p className="mt-2 text-sm leading-6 text-ink-secondary">
                   {feature.description}
                 </p>
-              </article>
+                <span className="mt-4 inline-flex items-center text-sm font-semibold text-brand">
+                  {locale === "fr" ? "En savoir plus →" : "Learn more →"}
+                </span>
+              </Link>
             );
           })}
         </div>
@@ -430,6 +437,17 @@ export function LandingPage() {
           </div>
           <p>{text.footer}</p>
         </div>
+        <nav
+          aria-label={locale === "fr" ? "Logiciels LiteHubs" : "LiteHubs software"}
+          className="mx-auto flex max-w-7xl flex-wrap gap-x-6 gap-y-2 px-5 pb-8 text-sm text-ink-secondary sm:px-8 lg:px-10"
+        >
+          <Link href="/logiciel/gestion-avicole" className="hover:text-ink">Logiciel de gestion avicole</Link>
+          <Link href="/logiciel/elevage-porcin" className="hover:text-ink">Logiciel d’élevage porcin</Link>
+          <Link href="/logiciel/gestion-agricole" className="hover:text-ink">Logiciel de gestion agricole</Link>
+          <Link href="/logiciel/equipes-rh" className="hover:text-ink">Équipes, RH et paie</Link>
+          <Link href="/rendezvous" className="hover:text-ink">{text.appointment}</Link>
+          <Link href="/contact" className="hover:text-ink">{text.contact}</Link>
+        </nav>
       </footer>
     </main>
   );

@@ -11,6 +11,8 @@ const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://litehubs.com";
  * emitting an empty one, which Search Console reads as a failed check.
  */
 const googleVerification = process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION;
+/** Bing Webmaster Tools' meta-tag method (`msvalidate.01`). Optional too. */
+const bingVerification = process.env.NEXT_PUBLIC_BING_SITE_VERIFICATION;
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
@@ -36,7 +38,14 @@ export const metadata: Metadata = {
   publisher: APP_NAME,
   applicationName: APP_NAME,
   manifest: "/site.webmanifest",
-  ...(googleVerification ? { verification: { google: googleVerification } } : {}),
+  ...(googleVerification || bingVerification
+    ? {
+        verification: {
+          ...(googleVerification ? { google: googleVerification } : {}),
+          ...(bingVerification ? { other: { "msvalidate.01": bingVerification } } : {}),
+        },
+      }
+    : {}),
   icons: {
     icon: [
       { url: "/favicon.ico" },

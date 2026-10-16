@@ -8,6 +8,7 @@ import {
   publicUrl,
   publicWebsiteMetadata,
 } from "@/lib/seo";
+import { MARKETING_CONTENT_UPDATED, MARKETING_PAGES } from "@/lib/marketing-pages";
 
 /** A sitemap must describe the host that requested it. Customer domains share
  * this deployment with LiteHubs, but their published pages must never be
@@ -58,9 +59,18 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
   // Only LiteHubs-owned public marketing pages are listed here. Customer
   // workspaces and private operational routes are intentionally excluded.
+  // A fixed lastmod: stamping "now" on every request tells crawlers the
+  // pages change constantly, which they learn to ignore.
+  const updated = new Date(MARKETING_CONTENT_UPDATED);
   return [
-    { url: publicUrl("/"), lastModified: now, changeFrequency: "weekly", priority: 1 },
-    { url: publicUrl("/contact"), lastModified: now, changeFrequency: "monthly", priority: 0.7 },
-    { url: publicUrl("/rendezvous"), lastModified: now, changeFrequency: "weekly", priority: 0.8 },
+    { url: publicUrl("/"), lastModified: updated, changeFrequency: "weekly", priority: 1 },
+    ...MARKETING_PAGES.map((page) => ({
+      url: publicUrl(`/logiciel/${page.slug}`),
+      lastModified: updated,
+      changeFrequency: "monthly" as const,
+      priority: 0.9,
+    })),
+    { url: publicUrl("/contact"), lastModified: updated, changeFrequency: "monthly", priority: 0.6 },
+    { url: publicUrl("/rendezvous"), lastModified: updated, changeFrequency: "monthly", priority: 0.6 },
   ];
 }

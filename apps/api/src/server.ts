@@ -3,6 +3,7 @@ import { createApp } from "./app";
 import { closeDatabase, verifyDatabaseConnection } from "./config/database";
 import { env } from "./config/env";
 import { logger } from "./config/logger";
+import { scheduleIndexNowPing } from "./services/indexnow.service";
 import { startNotificationScheduler } from "./modules/notifications/notifications.scheduler";
 import {
   closeMailTransport,
@@ -68,6 +69,8 @@ async function start(): Promise<void> {
 
   const app = createApp();
   startNotificationScheduler();
+  // Search engines learn about new public pages without waiting for a crawl.
+  if (env.isProduction && process.env.INDEXNOW_DISABLED !== "true") scheduleIndexNowPing();
 
   server = app.listen(env.port, () => {
     logger.info(
