@@ -358,3 +358,79 @@
 @media (prefers-reduced-motion: reduce) {
   [class*="animate-[menu-in"], [class*="animate-[bell"] { animation: none !important; }
 }
+
+/* Public marketing pages (home, /logiciel/*, contact, privacy). */
+@keyframes lh-fade-up {
+  from { opacity: 0; transform: translate3d(0, 22px, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+@keyframes lh-bob {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(0, -10px, 0); }
+}
+.lh-enter {
+  animation: lh-fade-up 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.lh-bob {
+  animation: lh-bob 6s ease-in-out infinite;
+}
+/* Scroll reveal: only hidden once JavaScript has measured the element, so
+   crawlers and no-JS visitors always get the content. */
+.lh-reveal-pending {
+  opacity: 0;
+  transform: translate3d(0, 28px, 0);
+}
+.lh-reveal-shown {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+  transition:
+    opacity 0.8s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* Hairline gradient border that brightens on hover. */
+.lh-gradient-card {
+  position: relative;
+  isolation: isolate;
+  border: 1px solid transparent;
+  background:
+    linear-gradient(var(--surface-1), var(--surface-1)) padding-box,
+    linear-gradient(135deg, color-mix(in srgb, var(--brand) 35%, var(--border)), var(--border) 45%, color-mix(in srgb, var(--chart-3) 35%, var(--border))) border-box;
+  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.35s ease;
+}
+.lh-gradient-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 24px 50px -28px color-mix(in srgb, var(--brand) 55%, transparent);
+  background:
+    linear-gradient(var(--surface-1), var(--surface-1)) padding-box,
+    linear-gradient(135deg, var(--brand), color-mix(in srgb, var(--brand) 25%, var(--border)) 50%, var(--chart-3)) border-box;
+}
+/* Soft light that follows the pointer inside a card (set by SpotlightCard). */
+.lh-spotlight::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  background: radial-gradient(420px circle at var(--mx, 50%) var(--my, 0%), color-mix(in srgb, var(--brand) 10%, transparent), transparent 60%);
+}
+.lh-spotlight:hover::after {
+  opacity: 1;
+}
+.lh-grid-bg {
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--border) 55%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--border) 55%, transparent) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse at 50% 0%, black 30%, transparent 75%);
+}
+@media (prefers-reduced-motion: reduce) {
+  .lh-reveal-pending { opacity: 1; transform: none; }
+  .lh-gradient-card:hover { transform: none; }
+}
+@keyframes lh-marquee {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(-50%, 0, 0); }
+}

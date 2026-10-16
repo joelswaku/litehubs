@@ -10,6 +10,9 @@ export type MarketingPage = {
   title: string;
   description: string;
   eyebrow: string;
+  /** Unsplash photo id (free licence) shown beside the title. */
+  image: string;
+  imageAlt: string;
   h1: string;
   intro: string;
   keywords: string[];
@@ -21,6 +24,8 @@ export type MarketingPage = {
 export const MARKETING_PAGES: MarketingPage[] = [
   {
     slug: "gestion-avicole",
+    image: "1569466593977-94ee7ed02ec9",
+    imageAlt: "Poules dans un élevage avicole",
     title: "Logiciel de gestion avicole — poulets de chair et pondeuses",
     description:
       "LiteHubs, logiciel de gestion avicole : suivi des lots, mortalité, alimentation, provenderie, vaccins, ponte, ventes et équipes, par site et en temps réel.",
@@ -102,6 +107,8 @@ export const MARKETING_PAGES: MarketingPage[] = [
   },
   {
     slug: "elevage-porcin",
+    image: "1580682777666-24a7b3024e24",
+    imageAlt: "Porcs dans un élevage",
     title: "Logiciel d’élevage porcin — truies, porcelets et engraissement",
     description:
       "Logiciel de gestion d’élevage porcin LiteHubs : enclos, reproduction, mises bas, sevrage, traitements, poids, alimentation et ventes, en temps réel.",
@@ -176,6 +183,8 @@ export const MARKETING_PAGES: MarketingPage[] = [
   },
   {
     slug: "gestion-agricole",
+    image: "1761634373241-5abcfcaa0c39",
+    imageAlt: "Travailleurs agricoles plantant dans un champ",
     title: "Logiciel de gestion agricole — champs, cultures et récoltes",
     description:
       "LiteHubs, logiciel de gestion agricole : fermes, parcelles, cultures, intrants, travaux, observations, récoltes et ventes, pour une ou plusieurs exploitations.",
@@ -251,6 +260,8 @@ export const MARKETING_PAGES: MarketingPage[] = [
   },
   {
     slug: "equipes-rh",
+    image: "1791395183274-6391ccbd134e",
+    imageAlt: "Deux personnes consultent un téléphone dans une ferme",
     title: "Gestion des équipes, RH et paie pour entreprises agricoles",
     description:
       "LiteHubs gère vos employés : dossiers, rôles et accès, horaires, formations, recrutement, paie et messages, sur un espace sécurisé par site.",

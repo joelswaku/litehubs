@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowRight, CheckCircle2 } from "lucide-react";
 import { SiteFooter, SiteHeader } from "@/components/marketing/site-chrome";
+import { Reveal, SpotlightCard } from "@/components/marketing/motion";
 import { APP_NAME } from "@/lib/constants";
 import { MARKETING_PAGES, marketingPage } from "@/lib/marketing-pages";
 import { INDEXABLE, publicUrl, serializeJsonLd } from "@/lib/seo";
@@ -90,18 +91,24 @@ export default async function SoftwarePage({ params }: { params: Promise<Params>
       <SiteHeader />
 
       <article>
-        <section className="mx-auto max-w-6xl px-5 pb-12 pt-10 sm:px-8 sm:pt-16">
+        <section className="relative isolate overflow-hidden">
+          <div className="pointer-events-none absolute inset-0 -z-10" aria-hidden>
+            <div className="absolute left-[-10rem] top-[-10rem] size-[32rem] rounded-full bg-brand/10 blur-3xl" />
+            <div className="lh-grid-bg absolute inset-0" />
+          </div>
+        <div className="mx-auto grid max-w-6xl gap-10 px-5 pb-14 pt-10 sm:px-8 sm:pt-16 lg:grid-cols-[1.1fr_.9fr] lg:items-center">
+          <div>
           <nav aria-label="Fil d’Ariane" className="text-xs text-ink-muted">
             <Link href="/" className="hover:text-ink">LiteHubs</Link>
             <span className="mx-1.5">/</span>
             <span>{page.eyebrow.charAt(0) + page.eyebrow.slice(1).toLowerCase()}</span>
           </nav>
-          <p className="mt-6 text-xs font-bold tracking-[0.14em] text-brand">{page.eyebrow}</p>
-          <h1 className="mt-3 max-w-3xl text-3xl font-semibold leading-tight tracking-[-0.045em] sm:text-5xl">
+          <p className="lh-enter mt-6 text-xs font-bold tracking-[0.14em] text-brand">{page.eyebrow}</p>
+          <h1 style={{ animationDelay: "80ms" }} className="lh-enter mt-3 max-w-3xl text-3xl font-semibold leading-tight tracking-[-0.045em] sm:text-5xl">
             {page.h1}
           </h1>
-          <p className="mt-5 max-w-3xl text-base leading-7 text-ink-secondary sm:text-lg sm:leading-8">{page.intro}</p>
-          <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+          <p style={{ animationDelay: "160ms" }} className="lh-enter mt-5 max-w-3xl text-base leading-7 text-ink-secondary sm:text-lg sm:leading-8">{page.intro}</p>
+          <div style={{ animationDelay: "240ms" }} className="lh-enter mt-8 flex flex-col gap-3 sm:flex-row">
             <Link href="/contact?sujet=demo" className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-brand px-5 text-sm font-semibold text-brand-ink hover:bg-brand-hover">
               Demander une démonstration <ArrowRight className="size-4" aria-hidden />
             </Link>
@@ -109,13 +116,31 @@ export default async function SoftwarePage({ params }: { params: Promise<Params>
               Nous contacter
             </Link>
           </div>
+          </div>
+          <div style={{ animationDelay: "200ms" }} className="lh-enter relative">
+            <div className="absolute -inset-4 -z-10 rounded-[2rem] bg-[linear-gradient(135deg,var(--brand),var(--chart-3))] opacity-15 blur-2xl" aria-hidden />
+            <img
+              src={`https://images.unsplash.com/photo-${page.image}?w=1000&q=75&auto=format&fit=crop`}
+              alt={page.imageAlt}
+              className="h-72 w-full rounded-3xl bg-surface-2 object-cover shadow-2xl sm:h-[24rem]"
+            />
+            <div className="lh-bob absolute -bottom-5 left-5 flex items-center gap-3 rounded-2xl border border-border bg-surface-1/95 px-4 py-3 shadow-xl backdrop-blur">
+              <CheckCircle2 className="size-5 text-good" aria-hidden />
+              <p className="text-sm font-semibold text-ink">{page.benefits[0]}</p>
+            </div>
+          </div>
+        </div>
         </section>
 
         <section className="border-y border-border bg-surface-2/60">
           <div className="mx-auto grid max-w-6xl gap-4 px-5 py-14 sm:px-8 md:grid-cols-2">
-            {page.sections.map((section) => (
-              <div key={section.title} className="rounded-xl border border-border bg-surface-1 p-6">
-                <h2 className="text-lg font-semibold tracking-[-0.025em]">{section.title}</h2>
+            {page.sections.map((section, index) => (
+              <Reveal key={section.title} delay={(index % 2) * 120}>
+              <SpotlightCard className="h-full rounded-2xl p-6">
+                <span className="grid size-10 place-items-center rounded-xl bg-[linear-gradient(135deg,var(--brand),var(--chart-3))] text-sm font-bold text-white shadow-sm">
+                  {String(index + 1).padStart(2, "0")}
+                </span>
+                <h2 className="mt-4 text-lg font-semibold tracking-[-0.025em]">{section.title}</h2>
                 <p className="mt-2 text-sm leading-6 text-ink-secondary">{section.text}</p>
                 <ul className="mt-4 space-y-2">
                   {section.points.map((point) => (
@@ -125,33 +150,41 @@ export default async function SoftwarePage({ params }: { params: Promise<Params>
                     </li>
                   ))}
                 </ul>
-              </div>
+              </SpotlightCard>
+              </Reveal>
             ))}
           </div>
         </section>
 
         <section className="mx-auto max-w-6xl px-5 py-14 sm:px-8">
+          <Reveal>
           <h2 className="text-2xl font-semibold tracking-[-0.04em]">Pourquoi choisir LiteHubs</h2>
           <ul className="mt-6 grid gap-3 sm:grid-cols-2">
             {page.benefits.map((benefit) => (
-              <li key={benefit} className="flex gap-2 rounded-lg border border-border bg-surface-1 p-4 text-sm leading-6">
+              <li key={benefit} className="lh-gradient-card flex gap-2 rounded-xl p-4 text-sm leading-6">
                 <CheckCircle2 className="mt-1 size-4 shrink-0 text-brand" aria-hidden />
                 {benefit}
               </li>
             ))}
           </ul>
+          </Reveal>
         </section>
 
         <section className="mx-auto max-w-6xl px-5 pb-14 sm:px-8">
+          <Reveal>
           <h2 className="text-2xl font-semibold tracking-[-0.04em]">Questions fréquentes</h2>
-          <div className="mt-6 divide-y divide-border rounded-xl border border-border bg-surface-1">
-            {page.faq.map((item) => (
-              <div key={item.question} className="p-5">
-                <h3 className="font-semibold">{item.question}</h3>
-                <p className="mt-2 text-sm leading-6 text-ink-secondary">{item.answer}</p>
-              </div>
+          <div className="mt-6 space-y-3">
+            {page.faq.map((item, index) => (
+              <details key={item.question} open={index === 0} className="lh-gradient-card group rounded-xl p-5 hover:!translate-y-0">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-semibold">
+                  <h3>{item.question}</h3>
+                  <span className="grid size-7 shrink-0 place-items-center rounded-full bg-brand/10 text-brand transition-transform duration-300 group-open:rotate-45">+</span>
+                </summary>
+                <p className="mt-3 text-sm leading-6 text-ink-secondary">{item.answer}</p>
+              </details>
             ))}
           </div>
+          </Reveal>
         </section>
 
         <section className="border-t border-border bg-surface-2/60">
@@ -162,7 +195,7 @@ export default async function SoftwarePage({ params }: { params: Promise<Params>
                 <li key={other.slug}>
                   <Link
                     href={`/logiciel/${other.slug}`}
-                    className="flex h-full items-center justify-between gap-3 rounded-lg border border-border bg-surface-1 p-4 text-sm font-semibold hover:border-brand/40"
+                    className="lh-gradient-card group flex h-full items-center justify-between gap-3 rounded-xl p-4 text-sm font-semibold"
                   >
                     {other.h1}
                     <ArrowRight className="size-4 shrink-0 text-brand" aria-hidden />

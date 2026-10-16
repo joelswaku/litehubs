@@ -172,7 +172,7 @@ export function ContactPage() {
         </div>
       <div className="mx-auto max-w-7xl px-5 sm:px-8 lg:px-10">
         <div className="grid gap-8 py-10 lg:grid-cols-[0.82fr_1.18fr] lg:gap-14 lg:py-16">
-          <section className="pt-2 lg:pt-8">
+          <section className="lh-enter pt-2 lg:pt-8">
             <p className="inline-flex items-center gap-2 rounded-full border border-brand/20 bg-brand/10 px-3 py-1.5 text-xs font-bold tracking-[0.13em] text-brand">
               <MessageCircleMore className="size-3.5" aria-hidden />
               {text.eyebrow}
@@ -210,7 +210,7 @@ export function ContactPage() {
             </div>
           </section>
 
-          <section className="self-start overflow-hidden rounded-2xl border border-border-strong bg-surface-1 shadow-[0_24px_70px_-42px_rgba(11,11,11,0.45)]">
+          <section style={{ animationDelay: "150ms" }} className="lh-enter self-start overflow-hidden rounded-2xl border border-border-strong bg-surface-1 shadow-[0_24px_70px_-42px_rgba(11,11,11,0.45)]">
             <div className="border-b border-border bg-[linear-gradient(135deg,var(--surface-1),var(--surface-2))] px-5 py-5 sm:px-7">
               <div className="flex items-center gap-3">
                 <span className="grid size-10 place-items-center rounded-xl bg-brand/10 text-brand">
@@ -385,7 +385,7 @@ function InfoCard({
   description: string;
 }) {
   return (
-    <article className="rounded-xl border border-border bg-surface-1 p-4 shadow-[0_10px_26px_-24px_rgba(11,11,11,0.55)]">
+    <article className="lh-gradient-card h-full rounded-xl p-4">
       <span className="grid size-8 place-items-center rounded-lg bg-brand/10 text-brand">
         <Icon className="size-4" aria-hidden />
       </span>

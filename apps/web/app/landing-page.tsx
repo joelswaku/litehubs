@@ -13,6 +13,7 @@ import {
   Sprout,
 } from "lucide-react";
 import { SiteFooter, SiteHeader } from "@/components/marketing/site-chrome";
+import { Reveal, SpotlightCard, Ticker } from "@/components/marketing/motion";
 import { PublicMarketingAnalytics, trackMarketingEvent } from "@/components/analytics/public-marketing-analytics";
 import { useLanguage } from "@/providers/language-provider";
 
@@ -249,20 +250,27 @@ export function LandingPage() {
           <div className="pointer-events-none absolute inset-0 -z-10" aria-hidden>
             <div className="absolute left-[-10rem] top-[-12rem] size-[38rem] rounded-full bg-brand/12 blur-3xl" />
             <div className="absolute right-[-12rem] top-40 size-[34rem] rounded-full bg-chart-3/12 blur-3xl" />
+            <div className="lh-grid-bg absolute inset-0" />
           </div>
           <div className="mx-auto grid max-w-7xl gap-12 px-5 pb-16 pt-12 sm:px-8 sm:pt-16 lg:grid-cols-[1fr_1.05fr] lg:items-center lg:gap-14 lg:px-10 lg:pb-24 lg:pt-20">
             <div className="max-w-2xl">
-              <p className="mb-5 inline-flex items-center gap-2 rounded-full border border-brand/20 bg-brand/10 px-3 py-1.5 text-xs font-bold tracking-[0.13em] text-brand">
-                <span className="size-1.5 rounded-full bg-brand" />
+              <p className="lh-enter mb-5 inline-flex items-center gap-2 rounded-full border border-brand/20 bg-brand/10 px-3 py-1.5 text-xs font-bold tracking-[0.13em] text-brand">
+                <span className="relative flex size-1.5">
+                  <span className="absolute inline-flex size-full animate-ping rounded-full bg-brand/60" />
+                  <span className="relative inline-flex size-1.5 rounded-full bg-brand" />
+                </span>
                 {text.eyebrow}
               </p>
-              <h1 className="text-4xl font-semibold leading-[1.06] tracking-[-0.055em] text-ink sm:text-5xl lg:text-[3.5rem]">
+              <h1
+                className="lh-enter text-4xl font-semibold leading-[1.06] tracking-[-0.055em] text-ink sm:text-5xl lg:text-[3.5rem]"
+                style={{ animationDelay: "80ms" }}
+              >
                 {text.title}
               </h1>
-              <p className="mt-6 max-w-xl text-base leading-7 text-ink-secondary sm:text-lg sm:leading-8">
+              <p className="lh-enter mt-6 max-w-xl text-base leading-7 text-ink-secondary sm:text-lg sm:leading-8" style={{ animationDelay: "160ms" }}>
                 {text.description}
               </p>
-              <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <div className="lh-enter mt-8 flex flex-col gap-3 sm:flex-row" style={{ animationDelay: "240ms" }}>
                 <Link
                   href="/contact?sujet=demo"
                   onClick={() => trackMarketingEvent("select_content", { content_type: "cta", item_id: "hero_demo" })}
@@ -280,7 +288,7 @@ export function LandingPage() {
                   <LogIn className="size-4" aria-hidden />
                 </a>
               </div>
-              <ul className="mt-9 flex flex-wrap gap-x-5 gap-y-3" aria-label="LiteHubs benefits">
+              <ul className="lh-enter mt-9 flex flex-wrap gap-x-5 gap-y-3" style={{ animationDelay: "320ms" }} aria-label="LiteHubs benefits">
                 {text.proof.map((item) => (
                   <li key={item} className="flex items-center gap-2 text-sm text-ink-secondary">
                     <CheckCircle2 className="size-4 text-good" aria-hidden />
@@ -290,7 +298,7 @@ export function LandingPage() {
               </ul>
             </div>
 
-            <div className="relative mx-auto w-full max-w-xl lg:max-w-none">
+            <div className="lh-enter relative mx-auto w-full max-w-xl lg:max-w-none" style={{ animationDelay: "200ms" }}>
               <div className="grid grid-cols-[1.35fr_1fr] gap-3 sm:gap-4">
                 <img
                   src={photo(PHOTOS.hero, 1100)}
@@ -305,7 +313,7 @@ export function LandingPage() {
                     className="h-[8.6rem] w-full rounded-3xl bg-surface-2 object-cover shadow-xl sm:h-[12.6rem]"
                     loading="eager"
                   />
-                  <div className="flex flex-col justify-between rounded-3xl bg-ink p-4 text-page shadow-xl sm:p-5">
+                  <div className="lh-bob flex flex-col justify-between rounded-3xl bg-[linear-gradient(145deg,#0b1220,#13305a)] p-4 text-white shadow-xl sm:p-5">
                     <p className="text-[11px] font-bold uppercase tracking-[0.14em] opacity-70">{text.today}</p>
                     <div>
                       <p className="text-3xl font-semibold tracking-[-0.04em] sm:text-4xl">98,4 %</p>
@@ -314,7 +322,7 @@ export function LandingPage() {
                   </div>
                 </div>
               </div>
-              <div className="absolute -bottom-5 left-4 hidden items-center gap-3 rounded-2xl border border-border bg-surface-1/95 px-4 py-3 shadow-xl backdrop-blur sm:left-8 sm:flex">
+              <div className="lh-bob absolute -bottom-5 left-4 hidden items-center gap-3 rounded-2xl border border-border bg-surface-1/95 px-4 py-3 shadow-xl backdrop-blur sm:left-8 sm:flex">
                 <span className="grid size-9 place-items-center rounded-xl bg-good/15 text-good">
                   <CheckCircle2 className="size-5" aria-hidden />
                 </span>
@@ -329,30 +337,42 @@ export function LandingPage() {
           </div>
         </section>
 
+        <div className="border-y border-border bg-surface-2/40 py-5">
+          <Ticker
+            items={
+              fr
+                ? ["Lots et bâtiments", "Mortalité et santé", "Provenderie", "Ponte", "Truies et portées", "Cultures et récoltes", "Stocks et achats", "Ventes", "Employés et accès", "Recrutement", "Paie", "Messenger et Instagram", "Rapports par site"]
+                : ["Flocks and houses", "Mortality and health", "Feed mill", "Egg laying", "Sows and litters", "Crops and harvests", "Stock and purchasing", "Sales", "Employees and access", "Recruitment", "Payroll", "Messenger and Instagram", "Reports by site"]
+            }
+          />
+        </div>
+
         {/* Modules */}
         <section id="features" className="mx-auto max-w-7xl px-5 py-20 sm:px-8 lg:px-10 lg:py-28">
-          <div className="mx-auto max-w-2xl text-center">
+          <Reveal className="mx-auto max-w-2xl text-center">
             <p className="text-xs font-bold tracking-[0.14em] text-brand">{text.featureEyebrow}</p>
             <h2 className="mt-4 text-3xl font-semibold tracking-[-0.045em] text-ink sm:text-4xl">{text.featureTitle}</h2>
             <p className="mt-4 text-base leading-7 text-ink-secondary">{text.featureDescription}</p>
-          </div>
+          </Reveal>
           <div className="mt-12 grid gap-5 md:grid-cols-3">
             {text.features.map((feature, index) => {
               const Icon = featureIcons[index] ?? Sprout;
               return (
-                <Link
-                  key={feature.title}
+                <Reveal key={feature.title} delay={index * 120}>
+                <SpotlightCard
+                  as={Link}
                   href={`/logiciel/${FEATURE_PAGES[index] ?? "gestion-agricole"}`}
-                  className="group overflow-hidden rounded-2xl border border-border bg-surface-1 shadow-sm transition-all hover:-translate-y-1 hover:shadow-xl"
+                  className="group block h-full overflow-hidden rounded-2xl"
                 >
-                  <div className="relative h-52 overflow-hidden">
+                  <div className="relative h-52 overflow-hidden rounded-t-[15px]">
+                    <div className="absolute inset-0 z-10 bg-[linear-gradient(to_top,rgba(11,18,32,.35),transparent_55%)]" aria-hidden />
                     <img
                       src={photo(PHOTOS.features[index] ?? PHOTOS.field, 800)}
                       alt={feature.title}
                       loading="lazy"
                       className="size-full bg-surface-2 object-cover transition-transform duration-500 group-hover:scale-105"
                     />
-                    <span className="absolute left-4 top-4 grid size-10 place-items-center rounded-xl bg-white/90 text-brand shadow-sm backdrop-blur">
+                    <span className="absolute left-4 top-4 z-20 grid size-10 place-items-center rounded-xl bg-white/90 text-brand shadow-sm backdrop-blur">
                       <Icon className="size-5" aria-hidden />
                     </span>
                   </div>
@@ -361,10 +381,11 @@ export function LandingPage() {
                     <p className="mt-2 text-sm leading-6 text-ink-secondary">{feature.description}</p>
                     <span className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-brand">
                       {fr ? "En savoir plus" : "Learn more"}
-                      <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" aria-hidden />
+                      <ArrowRight className="size-4 transition-transform group-hover:translate-x-1" aria-hidden />
                     </span>
                   </div>
-                </Link>
+                </SpotlightCard>
+                </Reveal>
               );
             })}
           </div>
@@ -373,13 +394,16 @@ export function LandingPage() {
         {/* Teams */}
         <section id="teams" className="border-y border-border bg-surface-2/60">
           <div className="mx-auto grid max-w-7xl gap-12 px-5 py-20 sm:px-8 lg:grid-cols-2 lg:items-center lg:px-10 lg:py-28">
+            <Reveal className="relative">
+            <div className="absolute -inset-4 -z-10 rounded-[2rem] bg-[linear-gradient(135deg,var(--brand),var(--chart-3))] opacity-15 blur-2xl" aria-hidden />
             <img
               src={photo(PHOTOS.teams, 1000)}
               alt={fr ? "Deux personnes consultent un téléphone dans une ferme" : "Two people checking a phone on a farm"}
               loading="lazy"
               className="h-80 w-full rounded-3xl bg-surface-2 object-cover shadow-xl sm:h-[30rem]"
             />
-            <div>
+            </Reveal>
+            <Reveal delay={120}>
               <p className="text-xs font-bold tracking-[0.14em] text-brand">{fr ? "ÉQUIPES ET RH" : "TEAMS AND HR"}</p>
               <h2 className="mt-4 text-3xl font-semibold tracking-[-0.045em] text-ink sm:text-4xl">
                 {fr ? "Vos équipes, sur le terrain et au bureau, dans le même outil." : "Your field and office teams in the same tool."}
@@ -401,31 +425,35 @@ export function LandingPage() {
                 {fr ? "Découvrir la gestion des équipes" : "Explore team management"}
                 <ArrowRight className="size-4" aria-hidden />
               </Link>
-            </div>
+            </Reveal>
           </div>
         </section>
 
         {/* How it works */}
         <section className="mx-auto max-w-7xl px-5 py-20 sm:px-8 lg:px-10 lg:py-28">
-          <div className="max-w-2xl">
+          <Reveal className="max-w-2xl">
             <p className="text-xs font-bold tracking-[0.14em] text-brand">{text.processEyebrow}</p>
             <h2 className="mt-4 text-3xl font-semibold tracking-[-0.045em] text-ink sm:text-4xl">{text.processTitle}</h2>
             <p className="mt-4 text-base leading-7 text-ink-secondary">{text.processDescription}</p>
-          </div>
+          </Reveal>
           <ol className="mt-10 grid gap-4 md:grid-cols-3">
             {text.steps.map((step, index) => (
-              <li key={step.title} className="relative rounded-2xl border border-border bg-surface-1 p-6">
-                <span className="text-5xl font-semibold tracking-[-0.06em] text-brand/25">0{index + 1}</span>
-                <h3 className="mt-3 text-lg font-semibold text-ink">{step.title}</h3>
-                <p className="mt-2 text-sm leading-6 text-ink-secondary">{step.description}</p>
-              </li>
+              <Reveal as="li" key={step.title} delay={index * 120}>
+                <SpotlightCard className="h-full rounded-2xl p-6">
+                  <span className="bg-[linear-gradient(135deg,var(--brand),var(--chart-3))] bg-clip-text text-5xl font-semibold tracking-[-0.06em] text-transparent">
+                    0{index + 1}
+                  </span>
+                  <h3 className="mt-3 text-lg font-semibold text-ink">{step.title}</h3>
+                  <p className="mt-2 text-sm leading-6 text-ink-secondary">{step.description}</p>
+                </SpotlightCard>
+              </Reveal>
             ))}
           </ol>
         </section>
 
         {/* Security + team access */}
         <section id="security" className="mx-auto max-w-7xl px-5 pb-20 sm:px-8 lg:px-10 lg:pb-28">
-          <div className="grid gap-8 rounded-3xl border border-border bg-[linear-gradient(135deg,var(--surface-1),var(--surface-2))] p-6 shadow-sm sm:p-10 lg:grid-cols-[1fr_.9fr] lg:items-center lg:p-14">
+          <Reveal className="grid gap-8 rounded-3xl border border-border bg-[linear-gradient(135deg,var(--surface-1),var(--surface-2))] p-6 shadow-sm sm:p-10 lg:grid-cols-[1fr_.9fr] lg:items-center lg:p-14">
             <div>
               <div className="grid size-11 place-items-center rounded-xl bg-brand/10 text-brand">
                 <ShieldCheck className="size-5" aria-hidden />
@@ -446,7 +474,7 @@ export function LandingPage() {
               </div>
             </div>
             <EmployeeLoginCard text={text} />
-          </div>
+          </Reveal>
         </section>
 
         {/* Call to action */}
@@ -458,7 +486,7 @@ export function LandingPage() {
             className="absolute inset-0 -z-20 size-full object-cover"
           />
           <div className="absolute inset-0 -z-10 bg-[linear-gradient(110deg,rgba(11,18,32,.92),rgba(11,18,32,.65))]" aria-hidden />
-          <div className="mx-auto max-w-7xl px-5 py-20 text-white sm:px-8 lg:px-10 lg:py-28">
+          <Reveal className="mx-auto max-w-7xl px-5 py-20 text-white sm:px-8 lg:px-10 lg:py-28">
             <h2 className="max-w-2xl text-3xl font-semibold tracking-[-0.045em] sm:text-4xl">
               {fr ? "Prêt à piloter votre exploitation avec des chiffres fiables ?" : "Ready to run your operation on reliable numbers?"}
             </h2>
@@ -482,7 +510,7 @@ export function LandingPage() {
                 {text.contact}
               </Link>
             </div>
-          </div>
+          </Reveal>
         </section>
       </main>
       <SiteFooter />
