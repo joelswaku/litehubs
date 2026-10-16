@@ -34,6 +34,9 @@ export type SiteDesign = {
   /** Site template chosen (for display) and its block designs. */
   template?: string;
   blockVariants?: Record<string, string>;
+  /** "brand" (default): the theme keeps the company's own colours (logo,
+   * brand settings); "theme": the theme's own palette. */
+  colors?: "brand" | "theme";
   zones?: Partial<Record<ZoneName, ZoneData>>;
 };
 
@@ -55,6 +58,7 @@ export function readDesign(raw: unknown): SiteDesign {
     theme: typeof design.theme === "string" && SITE_THEMES[design.theme] ? design.theme : undefined,
     template: typeof design.template === "string" && /^[a-z-]{2,40}$/.test(design.template) ? design.template : undefined,
     blockVariants: Object.keys(blockVariants).length ? blockVariants : undefined,
+    colors: design.colors === "theme" ? "theme" : undefined,
     zones,
   };
 }
@@ -359,6 +363,10 @@ export function themeCss(key: string | undefined): string {
     `${page} :where([data-el="panel"].text-white){border-radius:var(--t-panel-radius)}`,
     `${page} :where([data-el-shared="card"],[data-el="sideCard"],[data-el="items"].bg-white){background-color:var(--t-surface);border-color:var(--t-border);border-radius:var(--t-radius);box-shadow:var(--t-shadow)}`,
     `${page} :where(input,textarea,select){background-color:var(--t-surface);color:var(--t-text);border-color:var(--t-border)}`,
+    // Over a photo, soft or outline buttons would lose their text: solid there
+    // (last, so it also wins over the theme's text colours).
+    `${root} :where(.wb-hero .wb-btn:not(.wb-btn-secondary)),${root} :where(.wb-hero .wb-btn:not(.wb-btn-secondary)) *{color:#fff}`,
+    `${root} :where(.wb-hero .wb-btn:not(.wb-btn-secondary)){background:var(--website-primary);border:1px solid var(--website-primary)}`,
   ].join("");
 }
 

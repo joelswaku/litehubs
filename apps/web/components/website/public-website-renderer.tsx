@@ -2704,12 +2704,20 @@ export function PublicWebsiteRenderer({
       style={
         {
           ...(pageBackground ? { backgroundColor: pageBackground } : {}),
-          // A site theme brings its own colours.
-          ...(theme
+          // Without a theme, or with a theme set to keep the brand colours
+          // (the default), the company's own colours lead; light panels and
+          // dark bands are tinted from them so every theme matches the logo.
+          ...(theme && design.colors === "theme"
             ? {}
             : {
                 "--website-primary": website.primary_color || "#075c4d",
                 "--website-accent": website.accent_color || "#e9a43a",
+                ...(theme
+                  ? {
+                      "--t-alt": "color-mix(in srgb,var(--website-primary) 9%,var(--t-surface,#fff))",
+                      "--t-dark": "color-mix(in srgb,var(--website-primary) 30%,#05080a)",
+                    }
+                  : {}),
               }),
         } as React.CSSProperties
       }

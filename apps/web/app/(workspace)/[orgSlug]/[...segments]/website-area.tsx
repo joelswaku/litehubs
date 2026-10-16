@@ -4447,6 +4447,15 @@ function VisualBuilderTab({
                 onApply={applySiteTemplate}
                 fr={fr}
               />
+              <BrandColorsPanel
+                value={design.colors === "theme" ? "theme" : "brand"}
+                primary={website.primaryColor}
+                accent={website.accentColor}
+                onChange={(value) =>
+                  setDesign((current) => ({ ...current, version: 1, colors: value === "theme" ? "theme" : undefined }))
+                }
+                fr={fr}
+              />
               <ThemePanel
                 value={design.theme}
                 onChange={applyTheme}
@@ -9267,6 +9276,61 @@ function cloneWithStyles(
     };
   };
   return { item: copy(item), styles: added };
+}
+
+/** Whether themes and templates keep the company's own colours. */
+function BrandColorsPanel({
+  value,
+  primary,
+  accent,
+  onChange,
+  fr,
+}: {
+  value: "brand" | "theme";
+  primary: string;
+  accent: string;
+  onChange: (value: "brand" | "theme") => void;
+  fr: boolean;
+}) {
+  const options: Array<["brand" | "theme", string, string]> = [
+    [
+      "brand",
+      tr(fr, "Couleurs de la marque", "Brand colours"),
+      tr(fr, "Les modèles et thèmes gardent vos couleurs (logo, « Apparence & domaine »).", "Templates and themes keep your colours (logo, “Appearance & domain”)."),
+    ],
+    [
+      "theme",
+      tr(fr, "Couleurs du thème", "Theme colours"),
+      tr(fr, "Le thème applique sa propre palette.", "The theme applies its own palette."),
+    ],
+  ];
+  return (
+    <section className="space-y-2 rounded-xl border border-border p-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm font-semibold text-ink">{tr(fr, "Couleurs du site", "Site colours")}</p>
+        <span className="flex gap-1" aria-hidden>
+          <span className="size-5 rounded-full border border-border" style={{ background: primary }} />
+          <span className="size-5 rounded-full border border-border" style={{ background: accent }} />
+        </span>
+      </div>
+      <div className="grid gap-1.5">
+        {options.map(([key, title, hint]) => (
+          <button
+            key={key}
+            type="button"
+            aria-pressed={value === key}
+            onClick={() => onChange(key)}
+            className={`rounded-lg border px-3 py-2 text-left transition ${
+              value === key ? "border-violet-500 bg-violet-500/[.06] ring-2 ring-violet-500/25" : "border-border hover:border-violet-400"
+            }`}
+          >
+            <span className="block text-xs font-semibold text-ink">{title}</span>
+            <span className="block text-[11px] leading-4 text-ink-muted">{hint}</span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
 }
 
 /** "Thème du site": colours, fonts, buttons and cards for the whole site. */
