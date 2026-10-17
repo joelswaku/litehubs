@@ -8,6 +8,7 @@ import {
 } from "../../utils/errors";
 import { withTenantContext } from "../../utils/tenant-query";
 import { readAiInstructions } from "../ai-instructions/ai-instructions.service";
+import { maskCandidatePortalLinks } from "../careers/candidate-portal-links";
 import { readMessageSource, receivingAddress, type MailContext } from "./mail.service";
 import type { AiDraftInput } from "./mail.validation";
 
@@ -92,7 +93,7 @@ export async function createAiDraft(context: MailContext, mailboxId: string, inp
     const parsed = await simpleParser(loaded.source);
     const from = parsed.from?.text ?? "";
     originalSubject = parsed.subject ?? "";
-    original = `From: ${from}\nSubject: ${originalSubject}\nDate: ${parsed.date?.toISOString() ?? ""}\n\n${(parsed.text ?? "").slice(0, 6000)}`;
+    original = `From: ${from}\nSubject: ${originalSubject}\nDate: ${parsed.date?.toISOString() ?? ""}\n\n${maskCandidatePortalLinks(parsed.text ?? "").slice(0, 6000)}`;
     mailboxAddress = loaded.mailboxAddress;
     organizationName = loaded.organizationName;
     const own = [loaded.mailboxAddress, ...loaded.aliases].map((item) => item.toLowerCase());

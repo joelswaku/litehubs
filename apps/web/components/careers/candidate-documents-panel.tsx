@@ -39,7 +39,12 @@ type DocumentRequest = {
 
 type PanelData = {
   requests: DocumentRequest[];
-  tracking: { linkSentAt: string | null; lastIssuedAt: string | null; lastOpenedAt: string | null };
+  tracking: {
+    linkSentAt: string | null;
+    lastIssuedAt: string | null;
+    lastOpenedAt: string | null;
+    recentOpens?: Array<{ at: string; device: string | null }>;
+  };
 };
 
 const tr = (fr: boolean, french: string, english: string) => (fr ? french : english);
@@ -219,6 +224,27 @@ export function CandidateDocumentsPanel({
               ? tr(fr, `ouvert le ${when(tracking.lastOpenedAt, fr)}`, `opened ${when(tracking.lastOpenedAt, fr)}`)
               : tr(fr, "jamais ouvert", "never opened")}
           </p>
+          {tracking?.recentOpens?.length ? (
+            <details className="mt-1.5 text-[11px] text-ink-muted">
+              <summary className="cursor-pointer font-medium text-ink-secondary hover:text-ink">
+                {tr(fr, "Ouvertures de l’Espace candidat", "Candidate space openings")} ({tracking.recentOpens.length})
+              </summary>
+              <ul className="mt-1 space-y-0.5">
+                {tracking.recentOpens.map((open, index) => (
+                  <li key={index}>
+                    {when(open.at, fr)} · {open.device ?? tr(fr, "appareil inconnu", "unknown device")}
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-1 leading-4">
+                {tr(
+                  fr,
+                  "Une ouverture que le candidat ne reconnaît pas ? « Renvoyer le lien » lui envoie un nouveau lien et désactive les anciens.",
+                  "An opening the candidate does not recognise? “Resend link” sends a new link and disables the old ones.",
+                )}
+              </p>
+            </details>
+          ) : null}
         </div>
         {editable ? (
           <div className="flex flex-wrap gap-2">

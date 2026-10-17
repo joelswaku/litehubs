@@ -149,7 +149,11 @@ export const completePublicOnboarding: RequestHandler = async (req, res) => {
 export const publicTracking: RequestHandler = async (req, res) => {
   res.setHeader("Cache-Control", "no-store, max-age=0");
   res.setHeader("Referrer-Policy", "no-referrer");
-  res.json(await portal.publicTracking(param(req, "orgSlug"), param(req, "token")));
+  res.json(
+    await portal.publicTracking(param(req, "orgSlug"), param(req, "token"), {
+      userAgent: req.get("user-agent") ?? undefined,
+    }),
+  );
 };
 
 export const publicSubmitDocument: RequestHandler = async (req, res) => {

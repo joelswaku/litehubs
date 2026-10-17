@@ -57,3 +57,44 @@ export async function issueCandidatePortalLink(
   );
   return candidatePortalUrl(organizationSlug, token);
 }
+
+/** Keeps only the newest personal link of an application working: called
+ * once a new link has actually reached the candidate, so an older link that
+ * was forwarded or quoted somewhere stops opening the space. */
+export async function revokeOlderPortalLinks(client: PoolClient, organizationId: string, applicationId: string) {
+  await client.query(
+    `UPDATE career_application_access_tokens SET expires_at=now()
+      WHERE organization_id=$1 AND application_id=$2 AND purpose='tracking' AND expires_at > now()
+        AND id <> (SELECT id FROM career_application_access_tokens
+                    WHERE organization_id=$1 AND application_id=$2 AND purpose='tracking'
+                    ORDER BY created_at DESC LIMIT 1)`,
+    [organizationId, applicationId],
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Masking personal links that come back in e-mails                    */
+/* ------------------------------------------------------------------ */
+
+/** A personal Espace candidat address (…/suivi/<token>), on any host. */
+const PORTAL_LINK_SOURCE = String.raw`https?:\/\/[^\s"'<>()]+\/suivi\/[A-Za-z0-9_-]{40,100}[^\s"'<>()]*`;
+export const MASKED_PORTAL_LINK = "[lien personnel du candidat masqué]";
+
+export function isCandidatePortalLink(value: string | undefined | null): boolean {
+  return Boolean(value) && new RegExp(`^${PORTAL_LINK_SOURCE}$`, "i").test(String(value).trim());
+}
+
+/** How many personal candidate links a text contains. */
+export function countCandidatePortalLinks(value: string | undefined | null): number {
+  return (String(value ?? "").match(new RegExp(PORTAL_LINK_SOURCE, "gi")) ?? []).length;
+}
+
+/**
+ * A candidate who replies to one of our e-mails usually quotes it, with the
+ * personal link to their Espace candidat. Whoever opens that reply in the
+ * team mailbox (or receives it forwarded) would enter the candidate's space
+ * as the candidate. The link is replaced wherever the team reads or quotes it.
+ */
+export function maskCandidatePortalLinks(value: string): string {
+  return value.replace(new RegExp(PORTAL_LINK_SOURCE, "gi"), MASKED_PORTAL_LINK);
+}

@@ -4,6 +4,12 @@ import nodemailer from "nodemailer";
 import MailComposer from "nodemailer/lib/mail-composer";
 import type Mail from "nodemailer/lib/mailer";
 import sanitizeHtml from "sanitize-html";
+import {
+  MASKED_PORTAL_LINK,
+  countCandidatePortalLinks,
+  isCandidatePortalLink,
+  maskCandidatePortalLinks,
+} from "../careers/candidate-portal-links";
 import type { PoolClient } from "pg";
 import { env } from "../../config/env";
 import { logger } from "../../config/logger";
@@ -503,9 +509,20 @@ function safeEmailHtml(html: string) {
     allowedSchemesByTag: { img: ["http", "https", "data", "cid"] },
     allowVulnerableTags: true,
     transformTags: {
-      a: sanitizeHtml.simpleTransform("a", { target: "_blank", rel: "noopener noreferrer" }),
+      // A candidate's personal portal link (quoted in their reply) is never
+      // clickable for the team: it would open the space as the candidate.
+      a: (tagName, attribs): sanitizeHtml.Tag =>
+        isCandidatePortalLink(attribs.href)
+          ? {
+              tagName: "span",
+              attribs: {
+                title: "Lien personnel du candidat masqué",
+                style: "display:inline-block;padding:6px 12px;border-radius:8px;background:#f1f5f9;color:#64748b;font-size:12px;text-decoration:none",
+              },
+            }
+          : { tagName, attribs: { ...attribs, target: "_blank", rel: "noopener noreferrer" } as sanitizeHtml.Attributes },
     },
-  });
+  }).replace(/https?:\/\/[^\s"'<>()]+\/suivi\/[A-Za-z0-9_-]{40,100}[^\s"'<>()]*/gi, () => MASKED_PORTAL_LINK);
 }
 
 async function fetchParsed(client: ImapFlow, uid: number) {
@@ -598,7 +615,9 @@ export async function getMessage(context: MailContext, mailboxId: string, uid: n
         receivedOn: receivingAddress(parsed, ownAddresses),
         flagged: message.flags?.has("\\Flagged") ?? false,
         html,
-        text: parsed.text ?? "",
+        text: maskCandidatePortalLinks(parsed.text ?? ""),
+        // Personal candidate links found (and masked) in this message.
+        maskedCandidateLinks: countCandidatePortalLinks(`${parsed.html || ""}\n${parsed.text ?? ""}`) > 0,
         attachments: parsed.attachments
           .map((attachment, index) => ({
             index,
@@ -779,10 +798,10 @@ function quoteBlock(parsed: ParsedMail, french = true) {
     ? parsed.date.toLocaleString(french ? "fr-FR" : "en-GB", { dateStyle: "long", timeStyle: "short" })
     : "";
   const header = `Le ${when}, ${who} a écrit :`;
-  const original = parsed.html ? safeEmailHtml(parsed.html) : (parsed.textAsHtml ?? "");
+  const original = parsed.html ? safeEmailHtml(parsed.html) : maskCandidatePortalLinks(parsed.textAsHtml ?? "");
   return {
     html: `<br /><div style="color:#555;font-size:13px">${sanitizeHtml(header)}</div><blockquote style="margin:6px 0 0;padding-left:12px;border-left:3px solid #d0d7de">${original}</blockquote>`,
-    text: `\n\n${header}\n${(parsed.text ?? "")
+    text: `\n\n${header}\n${maskCandidatePortalLinks(parsed.text ?? "")
       .split("\n")
       .map((line) => `> ${line}`)
       .join("\n")}`,

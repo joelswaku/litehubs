@@ -95,6 +95,8 @@ type MessageDetail = {
   attachments: { index: number; fileName: string; mimeType: string; size: number }[];
   candidates: { id: string; fullName: string; status: string; email: string; jobTitle: string }[];
   receivedOn?: string | null;
+  /** The message quoted a candidate's personal link; it is masked. */
+  maskedCandidateLinks?: boolean;
 };
 type ComposeDraft = {
   fromAddress?: string;
@@ -846,6 +848,18 @@ export function MailArea({ orgSlug }: { orgSlug: string }) {
                         </a>
                       ))}
                     </div>
+                  ) : null}
+                  {message.maskedCandidateLinks ? (
+                    <p className="mt-3 flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/[.07] px-3 py-2 text-xs leading-5 text-ink-secondary">
+                      <ShieldAlert className="mt-0.5 size-4 shrink-0 text-amber-600" />
+                      <span>
+                        {tr(
+                          fr,
+                          "Ce message contient le lien personnel de l’Espace candidat : il est masqué, car il ouvrirait l’espace à la place du candidat. Consultez la candidature depuis Carrières.",
+                          "This message contains the candidate’s personal space link: it is masked, as it would open the space as the candidate. Review the application from Careers.",
+                        )}
+                      </span>
+                    </p>
                   ) : null}
                   {message.attachments.length ? (
                     <div className="mt-3 flex flex-wrap gap-2">

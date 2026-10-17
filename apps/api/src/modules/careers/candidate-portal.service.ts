@@ -26,6 +26,7 @@ import {
 import {
   hashCandidatePortalToken,
   issueCandidatePortalLink,
+  revokeOlderPortalLinks,
 } from "./candidate-portal-links";
 import type {
   DocumentRequestInput,
@@ -271,7 +272,36 @@ function candidateTimeline(events: Row[]) {
   return timeline.reverse();
 }
 
-export async function publicTracking(orgSlug: string, token: string) {
+/** "Chrome · Windows": enough for the team to recognise an unusual opening,
+ * without keeping the full browser signature or the IP address. */
+function deviceSummary(userAgent: string | undefined): string {
+  const ua = userAgent ?? "";
+  const system = /iPhone|iPad/i.test(ua)
+    ? "iPhone / iPad"
+    : /Android/i.test(ua)
+      ? "Android"
+      : /Windows/i.test(ua)
+        ? "Windows"
+        : /Mac OS X|Macintosh/i.test(ua)
+          ? "Mac"
+          : /Linux/i.test(ua)
+            ? "Linux"
+            : "Appareil inconnu";
+  const browser = /Edg\//i.test(ua)
+    ? "Edge"
+    : /OPR\//i.test(ua)
+      ? "Opera"
+      : /Firefox\//i.test(ua)
+        ? "Firefox"
+        : /Chrome\//i.test(ua)
+          ? "Chrome"
+          : /Safari\//i.test(ua)
+            ? "Safari"
+            : "Navigateur";
+  return `${browser} · ${system}`;
+}
+
+export async function publicTracking(orgSlug: string, token: string, visitor: { userAgent?: string } = {}) {
   const found = await lookup(orgSlug, token);
   const branding = await publicCareersBranding(orgSlug);
   return withTenantContext(
@@ -282,6 +312,17 @@ export async function publicTracking(orgSlug: string, token: string) {
         `UPDATE career_application_access_tokens SET last_used_at=now() WHERE organization_id=$1 AND id=$2`,
         [found.organizationId, found.tokenId],
       );
+      // Every opening of the space is visible to the team (at most one entry
+      // per device every 30 minutes), so an unexpected access is noticed.
+      const device = deviceSummary(visitor.userAgent);
+      const recent = await client.query(
+        `SELECT 1 FROM career_application_events
+          WHERE organization_id=$1 AND application_id=$2 AND event_type='portal_opened'
+            AND metadata->>'device'=$3 AND created_at > now() - interval '30 minutes' LIMIT 1`,
+        [found.organizationId, found.applicationId, device],
+      );
+      if (!recent.rowCount)
+        await event(client, found.organizationId, found.applicationId, "portal_opened", null, { device });
       const events = await client.query<Row>(
         `SELECT event_type,metadata,created_at FROM career_application_events
           WHERE organization_id=$1 AND application_id=$2
@@ -573,6 +614,12 @@ export async function listDocumentRequests(context: CareersContext, applicationI
          FROM career_application_access_tokens WHERE organization_id=$1 AND application_id=$2`,
       [context.organizationId, applicationId],
     );
+    const opens = await client.query<Row>(
+      `SELECT created_at,metadata->>'device' AS device FROM career_application_events
+        WHERE organization_id=$1 AND application_id=$2 AND event_type='portal_opened'
+        ORDER BY created_at DESC LIMIT 8`,
+      [context.organizationId, applicationId],
+    );
     const sent = await client.query<Row>(
       `SELECT e.created_at,e.metadata,u.full_name AS sent_by
          FROM career_application_events e LEFT JOIN users u ON u.id=e.actor_user_id
@@ -598,6 +645,7 @@ export async function listDocumentRequests(context: CareersContext, applicationI
         linkSentAt: application.tracking_link_sent_at ?? null,
         lastIssuedAt: link.rows[0]?.last_issued_at ?? null,
         lastOpenedAt: link.rows[0]?.last_opened_at ?? null,
+        recentOpens: opens.rows.map((row) => ({ at: row.created_at, device: (row.device as string | null) ?? null })),
       },
     };
   });
@@ -962,11 +1010,14 @@ export async function sendTrackingLink(context: CareersContext, applicationId: s
   });
   const result = await deliverPortalMail(trackingLinkMail(prepared.application, prepared.url));
   await withTenantContext(context, async (client) => {
-    if (result.emailSent || result.smsSent)
+    if (result.emailSent || result.smsSent) {
       await client.query(
         `UPDATE career_applications SET tracking_link_sent_at=now() WHERE organization_id=$1 AND id=$2`,
         [context.organizationId, applicationId],
       );
+      // The new link reached the candidate: earlier links stop working.
+      await revokeOlderPortalLinks(client, context.organizationId, applicationId);
+    }
     await event(client, context.organizationId, applicationId, "tracking_link_sent", context.userId, result);
   });
   if (!result.emailSent && !result.smsSent)
