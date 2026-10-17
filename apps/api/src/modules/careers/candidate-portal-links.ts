@@ -98,3 +98,46 @@ export function countCandidatePortalLinks(value: string | undefined | null): num
 export function maskCandidatePortalLinks(value: string): string {
   return value.replace(new RegExp(PORTAL_LINK_SOURCE, "gi"), MASKED_PORTAL_LINK);
 }
+
+/** Our candidate e-mails, recognisable once quoted in a candidate's reply. */
+const PORTAL_MAIL_MARKERS = /Espace candidat|candidate space|Suivez votre candidature|Follow your application/i;
+/** Click-tracking redirects added by the e-mail relay (Brevo / Sendinblue):
+ * in a quoted candidate e-mail they lead to the personal link too. */
+const TRACKER_HOST = /(^|\.)(sendib[a-z]*\d*\.com|sendibt\d*\.com|brevo\.com|brevosend\.com|sendinblue\.com|mailin\.fr|safelinks\.protection\.outlook\.com)$|\.r\.[a-z0-9-]+\.d\./i;
+const ANY_URL = String.raw`https?:\/\/[^\s"'<>()]+`;
+
+export function quotesCandidatePortalMail(value: string | undefined | null): boolean {
+  return PORTAL_MAIL_MARKERS.test(String(value ?? ""));
+}
+
+function isTrackerLink(value: string): boolean {
+  try {
+    return TRACKER_HOST.test(new URL(value.trim()).hostname);
+  } catch {
+    return false;
+  }
+}
+
+/** Whether a link must not stay clickable: a personal portal link, or (in a
+ * quoted candidate e-mail) the relay's tracking redirect that leads to it. */
+export function isMaskedCandidateLink(href: string | undefined | null, portalMail: boolean): boolean {
+  if (!href) return false;
+  let decoded = href;
+  try {
+    decoded = decodeURIComponent(href);
+  } catch {
+    // keep the raw value
+  }
+  // Wrapped links (Outlook Safe Links, Google redirects…) carry the personal
+  // address inside their query string.
+  const wrapsPortalLink = /\/suivi\/[A-Za-z0-9_-]{40,100}/.test(decoded);
+  return isCandidatePortalLink(href) || wrapsPortalLink || (portalMail && isTrackerLink(href));
+}
+
+/** Text version: personal links, and tracking redirects in quoted candidate e-mails. */
+export function maskCandidateLinksInText(value: string, portalMail = quotesCandidatePortalMail(value)): string {
+  const masked = maskCandidatePortalLinks(value);
+  return portalMail
+    ? masked.replace(new RegExp(ANY_URL, "gi"), (url) => (isTrackerLink(url) ? MASKED_PORTAL_LINK : url))
+    : masked;
+}

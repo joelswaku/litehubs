@@ -6,9 +6,9 @@ import type Mail from "nodemailer/lib/mailer";
 import sanitizeHtml from "sanitize-html";
 import {
   MASKED_PORTAL_LINK,
-  countCandidatePortalLinks,
-  isCandidatePortalLink,
-  maskCandidatePortalLinks,
+  isMaskedCandidateLink,
+  maskCandidateLinksInText,
+  quotesCandidatePortalMail,
 } from "../careers/candidate-portal-links";
 import type { PoolClient } from "pg";
 import { env } from "../../config/env";
@@ -492,9 +492,16 @@ function parsedAddresses(value?: AddressObject | AddressObject[]) {
   );
 }
 
+const MASKED_LINK_TITLE = "Lien personnel du candidat masqué";
+
 /** Untrusted e-mail HTML: scripts, forms, iframes and event handlers are
  * removed.  The web app also displays it in a sandboxed frame. */
 function safeEmailHtml(html: string) {
+  // A candidate who replies to one of our e-mails quotes it, with the button
+  // to their personal Espace candidat (often behind the relay's click
+  // tracking). For the team it is never clickable: it would open the space
+  // as the candidate.
+  const portalMail = quotesCandidatePortalMail(html);
   return sanitizeHtml(html, {
     allowedTags: sanitizeHtml.defaults.allowedTags.concat([
       "img", "span", "font", "center", "style", "h1", "h2", "h5", "h6", "u", "s", "small", "big", "hr",
@@ -509,20 +516,24 @@ function safeEmailHtml(html: string) {
     allowedSchemesByTag: { img: ["http", "https", "data", "cid"] },
     allowVulnerableTags: true,
     transformTags: {
-      // A candidate's personal portal link (quoted in their reply) is never
-      // clickable for the team: it would open the space as the candidate.
       a: (tagName, attribs): sanitizeHtml.Tag =>
-        isCandidatePortalLink(attribs.href)
+        isMaskedCandidateLink(attribs.href, portalMail)
           ? {
               tagName: "span",
               attribs: {
-                title: "Lien personnel du candidat masqué",
-                style: "display:inline-block;padding:6px 12px;border-radius:8px;background:#f1f5f9;color:#64748b;font-size:12px;text-decoration:none",
+                title: MASKED_LINK_TITLE,
+                style: "display:inline-block;padding:8px 14px;border-radius:8px;background:#f1f5f9;color:#64748b;font-size:12px;font-weight:600;text-decoration:none",
               },
             }
           : { tagName, attribs: { ...attribs, target: "_blank", rel: "noopener noreferrer" } as sanitizeHtml.Attributes },
     },
-  }).replace(/https?:\/\/[^\s"'<>()]+\/suivi\/[A-Za-z0-9_-]{40,100}[^\s"'<>()]*/gi, () => MASKED_PORTAL_LINK);
+  })
+    // The former button now reads as what it is.
+    .replace(
+      new RegExp(`(<span title="${MASKED_LINK_TITLE}"[^>]*>)[^<]*(</span>)`, "g"),
+      `$1🔒 ${MASKED_LINK_TITLE}$2`,
+    )
+    .replace(/https?:\/\/[^\s"'<>()]+\/suivi\/[A-Za-z0-9_-]{40,100}[^\s"'<>()]*/gi, () => MASKED_PORTAL_LINK);
 }
 
 async function fetchParsed(client: ImapFlow, uid: number) {
@@ -615,9 +626,9 @@ export async function getMessage(context: MailContext, mailboxId: string, uid: n
         receivedOn: receivingAddress(parsed, ownAddresses),
         flagged: message.flags?.has("\\Flagged") ?? false,
         html,
-        text: maskCandidatePortalLinks(parsed.text ?? ""),
+        text: maskCandidateLinksInText(parsed.text ?? ""),
         // Personal candidate links found (and masked) in this message.
-        maskedCandidateLinks: countCandidatePortalLinks(`${parsed.html || ""}\n${parsed.text ?? ""}`) > 0,
+        maskedCandidateLinks: html.includes(MASKED_LINK_TITLE) || html.includes(MASKED_PORTAL_LINK),
         attachments: parsed.attachments
           .map((attachment, index) => ({
             index,
@@ -798,10 +809,10 @@ function quoteBlock(parsed: ParsedMail, french = true) {
     ? parsed.date.toLocaleString(french ? "fr-FR" : "en-GB", { dateStyle: "long", timeStyle: "short" })
     : "";
   const header = `Le ${when}, ${who} a écrit :`;
-  const original = parsed.html ? safeEmailHtml(parsed.html) : maskCandidatePortalLinks(parsed.textAsHtml ?? "");
+  const original = parsed.html ? safeEmailHtml(parsed.html) : maskCandidateLinksInText(parsed.textAsHtml ?? "");
   return {
     html: `<br /><div style="color:#555;font-size:13px">${sanitizeHtml(header)}</div><blockquote style="margin:6px 0 0;padding-left:12px;border-left:3px solid #d0d7de">${original}</blockquote>`,
-    text: `\n\n${header}\n${maskCandidatePortalLinks(parsed.text ?? "")
+    text: `\n\n${header}\n${maskCandidateLinksInText(parsed.text ?? "")
       .split("\n")
       .map((line) => `> ${line}`)
       .join("\n")}`,
