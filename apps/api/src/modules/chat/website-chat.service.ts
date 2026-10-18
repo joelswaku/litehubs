@@ -31,9 +31,9 @@ const attachmentRefusal = (organizationName: string) =>
 const linkRefusal = (organizationName: string) =>
   `Pour votre sécurité, nous n’ouvrons pas les liens envoyés ici. Écrivez votre question sur ${organizationName} en quelques mots : produits, commande, emploi ou rendez-vous.`;
 /** Same message sent this many times in the recent history = spam strike. */
-const REPEAT_LIMIT = 3;
+const REPEAT_LIMIT = 4;
 /** Visitor messages within FLOOD_WINDOW_SECONDS that block at once. */
-const FLOOD_LIMIT = 8;
+const FLOOD_LIMIT = 15;
 const FLOOD_WINDOW_SECONDS = 120;
 const blockedNotice = (organizationName: string) =>
   `Cette conversation est fermée : elle ne concerne pas ${organizationName}. Vos prochains messages ne seront plus lus.`;

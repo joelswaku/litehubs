@@ -70,8 +70,8 @@ export const OFF_TOPIC_CATEGORIES: GuardCategory[] = [
           "poems?|songs?|lyrics|stor(?:y|ies) about|tell me a story|jokes?|riddles?|fairy tales?|make me laugh|" +
           "shairi|wimbo|nyimbo|hadithi|mzaha|utani|nzembo|lisapo|masapo",
       ),
-      /\b(?:raconte|racontez|invente|inventez|compose|composez|imagine|imaginez)(?: moi| nous)? (?:une?|des|la|le|un petit|une petite)\b/,
-      /\b(?:ecris|ecrivez|ecri|ecrit|redige|redigez|fais|faites)(?: moi| nous)? (?:une?|des|la|le|mon|ma) (?:poeme|chanson|histoire|texte sur|lettre d amour|discours|conte|piece|blague|dissertation|redaction|resume|slam|rap)/,
+      /\b(?:raconte|racontez|invente|inventez)(?: moi| nous)? (?:une?|des|la|le|un petit|une petite)\b/,
+      /\b(?:ecris|ecrivez|ecri|ecrit|redige|redigez|fais|faites)(?: moi| nous)? (?:une?|des|la|le|mon|ma) (?:poeme|chanson|histoire|texte sur|lettre d amour|discours|conte|piece de theatre|blague|dissertation|redaction|slam|rap)/,
     ],
   },
   {
@@ -80,7 +80,7 @@ export const OFF_TOPIC_CATEGORIES: GuardCategory[] = [
       w(
         "dissertations?|redactions?|exposes?|devoirs? (?:de|d|a la maison)|mes devoirs|fais mon devoir|exercices? de (?:math|maths|mathematiques|francais|anglais|physique|chimie|grammaire)|" +
           "dictees?|conjugaisons?|grammaire|orthographe de|equations?|theoremes?|pythagore|thales|derivees?|integrales?|" +
-          "memoire de fin|travail de fin de cycle|tfc|these de|soutenance|questionnaire de recherche|interrogations? de|examen d etat|exetat|" +
+          "(?:fais|faites|redige|redigez|ecris|ecrivez|corrige|corrigez|prepare|preparez)(?: moi)? (?:mon|ma|le|la) (?:tfc|memoire|these|soutenance|travail de fin de cycle)|questionnaire de recherche|interrogations? de|examen d etat|exetat|" +
           "resume du livre|resume de livre|fiche de lecture|apprends moi (?:l |le |a parler )?(?:anglais|espagnol|francais|chinois|allemand|lingala|swahili|portugais|arabe)|" +
           "cours d (?:anglais|espagnol|allemand|chinois)|traduis (?:cette|ma|mon|la|le|ce) (?:chanson|devoir|texte|lettre|poeme)|" +
           "homework|essay|assignment|kazi ya nyumbani",
@@ -92,7 +92,7 @@ export const OFF_TOPIC_CATEGORIES: GuardCategory[] = [
     patterns: [
       w(
         "capitale (?:de|du|d|des)|qui a invente|qui a decouvert|qui a ecrit|qui est le president|combien d habitants|plus grand pays|plus haute montagne|" +
-          "en quelle annee|date de naissance de|histoire du congo|histoire de france|histoire de l afrique|seconde guerre mondiale|premiere guerre mondiale|" +
+          "date de naissance de|histoire du congo|histoire de france|histoire de l afrique|seconde guerre mondiale|premiere guerre mondiale|" +
           "celebrites?|stars? de",
       ),
     ],
@@ -101,7 +101,7 @@ export const OFF_TOPIC_CATEGORIES: GuardCategory[] = [
     label: "Politique, guerre et actualité",
     patterns: [
       w(
-        "politiques?|elections?|electoral|candidat a la presidentielle|presidentielle|gouvernements?|ministres?|deputes?|senateurs?|partis? politiques?|opposition|propagande|" +
+        "politiques?|elections?|electoral|candidat a la presidentielle|presidentielle|ministres?|deputes?|senateurs?|partis? politiques?|opposition|propagande|" +
           "tshisekedi|kabila|katumbi|fayulu|mukwege|kagame|museveni|lumumba|mobutu|" +
           "guerres?|massacres?|genocides?|m23|rebelles?|rebellion|milices?|adf|codeco|attentats?|terroris\\w*|coup d etat|" +
           "actualites?|infos? du jour|journal televise|siasa|vita|uchaguzi|politics|election",
@@ -112,10 +112,10 @@ export const OFF_TOPIC_CATEGORIES: GuardCategory[] = [
     label: "Religion et occultisme",
     patterns: [
       w(
-        "religions?|bibles?|versets?|coran|sourates?|predications?|preche|sermons?|pasteurs?|prophetes?|prophetie|priere pour moi|prie pour moi|" +
-          "evangile|islam|chretien\\w*|musulman\\w*|dini|" +
+        "religions?|bibles?|versets?|coran|sourates?|predications?|preche|sermons?|prophetes?|prophetie|priere pour moi|prie pour moi|" +
+          "dini|" +
           "sorcellerie|sorciers?|feticheurs?|feticheuse|marabouts?|sortileges?|envoutements?|rituels?|magie noire|gris gris|" +
-          "horoscopes?|astrologie|signe astrologique|zodiaques?|tarot|voyance|voyant|predi(?:s|re|ction)s? (?:mon|l) avenir|lis mon avenir",
+          "horoscopes?|astrologie|signe astrologique|zodiaques?|tarot|voyance|predi(?:s|re|ction)s? (?:mon|l) avenir|lis mon avenir",
       ),
     ],
   },
@@ -124,10 +124,9 @@ export const OFF_TOPIC_CATEGORIES: GuardCategory[] = [
     patterns: [
       w(
         "ebola|covid|coronavirus|cholera|mpox|variole|vih|sida|hiv|cancer|diabete|hypertension|regles douloureuses|" +
-          "medicaments? pour moi|docteur pour moi|ordonnance|j ai mal (?:a la|au|aux)|" +
+          "medicaments? pour moi|docteur pour moi|j ai mal (?:a la|au|aux)|" +
           "perdre du poids|maigrir|regime minceur|programme minceur|musculation|fitness|seances? de sport|abdos|prendre du muscle|" +
-          "maquillage|maquiller|coiffure|coupe de cheveux|tresses?|perruques?|parfums?|cosmetiques?|soins? de la peau|acne|" +
-          "tenue (?:pour|a porter)|quoi porter|comment m habiller",
+          "maquillage|maquiller|coiffure|coupe de cheveux|tresses?|perruques?|parfums?|cosmetiques?|soins? de la peau|acne",
       ),
     ],
   },
@@ -135,10 +134,10 @@ export const OFF_TOPIC_CATEGORIES: GuardCategory[] = [
     label: "Vie quotidienne, maison et achats personnels",
     patterns: [
       w(
-        "recettes? (?:de|du|d|pour)|que cuisiner|quoi cuisiner|comment cuisiner|gateau|patisserie|" +
+        "recettes? (?:de|d|du|pour) (?:gateau|cuisine|pain|crepes?|beignets?|sauce|pizza|cocktail|jus|biscuits?)|donne (?:moi )?une recette|que cuisiner|quoi cuisiner|comment cuisiner|" +
           "decorer ma (?:chambre|maison|salle)|decoration de ma|robinet|plomberie chez moi|monter un meuble|" +
           "mon (?:frigo|refrigerateur|congelateur|televiseur|tv|micro onde|four) ne|machine a laver|climatiseur ne|" +
-          "ma voiture (?:ne|a)|ma moto ne|mon moteur ne|garagiste|" +
+          "ma voiture (?:ne|a)|ma moto ne|garagiste|" +
           "reparer mon (?:telephone|ordinateur|pc|portable)|mon telephone ne|ecran casse|installer (?:un|le|ce) logiciel|" +
           "quel telephone acheter|meilleur telephone|compare (?:ces |les )?(?:telephones|chaussures|televiseurs)|iphone ou samsung|" +
           "vends? mon (?:telephone|canape|lit|ordinateur)|trouve(?:r)? un acheteur|" +
@@ -147,7 +146,7 @@ export const OFF_TOPIC_CATEGORIES: GuardCategory[] = [
           "sejour touristique|billet d avion|reserver (?:un|une) (?:restaurant|table|taxi|hotel|vol|billet)|visa pour (?:la|le|l|les)|" +
           "amazon|shein|aliexpress|temu|alibaba|ebay|" +
           "forfait internet|abonnement netflix|netflix|canal plus|dstv|startimes|" +
-          "reveille moi|rappelle moi demain|surveille le prix",
+          "reveille moi|surveille le prix",
       ),
     ],
   },
@@ -159,9 +158,9 @@ export const OFF_TOPIC_CATEGORIES: GuardCategory[] = [
           "petite amie|petit ami|tu es celibataire|es tu celibataire|rencontre amoureuse|trouve moi (?:une|un) (?:femme|homme|copine|copain|partenaire)|" +
           "ton whatsapp|ton numero personnel|ton snap|ton insta|" +
           "conseils? (?:amoureux|en amour)|mon ex|recuperer mon ex|me trompe|mon mari me|ma femme me|rupture amoureuse|" +
-          "dispute (?:avec|de couple|familiale)|belle mere|punir mon enfant|eduquer mon enfant|mon bebe pleure|" +
+          "punir mon enfant|eduquer mon enfant|mon bebe pleure|" +
           "souhaits? d anniversaire|message d anniversaire|joyeux anniversaire a|condoleances|lettre d excuses|" +
-          "je m ennuie|je m ennuis|je suis triste|parle avec moi|tiens moi compagnie|" +
+          "je m ennuie|je m ennuis|tiens moi compagnie|" +
           "nalingi yo|makango",
       ),
     ],
@@ -171,7 +170,7 @@ export const OFF_TOPIC_CATEGORIES: GuardCategory[] = [
     patterns: [
       w(
         "rumeurs?|commerages?|potins?|note (?:cette|ce) (?:fille|garcon|femme|homme)|qui est (?:le|la) plus (?:beau|belle)|" +
-          "trouve(?:r)? (?:l adresse|le numero|la localisation) de|localiser (?:un|une|mon|ma) (?:numero|telephone|personne)|" +
+          "trouve(?:r)? (?:la localisation|la position) de|localiser (?:un|une|mon|ma) (?:numero|telephone|personne)|" +
           "espionner|espionne|lire les messages de|pirater (?:le|son|sa|un) (?:whatsapp|facebook|compte|telephone)|traquer",
       ),
     ],
@@ -180,14 +179,14 @@ export const OFF_TOPIC_CATEGORIES: GuardCategory[] = [
     label: "Sport, jeux et divertissement",
     patterns: [
       w(
-        "football|foot|match(?:es)? de|score du match|resultat du match|ligue des champions|champions league|coupe du monde|can 20\\d\\d|leopards|real madrid|barcelone|barca|psg|messi|ronaldo|mpira|" +
-          "films?|series? tele|novelas?|telenovelas?|mangas?|animes?|jeux? video|playstation|ps5|free fire|fortnite|pubg|efootball|fifa|" +
+        "football|foot|regarder (?:un|des) films?|meilleurs? films?|films? (?:a voir|d action|d horreur|romantiques?)|series? netflix|match(?:es)? de|score du match|resultat du match|ligue des champions|champions league|coupe du monde|can 20\\d\\d|leopards|real madrid|barcelone|barca|psg|messi|ronaldo|mpira|" +
+          "series? tele|novelas?|telenovelas?|mangas?|animes?|jeux? video|playstation|ps5|free fire|fortnite|pubg|efootball|fifa|" +
           "codes? de triche|cheat codes?|astuces? (?:pour|du) jeu|" +
           "loterie|loto|paris sportifs?|pari sur|ticket gagnant|pronostics?|betpawa|1xbet|premier bet|sportybet|casino|" +
           "action ou verite|devine mon age|devine qui|joue avec moi|jouons|on joue|quiz|" +
           "quel animal suis je|test de personnalite|devine mon caractere|signification (?:des |de mon |du |d un )?reves?|j ai reve|rever d un|" +
           "prenom pour (?:mon|ma) (?:bebe|fille|fils)|pseudo pour|nom pour mon (?:compte|personnage)|" +
-          "timbres?|collection de cartes|cartes pokemon|arbre genealogique|mes ancetres|genealogie",
+          "collection de cartes|cartes pokemon|arbre genealogique|mes ancetres|genealogie",
       ),
     ],
   },
@@ -195,7 +194,7 @@ export const OFF_TOPIC_CATEGORIES: GuardCategory[] = [
     label: "Réseaux sociaux, contenu et piratage",
     patterns: [
       w(
-        "gagner des (?:abonnes|followers|likes|vues)|acheter des (?:abonnes|followers|likes|vues|avis)|faux avis|faux commentaires|hashtags?|ma bio|" +
+        "gagner des (?:abonnes|followers|likes|vues)|acheter des (?:abonnes|followers|likes|vues|avis)|faux avis|faux commentaires|hashtags?|" +
           "monter (?:ma|une) video|montage video|fais (?:moi )?(?:une|un) (?:image|logo|affiche|montage|publicite) pour (?:mon|ma)|" +
           "film pirate|telecharger (?:un|le|des) films?|logiciel crack|crack de|compte netflix partage|" +
           "python|javascript|java|html|css|sql|php|c\\+\\+|algorithmes?|programme informatique|code source|ecris (?:moi )?(?:un|du) code|hacker|pirater|hack",
@@ -205,7 +204,7 @@ export const OFF_TOPIC_CATEGORIES: GuardCategory[] = [
   {
     label: "Argent personnel et investissements",
     patterns: [
-      w("trading|forex|actions en bourse|investir mon argent|comment devenir riche|devenir millionnaire|paie mon loyer|payer mon loyer"),
+      w("trading|forex|actions en bourse|comment devenir riche|devenir millionnaire|paie mon loyer|payer mon loyer"),
     ],
   },
   {
@@ -214,7 +213,7 @@ export const OFF_TOPIC_CATEGORIES: GuardCategory[] = [
       w(
         "es tu (?:un robot|une ia|chatgpt|humain|reel)|tu es (?:un robot|une ia|chatgpt)|t es (?:un robot|une ia)|chatgpt|gemini|copilot|meilleur que (?:toi|chatgpt)|" +
           "tu dors (?:ou|bien)|tu manges quoi|quel age as tu|t as quel age|tu as quel age|tu habites ou|tu viens d ou|tu es marie|t es marie|" +
-          "defends toi|justifie toi|tu es nul|t es nul|tu sers a rien|" +
+          "defends toi|justifie toi|" +
           "teleporte|fais apparaitre|change mon passe|remonter le temps|rends moi riche|" +
           "joue (?:un role|le role)|fais semblant|role play|roleplay|incarne|sois ma (?:copine|femme|cherie)|sois mon (?:copain|mari)|" +
           "compte jusqu|repete (?:le mot |ce mot |ca |cela )?\\d+ fois|\\d+ fois le mot|ecris \\d{3,} (?:fois|mots)|liste infinie",
@@ -236,7 +235,7 @@ export const ABUSIVE_CATEGORIES: GuardCategory[] = [
     label: "Contenu sexuel",
     patterns: [
       w(
-        "sexe|sexuel\\w*|sexy|porno?\\w*|xxx|nudes?|toute nue|tout nu|seins|fesses|bite|zizi|chatte|baiser avec|coucher avec|faire l amour|masturb\\w*|" +
+        "sexy|relations? sexuelles?|sexe avec|faire du sexe|videos? (?:de )?sexe|photos? de sexe|parler de sexe|plan sexe|porno?\\w*|xxx|nudes?|toute nue|tout nu|seins|fesses|bite|zizi|chatte|baiser avec|coucher avec|faire l amour|masturb\\w*|" +
           "erotique|erotisme|sucer|branler|nudite|onlyfans|histoire erotique|photos? (?:hot|nue|nues|osee)|" +
           "sex|naked|boobs|dick|pussy|ngono|uchi|ndumba",
       ),
@@ -276,7 +275,8 @@ export const ABUSIVE_CATEGORIES: GuardCategory[] = [
 ];
 
 const URL = /(?:https?:\/\/|www\.)\S+|\b[a-z0-9-]+\.(?:com|net|org|io|me|ly|cd|fr|info|xyz|site|online|link|app|gg|tk|ru|cn)(?:\/\S*)?\b/i;
-const OWN_DOMAIN = /congoomega\.com|litehubs\.com/i;
+/** Our own sites and CV hosts (candidates share their CV this way). */
+const ALLOWED_LINK = /congoomega\.com|litehubs\.com|drive\.google\.com|docs\.google\.com|linkedin\.com|dropbox\.com|wetransfer\.com|we\.tl|onedrive\.live\.com|1drv\.ms|sharepoint\.com/i;
 
 function firstMatch(categories: GuardCategory[], variants: string[]) {
   return categories.find((category) => category.patterns.some((pattern) => variants.some((text) => pattern.test(text))))?.label ?? null;
@@ -305,13 +305,15 @@ function isEmojiOnly(text: string) {
 /** Returns what to do with one visitor message, or null to let the AI answer. */
 export function checkGuard(text: string): { kind: GuardKind; label: string } | null {
   if (isEmojiOnly(text)) return { kind: "ignore", label: "Emojis ou stickers seuls" };
-  const variants = spellings(text);
+  // E-mail addresses ("jean.kabila@gmail.com") are not words to judge.
+  const withoutEmails = text.replace(/\S+@\S+\.\S+/g, " ");
+  const variants = spellings(withoutEmails);
   if (!variants[0]) return null;
   const abusive = firstMatch(ABUSIVE_CATEGORIES, variants);
   if (abusive) return { kind: "abusive", label: abusive };
-  const withoutEmails = text.replace(/\S+@\S+\.\S+/g, " ");
-  if (URL.test(withoutEmails) && !OWN_DOMAIN.test(withoutEmails)) return { kind: "link", label: "Lien envoyé" };
-  if (text.length > 1500) return { kind: "off_topic", label: "Message trop long" };
+  const links = withoutEmails.match(new RegExp(URL.source, "gi")) ?? [];
+  if (links.some((link) => !ALLOWED_LINK.test(link))) return { kind: "link", label: "Lien envoyé" };
+  if (withoutEmails.length > 1500) return { kind: "off_topic", label: "Message trop long" };
   if (isGibberish(variants[0])) return { kind: "off_topic", label: "Message incompréhensible" };
   const offTopic = firstMatch(OFF_TOPIC_CATEGORIES, variants);
   return offTopic ? { kind: "off_topic", label: offTopic } : null;
