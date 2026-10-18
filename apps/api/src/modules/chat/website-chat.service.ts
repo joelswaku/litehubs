@@ -21,6 +21,16 @@ const AI_REPLIES_PER_DAY = 400;
 const OFF_TOPIC_LIMIT = 3;
 type BlockReason = "off_topic" | "abusive" | "manual";
 
+/** Obvious creative-writing / homework requests, refused without asking the
+ * model (deterministic, free, and works even if the AI service fails). */
+const OBVIOUS_OFF_TOPIC =
+  /\b(poemes?|poesies?|poetiques?|chansons?|slams?|raps?|paroles de|theatres?|pieces? de theatre|scenarios?|contes?|romans?|nouvelles? litteraires?|dissertations?|redactions?|exposes?|blagues?|devinettes?|recettes? de|horoscopes?|poems?|songs?|lyrics|jokes?|essays?|homework)\b/;
+const normalize = (text: string) =>
+  text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
 /** Fixed text, never written by the model, so no poem or story can slip out. */
 const offTopicRefusal = (organizationName: string) =>
   `Je suis l’assistant de ${organizationName} : je réponds uniquement aux questions sur nos produits, prix, commandes, livraisons, offres d’emploi et rendez-vous. Que puis-je faire pour vous ?`;
@@ -571,6 +581,9 @@ async function aiReply(found: Target, sessionId: string): Promise<boolean> {
     });
     if (!context) return false;
     if (context === "blocked") return true;
+    const lastVisitor = [...context.history].reverse().find((row) => row.sender === "visitor");
+    if (lastVisitor && OBVIOUS_OFF_TOPIC.test(normalize(String(lastVisitor.body))))
+      return await offTopicReply(found, sessionId, "off_topic");
     const conversation = context.history
       .filter((row) => row.sender !== "system")
       .map((row) => `${row.sender === "visitor" ? "Visiteur" : row.sender === "staff" ? "Équipe" : "Assistant"}: ${row.body}`)
@@ -628,7 +641,9 @@ async function aiReply(found: Target, sessionId: string): Promise<boolean> {
             },
           },
         },
-        max_output_tokens: 600,
+        // Reasoning models spend part of this budget thinking: too low and the
+        // reply comes back empty (the visitor then got the "team" fallback).
+        max_output_tokens: 2500,
         store: false,
       }),
       signal: AbortSignal.timeout(25_000),
