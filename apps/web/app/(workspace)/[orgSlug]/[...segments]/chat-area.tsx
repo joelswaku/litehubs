@@ -1512,8 +1512,8 @@ function VisitorView({
           <Ban className="size-3.5 shrink-0" />
           {tr(
             fr,
-            `${session.offTopicCount} message(s) hors sujet refusé(s) par l’IA. Blocage automatique au 3e de suite.`,
-            `${session.offTopicCount} off-topic message(s) declined by the AI. Automatic block at 3 in a row.`,
+            `${session.offTopicCount} message(s) hors sujet refusé(s) par l’IA. Blocage automatique au 3e (2e pour du charabia).`,
+            `${session.offTopicCount} off-topic message(s) declined by the AI. Automatic block at the 3rd (2nd for gibberish).`,
           )}
         </p>
       ) : null}

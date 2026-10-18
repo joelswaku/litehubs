@@ -278,7 +278,15 @@ async function personName(found: Lookup, channel: "facebook" | "instagram", user
 type MessagingEvent = {
   sender?: { id?: string };
   recipient?: { id?: string };
-  message?: { mid?: string; text?: string; is_echo?: boolean; app_id?: number | string; attachments?: { type?: string }[] };
+  message?: {
+    mid?: string;
+    text?: string;
+    is_echo?: boolean;
+    app_id?: number | string;
+    /** Set for stickers, including the 👍 "like" button. */
+    sticker_id?: number | string;
+    attachments?: { type?: string; payload?: { sticker_id?: number | string } }[];
+  };
   postback?: { title?: string; payload?: string; mid?: string };
 };
 type Change = { field?: string; value?: Record<string, any> }; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -311,11 +319,16 @@ export async function processWebhook(body: WebhookBody) {
   }
 }
 
+function isSticker(message: MessagingEvent["message"]) {
+  return Boolean(message?.sticker_id || message?.attachments?.some((item) => item.payload?.sticker_id));
+}
+
 async function handleMessage(found: Lookup, channel: "facebook" | "instagram", event: MessagingEvent) {
   const ownIds = [found.pageId, found.igUserId].filter(Boolean);
   const message = event.message;
   const text =
     message?.text?.trim() ||
+    (isSticker(message) ? "[👍 sticker]" : "") ||
     (message?.attachments?.length ? `[${message.attachments.map((item) => item.type ?? "pièce jointe").join(", ")} envoyé·e]` : "") ||
     event.postback?.title ||
     "";
@@ -346,7 +359,8 @@ async function handleMessage(found: Lookup, channel: "facebook" | "instagram", e
     externalUserId: customer,
     externalMessageId: mid,
     text,
-    attachmentOnly: !message?.text?.trim() && Boolean(message?.attachments?.length),
+    attachmentOnly: !message?.text?.trim() && !isSticker(message) && Boolean(message?.attachments?.length),
+    stickerOnly: !message?.text?.trim() && isSticker(message),
     visitorName: await personName(found, channel, customer),
   });
 }
