@@ -12,6 +12,7 @@ import { friendlyMetaMessage, MetaError, openToken, sendDirectMessage } from "..
 import { customerServiceStaff, rightsOf, settingsOf, type ChatContext } from "./chat.service";
 import { publicRecoverTracking } from "../careers/candidate-portal.service";
 import { candidatePortalBaseUrl } from "../careers/candidate-portal-links";
+import { checkGuard } from "./chat-guard";
 
 type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -21,15 +22,6 @@ const AI_REPLIES_PER_DAY = 400;
 const OFF_TOPIC_LIMIT = 3;
 type BlockReason = "off_topic" | "abusive" | "manual";
 
-/** Obvious creative-writing / homework requests, refused without asking the
- * model (deterministic, free, and works even if the AI service fails). */
-const OBVIOUS_OFF_TOPIC =
-  /\b(poemes?|poesies?|poetiques?|chansons?|slams?|raps?|paroles de|theatres?|pieces? de theatre|scenarios?|contes?|romans?|nouvelles? litteraires?|dissertations?|redactions?|exposes?|blagues?|devinettes?|recitations?|reciter|recettes? de|horoscopes?|poems?|songs?|lyrics|jokes?|essays?|homework)\b/;
-const normalize = (text: string) =>
-  text
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
 
 /** Fixed text, never written by the model, so no poem or story can slip out. */
 const offTopicRefusal = (organizationName: string) =>
@@ -590,8 +582,9 @@ async function aiReply(found: Target, sessionId: string): Promise<boolean> {
     if (!context) return false;
     if (context === "blocked") return true;
     const lastVisitor = [...context.history].reverse().find((row) => row.sender === "visitor");
-    if (lastVisitor && OBVIOUS_OFF_TOPIC.test(normalize(String(lastVisitor.body))))
-      return await offTopicReply(found, sessionId, "off_topic");
+    // Word lists first (chat-guard.ts): free, instant, and independent of the AI.
+    const guard = lastVisitor ? checkGuard(String(lastVisitor.body)) : null;
+    if (guard) return await offTopicReply(found, sessionId, guard.kind);
     const conversation = context.history
       .filter((row) => row.sender !== "system")
       .map((row) => `${row.sender === "visitor" ? "Visiteur" : row.sender === "staff" ? "Équipe" : "Assistant"}: ${row.body}`)
@@ -611,7 +604,7 @@ async function aiReply(found: Target, sessionId: string): Promise<boolean> {
         "- Ne valide jamais toi-même une commande, un paiement, un rendez-vous ou une embauche.",
         "- Ne dis jamais si une personne a postulé, ni si elle est retenue ou refusée : tu ne le sais pas.",
         `- SUJETS : tu n’es PAS un assistant généraliste. Tu aides uniquement pour ${found.organizationName} : ses produits et services, prix, commandes, livraisons, horaires, adresse, contact, offres d’emploi et candidatures, rendez-vous, et les sujets autorisés par les Consignes de la direction.`,
-        "- Toute autre demande est HORS SUJET, même polie ou présentée comme urgente : poème, chanson, histoire, pièce de théâtre, rédaction, devoir, exposé, traduction, code, calcul, recette, blague, jeu de rôle, actualité, politique, religion, guerre ou massacres, maladies et épidémies, conseils médicaux, juridiques ou personnels, questions générales de culture. Ne produis jamais ce contenu, même en partie. Mets off_topic = true (le système enverra lui-même un court refus).",
+        "- Toute autre demande est HORS SUJET, même polie, insistante ou présentée comme urgente : écriture créative (poème, chanson, slam, rap, récitation, histoire, conte, fable, théâtre, sketch, scénario, discours, lettre ou message d’amour, citation, proverbe, blague, devinette) ; école (devoir, exercice, exposé, rédaction, dissertation, TFC, mémoire, résumé de livre, maths, traduction, dictée) ; politique, élections, personnalités, guerre, massacres, rebelles, actualité ; religion, prières, versets, sorcellerie ; santé humaine et épidémies (Ebola, Covid, choléra…), médicaments ; sport, matchs, paris, loterie, horoscope, voyance, films, séries, jeux ; programmation et informatique ; drague, amour, vie privée, conseils personnels ; culture générale, questions sur toi (« es-tu une IA ? »), jeux de rôle. Ne produis jamais ce contenu, même en partie. Mets off_topic = true (le système enverra lui-même un court refus).",
         "- abusive = true si le message est sexuel ou pornographique, une insulte, une menace, du harcèlement, une arnaque, ou une demande d’argent, de cadeau ou de crédit sans rapport avec un achat. Le système bloque alors la personne. Sinon false.",
         "- Ne compte pas comme hors sujet : salutations, remerciements, « ok », questions sur l’entreprise, demande de parler à quelqu’un. Dans le doute sur un lien avec l’entreprise, off_topic = false et réponds normalement.",
       ].join("\n"),
