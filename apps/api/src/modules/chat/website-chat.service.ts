@@ -24,7 +24,7 @@ type BlockReason = "off_topic" | "abusive" | "manual";
 /** Obvious creative-writing / homework requests, refused without asking the
  * model (deterministic, free, and works even if the AI service fails). */
 const OBVIOUS_OFF_TOPIC =
-  /\b(poemes?|poesies?|poetiques?|chansons?|slams?|raps?|paroles de|theatres?|pieces? de theatre|scenarios?|contes?|romans?|nouvelles? litteraires?|dissertations?|redactions?|exposes?|blagues?|devinettes?|recettes? de|horoscopes?|poems?|songs?|lyrics|jokes?|essays?|homework)\b/;
+  /\b(poemes?|poesies?|poetiques?|chansons?|slams?|raps?|paroles de|theatres?|pieces? de theatre|scenarios?|contes?|romans?|nouvelles? litteraires?|dissertations?|redactions?|exposes?|blagues?|devinettes?|recitations?|reciter|recettes? de|horoscopes?|poems?|songs?|lyrics|jokes?|essays?|homework)\b/;
 const normalize = (text: string) =>
   text
     .toLowerCase()
@@ -477,6 +477,14 @@ function extractOutput(payload: unknown): string {
     .join("\n");
 }
 
+function hasRefusal(payload: Record<string, unknown>): boolean {
+  if (!Array.isArray(payload.output)) return false;
+  return payload.output.some((item) => {
+    const content = (item as { content?: unknown })?.content;
+    return Array.isArray(content) && content.some((part) => (part as { type?: unknown })?.type === "refusal");
+  });
+}
+
 const replySchema = z.object({
   reply: z.string().min(1).max(2000),
   handoff: z.boolean(),
@@ -615,42 +623,62 @@ async function aiReply(found: Target, sessionId: string): Promise<boolean> {
       `Informations de l’entreprise :\n<<<\n${context.knowledge}\n>>>`,
       `Conversation :\n${conversation}`,
     ].join("\n\n");
-    const response = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${env.ai.apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: env.ai.model,
-        input: prompt,
-        text: {
-          format: {
-            type: "json_schema",
-            name: "website_chat_reply",
-            strict: true,
-            schema: {
-              type: "object",
-              additionalProperties: false,
-              properties: {
-                reply: { type: "string" },
-                handoff: { type: "boolean" },
-                off_topic: { type: "boolean" },
-                abusive: { type: "boolean" },
-                candidate_name: { type: "string" },
-                candidate_email: { type: "string" },
+    const ask = async (lowReasoning: boolean) => {
+      const response = await fetch("https://api.openai.com/v1/responses", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${env.ai.apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: env.ai.model,
+          input: prompt,
+          ...(lowReasoning ? { reasoning: { effort: "low" } } : {}),
+          text: {
+            format: {
+              type: "json_schema",
+              name: "website_chat_reply",
+              strict: true,
+              schema: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  reply: { type: "string" },
+                  handoff: { type: "boolean" },
+                  off_topic: { type: "boolean" },
+                  abusive: { type: "boolean" },
+                  candidate_name: { type: "string" },
+                  candidate_email: { type: "string" },
+                },
+                required: ["reply", "handoff", "off_topic", "abusive", "candidate_name", "candidate_email"],
               },
-              required: ["reply", "handoff", "off_topic", "abusive", "candidate_name", "candidate_email"],
             },
           },
-        },
-        // Reasoning models spend part of this budget thinking: too low and the
-        // reply comes back empty (the visitor then got the "team" fallback).
-        max_output_tokens: 2500,
-        store: false,
-      }),
-      signal: AbortSignal.timeout(25_000),
-    });
-    if (!response.ok) throw new Error(`AI service status ${response.status}`);
-    const parsed = replySchema.safeParse(JSON.parse(extractOutput(await response.json())));
-    if (!parsed.success) throw new Error("Invalid AI reply");
+          // Reasoning models spend part of this budget thinking: too low and the
+          // reply comes back empty (the visitor then got the "team" fallback).
+          max_output_tokens: 2500,
+          store: false,
+        }),
+        signal: AbortSignal.timeout(25_000),
+      });
+      if (!response.ok) throw new Error(`AI service status ${response.status}`);
+      const payload = (await response.json()) as Record<string, unknown>;
+      // The model declined the request itself (safety refusal): that is an
+      // off-topic request, not a reason to page the team.
+      if (hasRefusal(payload)) return "refusal" as const;
+      const raw = extractOutput(payload);
+      const parsed = raw ? replySchema.safeParse(JSON.parse(raw)) : null;
+      if (!parsed?.success)
+        throw new Error(`Invalid AI reply (status ${String(payload.status ?? "?")}, ${raw ? "unparsable" : "empty"})`);
+      return parsed.data;
+    };
+    let answer: Awaited<ReturnType<typeof ask>>;
+    try {
+      answer = await ask(false);
+    } catch (error) {
+      // One retry with less thinking: an empty or cut reply is the usual cause.
+      logger.warn({ err: error, sessionId }, "Website chat AI reply failed, retrying");
+      answer = await ask(true);
+    }
+    if (answer === "refusal") return await offTopicReply(found, sessionId, "off_topic");
+    const parsed = { data: answer };
     if (parsed.data.abusive) return await offTopicReply(found, sessionId, "abusive");
     if (parsed.data.off_topic) return await offTopicReply(found, sessionId, "off_topic");
     const candidateEmail = parsed.data.candidate_email.trim().toLowerCase();
