@@ -57,8 +57,13 @@ export const directionLabelInput = z.object({ label: z.string().trim().min(1).ma
 export const visitorSessionParams = organizationParams.extend({ sessionId: id });
 export const visitorReplyInput = z.object({ body: z.string().trim().min(1).max(2000) });
 export const visitorUpdateInput = z
-  .object({ mode: z.enum(["ai", "human"]).optional(), status: z.enum(["open", "closed"]).optional() })
-  .refine((value) => value.mode || value.status, "Nothing to change");
+  .object({
+    mode: z.enum(["ai", "human"]).optional(),
+    status: z.enum(["open", "closed"]).optional(),
+    blocked: z.boolean().optional(),
+  })
+  .refine((value) => value.mode || value.status || value.blocked !== undefined, "Nothing to change");
+export const visitorMessageParams = visitorSessionParams.extend({ messageId: id });
 const siteSlug = z.string().trim().toLowerCase().regex(/^[a-z0-9-]{2,80}$/, "Invalid site");
 const token = z.string().regex(/^[A-Za-z0-9_-]{30,60}$/, "Invalid conversation");
 const optionalText = (max: number) =>

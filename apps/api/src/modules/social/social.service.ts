@@ -346,6 +346,7 @@ async function handleMessage(found: Lookup, channel: "facebook" | "instagram", e
     externalUserId: customer,
     externalMessageId: mid,
     text,
+    attachmentOnly: !message?.text?.trim() && Boolean(message?.attachments?.length),
     visitorName: await personName(found, channel, customer),
   });
 }

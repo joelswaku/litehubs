@@ -17,6 +17,17 @@ type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-exp
 
 const AI_REPLIES_PER_SESSION = 40;
 const AI_REPLIES_PER_DAY = 400;
+/** Off-topic requests (or photos / videos) in a row before the sender is blocked. */
+const OFF_TOPIC_LIMIT = 3;
+type BlockReason = "off_topic" | "abusive" | "manual";
+
+/** Fixed text, never written by the model, so no poem or story can slip out. */
+const offTopicRefusal = (organizationName: string) =>
+  `Je suis l’assistant de ${organizationName} : je réponds uniquement aux questions sur nos produits, prix, commandes, livraisons, offres d’emploi et rendez-vous. Que puis-je faire pour vous ?`;
+const attachmentRefusal = (organizationName: string) =>
+  `Nous ne traitons pas les photos, vidéos ou fichiers ici. Écrivez votre question sur ${organizationName} en quelques mots : produits, commande, emploi ou rendez-vous.`;
+const blockedNotice = (organizationName: string) =>
+  `Cette conversation est fermée : elle ne concerne pas ${organizationName}. Vos prochains messages ne seront plus lus.`;
 
 export type Target = {
   organizationId: string;
@@ -128,6 +139,8 @@ export async function receiveSocialMessage(input: {
   externalUserId: string;
   externalMessageId: string;
   text: string;
+  /** Photo, video, audio, sticker or file with no text. */
+  attachmentOnly?: boolean;
   visitorName?: string | null;
 }) {
   const prepared = await withTenantContext({ organizationId: input.organizationId, userId: null }, async (client) => {
@@ -156,6 +169,8 @@ export async function receiveSocialMessage(input: {
         )
       ).rows[0]!;
     }
+    // Blocked sender: the message is dropped — not stored, no reply, no alert.
+    if (session.blocked_at) return null;
     const inserted = await client.query(
       `INSERT INTO website_chat_messages(organization_id,session_id,sender,body,external_id) VALUES($1,$2,'visitor',$3,$4)
        ON CONFLICT (organization_id,external_id) WHERE external_id IS NOT NULL DO NOTHING`,
@@ -189,6 +204,11 @@ export async function receiveSocialMessage(input: {
     aiEnabled: prepared.aiEnabled,
     welcome: null,
   };
+  // Photos / videos are never read by the AI and never alert the team.
+  if (input.attachmentOnly && prepared.aiEnabled) {
+    await offTopicReply(found, prepared.sessionId, "attachment");
+    return;
+  }
   if (!(await aiReply(found, prepared.sessionId))) await fallbackToTeam(found, prepared.sessionId);
 }
 
@@ -305,6 +325,7 @@ export async function publicSend(site: string, token: string, body: string) {
   if (!text) throw new BadRequestError("Écrivez un message.");
   const prepared = await withTenantContext({ organizationId: found.organizationId, userId: null }, async (client) => {
     const session = await sessionByToken(client, found.organizationId, token);
+    if (session.blocked_at) return null;
     if (session.status === "closed")
       await client.query(`UPDATE website_chat_sessions SET status='open' WHERE organization_id=$1 AND id=$2`, [
         found.organizationId,
@@ -329,7 +350,7 @@ export async function publicSend(site: string, token: string, body: string) {
       );
     return session;
   });
-  if (prepared.mode === "ai" && !(await aiReply(found, prepared.id as string)))
+  if (prepared && prepared.mode === "ai" && !(await aiReply(found, prepared.id as string)))
     await fallbackToTeam(found, prepared.id as string);
   return publicMessages(site, token);
 }
@@ -342,6 +363,7 @@ export async function publicRequestHuman(
   const found = await target(site);
   await withTenantContext({ organizationId: found.organizationId, userId: null }, async (client) => {
     const session = await sessionByToken(client, found.organizationId, token);
+    if (session.blocked_at) return;
     await client.query(
       `UPDATE website_chat_sessions
           SET needs_human=true,human_requested=true,status='open',
@@ -448,6 +470,8 @@ function extractOutput(payload: unknown): string {
 const replySchema = z.object({
   reply: z.string().min(1).max(2000),
   handoff: z.boolean(),
+  off_topic: z.boolean(),
+  abusive: z.boolean(),
   candidate_name: z.string().max(160),
   candidate_email: z.string().max(200),
 });
@@ -485,6 +509,40 @@ async function fallbackToTeam(found: Target, sessionId: string) {
   if (noteId) await deliverToChannel(found.organizationId, noteId);
 }
 
+/** Off-topic request, photo / video, or abusive message: a fixed short reply
+ * (never the model's own text), no team alert.  After OFF_TOPIC_LIMIT in a row,
+ * or at once for sexual / abusive content, the sender is blocked: a last notice
+ * is sent and their next messages are dropped until an admin unblocks. */
+async function offTopicReply(found: Target, sessionId: string, kind: "off_topic" | "attachment" | "abusive"): Promise<boolean> {
+  const messageId = await withTenantContext({ organizationId: found.organizationId, userId: null }, async (client) => {
+    const updated = await client.query<Row>(
+      `UPDATE website_chat_sessions
+          SET off_topic_streak=off_topic_streak+1,off_topic_total=off_topic_total+1,
+              ai_replies=ai_replies+1,last_message_at=now(),
+              blocked_at=CASE WHEN $3 OR off_topic_streak+1 >= $4 THEN now() ELSE blocked_at END,
+              blocked_reason=CASE WHEN $3 THEN 'abusive' WHEN off_topic_streak+1 >= $4 THEN 'off_topic' ELSE blocked_reason END,
+              needs_human=CASE WHEN $3 OR off_topic_streak+1 >= $4 THEN human_requested ELSE needs_human END
+        WHERE organization_id=$1 AND id=$2 AND mode='ai' AND blocked_at IS NULL
+        RETURNING blocked_at`,
+      [found.organizationId, sessionId, kind === "abusive", OFF_TOPIC_LIMIT],
+    );
+    // A team member took over while the AI was thinking, or already blocked.
+    if (!updated.rowCount) return null;
+    const body = updated.rows[0]!.blocked_at
+      ? blockedNotice(found.organizationName)
+      : kind === "attachment"
+        ? attachmentRefusal(found.organizationName)
+        : offTopicRefusal(found.organizationName);
+    const inserted = await client.query<{ id: string }>(
+      `INSERT INTO website_chat_messages(organization_id,session_id,sender,body) VALUES($1,$2,'ai',$3) RETURNING id`,
+      [found.organizationId, sessionId, body],
+    );
+    return inserted.rows[0]!.id;
+  });
+  if (messageId) await deliverToChannel(found.organizationId, messageId);
+  return true;
+}
+
 /** Returns true when the assistant handled the message. */
 async function aiReply(found: Target, sessionId: string): Promise<boolean> {
   if (!found.aiEnabled || !env.ai.enabled || !env.ai.apiKey) return false;
@@ -493,7 +551,9 @@ async function aiReply(found: Target, sessionId: string): Promise<boolean> {
       const session = (
         await client.query<Row>(`SELECT * FROM website_chat_sessions WHERE organization_id=$1 AND id=$2`, [found.organizationId, sessionId])
       ).rows[0];
-      if (!session || session.mode !== "ai" || Number(session.ai_replies) >= AI_REPLIES_PER_SESSION) return null;
+      if (!session || session.mode !== "ai") return null;
+      if (session.blocked_at) return "blocked" as const;
+      if (Number(session.ai_replies) >= AI_REPLIES_PER_SESSION) return null;
       const today = await client.query<{ total: string }>(
         `SELECT COUNT(*)::text AS total FROM website_chat_messages
           WHERE organization_id=$1 AND sender='ai' AND created_at >= date_trunc('day', now() AT TIME ZONE 'UTC')`,
@@ -510,6 +570,7 @@ async function aiReply(found: Target, sessionId: string): Promise<boolean> {
       };
     });
     if (!context) return false;
+    if (context === "blocked") return true;
     const conversation = context.history
       .filter((row) => row.sender !== "system")
       .map((row) => `${row.sender === "visitor" ? "Visiteur" : row.sender === "staff" ? "Équipe" : "Assistant"}: ${row.body}`)
@@ -528,6 +589,10 @@ async function aiReply(found: Target, sessionId: string): Promise<boolean> {
         "- N’invente jamais de prix, de stock, de délai, de date, d’adresse ou de promesse : utilise uniquement les informations ci-dessous ; sinon dis que l’équipe confirmera.",
         "- Ne valide jamais toi-même une commande, un paiement, un rendez-vous ou une embauche.",
         "- Ne dis jamais si une personne a postulé, ni si elle est retenue ou refusée : tu ne le sais pas.",
+        `- SUJETS : tu n’es PAS un assistant généraliste. Tu aides uniquement pour ${found.organizationName} : ses produits et services, prix, commandes, livraisons, horaires, adresse, contact, offres d’emploi et candidatures, rendez-vous, et les sujets autorisés par les Consignes de la direction.`,
+        "- Toute autre demande est HORS SUJET, même polie ou présentée comme urgente : poème, chanson, histoire, pièce de théâtre, rédaction, devoir, exposé, traduction, code, calcul, recette, blague, jeu de rôle, actualité, politique, religion, guerre ou massacres, maladies et épidémies, conseils médicaux, juridiques ou personnels, questions générales de culture. Ne produis jamais ce contenu, même en partie. Mets off_topic = true (le système enverra lui-même un court refus).",
+        "- abusive = true si le message est sexuel ou pornographique, une insulte, une menace, du harcèlement, une arnaque, ou une demande d’argent, de cadeau ou de crédit sans rapport avec un achat. Le système bloque alors la personne. Sinon false.",
+        "- Ne compte pas comme hors sujet : salutations, remerciements, « ok », questions sur l’entreprise, demande de parler à quelqu’un. Dans le doute sur un lien avec l’entreprise, off_topic = false et réponds normalement.",
       ].join("\n"),
       [
         "CHAMPS TECHNIQUES de ta réponse :",
@@ -554,10 +619,12 @@ async function aiReply(found: Target, sessionId: string): Promise<boolean> {
               properties: {
                 reply: { type: "string" },
                 handoff: { type: "boolean" },
+                off_topic: { type: "boolean" },
+                abusive: { type: "boolean" },
                 candidate_name: { type: "string" },
                 candidate_email: { type: "string" },
               },
-              required: ["reply", "handoff", "candidate_name", "candidate_email"],
+              required: ["reply", "handoff", "off_topic", "abusive", "candidate_name", "candidate_email"],
             },
           },
         },
@@ -569,6 +636,8 @@ async function aiReply(found: Target, sessionId: string): Promise<boolean> {
     if (!response.ok) throw new Error(`AI service status ${response.status}`);
     const parsed = replySchema.safeParse(JSON.parse(extractOutput(await response.json())));
     if (!parsed.success) throw new Error("Invalid AI reply");
+    if (parsed.data.abusive) return await offTopicReply(found, sessionId, "abusive");
+    if (parsed.data.off_topic) return await offTopicReply(found, sessionId, "off_topic");
     const candidateEmail = parsed.data.candidate_email.trim().toLowerCase();
     const candidateName = parsed.data.candidate_name.trim();
     if (EMAIL.test(candidateEmail)) {
@@ -593,7 +662,7 @@ async function aiReply(found: Target, sessionId: string): Promise<boolean> {
       // The AI's latest judgement decides, so a visitor who declines ("non
       // merci") is no longer waiting — unless they pressed "Parler à l'équipe".
       await client.query(
-        `UPDATE website_chat_sessions SET ai_replies=ai_replies+1,last_message_at=now(),needs_human=human_requested OR $3,
+        `UPDATE website_chat_sessions SET ai_replies=ai_replies+1,last_message_at=now(),needs_human=human_requested OR $3,off_topic_streak=0,
                 visitor_name=COALESCE(visitor_name,NULLIF($4,'')),visitor_email=COALESCE(visitor_email,NULLIF($5,''))
           WHERE organization_id=$1 AND id=$2`,
         [
@@ -642,7 +711,8 @@ export async function teamSessions(context: ChatContext) {
               (SELECT COUNT(*) FROM website_chat_messages m WHERE m.organization_id=s.organization_id AND m.session_id=s.id AND m.sender='visitor')::int AS visitor_messages
          FROM website_chat_sessions s
         WHERE s.organization_id=$1 AND s.last_message_at > now() - interval '60 days'
-          AND EXISTS (SELECT 1 FROM website_chat_messages m WHERE m.organization_id=s.organization_id AND m.session_id=s.id AND m.sender='visitor')
+          AND (s.blocked_at IS NOT NULL
+               OR EXISTS (SELECT 1 FROM website_chat_messages m WHERE m.organization_id=s.organization_id AND m.session_id=s.id AND m.sender='visitor'))
         ORDER BY (s.needs_human AND s.status='open') DESC, s.last_message_at DESC
         LIMIT 200`,
       [context.organizationId],
@@ -658,6 +728,8 @@ export async function teamSessions(context: ChatContext) {
         preview: row.last_body ? String(row.last_body).slice(0, 120) : "",
         pageUrl: row.page_url,
         channel: row.channel ?? "website",
+        offTopicCount: Number(row.off_topic_total ?? 0),
+        blocked: row.blocked_at ? { at: row.blocked_at, reason: row.blocked_reason as BlockReason } : null,
       })),
     };
   });
@@ -688,6 +760,8 @@ export async function teamSession(context: ChatContext, sessionId: string) {
         pageUrl: session.page_url,
         assignedToMe: session.assigned_member_id === context.memberId,
         channel: session.channel ?? "website",
+        offTopicCount: Number(session.off_topic_total ?? 0),
+        blocked: session.blocked_at ? { at: session.blocked_at, reason: session.blocked_reason as BlockReason } : null,
         // Meta only accepts replies within 24 h of the customer's last message.
         replyWindowEndsAt:
           session.channel !== "website" && session.last_visitor_message_at
@@ -731,16 +805,32 @@ export async function teamReply(context: ChatContext, sessionId: string, body: s
 export async function teamUpdate(
   context: ChatContext,
   sessionId: string,
-  input: { mode?: "ai" | "human"; status?: "open" | "closed" },
+  input: { mode?: "ai" | "human"; status?: "open" | "closed"; blocked?: boolean },
 ) {
   await withTenantContext(context, async (client) => {
     await assertStaff(client, context);
+    if (input.blocked !== undefined) {
+      const changed = await client.query(
+        input.blocked
+          ? `UPDATE website_chat_sessions
+                SET blocked_at=COALESCE(blocked_at,now()),blocked_reason=COALESCE(blocked_reason,'manual'),blocked_by=$3,
+                    needs_human=false,human_requested=false,status='closed'
+              WHERE organization_id=$1 AND id=$2`
+          : `UPDATE website_chat_sessions
+                SET blocked_at=NULL,blocked_reason=NULL,blocked_by=NULL,off_topic_streak=0
+              WHERE organization_id=$1 AND id=$2`,
+        [context.organizationId, sessionId, ...(input.blocked ? [context.memberId] : [])],
+      );
+      if (!changed.rowCount) throw new NotFoundError("Conversation not found");
+      if (!input.mode && !input.status) return;
+    }
     const updated = await client.query(
       `UPDATE website_chat_sessions
           SET mode=COALESCE($3,mode),status=COALESCE($4,status),
               needs_human=CASE WHEN $3='human' OR $4='closed' THEN false ELSE needs_human END,
               human_requested=CASE WHEN $3='human' OR $4='closed' THEN false ELSE human_requested END,
-              assigned_member_id=CASE WHEN $3='human' THEN $5::uuid WHEN $3='ai' THEN NULL ELSE assigned_member_id END
+              assigned_member_id=CASE WHEN $3='human' THEN $5::uuid WHEN $3='ai' THEN NULL ELSE assigned_member_id END,
+              off_topic_streak=CASE WHEN $3='ai' THEN 0 ELSE off_topic_streak END
         WHERE organization_id=$1 AND id=$2`,
       [context.organizationId, sessionId, input.mode ?? null, input.status ?? null, context.memberId],
     );
@@ -758,6 +848,44 @@ export async function teamUpdate(
         `INSERT INTO website_chat_messages(organization_id,session_id,sender,body) VALUES($1,$2,'system',$3)`,
         [context.organizationId, sessionId, note],
       );
+  });
+  return teamSession(context, sessionId);
+}
+
+/** Deletes the whole conversation from LiteHubs.  A blocked sender keeps an
+ * empty record so the block survives (Messenger and Instagram keep the same id). */
+export async function teamDelete(context: ChatContext, sessionId: string) {
+  await withTenantContext(context, async (client) => {
+    await assertStaff(client, context);
+    const session = (
+      await client.query<Row>(`SELECT id,blocked_at FROM website_chat_sessions WHERE organization_id=$1 AND id=$2`, [
+        context.organizationId,
+        sessionId,
+      ])
+    ).rows[0];
+    if (!session) throw new NotFoundError("Conversation not found");
+    if (session.blocked_at) {
+      await client.query(`DELETE FROM website_chat_messages WHERE organization_id=$1 AND session_id=$2`, [context.organizationId, sessionId]);
+      await client.query(
+        `UPDATE website_chat_sessions SET needs_human=false,human_requested=false,status='closed' WHERE organization_id=$1 AND id=$2`,
+        [context.organizationId, sessionId],
+      );
+    } else {
+      await client.query(`DELETE FROM website_chat_sessions WHERE organization_id=$1 AND id=$2`, [context.organizationId, sessionId]);
+    }
+  });
+  return { deleted: true };
+}
+
+/** Removes one message from LiteHubs (it stays on the visitor's side). */
+export async function teamDeleteMessage(context: ChatContext, sessionId: string, messageId: string) {
+  await withTenantContext(context, async (client) => {
+    await assertStaff(client, context);
+    const removed = await client.query(
+      `DELETE FROM website_chat_messages WHERE organization_id=$1 AND session_id=$2 AND id=$3`,
+      [context.organizationId, sessionId, messageId],
+    );
+    if (!removed.rowCount) throw new NotFoundError("Message not found");
   });
   return teamSession(context, sessionId);
 }

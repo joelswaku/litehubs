@@ -75,7 +75,17 @@ export const visitorSession: RequestHandler = async (req, res) => {
 export const visitorReply: RequestHandler = async (req, res) =>
   res.status(201).json(await website.teamReply(context(req), param(req, "sessionId"), String((req.body as { body: string }).body)));
 export const visitorUpdate: RequestHandler = async (req, res) =>
-  res.json(await website.teamUpdate(context(req), param(req, "sessionId"), req.body as { mode?: "ai" | "human"; status?: "open" | "closed" }));
+  res.json(
+    await website.teamUpdate(
+      context(req),
+      param(req, "sessionId"),
+      req.body as { mode?: "ai" | "human"; status?: "open" | "closed"; blocked?: boolean },
+    ),
+  );
+export const visitorDelete: RequestHandler = async (req, res) =>
+  res.json(await website.teamDelete(context(req), param(req, "sessionId")));
+export const visitorDeleteMessage: RequestHandler = async (req, res) =>
+  res.json(await website.teamDeleteMessage(context(req), param(req, "sessionId"), param(req, "messageId")));
 
 /* Website chat — public visitor side */
 export const publicInfo: RequestHandler = async (req, res) => {

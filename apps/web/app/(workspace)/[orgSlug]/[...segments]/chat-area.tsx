@@ -325,6 +325,12 @@ export function ChatArea({ orgSlug }: { orgSlug: string }) {
                 void queryClient.invalidateQueries({ queryKey: ["chat-overview", orgSlug] });
                 void queryClient.invalidateQueries({ queryKey: ["chat-visitors", orgSlug] });
               }}
+              onDeleted={() => {
+                setVisitor(null);
+                setMobileView("list");
+                void queryClient.invalidateQueries({ queryKey: ["chat-overview", orgSlug] });
+                void queryClient.invalidateQueries({ queryKey: ["chat-visitors", orgSlug] });
+              }}
             />
           ) : (
             <ChatEmpty icon={<Globe2 className="size-7" />} title={tr(fr, "Choisissez un client", "Choose a customer")} text={tr(fr, "Site web, Messenger et Instagram : toutes les conversations clients au même endroit.", "Website, Messenger and Instagram: every customer conversation in one place.")} />
@@ -1213,7 +1219,10 @@ type VisitorSummary = {
   preview: string;
   pageUrl: string | null;
   channel?: "website" | "facebook" | "instagram";
+  offTopicCount?: number;
+  blocked?: VisitorBlock | null;
 };
+type VisitorBlock = { at: string; reason: "off_topic" | "abusive" | "manual" };
 type VisitorThread = {
   session: {
     id: string;
@@ -1225,6 +1234,8 @@ type VisitorThread = {
     assignedToMe: boolean;
     channel?: "website" | "facebook" | "instagram";
     replyWindowEndsAt?: string | null;
+    offTopicCount?: number;
+    blocked?: VisitorBlock | null;
   };
   messages: {
     id: string;
@@ -1316,6 +1327,11 @@ function VisitorList({
                 ) : (
                   <span className="text-ink-muted">{tr(fr, "IA", "AI")}</span>
                 )}
+                {session.blocked ? (
+                  <span className="text-critical">· {tr(fr, "Bloqué", "Blocked")}</span>
+                ) : session.offTopicCount ? (
+                  <span className="text-warning">· {tr(fr, "Hors sujet", "Off-topic")}</span>
+                ) : null}
               </span>
             </span>
           </button>
@@ -1331,12 +1347,14 @@ function VisitorView({
   fr,
   onBack,
   onActivity,
+  onDeleted,
 }: {
   orgSlug: string;
   sessionId: string;
   fr: boolean;
   onBack: () => void;
   onActivity: () => void;
+  onDeleted: () => void;
 }) {
   const queryClient = useQueryClient();
   const key = ["chat-visitor", orgSlug, sessionId];
@@ -1365,11 +1383,26 @@ function VisitorView({
     onError: (error) => toast.error(errorMessage(error, "")),
   });
   const update = useMutation({
-    mutationFn: (input: { mode?: "ai" | "human"; status?: "open" | "closed" }) =>
+    mutationFn: (input: { mode?: "ai" | "human"; status?: "open" | "closed"; blocked?: boolean }) =>
       patch<VisitorThread>(orgUrl(orgSlug, `chat/visitors/${sessionId}`), input),
     onSuccess: done,
     onError: (error) => toast.error(errorMessage(error, "")),
   });
+  const removeConversation = useMutation({
+    mutationFn: () => del<{ deleted: boolean }>(orgUrl(orgSlug, `chat/visitors/${sessionId}`)),
+    onSuccess: () => {
+      toast.success(tr(fr, "Conversation supprimée.", "Conversation deleted."));
+      queryClient.removeQueries({ queryKey: key });
+      onDeleted();
+    },
+    onError: (error) => toast.error(errorMessage(error, "")),
+  });
+  const removeMessage = useMutation({
+    mutationFn: (messageId: string) => del<VisitorThread>(orgUrl(orgSlug, `chat/visitors/${sessionId}/messages/${messageId}`)),
+    onSuccess: done,
+    onError: (error) => toast.error(errorMessage(error, "")),
+  });
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   if (thread.isLoading) return <div className="p-4"><SkeletonCard rows={6} /></div>;
   if (thread.isError || !thread.data)
@@ -1430,11 +1463,58 @@ function VisitorView({
               {tr(fr, "Clore", "Close")}
             </Button>
           ) : null}
+          {session.blocked ? (
+            <Button size="sm" variant="outline" loading={update.isPending} onClick={() => update.mutate({ blocked: false })}>
+              <ShieldCheck className="size-4" />
+              {tr(fr, "Débloquer", "Unblock")}
+            </Button>
+          ) : (
+            <Button size="sm" variant="ghost" className="text-critical" loading={update.isPending} onClick={() => update.mutate({ blocked: true })}>
+              <Ban className="size-4" />
+              {tr(fr, "Bloquer", "Block")}
+            </Button>
+          )}
+          {confirmDelete ? (
+            <span className="flex items-center gap-1">
+              <Button size="sm" variant="destructive" loading={removeConversation.isPending} onClick={() => removeConversation.mutate()}>
+                <Trash2 className="size-4" />
+                {tr(fr, "Confirmer", "Confirm")}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(false)}>
+                {tr(fr, "Annuler", "Cancel")}
+              </Button>
+            </span>
+          ) : (
+            <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(true)} aria-label={tr(fr, "Supprimer la conversation", "Delete conversation")}>
+              <Trash2 className="size-4" />
+              {tr(fr, "Supprimer", "Delete")}
+            </Button>
+          )}
         </div>
       </header>
       {session.needsHuman && session.status === "open" ? (
         <p className="border-b border-border bg-critical/[.06] px-4 py-2 text-xs font-medium text-critical">
           {tr(fr, "Ce visiteur attend une réponse de l’équipe.", "This visitor is waiting for the team.")}
+        </p>
+      ) : null}
+      {session.blocked ? (
+        <p className="flex items-center gap-1.5 border-b border-border bg-critical/[.07] px-4 py-2 text-xs font-medium text-critical">
+          <Ban className="size-3.5 shrink-0" />
+          {session.blocked.reason === "abusive"
+            ? tr(fr, "Bloqué automatiquement : contenu sexuel, insultant ou demande d’argent.", "Blocked automatically: sexual or abusive content, or money request.")
+            : session.blocked.reason === "off_topic"
+              ? tr(fr, "Bloqué automatiquement : messages hors sujet répétés (photos, vidéos, poèmes…).", "Blocked automatically: repeated off-topic messages.")
+              : tr(fr, "Bloqué par l’équipe.", "Blocked by the team.")}{" "}
+          {tr(fr, "Ses nouveaux messages sont ignorés jusqu’au déblocage.", "New messages are ignored until unblocked.")}
+        </p>
+      ) : session.offTopicCount ? (
+        <p className="flex items-center gap-1.5 border-b border-border bg-warning/[.08] px-4 py-2 text-xs font-medium text-warning">
+          <Ban className="size-3.5 shrink-0" />
+          {tr(
+            fr,
+            `${session.offTopicCount} message(s) hors sujet refusé(s) par l’IA. Blocage automatique au 3e de suite.`,
+            `${session.offTopicCount} off-topic message(s) declined by the AI. Automatic block at 3 in a row.`,
+          )}
         </p>
       ) : null}
       <div ref={listRef} className={`min-h-0 flex-1 space-y-2.5 overflow-auto px-3 py-5 sm:px-6 ${CHAT_CANVAS}`}>
@@ -1465,6 +1545,18 @@ function VisitorView({
                   {time(message.createdAt, fr)}
                 </p>
                 {message.body}
+                {message.from === "visitor" ? (
+                  <button
+                    type="button"
+                    onClick={() => removeMessage.mutate(message.id)}
+                    disabled={removeMessage.isPending}
+                    className="ml-2 inline-flex align-middle text-ink-muted opacity-60 transition hover:text-critical hover:opacity-100"
+                    aria-label={tr(fr, "Supprimer ce message", "Delete this message")}
+                    title={tr(fr, "Supprimer ce message", "Delete this message")}
+                  >
+                    <Trash2 className="size-3.5" />
+                  </button>
+                ) : null}
                 {message.deliveryError ? (
                   <span className="mt-1.5 block rounded-md bg-surface-1 px-2 py-1 text-[11px] font-semibold text-critical">
                     {tr(fr, "Non envoyé", "Not sent")} : {message.deliveryError}

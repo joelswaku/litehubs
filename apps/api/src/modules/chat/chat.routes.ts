@@ -24,6 +24,7 @@ import {
   visitorReplyInput,
   visitorSessionParams,
   visitorUpdateInput,
+  visitorMessageParams,
 } from "./chat.validation";
 
 /** Every active member of the workspace can use the team chat; access to
@@ -53,6 +54,8 @@ chatRoutes.get(`${base}/visitors`, authenticate, validate({ params: organization
 chatRoutes.get(`${base}/visitors/:sessionId`, authenticate, validate({ params: visitorSessionParams }), requireOrganization, controller.visitorSession);
 chatRoutes.post(`${base}/visitors/:sessionId/messages`, authenticate, validate({ params: visitorSessionParams, body: visitorReplyInput }), requireOrganization, controller.visitorReply);
 chatRoutes.patch(`${base}/visitors/:sessionId`, authenticate, validate({ params: visitorSessionParams, body: visitorUpdateInput }), requireOrganization, controller.visitorUpdate);
+chatRoutes.delete(`${base}/visitors/:sessionId`, authenticate, validate({ params: visitorSessionParams }), requireOrganization, controller.visitorDelete);
+chatRoutes.delete(`${base}/visitors/:sessionId/messages/:messageId`, authenticate, validate({ params: visitorMessageParams }), requireOrganization, controller.visitorDeleteMessage);
 
 /* Website chat: public visitors (no login).  Conversations are identified by
  * a random token kept in the visitor's browser. */
