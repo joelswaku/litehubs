@@ -855,8 +855,8 @@ export function MailArea({ orgSlug }: { orgSlug: string }) {
                       <span>
                         {tr(
                           fr,
-                          "Ce message contient le lien personnel de l’Espace candidat : il est masqué, car il ouvrirait l’espace à la place du candidat. Consultez la candidature depuis Carrières.",
-                          "This message contains the candidate’s personal space link: it is masked, as it would open the space as the candidate. Review the application from Careers.",
+                          "Ce message contient un lien personnel (Espace candidat, activation de compte ou mot de passe) : il est masqué, car il permettrait d’entrer à la place de la personne. Pour un accès employé, utilisez « Renvoyer l’invitation » dans Employés : l’ancien lien ne marche alors plus.",
+                          "This message contains a personal link (candidate space, account activation or password): it is masked, as it would let someone in as that person. For employee access, use “Resend the invitation” in Employees: the old link then stops working.",
                         )}
                       </span>
                     </p>

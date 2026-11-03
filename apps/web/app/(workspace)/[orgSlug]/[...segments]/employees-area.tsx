@@ -18,6 +18,7 @@ import {
   Phone,
   Plus,
   Search,
+  Send,
   ShieldCheck,
   UserCheck,
   UserPlus,
@@ -188,6 +189,10 @@ type EmployeeDossierDocument = {
 };
 type Editor = { employee?: Employee } | null;
 type AccessDeliveryMethod = "email" | "sms" | "both";
+type AccessInvitationTarget = {
+  employee: Employee;
+  invitation?: Invitation | null;
+};
 type EmployeeAccessDraft = {
   email: string;
   roleCode: string;
@@ -245,7 +250,7 @@ export function EmployeesArea({ orgSlug }: { orgSlug: string }) {
   const [status, setStatus] = useState("all");
   const [province, setProvince] = useState("all");
   const [site, setSite] = useState("all");
-  const [accessInvite, setAccessInvite] = useState<Employee | null>(null);
+  const [accessInvite, setAccessInvite] = useState<AccessInvitationTarget | null>(null);
   const [accessNotice, setAccessNotice] = useState<{
     tone: "good" | "warning";
     text: string;
@@ -767,7 +772,7 @@ export function EmployeesArea({ orgSlug }: { orgSlug: string }) {
                         </Badge>
                       ) : pendingInvitationsByEmployeeId.has(employee.id) ? (
                         <Badge variant="warning" icon={false}>
-                          {label(fr, "Invitation envoyée", "Invitation sent")}
+                          {label(fr, "Invitation sent", "Invitation envoyée")}
                         </Badge>
                       ) : (
                         <Badge variant="serious" icon={false}>
@@ -816,7 +821,14 @@ export function EmployeesArea({ orgSlug }: { orgSlug: string }) {
               : null
           }
           onOpenDetails={() => selected && setDetailsEmployeeId(selected.id)}
-          onInvite={() => selected && setAccessInvite(selected)}
+          onInvite={() => selected && setAccessInvite({ employee: selected })}
+          onResendAccess={() =>
+            selected &&
+            setAccessInvite({
+              employee: selected,
+              invitation: pendingInvitationsByEmployeeId.get(selected.id) ?? null,
+            })
+          }
         />
       </section>
       {detailsEmployee ? (
@@ -843,7 +855,13 @@ export function EmployeesArea({ orgSlug }: { orgSlug: string }) {
             setEditor({ employee: detailsEmployee });
             setDetailsEmployeeId(null);
           }}
-          onInvite={() => setAccessInvite(detailsEmployee)}
+          onInvite={() => setAccessInvite({ employee: detailsEmployee })}
+          onResendAccess={() =>
+            setAccessInvite({
+              employee: detailsEmployee,
+              invitation: pendingInvitationsByEmployeeId.get(detailsEmployee.id) ?? null,
+            })
+          }
         />
       ) : null}
       <section className="rounded-2xl border border-border bg-surface-1 p-5 shadow-sm">
@@ -885,6 +903,15 @@ export function EmployeesArea({ orgSlug }: { orgSlug: string }) {
           membersAvailable={can(user, "members.read")}
           canInviteAccess={canInviteAccess}
           canManageLoginEmail={isOwner(user)}
+          pendingInvitation={
+            editor.employee
+              ? (pendingInvitationsByEmployeeId.get(editor.employee.id) ?? null)
+              : null
+          }
+          onResendInvitation={(target, invitation) => {
+            setEditor(null);
+            setAccessInvite({ employee: target, invitation });
+          }}
           accessRoles={invitationRoles.data ?? []}
           creationProvinceIds={
             isOwner(user)
@@ -905,8 +932,9 @@ export function EmployeesArea({ orgSlug }: { orgSlug: string }) {
       ) : null}
       {accessInvite ? (
         <AccessAssignmentDialog
-          key={accessInvite.id}
-          employee={accessInvite}
+          key={`${accessInvite.employee.id}:${accessInvite.invitation?.invitationId ?? "new"}`}
+          employee={accessInvite.employee}
+          invitation={accessInvite.invitation ?? null}
           orgSlug={orgSlug}
           fr={fr}
           roles={invitationRoles.data ?? []}
@@ -929,6 +957,7 @@ type AccessAssignmentResponse = {
  * The account still signs in with email; passwords are never sent in either channel. */
 function AccessAssignmentDialog({
   employee,
+  invitation,
   orgSlug,
   fr,
   roles,
@@ -936,6 +965,7 @@ function AccessAssignmentDialog({
   onClose,
 }: {
   employee: Employee;
+  invitation: Invitation | null;
   orgSlug: string;
   fr: boolean;
   roles: OrganizationRole[];
@@ -948,8 +978,9 @@ function AccessAssignmentDialog({
   );
   const hasPhone = Boolean(employee.contact.phone?.trim());
   const [deliveryMethod, setDeliveryMethod] = useState<AccessDeliveryMethod>(
-    hasPhone ? "both" : "email",
+    invitation && hasPhone ? "sms" : hasPhone ? "both" : "email",
   );
+  const isResend = Boolean(invitation);
   const [result, setResult] = useState<{
     emailSent: boolean;
     smsSent: boolean;
@@ -963,7 +994,14 @@ function AccessAssignmentDialog({
       jobTitle: string;
       employeeId: string;
       deliveryMethod: AccessDeliveryMethod;
-    }) => companySetupApi.assignAccess<AccessAssignmentResponse>(orgSlug, body),
+    }) =>
+      invitation
+        ? companySetupApi.resendAccessAssignment<AccessAssignmentResponse>(
+            orgSlug,
+            invitation.invitationId,
+            { deliveryMethod: body.deliveryMethod },
+          )
+        : companySetupApi.assignAccess<AccessAssignmentResponse>(orgSlug, body),
     onSuccess: (response) => {
       setResult({
         emailSent: Boolean(response.emailDelivery?.sent),
@@ -975,6 +1013,17 @@ function AccessAssignmentDialog({
   });
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (invitation) {
+      invite.mutate({
+        email: invitation.email,
+        roleCodes: [],
+        provinceIds: [],
+        jobTitle: employee.jobTitle,
+        employeeId: employee.id,
+        deliveryMethod,
+      });
+      return;
+    }
     const data = new FormData(event.currentTarget);
     invite.mutate({
       email: String(data.get("email") ?? "")
@@ -1002,8 +1051,8 @@ function AccessAssignmentDialog({
       aria-modal="true"
       aria-label={label(
         fr,
-        "Assign LiteHubs access",
-        "Affecter un accès LiteHubs",
+        isResend ? "Resend LiteHubs access" : "Assign LiteHubs access",
+        isResend ? "Renvoyer l’accès LiteHubs" : "Affecter un accès LiteHubs",
       )}
     >
       <section className="mx-auto my-10 w-full max-w-xl rounded-2xl border border-border bg-surface-1 p-5 shadow-xl sm:p-6">
@@ -1015,15 +1064,19 @@ function AccessAssignmentDialog({
             <h2 className="mt-1 text-xl font-semibold text-ink">
               {label(
                 fr,
-                "Assign LiteHubs access",
-                "Affecter un accès LiteHubs",
+                isResend ? "Resend LiteHubs access" : "Assign LiteHubs access",
+                isResend ? "Renvoyer l’accès LiteHubs" : "Affecter un accès LiteHubs",
               )}
             </h2>
             <p className="mt-2 text-sm leading-6 text-ink-secondary">
               {label(
                 fr,
-                `Assign LiteHubs access to ${employee.fullName}. Choose email, SMS or both for the secure activation link. They choose their own password; LiteHubs never sends a password.`,
-                `Affectez l’accès LiteHubs à ${employee.fullName}. Choisissez e-mail, SMS ou les deux pour le lien sécurisé d’activation. La personne définit son propre mot de passe ; LiteHubs n’envoie jamais de mot de passe.`,
+                isResend
+                  ? `Send ${employee.fullName} a new secure activation link. The former link is cancelled for security. They choose their own password; LiteHubs never sends a password.`
+                  : `Assign LiteHubs access to ${employee.fullName}. Choose email, SMS or both for the secure activation link. They choose their own password; LiteHubs never sends a password.`,
+                isResend
+                  ? `Envoyez à ${employee.fullName} un nouveau lien sécurisé d’activation. L’ancien lien est annulé pour la sécurité. La personne définit son propre mot de passe ; LiteHubs n’envoie jamais de mot de passe.`
+                  : `Affectez l’accès LiteHubs à ${employee.fullName}. Choisissez e-mail, SMS ou les deux pour le lien sécurisé d’activation. La personne définit son propre mot de passe ; LiteHubs n’envoie jamais de mot de passe.`,
               )}
             </p>
           </div>
@@ -1043,12 +1096,24 @@ function AccessAssignmentDialog({
           >
             {label(
               fr,
-              result.emailSent && result.smsSent
+              isResend && result.emailSent && result.smsSent
+                ? "A new secure activation link was sent by email and SMS. The previous link no longer works."
+                : isResend && result.smsSent
+                  ? "A new secure activation link was sent by SMS. The previous link no longer works."
+                  : isResend
+                    ? "A new secure activation email was sent. The previous link no longer works."
+                : result.emailSent && result.smsSent
                 ? "The secure activation link was sent by email and SMS. Once activated, LiteHubs automatically links the account to this employee profile."
                 : result.smsSent
                   ? "The secure activation link was sent by SMS. Once activated, LiteHubs automatically links the account to this employee profile."
                   : "The secure activation email was sent. Once activated, LiteHubs automatically links the account to this employee profile.",
-              result.emailSent && result.smsSent
+              isResend && result.emailSent && result.smsSent
+                ? "Un nouveau lien sécurisé d’activation a été envoyé par e-mail et SMS. L’ancien lien ne fonctionne plus."
+                : isResend && result.smsSent
+                  ? "Un nouveau lien sécurisé d’activation a été envoyé par SMS. L’ancien lien ne fonctionne plus."
+                  : isResend
+                    ? "Un nouvel e-mail sécurisé d’activation a été envoyé. L’ancien lien ne fonctionne plus."
+                : result.emailSent && result.smsSent
                 ? "Le lien sécurisé d’activation a été envoyé par e-mail et SMS. Une fois activé, LiteHubs lie automatiquement le compte à cette fiche employé."
                 : result.smsSent
                   ? "Le lien sécurisé d’activation a été envoyé par SMS. Une fois activé, LiteHubs lie automatiquement le compte à cette fiche employé."
@@ -1070,7 +1135,7 @@ function AccessAssignmentDialog({
         ) : null}
         {!result ? (
           <form className="mt-5 space-y-4" onSubmit={submit}>
-            <Field
+            {!isResend ? <Field
               label={label(fr, "Work email", "E-mail professionnel")}
               htmlFor="employee-access-email"
               required
@@ -1085,7 +1150,9 @@ function AccessAssignmentDialog({
                 autoFocus
                 invalid={Boolean(employeeError(invite.error, "email"))}
               />
-            </Field>
+            </Field> : <div className="rounded-xl border border-border bg-surface-2 px-3 py-2.5 text-sm text-ink-secondary">
+              {label(fr, "Sign-in email", "E-mail de connexion")} · <strong className="text-ink">{invitation?.email}</strong>
+            </div>}
             <fieldset>
               <legend className="text-sm font-medium text-ink">
                 {label(
@@ -1149,7 +1216,7 @@ function AccessAssignmentDialog({
                 </p>
               ) : null}
             </fieldset>
-            <Field
+            {!isResend ? <Field
               label={label(fr, "LiteHubs role", "Rôle LiteHubs")}
               htmlFor="employee-access-role"
               required
@@ -1176,8 +1243,8 @@ function AccessAssignmentDialog({
                   </option>
                 ))}
               </select>
-            </Field>
-            <fieldset>
+            </Field> : null}
+            {!isResend ? <fieldset>
               <legend className="text-xs font-medium text-ink-secondary">
                 {label(fr, "Province access", "Accès aux provinces")}
               </legend>
@@ -1206,7 +1273,7 @@ function AccessAssignmentDialog({
                     </label>
                   ))}
               </div>
-            </fieldset>
+            </fieldset> : null}
             {error ? (
               <p className="text-sm text-critical" role="alert">
                 {error}
@@ -1219,13 +1286,13 @@ function AccessAssignmentDialog({
               <Button
                 type="submit"
                 loading={invite.isPending}
-                disabled={!allowedRoles.length}
+                disabled={!isResend && !allowedRoles.length}
               >
-                <Mail />
+                {deliveryMethod === "sms" ? <Phone /> : <Mail />}
                 {label(
                   fr,
-                  "Assign and send access",
-                  "Affecter et envoyer l’accès",
+                  isResend ? "Send new secure link" : "Assign and send access",
+                  isResend ? "Envoyer le nouveau lien sécurisé" : "Affecter et envoyer l’accès",
                 )}
               </Button>
             </div>
@@ -1303,6 +1370,7 @@ function EmployeeProfile({
   invitation,
   onOpenDetails,
   onInvite,
+  onResendAccess,
   onEdit,
 }: {
   employee: Employee | null;
@@ -1317,6 +1385,7 @@ function EmployeeProfile({
   invitation: Invitation | null;
   onOpenDetails?: () => void;
   onInvite: () => void;
+  onResendAccess: () => void;
   onEdit: () => void;
 }) {
   const currentUser = useSessionUser();
@@ -1738,6 +1807,16 @@ function EmployeeProfile({
             {label(fr, "Assign LiteHubs access", "Affecter un accès LiteHubs")}
           </Button>
         ) : null}
+        {!employee.member?.memberId && invitation && canInviteAccess ? (
+          <Button
+            className="w-full justify-between"
+            variant="outline"
+            onClick={onResendAccess}
+          >
+            <Phone />
+            {label(fr, "Resend the invitation", "Renvoyer l’invitation")}
+          </Button>
+        ) : null}
         {onOpenDetails ? (
           <Button
             className="w-full justify-between"
@@ -1824,6 +1903,7 @@ function EmployeeDetailDialog({
   onClose,
   onEdit,
   onInvite,
+  onResendAccess,
 }: {
   employee: Employee;
   orgSlug: string;
@@ -1838,6 +1918,7 @@ function EmployeeDetailDialog({
   onClose: () => void;
   onEdit: () => void;
   onInvite: () => void;
+  onResendAccess: () => void;
 }) {
   return (
     <div
@@ -1879,6 +1960,7 @@ function EmployeeDetailDialog({
             invitation={invitation}
             onEdit={onEdit}
             onInvite={onInvite}
+            onResendAccess={onResendAccess}
           />
         </div>
       </section>
@@ -1955,6 +2037,8 @@ function EmployeeDialog({
   membersAvailable,
   canInviteAccess,
   canManageLoginEmail,
+  pendingInvitation = null,
+  onResendInvitation,
   accessRoles,
   creationProvinceIds,
   busy,
@@ -1974,6 +2058,9 @@ function EmployeeDialog({
   membersAvailable: boolean; /** Undefined means Owner; an empty list means the delegation is exhausted. */
   canInviteAccess: boolean;
   canManageLoginEmail: boolean;
+  /** A sign-in invitation already sent and not yet accepted. */
+  pendingInvitation?: Invitation | null;
+  onResendInvitation?: (employee: Employee, invitation: Invitation) => void;
   accessRoles: OrganizationRole[];
   creationProvinceIds?: string[];
   busy: boolean;
@@ -2132,13 +2219,15 @@ function EmployeeDialog({
                 ? label(fr, "Edit employee", "Modifier l’employé")
                 : label(fr, "Add employee", "Ajouter un employé")}
             </h2>
-            <p className="mt-1 max-w-2xl text-sm leading-6 text-ink-secondary">
-              {label(
-                fr,
-                "The employee number is assigned automatically after saving. Permissions come from the linked LiteHubs account and its role, not from this number.",
-                "Le numéro d’employé est attribué automatiquement après l’enregistrement. Les permissions proviennent du compte LiteHubs lié et de son rôle, pas de ce numéro.",
-              )}
-            </p>
+            {!employee ? (
+              <p className="mt-1 max-w-2xl text-sm leading-6 text-ink-secondary">
+                {label(
+                  fr,
+                  "The employee number is assigned automatically after saving.",
+                  "Le numéro d’employé est attribué automatiquement après l’enregistrement.",
+                )}
+              </p>
+            ) : null}
           </div>
           <Button
             size="icon-sm"
@@ -2304,8 +2393,8 @@ function EmployeeDialog({
               htmlFor="employee-position-category"
               hint={label(
                 fr,
-                "This field updates automatically when the linked person role changes in Team and access.",
-                "Ce niveau est actualisé automatiquement lorsque le rôle LiteHubs de la personne liée change dans Équipe et accès.",
+                "Follows the LiteHubs role automatically.",
+                "Suit automatiquement le rôle LiteHubs.",
               )}
             >
               <Input
@@ -2330,8 +2419,8 @@ function EmployeeDialog({
             <p className="mt-1 text-xs leading-5 text-ink-secondary">
               {label(
                 fr,
-                "Optional for manual creation. A recruited candidate’s completed integration form fills these fields and transfers its private identity documents into the employee dossier.",
-                "Facultatif en création manuelle. La fiche d’intégration complète d’un candidat recruté remplit ces champs et transfère ses pièces privées dans le dossier employé.",
+                "Optional. Filled automatically for a recruited candidate.",
+                "Facultatif. Rempli automatiquement pour un candidat recruté.",
               )}
             </p>
             <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -2349,27 +2438,55 @@ function EmployeeDialog({
               </Field>
             </div>
           </div>
-          {employee ? (
-            <div className="rounded-xl border border-border bg-surface-2 p-4">
-              <div className="flex items-start gap-2">
+          {employee && pendingInvitation && !employee.member?.memberId ? (
+            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-brand/25 bg-brand/5 p-4">
+              <span className="grid size-10 shrink-0 place-items-center rounded-full bg-brand/15 text-brand">
+                <Mail className="size-5" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-ink">
+                  {label(fr, "LiteHubs access: waiting for activation", "Accès LiteHubs : en attente d’activation")}
+                </p>
+                <p className="truncate text-xs text-ink-secondary">
+                  {label(fr, "Invitation sent to", "Invitation envoyée à")} {pendingInvitation.email}
+                </p>
+              </div>
+              {onResendInvitation ? (
+                <Button type="button" onClick={() => onResendInvitation(employee, pendingInvitation)}>
+                  <Send />
+                  {label(fr, "Resend invitation", "Renvoyer l’invitation")}
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+          {employee && !pendingInvitation ? (
+            <details
+              className="group rounded-xl border border-border bg-surface-2 p-4"
+              open={Boolean(employee.member?.memberId)}
+            >
+              <summary className="flex cursor-pointer list-none items-start gap-2">
                 <ShieldCheck className="mt-0.5 size-4 text-brand" />
                 <div>
                   <h3 className="text-sm font-semibold text-ink">
-                    {label(
-                      fr,
-                      "LiteHubs account (optional)",
-                      "Compte LiteHubs (facultatif)",
-                    )}
+                    {employee.member?.memberId
+                      ? label(fr, "Linked LiteHubs account", "Compte LiteHubs lié")
+                      : label(
+                          fr,
+                          "Link an existing LiteHubs account (older records)",
+                          "Lier un compte LiteHubs existant (anciennes fiches)",
+                        )}
                   </h3>
-                  <p className="mt-1 text-xs leading-5 text-ink-secondary">
-                    {label(
-                      fr,
-                      "For older employee profiles only: link a person who already has LiteHubs access. Do not use this to assign permissions; use Team and access for the person’s role and province scope.",
-                      "Uniquement pour les anciennes fiches employé : liez une personne qui possède déjà un accès LiteHubs. N’utilisez pas ce choix pour attribuer des permissions : utilisez Équipe et accès pour le rôle et la portée provinciale.",
-                    )}
-                  </p>
+                  {!employee.member?.memberId ? (
+                    <p className="mt-0.5 text-xs leading-5 text-ink-secondary">
+                      {label(
+                        fr,
+                        "Rarely needed. To give access, use “LiteHubs sign-in access” below.",
+                        "Rarement utile. Pour donner un accès, utilisez « Accès de connexion LiteHubs » ci-dessous.",
+                      )}
+                    </p>
+                  ) : null}
                 </div>
-              </div>
+              </summary>
               {employee.member?.email ? (
                 <div className="mt-4 rounded-lg border border-brand/20 bg-brand/5 p-3">
                   <Field
@@ -2429,8 +2546,11 @@ function EmployeeDialog({
                   {members
                     .filter(
                       (member) =>
-                        member.status === "active" &&
-                        (member.memberId === employee?.member?.memberId ||
+                        member.memberId === employee?.member?.memberId ||
+                        // Never the owner, nor someone already tied to another employee record.
+                        (member.status === "active" &&
+                          !member.isOwner &&
+                          !member.employee &&
                           !linkedMemberIds.includes(member.memberId)),
                     )
                     .map((member) => (
@@ -2440,9 +2560,9 @@ function EmployeeDialog({
                     ))}
                 </select>
               </div>
-            </div>
+            </details>
           ) : null}
-          {canInviteAccess && (!employee || !employee.member?.memberId) ? (
+          {canInviteAccess && (!employee || !employee.member?.memberId) && !pendingInvitation ? (
             <div className="rounded-xl border border-brand/25 bg-brand/5 p-4">
               <h3 className="text-sm font-semibold text-ink">
                 {label(

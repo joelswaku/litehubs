@@ -6,6 +6,7 @@ import { BadRequestError } from "../../utils/errors";
 import type {
   CreateDepartmentInput,
   CreateInvitationInput,
+  ResendInvitationInput,
   CompanyRulesInput,
   CreateProvinceInput,
   CreateRoleInput,
@@ -425,6 +426,15 @@ export const createInvitation: RequestHandler = async (req, res) => {
     req.body as CreateInvitationInput,
   );
   res.status(201).json(result);
+};
+
+export const resendInvitation: RequestHandler = async (req, res) => {
+  const result = await service.resendInvitation(
+    contextOf(req),
+    parameter(req, "invitationId"),
+    req.body as ResendInvitationInput,
+  );
+  res.json(result);
 };
 
 export const revokeInvitation: RequestHandler = async (req, res) => {

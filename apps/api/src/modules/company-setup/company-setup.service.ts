@@ -18,6 +18,7 @@ import { companyLogo } from "../contracts/contract-pdf";
 import type {
   CreateDepartmentInput,
   CreateInvitationInput,
+  ResendInvitationInput,
   CompanyRulesInput,
   CreateProvinceInput,
   CreateRoleInput,
@@ -2104,6 +2105,99 @@ export async function createInvitation(
     emailDelivery,
     smsDelivery,
     // A local Postman user needs a link while SMTP is deliberately unavailable.
+    ...(env.isProduction ? {} : { acceptUrl }),
+  };
+}
+
+/**
+ * Sends a replacement invitation without changing the employee, role or
+ * province scope originally approved by the owner. The existing token is
+ * rotated first, so a lost email link cannot be used after an SMS resend.
+ */
+export async function resendInvitation(
+  context: SetupContext,
+  invitationId: string,
+  input: ResendInvitationInput,
+) {
+  const rawToken = crypto.randomBytes(48).toString("base64url");
+  const tokenHash = invitationTokenHash(rawToken);
+  const expiresAt = new Date(
+    Date.now() + INVITATION_TTL_DAYS * 24 * 60 * 60 * 1000,
+  );
+
+  const invitation = await withTenantContext(context, async (client) => {
+    const result = await client.query<{
+      id: string;
+      employee_id: string | null;
+      email: string;
+      phone: string | null;
+      member_id: string | null;
+      employment_status: string | null;
+    }>(
+      `SELECT i.id,i.employee_id,i.email::text,e.phone,e.member_id,e.employment_status
+         FROM organization_invitations i
+         LEFT JOIN employees e
+           ON e.organization_id=i.organization_id AND e.id=i.employee_id
+        WHERE i.organization_id=$1 AND i.id=$2
+          AND i.accepted_at IS NULL AND i.revoked_at IS NULL
+          AND i.expires_at >= now()
+        FOR UPDATE OF i`,
+      [context.organizationId, invitationId],
+    );
+    const row = result.rows[0];
+    if (!row) throw new NotFoundError("Active access assignment not found");
+    if (row.employee_id && row.member_id)
+      throw new ConflictError("This employee already has LiteHubs access");
+    if (row.employment_status === "terminated")
+      throw new BadRequestError(
+        "LiteHubs access cannot be resent to a terminated employee",
+      );
+    if (input.deliveryMethod !== "email" && !row.phone?.trim())
+      throw new BadRequestError(
+        "Add a phone number to this employee before sending access by SMS",
+      );
+
+    await client.query(
+      `UPDATE organization_invitations
+          SET token_hash=$3, expires_at=$4
+        WHERE organization_id=$1 AND id=$2`,
+      [context.organizationId, row.id, tokenHash, expiresAt],
+    );
+    return { id: row.id, employeeId: row.employee_id, email: row.email, phone: row.phone };
+  });
+
+  const acceptUrl = `${env.frontendUrl}/accept-invitation?token=${rawToken}`;
+  const shouldSendEmail = input.deliveryMethod !== "sms";
+  const shouldSendSms = input.deliveryMethod !== "email";
+  const [emailDelivery, smsDelivery] = await Promise.all([
+    shouldSendEmail
+      ? env.isTest
+        ? Promise.resolve({ sent: false, reason: "email_skipped_in_test" })
+        : sendTeamInvitationEmail(
+            invitation.email,
+            context.organizationId,
+            acceptUrl,
+            INVITATION_TTL_DAYS,
+          )
+      : Promise.resolve({ sent: false, reason: "email_not_selected" }),
+    shouldSendSms
+      ? sendSms({
+          to: invitation.phone!,
+          content: `LiteHubs · Votre nouveau lien d’accès est prêt. Créez votre mot de passe dans les ${INVITATION_TTL_DAYS} jours : ${acceptUrl}`,
+        })
+      : Promise.resolve({ sent: false, reason: "sms_not_selected" }),
+  ]);
+
+  return {
+    invitation: {
+      invitationId: invitation.id,
+      employeeId: invitation.employeeId,
+      email: invitation.email,
+      expiresAt,
+    },
+    deliveryMethod: input.deliveryMethod,
+    emailDelivery,
+    smsDelivery,
     ...(env.isProduction ? {} : { acceptUrl }),
   };
 }

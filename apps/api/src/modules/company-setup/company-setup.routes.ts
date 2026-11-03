@@ -17,6 +17,7 @@ import * as rulesAck from "./company-rules-ack.service";
 import {
   createDepartmentSchema,
   createInvitationSchema,
+  resendInvitationSchema,
   companyRulesInputSchema,
   createProvinceSchema,
   createRoleSchema,
@@ -610,6 +611,16 @@ companySetupRoutes.post(
   requirePermission("invitations.create"),
   validate({ body: createInvitationSchema }),
   controller.createInvitation,
+);
+
+companySetupRoutes.post(
+  "/organizations/:orgSlug/invitations/:invitationId/resend",
+  authenticate,
+  validate({ params: invitationParams, body: resendInvitationSchema }),
+  requireOrganization,
+  requireOwner,
+  requirePermission("invitations.update"),
+  controller.resendInvitation,
 );
 
 companySetupRoutes.delete(

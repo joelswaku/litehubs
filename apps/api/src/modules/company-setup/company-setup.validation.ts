@@ -144,6 +144,12 @@ export const createInvitationSchema = z.object({
   deliveryMethod: z.enum(["email", "sms", "both"]).default("email"),
 });
 
+/** A resend deliberately creates a new one-time token. It may use email,
+ * SMS, or both, but cannot alter the access scope already approved. */
+export const resendInvitationSchema = z.object({
+  deliveryMethod: z.enum(["email", "sms", "both"]),
+});
+
 export const companyRulesInputSchema = z.object({
   title: z.string().trim().min(4).max(180),
   content: z.string().trim().min(80).max(100_000),
@@ -437,4 +443,5 @@ export type ReplaceMemberProvincesInput = z.infer<
   typeof replaceMemberProvincesSchema
 >;
 export type CreateInvitationInput = z.infer<typeof createInvitationSchema>;
+export type ResendInvitationInput = z.infer<typeof resendInvitationSchema>;
 export type CompanyRulesInput = z.infer<typeof companyRulesInputSchema>;

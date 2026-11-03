@@ -7,6 +7,7 @@ import sanitizeHtml from "sanitize-html";
 import {
   MASKED_PORTAL_LINK,
   isMaskedCandidateLink,
+  maskCandidatePortalLinks,
   maskCandidateLinksInText,
   quotesCandidatePortalMail,
 } from "../careers/candidate-portal-links";
@@ -492,7 +493,7 @@ function parsedAddresses(value?: AddressObject | AddressObject[]) {
   );
 }
 
-const MASKED_LINK_TITLE = "Lien personnel du candidat masqué";
+const MASKED_LINK_TITLE = "Lien personnel masqué";
 
 /** Untrusted e-mail HTML: scripts, forms, iframes and event handlers are
  * removed.  The web app also displays it in a sandboxed frame. */
@@ -533,7 +534,8 @@ function safeEmailHtml(html: string) {
       new RegExp(`(<span title="${MASKED_LINK_TITLE}"[^>]*>)[^<]*(</span>)`, "g"),
       `$1🔒 ${MASKED_LINK_TITLE}$2`,
     )
-    .replace(/https?:\/\/[^\s"'<>()]+\/suivi\/[A-Za-z0-9_-]{40,100}[^\s"'<>()]*/gi, () => MASKED_PORTAL_LINK);
+    // The same links written out as text ("Button not working? Copy this link").
+    .replace(/>([^<]+)</g, (match, text: string) => `>${maskCandidatePortalLinks(text)}<`);
 }
 
 async function fetchParsed(client: ImapFlow, uid: number) {

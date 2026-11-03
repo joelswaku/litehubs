@@ -224,6 +224,13 @@ export const companySetupApi = {
   assignAccess<T>(orgSlug: string, body: Record<string, unknown>) {
     return post<T>(base(orgSlug, "invitations"), body);
   },
+  resendAccessAssignment<T>(
+    orgSlug: string,
+    invitationId: string,
+    body: Record<string, unknown>,
+  ) {
+    return post<T>(base(orgSlug, `invitations/${invitationId}/resend`), body);
+  },
   revokeAccessAssignment<T>(orgSlug: string, assignmentId: string) {
     return del<T>(base(orgSlug, `invitations/${assignmentId}`));
   },

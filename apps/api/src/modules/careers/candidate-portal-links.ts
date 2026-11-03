@@ -76,9 +76,12 @@ export async function revokeOlderPortalLinks(client: PoolClient, organizationId:
 /* Masking personal links that come back in e-mails                    */
 /* ------------------------------------------------------------------ */
 
-/** A personal Espace candidat address (…/suivi/<token>), on any host. */
-const PORTAL_LINK_SOURCE = String.raw`https?:\/\/[^\s"'<>()]+\/suivi\/[A-Za-z0-9_-]{40,100}[^\s"'<>()]*`;
-export const MASKED_PORTAL_LINK = "[lien personnel du candidat masqué]";
+/** A personal link that opens something AS its recipient, on any host: an
+ * Espace candidat (…/suivi/<token>), an account activation
+ * (…/accept-invitation?token=…), a password reset (…?token=…), etc. */
+const PERSONAL_PART = String.raw`(?:\/suivi\/[A-Za-z0-9_-]{40,100}|(?:[?&]|&amp;)(?:token|invitation_token|reset_token|activation_token)=[A-Za-z0-9_.%~-]{20,})`;
+const PORTAL_LINK_SOURCE = String.raw`https?:\/\/[^\s"'<>()]+?${PERSONAL_PART}[^\s"'<>()]*`;
+export const MASKED_PORTAL_LINK = "[lien personnel masqué]";
 
 export function isCandidatePortalLink(value: string | undefined | null): boolean {
   return Boolean(value) && new RegExp(`^${PORTAL_LINK_SOURCE}$`, "i").test(String(value).trim());
@@ -100,7 +103,8 @@ export function maskCandidatePortalLinks(value: string): string {
 }
 
 /** Our candidate e-mails, recognisable once quoted in a candidate's reply. */
-const PORTAL_MAIL_MARKERS = /Espace candidat|candidate space|Suivez votre candidature|Follow your application/i;
+const PORTAL_MAIL_MARKERS =
+  /Espace candidat|candidate space|Suivez votre candidature|Follow your application|accept-invitation|Set your password|Définir (?:votre|mon) mot de passe|Your access is ready|Votre accès est prêt|access has been assigned|reset your password|Réinitialiser (?:votre|mon) mot de passe|activation link|lien d.activation/i;
 /** Click-tracking redirects added by the e-mail relay (Brevo / Sendinblue):
  * in a quoted candidate e-mail they lead to the personal link too. */
 const TRACKER_HOST = /(^|\.)(sendib[a-z]*\d*\.com|sendibt\d*\.com|brevo\.com|brevosend\.com|sendinblue\.com|mailin\.fr|safelinks\.protection\.outlook\.com)$|\.r\.[a-z0-9-]+\.d\./i;
@@ -130,7 +134,7 @@ export function isMaskedCandidateLink(href: string | undefined | null, portalMai
   }
   // Wrapped links (Outlook Safe Links, Google redirects…) carry the personal
   // address inside their query string.
-  const wrapsPortalLink = /\/suivi\/[A-Za-z0-9_-]{40,100}/.test(decoded);
+  const wrapsPortalLink = new RegExp(PERSONAL_PART, "i").test(decoded);
   return isCandidatePortalLink(href) || wrapsPortalLink || (portalMail && isTrackerLink(href));
 }
 
