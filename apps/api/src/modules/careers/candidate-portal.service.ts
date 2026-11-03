@@ -215,6 +215,18 @@ async function deliverPortalMail(mail: PortalMail, mode: "email_first" | "explic
   };
 }
 
+export type NotifyChannel = "auto" | "email" | "sms" | "both";
+
+/** The recruiter's choice: e-mail, SMS or both; "auto" = e-mail, SMS only
+ * when there is no e-mail or it failed. */
+function deliverVia(channel: NotifyChannel | undefined, mail: PortalMail) {
+  if (!channel || channel === "auto") return deliverPortalMail(mail);
+  return deliverPortalMail(
+    { ...mail, to: channel === "sms" ? "" : mail.to, phone: channel === "email" ? "" : mail.phone },
+    "explicit",
+  );
+}
+
 function candidateBasics(application: Row) {
   const french = application.preferred_language !== "en";
   return {
@@ -693,7 +705,7 @@ export async function createDocumentRequest(
           year: "numeric",
         })
       : null;
-    const result = await deliverPortalMail({
+    const result = await deliverVia(input.notifyChannel, {
       ...basics,
       subject: basics.french
         ? `Documents demandés · ${basics.jobTitle}`
@@ -767,7 +779,7 @@ export async function reviewDocumentRequest(
   if (prepared.url) {
     const basics = candidateBasics(prepared.application);
     const label = String(prepared.request.label);
-    const result = await deliverPortalMail({
+    const result = await deliverVia(input.notifyChannel, {
       ...basics,
       subject: basics.french ? `Document à renvoyer · ${label}` : `Document to send again · ${label}`,
       heading: basics.french ? "Un document doit être renvoyé" : "A document needs to be sent again",
@@ -851,7 +863,7 @@ export async function changeDocumentDeadline(
           year: "numeric",
         })
       : null;
-    const result = await deliverPortalMail({
+    const result = await deliverVia(input.notifyChannel, {
       ...basics,
       subject: basics.french ? `Nouveau délai · ${label}` : `New deadline · ${label}`,
       heading: basics.french ? "Le délai a été modifié" : "The deadline has changed",
@@ -1002,13 +1014,13 @@ function trackingLinkMail(application: Row, url: string): PortalMail {
   };
 }
 
-export async function sendTrackingLink(context: CareersContext, applicationId: string) {
+export async function sendTrackingLink(context: CareersContext, applicationId: string, channel?: NotifyChannel) {
   const prepared = await withTenantContext(context, async (client) => {
     const application = await hrApplication(client, context, applicationId);
     const url = await issueCandidatePortalLink(client, context.organizationId, context.organizationSlug, applicationId);
     return { application, url };
   });
-  const result = await deliverPortalMail(trackingLinkMail(prepared.application, prepared.url));
+  const result = await deliverVia(channel, trackingLinkMail(prepared.application, prepared.url));
   await withTenantContext(context, async (client) => {
     if (result.emailSent || result.smsSent) {
       await client.query(

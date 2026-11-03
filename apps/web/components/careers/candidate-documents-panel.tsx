@@ -58,6 +58,8 @@ const PRESETS: [string, string][] = [
   ["Permis de conduire", "Driving licence"],
 ];
 
+import { defaultNotifyChannel, NotifyChannelPicker, type NotifyChannel } from "./notify-channel-picker";
+
 const STATUS: Record<DocumentRequest["status"], [string, string, string]> = {
   requested: ["En attente du candidat", "Waiting for candidate", "bg-warning/15 text-warning"],
   submitted: ["Reçu · à vérifier", "Received · to review", "bg-brand/12 text-brand"],
@@ -78,11 +80,13 @@ function when(value: string | null, fr: boolean) {
 
 export function CandidateDocumentsPanel({
   application,
+  contact = { email: null, phone: null },
   orgSlug,
   fr,
   editable,
 }: {
   application: { id: string; status: string; fullName: string };
+  contact?: { email: string | null; phone: string | null };
   orgSlug: string;
   fr: boolean;
   editable: boolean;
@@ -101,6 +105,20 @@ export function CandidateDocumentsPanel({
   const [message, setMessage] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [composerOpen, setComposerOpen] = useState(false);
+  // How the candidate is told: e-mail, SMS or both (one choice for this panel).
+  const [channel, setChannel] = useState<NotifyChannel>(() => defaultNotifyChannel(contact));
+  const [linkPickerOpen, setLinkPickerOpen] = useState(false);
+  const channelText = channel === "both" ? tr(fr, "e-mail et SMS", "e-mail and SMS") : channel === "sms" ? "SMS" : "e-mail";
+  const picker = (
+    <NotifyChannelPicker
+      value={channel}
+      onChange={setChannel}
+      hasEmail={Boolean(contact.email)}
+      hasPhone={Boolean(contact.phone)}
+      fr={fr}
+      className="max-w-sm"
+    />
+  );
   const [rejecting, setRejecting] = useState<string | null>(null);
   const [rejectNote, setRejectNote] = useState("");
   const [deadlineFor, setDeadlineFor] = useState<string | null>(null);
@@ -109,10 +127,11 @@ export function CandidateDocumentsPanel({
   const today = new Date().toISOString().slice(0, 10);
 
   const sendLink = useMutation({
-    mutationFn: () => post<PanelData>(orgUrl(orgSlug, `${base}/tracking-link`), {}),
+    mutationFn: () => post<PanelData>(orgUrl(orgSlug, `${base}/tracking-link`), { notifyChannel: channel }),
     onSuccess: (next) => {
       refresh(next);
-      toast.success(tr(fr, "Lien de suivi envoyé au candidat.", "Tracking link sent to the candidate."));
+      setLinkPickerOpen(false);
+      toast.success(tr(fr, `Nouveau lien envoyé par ${channelText}.`, `New link sent by ${channelText}.`));
     },
     onError: (error: Error) => toast.error(error.message),
   });
@@ -123,6 +142,7 @@ export function CandidateDocumentsPanel({
         message: message.trim() || undefined,
         dueDate: dueDate || undefined,
         notifyCandidate: true,
+        notifyChannel: channel,
       }),
     onSuccess: (next) => {
       refresh(next);
@@ -130,7 +150,7 @@ export function CandidateDocumentsPanel({
       setMessage("");
       setDueDate("");
       setComposerOpen(false);
-      toast.success(tr(fr, "Demande envoyée au candidat (e-mail, ou SMS s’il n’a pas d’e-mail).", "Request sent to the candidate (e-mail, or SMS when there is no e-mail)."));
+      toast.success(tr(fr, `Demande envoyée au candidat par ${channelText}.`, `Request sent to the candidate by ${channelText}.`));
     },
     onError: (error: Error) => toast.error(error.message),
   });
@@ -140,6 +160,7 @@ export function CandidateDocumentsPanel({
         decision: input.decision,
         note: input.note || undefined,
         notifyCandidate: true,
+        notifyChannel: channel,
       }),
     onSuccess: (next, input) => {
       refresh(next);
@@ -161,6 +182,7 @@ export function CandidateDocumentsPanel({
       patch<PanelData>(orgUrl(orgSlug, `${base}/documents/${input.requestId}/deadline`), {
         dueDate: input.dueDate,
         notifyCandidate: deadlineNotify,
+        notifyChannel: channel,
       }),
     onSuccess: (next, input) => {
       refresh(next);
@@ -178,7 +200,11 @@ export function CandidateDocumentsPanel({
 
   type StoredFile = { id: string; fileName: string; mimeType: string };
   const openFile = async (item: DocumentRequest, file: StoredFile, download: boolean) => {
-    const preview = !download && (file.mimeType === "application/pdf" || file.mimeType.startsWith("image/"));
+    const word =
+      file.mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+      /\.docx$/i.test(file.fileName);
+    // PDF and images open as they are; Word (.docx) opens as a read-only preview.
+    const preview = !download && (file.mimeType === "application/pdf" || file.mimeType.startsWith("image/") || word);
     const target = preview ? window.open("", "_blank") : null;
     try {
       const response = await api.get<Blob>(orgUrl(orgSlug, `${base}/documents/${item.id}/file`), {
@@ -248,7 +274,7 @@ export function CandidateDocumentsPanel({
         </div>
         {editable ? (
           <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" size="sm" loading={sendLink.isPending} onClick={() => sendLink.mutate()}>
+            <Button variant="secondary" size="sm" onClick={() => setLinkPickerOpen((open) => !open)}>
               <Link2 className="size-3.5" />
               {tr(fr, "Renvoyer le lien", "Resend link")}
             </Button>
@@ -261,6 +287,18 @@ export function CandidateDocumentsPanel({
           </div>
         ) : null}
       </div>
+      {editable && linkPickerOpen ? (
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface-1 p-3">
+          <p className="w-full text-xs text-ink-secondary">
+            {tr(fr, "Envoyer un nouveau lien par (les anciens liens seront désactivés) :", "Send a new link by (older links will be disabled):")}
+          </p>
+          {picker}
+          <Button size="sm" loading={sendLink.isPending} onClick={() => sendLink.mutate()}>
+            <Send className="size-3.5" />
+            {tr(fr, "Envoyer", "Send")}
+          </Button>
+        </div>
+      ) : null}
 
       {composerOpen && editable ? (
         <div className="mt-4 space-y-3 rounded-xl border border-brand/20 bg-brand/[.03] p-4">
@@ -324,6 +362,10 @@ export function CandidateDocumentsPanel({
                   ))}
               </div>
             ) : null}
+          </div>
+          <div>
+            <p className="mb-1.5 text-xs font-semibold text-ink">{tr(fr, "Prévenir le candidat par", "Notify the candidate by")}</p>
+            {picker}
           </div>
           <div className="grid gap-3 sm:grid-cols-[1fr_170px]">
             <Field label={tr(fr, "Message au candidat (facultatif)", "Message to the candidate (optional)")}>
@@ -466,8 +508,9 @@ export function CandidateDocumentsPanel({
                         onChange={(event) => setDeadlineNotify(event.target.checked)}
                         className="size-4 accent-[var(--brand)]"
                       />
-                      {tr(fr, "Prévenir le candidat (e-mail, ou SMS s’il n’a pas d’e-mail)", "Notify the candidate (e-mail, or SMS when there is no e-mail)")}
+                      {tr(fr, "Prévenir le candidat", "Notify the candidate")}
                     </label>
+                    {deadlineNotify ? picker : null}
                     <div className="flex flex-wrap justify-end gap-2">
                       {item.dueDate ? (
                         <Button

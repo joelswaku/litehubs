@@ -108,7 +108,11 @@ export const applicationUpdateInput = z.object({
   // The recruiter may tailor the candidate-facing text, while private hiring
   // notes remain only inside LiteHubs.
   notifyCandidate: z.coerce.boolean().optional().default(false),
+  notifyChannel: z.enum(["auto", "email", "sms", "both"]).optional().default("auto"),
   candidateMessage: optionalText(500),
+});
+export const trackingLinkInput = z.object({
+  notifyChannel: z.enum(["auto", "email", "sms", "both"]).optional().default("auto"),
 });
 
 /** Multipart form-data submitted by an unauthenticated candidate. */
@@ -187,6 +191,7 @@ export const documentRequestInput = z.object({
   message: optionalText(800),
   dueDate: z.string().date("Use YYYY-MM-DD").optional(),
   notifyCandidate: z.boolean().optional().default(true),
+  notifyChannel: z.enum(["auto", "email", "sms", "both"]).optional().default("auto"),
 });
 export const candidateMessageInput = z.object({
   subject: optionalText(160),
@@ -197,11 +202,13 @@ export const documentDeadlineInput = z.object({
   dueDate: z.string().date("Use YYYY-MM-DD").nullable(),
   message: optionalText(800),
   notifyCandidate: z.boolean().optional().default(true),
+  notifyChannel: z.enum(["auto", "email", "sms", "both"]).optional().default("auto"),
 });
 export const documentReviewInput = z.object({
   decision: z.enum(["accepted", "rejected", "cancelled"]),
   note: optionalText(600),
   notifyCandidate: z.boolean().optional().default(true),
+  notifyChannel: z.enum(["auto", "email", "sms", "both"]).optional().default("auto"),
 });
 
 export type CandidateMessageInput = z.infer<typeof candidateMessageInput>;

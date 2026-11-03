@@ -616,15 +616,22 @@ export async function updateApplication(
 
   if (updated.notification) {
     const notification = updated.notification;
-    // E-mail first; SMS only when there is no e-mail or it was not delivered.
-    const email = notification.email
-      ? await sendMail(buildCandidateStatusEmail(notification))
-      : { sent: false, reason: "email_missing" };
-    const sms = email.sent
-      ? { sent: false, reason: "email_delivered" }
-      : notification.phone
-        ? await sendSms(buildCandidateStatusSms(notification))
-        : { sent: false, reason: "phone_missing" };
+    // The recruiter's choice; "auto": e-mail first, SMS only when there is
+    // no e-mail or it was not delivered.
+    const channel = input.notifyChannel ?? "auto";
+    const wantEmail = channel !== "sms";
+    const email =
+      wantEmail && notification.email
+        ? await sendMail(buildCandidateStatusEmail(notification))
+        : { sent: false, reason: wantEmail ? "email_missing" : "email_not_selected" };
+    const sms =
+      channel === "email"
+        ? { sent: false, reason: "sms_not_selected" }
+        : channel === "auto" && email.sent
+          ? { sent: false, reason: "email_delivered" }
+          : notification.phone
+            ? await sendSms(buildCandidateStatusSms(notification))
+            : { sent: false, reason: "phone_missing" };
     await withTenantContext(context, async (client) =>
       event(
         client,

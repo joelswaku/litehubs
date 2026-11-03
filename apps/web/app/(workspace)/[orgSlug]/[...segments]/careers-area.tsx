@@ -34,6 +34,7 @@ import { can } from "@/lib/permissions";
 import { useLanguage } from "@/providers/language-provider";
 import { useSessionUser } from "@/stores/session-store";
 import { CandidateDocumentsPanel } from "@/components/careers/candidate-documents-panel";
+import { defaultNotifyChannel, NotifyChannelPicker, type NotifyChannel } from "@/components/careers/notify-channel-picker";
 
 const tr = (fr: boolean, french: string, english: string) =>
   fr ? french : english;
@@ -1129,6 +1130,7 @@ function CandidateDetail({
   const [notes, setNotes] = useState(application.internalNotes ?? "");
   const [status, setStatus] = useState(application.status);
   const [notifyCandidate, setNotifyCandidate] = useState(false);
+  const [notifyChannel, setNotifyChannel] = useState<NotifyChannel>(() => defaultNotifyChannel(application));
   const [candidateMessage, setCandidateMessage] = useState(() =>
     candidateStatusMessage(application.status, application, fr),
   );
@@ -1136,6 +1138,11 @@ function CandidateDetail({
     ? orgApiUrl(orgSlug, `careers/applications/${application.id}/resume`)
     : null;
   const isPdf = application.resume?.mimeType === "application/pdf";
+  // Word CVs get a read-only preview built by the server.
+  const isWord =
+    application.resume?.mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+    /\.docx$/i.test(application.resume?.fileName ?? "");
+  const canPreview = isPdf || isWord;
   const [resumePreviewUrl, setResumePreviewUrl] = useState<string | null>(null);
   const [resumePreviewError, setResumePreviewError] = useState(false);
 
@@ -1147,7 +1154,7 @@ function CandidateDetail({
   }, [application.id, application.internalNotes, application.status, fr]);
 
   useEffect(() => {
-    if (!isPdf) {
+    if (!canPreview) {
       setResumePreviewUrl(null);
       setResumePreviewError(false);
       return;
@@ -1176,7 +1183,7 @@ function CandidateDetail({
       active = false;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [application.id, isPdf, orgSlug]);
+  }, [application.id, canPreview, orgSlug]);
 
   const submittedAt = application.submittedAt
     ? new Date(application.submittedAt).toLocaleString(fr ? "fr-FR" : "en-US", {
@@ -1292,9 +1299,11 @@ function CandidateDetail({
               </a>
             )}
           </div>
-          {isPdf && resumeDownloadUrl ? (
+          {canPreview && resumeDownloadUrl ? (
             resumePreviewUrl ? (
               <iframe
+                // The Word preview is plain HTML: no scripts, no same-origin access.
+                sandbox={isWord ? "" : undefined}
                 title={tr(
                   fr,
                   `CV de ${application.fullName}`,
@@ -1322,8 +1331,8 @@ function CandidateDetail({
             <div className="mt-3 rounded-2xl border border-dashed border-border bg-surface-2/40 p-5 text-sm leading-6 text-ink-secondary">
               {tr(
                 fr,
-                "Ce format de CV doit être téléchargé pour être consulté. Les PDF sont affichés directement ici.",
-                "This résumé format must be downloaded to view it. PDFs are displayed directly here.",
+                "Ce format de CV doit être téléchargé pour être consulté. Les PDF et Word (.docx) sont affichés directement ici.",
+                "This résumé format must be downloaded to view it. PDF and Word (.docx) files are displayed directly here.",
               )}
             </div>
           ) : null}
@@ -1340,6 +1349,7 @@ function CandidateDetail({
 
         <CandidateDocumentsPanel
           application={application}
+          contact={{ email: application.email ?? null, phone: application.phone ?? null }}
           orgSlug={orgSlug}
           fr={fr}
           editable={editable}
@@ -1395,8 +1405,8 @@ function CandidateDetail({
                 <span>
                   {tr(
                     fr,
-                    "Prévenir le candidat (e-mail, ou SMS s’il n’a pas d’e-mail)",
-                    "Notify the candidate (e-mail, or SMS when there is no e-mail)",
+                    "Prévenir le candidat",
+                    "Notify the candidate",
                   )}
                   <span className="mt-1 block text-xs font-normal leading-5 text-ink-secondary">
                     {tr(
@@ -1418,6 +1428,15 @@ function CandidateDetail({
               ) : null}
               {notifyCandidate ? (
                 <div className="mt-4">
+                  <p className="mb-1.5 text-xs font-semibold text-ink">{tr(fr, "Envoyer par", "Send by")}</p>
+                  <NotifyChannelPicker
+                    className="mb-3 max-w-sm"
+                    value={notifyChannel}
+                    onChange={setNotifyChannel}
+                    hasEmail={Boolean(application.email)}
+                    hasPhone={Boolean(application.phone)}
+                    fr={fr}
+                  />
                   <Field
                     label={tr(
                       fr,
@@ -1451,6 +1470,7 @@ function CandidateDetail({
                     status,
                     internalNotes: notes || undefined,
                     notifyCandidate,
+                    notifyChannel: notifyCandidate ? notifyChannel : undefined,
                     candidateMessage: notifyCandidate
                       ? candidateMessage || undefined
                       : undefined,

@@ -1,6 +1,7 @@
 import type { Request, RequestHandler } from "express";
 import { BadRequestError } from "../../utils/errors";
 import * as service from "./careers.service";
+import { docxToHtml, isDocx } from "./docx-preview";
 import * as portal from "./candidate-portal.service";
 import type {
   ApplicationQuery,
@@ -77,6 +78,22 @@ export const updateApplication: RequestHandler = async (req, res) =>
       req.body as ApplicationUpdateInput,
     ),
   });
+/** Word CVs and letters: "Voir" shows a read-only HTML preview instead of a
+ * download.  Returns false (caller sends the file) if it cannot be read. */
+async function sendDocxPreview(res: Parameters<RequestHandler>[1], buffer: Buffer, name: string) {
+  try {
+    const html = await docxToHtml(buffer, name);
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox");
+    res.setHeader("Cache-Control", "private, no-store");
+    res.send(html);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export const downloadResume: RequestHandler = async (req, res) => {
   const inline = req.query.view === "inline";
   const file = await service.resumeFor(
@@ -85,6 +102,7 @@ export const downloadResume: RequestHandler = async (req, res) => {
     inline ? "resume_viewed" : "resume_downloaded",
   );
   const safeName = file.fileName.replace(/[\\/:*?"<>|]/g, "_");
+  if (inline && isDocx(file.mimeType, file.fileName) && (await sendDocxPreview(res, file.buffer, safeName))) return;
   const canPreviewInline = inline && file.mimeType === "application/pdf";
   res.setHeader("Content-Type", file.mimeType);
   res.setHeader(
@@ -238,6 +256,7 @@ export const downloadDocumentRequestFile: RequestHandler = async (req, res) => {
   const safeName = file.fileName.replace(/[\\/:*?"<>|\r\n]/g, "_");
   // Header values must be ASCII; keep the real name in filename*.
   const asciiName = safeName.normalize("NFD").replace(/[^\x20-\x7e]/g, "") || "document";
+  if (inline && isDocx(file.mimeType, file.fileName) && (await sendDocxPreview(res, file.buffer, safeName))) return;
   const canPreviewInline =
     inline && (file.mimeType === "application/pdf" || file.mimeType.startsWith("image/"));
   res.setHeader("Content-Type", file.mimeType);
@@ -250,4 +269,10 @@ export const downloadDocumentRequestFile: RequestHandler = async (req, res) => {
 };
 
 export const sendTrackingLink: RequestHandler = async (req, res) =>
-  res.json(await portal.sendTrackingLink(context(req), param(req, "applicationId")));
+  res.json(
+    await portal.sendTrackingLink(
+      context(req),
+      param(req, "applicationId"),
+      (req.body as { notifyChannel?: portal.NotifyChannel } | undefined)?.notifyChannel,
+    ),
+  );
