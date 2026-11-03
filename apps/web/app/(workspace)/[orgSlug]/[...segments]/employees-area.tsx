@@ -469,13 +469,13 @@ export function EmployeesArea({ orgSlug }: { orgSlug: string }) {
     return <NoAccessState what={label(fr, "employees", "les employés")} />;
   if (employees.isPending)
     return (
-      <main className="mx-auto max-w-7xl p-4 sm:p-6 lg:p-8">
+      <main className="mx-auto w-full max-w-[110rem] p-4 sm:p-6 lg:p-8">
         <SkeletonCard rows={8} />
       </main>
     );
   if (employees.isError)
     return (
-      <main className="mx-auto max-w-7xl p-4 sm:p-6 lg:p-8">
+      <main className="mx-auto w-full max-w-[110rem] p-4 sm:p-6 lg:p-8">
         <ErrorState
           description={employeeError(employees.error)}
           onRetry={() => void employees.refetch()}
@@ -504,7 +504,7 @@ export function EmployeesArea({ orgSlug }: { orgSlug: string }) {
   ).length;
 
   return (
-    <main className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
+    <main className="mx-auto w-full max-w-[110rem] space-y-6 p-4 sm:p-6 lg:p-8">
       {/* Same story as the profile aside: this stacked a hardcoded blue, a
           hardcoded teal and two near-whites, so it rendered only in light mode
           and `dark:bg-surface-1` discarded it wholesale in dark. One token
@@ -624,7 +624,7 @@ export function EmployeesArea({ orgSlug }: { orgSlug: string }) {
           tone={unassigned ? "warning" : "neutral"}
         />
       </section>
-      <section className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(19rem,.65fr)]">
+      <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(24rem,1fr)] 2xl:grid-cols-[minmax(0,1.1fr)_minmax(30rem,1fr)]">
         <section className="overflow-hidden rounded-2xl border border-border bg-surface-1 shadow-sm">
           <div className="border-b border-border bg-linear-to-br from-brand/8 to-transparent p-4 sm:p-5">
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1503,7 +1503,7 @@ function EmployeeProfile({
         </div>
       </div>
       <div className="space-y-4 p-5">
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(13rem,1fr))]">
           {pair(
             <BriefcaseBusiness className="size-4" />,
             label(fr, "Employment", "Emploi"),
@@ -2208,7 +2208,7 @@ function EmployeeDialog({
           : label(fr, "Add employee", "Ajouter un employé")
       }
     >
-      <section className="mx-auto my-5 w-full max-w-4xl rounded-2xl border border-border bg-surface-1 p-5 shadow-xl sm:p-6">
+      <section className="mx-auto my-5 w-full max-w-6xl rounded-2xl border border-border bg-surface-1 p-5 shadow-xl sm:p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[.14em] text-brand">
