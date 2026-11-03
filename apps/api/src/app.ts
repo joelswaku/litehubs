@@ -23,6 +23,7 @@ import { employeeRoutes } from "./modules/employees";
 import { fileUploadRoutes } from "./modules/files";
 import { organizationRoutes } from "./modules/organization";
 import { ownerManagementRoutes } from "./modules/owner-management";
+import { personalFinanceRoutes } from "./modules/personal-finance";
 import { leaveRoutes } from "./modules/leave";
 import { trainingRoutes } from "./modules/training";
 import { platformStaffRoutes } from "./modules/platform-staff";
@@ -115,6 +116,7 @@ export function createApp(): Application {
   app.use(API_PREFIX, poultryRoutes);
   app.use(API_PREFIX, pigRoutes);
   app.use(API_PREFIX, ownerManagementRoutes);
+  app.use(API_PREFIX, personalFinanceRoutes);
   app.use(API_PREFIX, notificationRoutes);
   app.use(API_PREFIX, reportsRoutes);
   app.use(API_PREFIX, salesRoutes);

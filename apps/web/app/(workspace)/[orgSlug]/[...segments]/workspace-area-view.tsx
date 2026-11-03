@@ -51,6 +51,7 @@ import { SocialArea } from "./social-area";
 import { DisplaysArea } from "@/components/displays/displays-area";
 import { ShopArea } from "./shop-area";
 import { FleetArea } from "./fleet-area";
+import { PersonalFinanceArea } from "./personal-finance-area";
 import { CompanyRulesArea } from "./company-rules-area";
 import { WebsiteArea } from "./website-area";
 
@@ -124,6 +125,7 @@ export function WorkspaceAreaView({
       </main>
     );
 
+  if (canonicalPath === "/my-finances") return <PersonalFinanceArea orgSlug={orgSlug} />;
   if (path === "/poultry") return <PoultryArea orgSlug={orgSlug} />;
   if (path === "/pigs") return <PigsArea orgSlug={orgSlug} />;
   if (path === "/agriculture") return <AgricultureArea orgSlug={orgSlug} />;

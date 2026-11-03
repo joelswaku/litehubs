@@ -100,6 +100,14 @@ export const WORKSPACE_NAV: NavGroup[] = [
     items: [
       { label: "Dashboard", path: "/dashboard", icon: LayoutDashboard },
       {
+        label: "My finances",
+        path: "/my-finances",
+        icon: Wallet,
+        // The owner's own money (income, expenses, debts). Private: the API
+        // only ever returns the signed-in owner's rows.
+        ownerOnly: true,
+      },
+      {
         label: "Alerts",
         path: "/alerts",
         icon: AlertTriangle,
